@@ -1,0 +1,124 @@
+# Reusable Quality Gates workflow.
+#
+# This file is intentionally project-agnostic. It expects:
+#   - scripts/gates/Run-Gates.ps1
+#   - project.gates.yml at the repo root (or path passed via inputs.config-path)
+#
+# Phase 2 plan: move this file to a central `incoders-ai-governance` repo and
+# reference it from each project repo as:
+#   uses: incoders/incoders-ai-governance/.github/workflows/quality-gates.yml@v1
+
+name: Reusable - Quality Gates
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'GitHub-hosted runner image.'
+        type: string
+        required: false
+        default: ubuntu-latest
+      dotnet-version:
+        description: '.NET SDK version. Empty disables setup.'
+        type: string
+        required: false
+        default: '10.0.x'
+      node-version:
+        description: 'Node.js version. Empty disables setup.'
+        type: string
+        required: false
+        default: '20'
+      config-path:
+        description: 'Path to project.gates.yml (relative to repo root).'
+        type: string
+        required: false
+        default: 'project.gates.yml'
+      only:
+        description: 'Comma-separated gate names to run (empty = all).'
+        type: string
+        required: false
+        default: ''
+      skip:
+        description: 'Comma-separated gate names to skip.'
+        type: string
+        required: false
+        default: ''
+      fail-on-warn:
+        description: 'Fail the job when any SHOULD gate warns.'
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  gates:
+    name: Quality Gates
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        if: ${{ inputs.dotnet-version != '' }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Set up Node.js
+        if: ${{ inputs.node-version != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
+
+      - name: Show tooling versions
+        shell: pwsh
+        run: |
+          Write-Host "pwsh:    $($PSVersionTable.PSVersion)"
+          if (Get-Command dotnet -EA SilentlyContinue) { Write-Host "dotnet:  $(dotnet --version)" }
+          if (Get-Command node   -EA SilentlyContinue) { Write-Host "node:    $(node --version)" }
+          if (Get-Command npm    -EA SilentlyContinue) { Write-Host "npm:     $(npm --version)" }
+
+      - name: Run quality gates
+        id: gates
+        shell: pwsh
+        run: |
+          $args = @{
+            ConfigPath = '${{ inputs.config-path }}'
+          }
+          if ('${{ inputs.only }}' -ne '') { $args['Only'] = ('${{ inputs.only }}' -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ } }
+          if ('${{ inputs.skip }}' -ne '') { $args['Skip'] = ('${{ inputs.skip }}' -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ } }
+          & ./scripts/gates/Run-Gates.ps1 @args
+          $code = $LASTEXITCODE
+          if ('${{ inputs.fail-on-warn }}' -eq 'true') {
+            $json = & ./scripts/gates/Run-Gates.ps1 @args -Json -NoSummary 2>$null
+            try {
+              $results = $json | ConvertFrom-Json
+              $warns = ($results | Where-Object { $_.Status -eq 'warn' }).Count
+              if ($warns -gt 0 -and $code -eq 0) {
+                Write-Host "::warning::fail-on-warn=true and $warns SHOULD gate(s) warned. Failing job."
+                $code = 1
+              }
+            } catch { }
+          }
+          exit $code
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: .gates/coverage/**
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Job summary
+        if: always()
+        shell: pwsh
+        run: |
+          $summary = "## Quality Gates`n`n"
+          if (Test-Path .gates/coverage) {
+            $summary += "- Coverage artifacts uploaded.`n"
+          }
+          $summary += "- Run locally with: ``pwsh -File scripts/gates/Run-Gates.ps1```n"
+          $summary | Out-File -FilePath $Env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append

@@ -1,0 +1,112 @@
+# Project Quality Gates Configuration (Phase 1)
+#
+# This file is the single source of truth for project-local gate behavior.
+# Global gate definitions live under .github/incoders-ai/gates/.
+# Implementation lives under scripts/gates/ and .github/workflows/.
+#
+# Severity model: MUST | SHOULD | MAY (see gates.policy.md).
+# Projects MAY tighten severity. Downgrading a MUST requires an ADR (see ai-agent.gate.md §3).
+
+version: 1
+
+project:
+  name: incoders-hive
+  type: fullstack-monorepo-ai-native-saas
+  governance: .github/incoders-ai
+  manifest: .github/project-ai/project.manifest.md
+
+backend:
+  enabled: true
+  solution: Incoders.Hive.slnx
+  build_configuration: Release
+  test_projects:
+    - Incoders.Hive.Tests/Incoders.Hive.Tests.csproj
+  architecture:
+    domain_projects:
+      - Incoders.Hive.Domain
+    application_projects:
+      - Incoders.Hive.Application
+    infrastructure_projects:
+      - Incoders.Hive.Infrastructure
+    api_projects:
+      - Incoders.Hive.ApiService
+      - Incoders.Hive.AppHost
+      - Incoders.Hive.ServiceDefaults
+    test_projects:
+      - Incoders.Hive.Tests
+    forbidden_namespace_imports:
+      - layer: domain
+        forbidden:
+          - Microsoft.EntityFrameworkCore
+          - Microsoft.AspNetCore
+          - Npgsql
+          - Supabase
+      - layer: application
+        forbidden:
+          - Microsoft.EntityFrameworkCore
+          - Microsoft.AspNetCore.Http
+          - Microsoft.AspNetCore.Mvc
+          - Npgsql
+          - Supabase
+
+frontend:
+  enabled: true
+  apps:
+    - name: web
+      path: apps/web
+      package_manager: npm
+      install_args: ["install", "--no-audit", "--no-fund"]
+      lint_script: lint
+      build_script: build
+      # test_script: test     # uncomment when frontend tests exist
+
+gates:
+  build:
+    level: MUST
+  test:
+    level: MUST
+    # Opt-in coverage collection. Disabled because coverlet.collector 6.0.2 + .NET SDK
+    # 10.0.300 fails all tests when XPlat Code Coverage is collected. Re-enable when
+    # the Tests project upgrades to a coverlet/SDK combo that fixes this, then promote
+    # gates.coverage.minimum > 0 in Phase 2.
+    collect_coverage: false
+  architecture:
+    level: MUST
+  dependencies:
+    level: MUST
+    allow_unlisted_projects: false
+  secrets:
+    level: MUST
+  security:
+    level: MUST
+  vulnerabilities:
+    level: SHOULD            # Phase 1: warn-only. Promote to MUST in Phase 2 once baseline is clean.
+    fail_on: []              # e.g. ["critical"] to enforce specific severities
+  coverage:
+    level: SHOULD            # Phase 1: warn-only.
+    minimum: 0               # set > 0 to enforce a hard floor
+    target: 70               # informational target for trend reporting
+
+secrets:
+  scan_paths:
+    - .
+  ignore_paths:
+    - node_modules
+    - bin
+    - obj
+    - .git
+    - .vs
+    - apps/web/.next
+    - apps/web/node_modules
+    - .alt
+  patterns_extra: []         # add project-specific patterns here
+
+security:
+  jwt_min_length: 32
+
+# Paths whose changes do not require running gates locally (still run on CI for safety).
+# This is a hint for local productivity, not a CI bypass.
+gates_skip_paths_local_hint:
+  - docs/**
+  - "*.md"
+  - .github/incoders-ai/gates/**

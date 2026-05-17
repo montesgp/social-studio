@@ -1,0 +1,35 @@
+[
+  {
+    "Name": "Aspire Full Stack (AppHost)",
+    "Projects": [
+      {
+        "Path": "Incoders.Hive.AppHost\\Incoders.Hive.AppHost.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "Incoders.Hive.ApiService\\Incoders.Hive.ApiService.csproj",
+        "Action": "None"
+      },
+      {
+        "Path": "Incoders.Hive.Application\\Incoders.Hive.Application.csproj",
+        "Action": "None"
+      },
+      {
+        "Path": "Incoders.Hive.Domain\\Incoders.Hive.Domain.csproj",
+        "Action": "None"
+      },
+      {
+        "Path": "Incoders.Hive.Infrastructure\\Incoders.Hive.Infrastructure.csproj",
+        "Action": "None"
+      },
+      {
+        "Path": "Incoders.Hive.ServiceDefaults\\Incoders.Hive.ServiceDefaults.csproj",
+        "Action": "None"
+      },
+      {
+        "Path": "Incoders.Hive.Tests\\Incoders.Hive.Tests.csproj",
+        "Action": "None"
+      }
+    ]
+  }
+]

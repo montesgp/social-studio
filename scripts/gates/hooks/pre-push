@@ -1,0 +1,57 @@
+#!/bin/sh
+# Incoders Quality Gates - pre-push hook (opt-in).
+#
+# Runs the FULL gate suite before pushing to remote. Use this when you push
+# directly to main without PR review (solo workflow): catches build/tests/vulns
+# locally before the commit reaches the remote.
+#
+# Target time: 30s warm, up to 3 minutes cold (first npm install).
+#
+# To bypass:
+#   git push --no-verify
+# Recorded as a violation by ai-agent.gate.md.
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$REPO_ROOT" ]; then
+    echo "[gates] ERROR: not in a git repository" >&2
+    exit 1
+fi
+
+GATES_SCRIPT="$REPO_ROOT/scripts/gates/Run-Gates.ps1"
+if [ ! -f "$GATES_SCRIPT" ]; then
+    echo "[gates] WARNING: $GATES_SCRIPT not found; skipping pre-push gates" >&2
+    exit 0
+fi
+
+PWSH=""
+if command -v pwsh >/dev/null 2>&1; then
+    PWSH="pwsh"
+elif command -v powershell >/dev/null 2>&1; then
+    PWSH="powershell"
+elif command -v powershell.exe >/dev/null 2>&1; then
+    PWSH="powershell.exe"
+else
+    echo "[gates] WARNING: neither pwsh nor powershell found on PATH; skipping pre-push gates" >&2
+    exit 0
+fi
+
+case "$GATES_SCRIPT" in
+    /*) GATES_SCRIPT_PS="$(cygpath -w "$GATES_SCRIPT" 2>/dev/null || echo "$GATES_SCRIPT")" ;;
+    *)  GATES_SCRIPT_PS="$GATES_SCRIPT" ;;
+esac
+
+echo "[gates] running full pre-push suite (build, tests, architecture, dependencies, secrets, security, vulnerabilities)..."
+"$PWSH" -NoProfile -Command "& { . '$GATES_SCRIPT_PS' }"
+RC=$?
+
+if [ $RC -ne 0 ]; then
+    echo "" >&2
+    echo "[gates] push BLOCKED: a MUST gate failed." >&2
+    echo "[gates] Fix the issues above and try again." >&2
+    echo "[gates] To bypass (humans only, never agents): git push --no-verify" >&2
+    exit 1
+fi
+
+exit 0

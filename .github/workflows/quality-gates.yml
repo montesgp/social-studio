@@ -1,0 +1,59 @@
+# Caller workflow - project-specific entry point for Phase 1 quality gates.
+#
+# Phase 1: calls the reusable workflow living in this repo.
+# Phase 2 plan: switch `uses` to the central `incoders-ai-governance` repo:
+#   uses: incoders/incoders-ai-governance/.github/workflows/quality-gates.yml@v1
+
+name: Quality Gates
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - '.github/incoders-ai/gates/**'   # gate definitions are markdown
+      - '.github/incoders-ai/**/*.md'
+      - '.github/project-ai/**/*.md'
+      - '.alt/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - '.github/incoders-ai/gates/**'
+      - '.github/incoders-ai/**/*.md'
+      - '.github/project-ai/**/*.md'
+      - '.alt/**'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Comma-separated gate names to run.'
+        required: false
+        default: ''
+      skip:
+        description: 'Comma-separated gate names to skip.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  call:
+    name: Quality Gates
+    uses: ./.github/workflows/_reusable-quality-gates.yml
+    with:
+      runs-on: ubuntu-latest
+      dotnet-version: '10.0.x'
+      node-version: '20'
+      config-path: 'project.gates.yml'
+      only: ${{ inputs.only || '' }}
+      skip: ${{ inputs.skip || '' }}
+      fail-on-warn: false

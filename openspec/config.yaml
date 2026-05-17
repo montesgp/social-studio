@@ -1,0 +1,8 @@
+project: incoders-hive
+owner: Incoders
+spec_directory: openspec/specs
+change_directory: openspec/changes
+conventions:
+  change_id_format: kebab-case
+  require_adr_for_architecture_changes: true
+  require_prd_traceability: true

@@ -1,0 +1,63 @@
+#!/bin/sh
+# Incoders Quality Gates - pre-commit hook.
+#
+# Runs the FAST static gates before each commit:
+#   - architecture (layering + forbidden namespace imports)
+#   - dependencies (cycles + solution drift + IVT reciprocity)
+#   - secrets     (regex scan + .gitignore hygiene)
+#   - security    (config hygiene + insecure defaults + transport)
+#
+# It does NOT run build/tests/vulnerabilities (those are in CI / pre-push).
+# Target time: under 3 seconds.
+#
+# To bypass in a real emergency:
+#   git commit --no-verify
+# This is recorded as a violation by ai-agent.gate.md and SHOULD only be used
+# by humans, never by AI agents.
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$REPO_ROOT" ]; then
+    echo "[gates] ERROR: not in a git repository" >&2
+    exit 1
+fi
+
+GATES_SCRIPT="$REPO_ROOT/scripts/gates/Run-Gates.ps1"
+if [ ! -f "$GATES_SCRIPT" ]; then
+    echo "[gates] WARNING: $GATES_SCRIPT not found; skipping pre-commit gates" >&2
+    exit 0
+fi
+
+# Pick a PowerShell executable: pwsh (cross-platform) preferred, fall back to powershell.exe (Windows).
+PWSH=""
+if command -v pwsh >/dev/null 2>&1; then
+    PWSH="pwsh"
+elif command -v powershell >/dev/null 2>&1; then
+    PWSH="powershell"
+elif command -v powershell.exe >/dev/null 2>&1; then
+    PWSH="powershell.exe"
+else
+    echo "[gates] WARNING: neither pwsh nor powershell found on PATH; skipping pre-commit gates" >&2
+    exit 0
+fi
+
+# Convert Windows path separators when running under Git Bash so PowerShell can dot-source.
+case "$GATES_SCRIPT" in
+    /*) GATES_SCRIPT_PS="$(cygpath -w "$GATES_SCRIPT" 2>/dev/null || echo "$GATES_SCRIPT")" ;;
+    *)  GATES_SCRIPT_PS="$GATES_SCRIPT" ;;
+esac
+
+echo "[gates] running fast pre-commit gates (architecture, dependencies, secrets, security)..."
+"$PWSH" -NoProfile -Command "& { . '$GATES_SCRIPT_PS' -Only @('architecture','dependencies','secrets','security') }"
+RC=$?
+
+if [ $RC -ne 0 ]; then
+    echo "" >&2
+    echo "[gates] commit BLOCKED: a MUST gate failed." >&2
+    echo "[gates] Fix the issues above, re-stage, and try again." >&2
+    echo "[gates] To bypass (humans only, never agents): git commit --no-verify" >&2
+    exit 1
+fi
+
+exit 0
