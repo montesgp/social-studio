@@ -1144,7 +1144,16 @@ export function WorkflowClient() {
                             >
                               {result.strategyMode}
                             </span>
-                            {(() => { const net = networkOptions.find(n => n.value === result.networkSource); if (!net) return <Badge variant="muted">{result.networkSource}</Badge>; const NetIcon = net.icon; return <NetIcon className="h-4 w-4 text-muted-foreground shrink-0" title={net.label} />; })()}
+                            {(() => {
+                              const net = networkOptions.find(n => n.value === result.networkSource);
+                              if (!net) return <Badge variant="muted">{result.networkSource}</Badge>;
+                              const NetIcon = net.icon;
+                              return (
+                                <span title={net.label}>
+                                  <NetIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
 
