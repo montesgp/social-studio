@@ -37,6 +37,7 @@ public sealed class SocialContentResolverTests
         var result = await resolver.ResolveAsync(
             new SocialContentResolutionRequest(
                 Guid.NewGuid(),
+                AnalysisId: null,
                 ClientId: null,
                 SourceUrl: "https://www.tiktok.com/@brand/video/123",
                 PlatformHint: "tiktok",

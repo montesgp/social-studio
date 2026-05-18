@@ -55,6 +55,7 @@ public sealed class IntegrationRoutingPortContractTests
         var result = await gateway.CompleteJsonAsync<TestAnalysisPayload>(
             new AiJsonCompletionRequest(
                 OrganizationId: Guid.NewGuid(),
+                AnalysisId: null,
                 CapabilityKey: "ai-analysis",
                 PromptVersionKey: "single-analyzer-v1",
                 InputJson: "{\"summary\":\"input\"}",

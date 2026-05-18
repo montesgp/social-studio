@@ -27,6 +27,7 @@ public sealed class AiCompletionGatewayTests
         var result = await gateway.CompleteJsonAsync<TestPayload>(
             new AiJsonCompletionRequest(
                 organizationId,
+                null,
                 "ai-analysis",
                 "single-analyzer-v1",
                 "{\"input\":\"video\"}",

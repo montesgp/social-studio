@@ -1,6 +1,7 @@
 using System.Reflection;
 using FluentValidation;
 using Incoders.Hive.Application.Common;
+using Incoders.Hive.Application.Features.Social.SingleAnalyzer.Analyze;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -25,6 +26,7 @@ public static class DependencyInjection
         });
 
         services.AddValidatorsFromAssembly(assembly, includeInternalTypes: true);
+        services.AddScoped<ISingleContentAnalyzer, SingleContentAnalyzer>();
 
         return services;
     }

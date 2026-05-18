@@ -51,7 +51,7 @@ public sealed class SocialContentResolver : ISocialContentResolver
         var execution = await _executionPolicy.ExecuteAsync(
             new IntegrationExecutionRequest(
                 request.OrganizationId,
-                AnalysisId: null,
+                request.AnalysisId,
                 SingleAnalyzerFlowKey,
                 SocialExtractionCapability,
                 platformKey),

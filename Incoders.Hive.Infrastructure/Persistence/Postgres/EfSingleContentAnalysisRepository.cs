@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Domain.Social.SingleAnalyzer;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -61,6 +62,36 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
         {
             row.CompletedAtUtc = updatedAtUtc;
         }
+    }
+
+    public async Task UpdateAsync(
+        SingleContentAnalysisRecord analysis,
+        CancellationToken cancellationToken = default)
+    {
+        var row = await _dbContext.SingleContentAnalyses
+            .FirstOrDefaultAsync(
+                x => x.Id == analysis.Id && x.OrganizationId == analysis.OrganizationId,
+                cancellationToken);
+
+        if (row is null)
+        {
+            return;
+        }
+
+        row.ClientId = analysis.ClientId;
+        row.UserId = analysis.UserId;
+        row.SourceUrl = analysis.SourceUrl;
+        row.NormalizedUrl = analysis.NormalizedUrl;
+        row.SourcePlatformKey = analysis.SourcePlatformKey;
+        row.Status = analysis.Status.ToString();
+        row.ContentSnapshotJson = analysis.ContentSnapshotJson;
+        row.AnalysisJson = analysis.AnalysisJson;
+        row.ProviderDiagnosticsJson = analysis.ProviderDiagnosticsJson;
+        row.FailureCode = analysis.FailureCode;
+        row.FailureMessageKey = analysis.FailureMessageKey;
+        row.CreatedAtUtc = analysis.CreatedAtUtc;
+        row.UpdatedAtUtc = analysis.UpdatedAtUtc;
+        row.CompletedAtUtc = analysis.CompletedAtUtc;
     }
 
     private static SingleContentAnalysisData ToData(SingleContentAnalysisRecord analysis) => new()

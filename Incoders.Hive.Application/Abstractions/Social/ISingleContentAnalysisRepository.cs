@@ -1,3 +1,5 @@
+using Incoders.Hive.Domain.Social.SingleAnalyzer;
+
 namespace Incoders.Hive.Application.Abstractions.Social;
 
 public interface ISingleContentAnalysisRepository
@@ -19,6 +21,10 @@ public interface ISingleContentAnalysisRepository
         CancellationToken cancellationToken = default,
         string? failureCode = null,
         string? failureMessageKey = null);
+
+    Task UpdateAsync(
+        SingleContentAnalysisRecord analysis,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record SingleContentAnalysisRecord(
@@ -38,14 +44,3 @@ public sealed record SingleContentAnalysisRecord(
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc,
     DateTime? CompletedAtUtc);
-
-public enum SingleContentAnalysisStatus
-{
-    Requested = 1,
-    ResolvingContent = 2,
-    ContentResolved = 3,
-    ContentResolvedPartial = 4,
-    Analyzing = 5,
-    Analyzed = 6,
-    Failed = 7,
-}

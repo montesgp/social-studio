@@ -34,6 +34,7 @@ public sealed record AiCompletionResponse(
 
 public sealed record AiJsonCompletionRequest(
     Guid OrganizationId,
+    Guid? AnalysisId,
     string CapabilityKey,
     string PromptVersionKey,
     string InputJson,

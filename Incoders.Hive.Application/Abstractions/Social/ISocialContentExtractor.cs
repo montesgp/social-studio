@@ -26,6 +26,7 @@ public sealed record SocialContentRequest(
 
 public sealed record SocialContentResolutionRequest(
     Guid OrganizationId,
+    Guid? AnalysisId,
     Guid? ClientId,
     string SourceUrl,
     string? PlatformHint,

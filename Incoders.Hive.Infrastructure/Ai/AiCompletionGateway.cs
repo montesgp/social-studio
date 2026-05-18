@@ -52,7 +52,7 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
         var execution = await _executionPolicy.ExecuteAsync(
             new IntegrationExecutionRequest(
                 request.OrganizationId,
-                AnalysisId: null,
+                request.AnalysisId,
                 SingleAnalyzerFlowKey,
                 request.CapabilityKey,
                 PlatformKey: null),
