@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { resetPassword } from "@/lib/api/auth";
 import { ApiError } from "@/lib/api/types";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 
 export function ResetPasswordForm() {
@@ -75,16 +76,14 @@ export function ResetPasswordForm() {
         onChange={(e) => setToken(e.target.value)}
         required
       />
-      <Input
-        type="password"
+      <PasswordInput
         autoComplete="new-password"
         placeholder="New password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required
       />
-      <Input
-        type="password"
+      <PasswordInput
         autoComplete="new-password"
         placeholder="Confirm new password"
         value={confirm}

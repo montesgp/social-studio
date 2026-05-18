@@ -7,6 +7,7 @@ import { login } from "@/lib/api/auth";
 import { ApiError } from "@/lib/api/types";
 import { saveAuthSession } from "@/lib/auth/client-session";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 
 export function LoginForm() {
@@ -45,8 +46,7 @@ export function LoginForm() {
         required
       />
       <div className="space-y-2">
-        <Input
-          type="password"
+        <PasswordInput
           autoComplete="current-password"
           placeholder="Password"
           value={password}

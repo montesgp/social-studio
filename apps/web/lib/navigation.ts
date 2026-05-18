@@ -1,6 +1,6 @@
 import {
   LayoutDashboard,
-  Workflow,
+  Clapperboard,
   Sparkles,
   Send,
   BriefcaseBusiness,
@@ -10,7 +10,8 @@ import {
   ScrollText,
   ShieldCheck,
   CalendarClock,
-  PlugZap
+  PlugZap,
+  ScanSearch
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -33,14 +34,20 @@ export interface NavGroup {
  * Order is intentional: primary workflow first, management last.
  *
  * Route rewrites (next.config.ts) map clean URLs to existing pages:
- *   /content-workflow → /workflow
+ *   /content-generator → /workflow
  *   /ai-ideas         → /ideas
  */
 export const workspaceNavigation: NavGroup[] = [
   {
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/content-workflow", label: "Content Workflow", icon: Workflow },
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }
+    ]
+  },
+  {
+    label: "Content",
+    items: [
+      { href: "/content-generator", label: "Generator", icon: Clapperboard },
+      { href: "/single-analyzer", label: "Single Analyzer", icon: ScanSearch },
       { href: "/ai-ideas", label: "AI Ideas", icon: Sparkles },
       { href: "/publications", label: "Publications", icon: Send }
     ]
@@ -74,7 +81,7 @@ export const adminNavigation: NavGroup[] = [
   {
     label: "System",
     items: [
-      { href: "/admin/social-networks", label: "Social Networks", icon: Share2, comingSoon: true },
+      { href: "/admin/social-networks", label: "Social Networks", icon: Share2 },
       { href: "/admin/app-logs", label: "App Logs", icon: ScrollText, comingSoon: true },
       { href: "/admin/audit-logs", label: "Audit Logs", icon: ShieldCheck, comingSoon: true },
       { href: "/admin/jobs", label: "Scheduled Jobs", icon: CalendarClock, comingSoon: true }

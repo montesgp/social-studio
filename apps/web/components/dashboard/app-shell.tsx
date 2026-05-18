@@ -98,8 +98,8 @@ export function AppShell({
       <HttpLoader />
       <ProgressBar />
       <div className="min-h-screen bg-background">
-        <div className="mx-auto grid min-h-screen max-w-[1600px] grid-cols-1 lg:grid-cols-[280px_1fr]">
-          <aside className="border-r border-border bg-card/50 p-6">
+        <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[220px_1fr]">
+          <aside className="border-r border-border bg-card/50 p-3">
             <div className="mb-6">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">Incoders Hive</p>
               <h1 className="text-xl font-semibold">Hive Social</h1>
@@ -119,7 +119,7 @@ export function AppShell({
           </aside>
 
           <div className="flex min-h-screen flex-col">
-            <header className="border-b border-border px-6 py-4">
+            <header className="border-b border-border px-3 py-3">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Workflow-oriented AI-native SaaS module</p>
@@ -137,7 +137,7 @@ export function AppShell({
               </div>
             </header>
 
-            <main className="flex-1 p-6">
+            <main className="flex-1 p-3">
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
                 {children}
               </motion.div>

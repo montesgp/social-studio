@@ -1,12 +1,14 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Infrastructure.Social;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Infrastructure.Caching.InMemory;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Integrations;
 using Incoders.Hive.Infrastructure.Persistence;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
+using Incoders.Hive.Infrastructure.Social.Workflow;
 using Incoders.Hive.Infrastructure.Tenancy;
 using Incoders.Hive.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
@@ -52,6 +54,7 @@ public static class DependencyInjection
         services.AddScoped<CurrentTenant>();
         services.AddScoped<ICurrentTenant>(sp => sp.GetRequiredService<CurrentTenant>());
         services.AddScoped<ITenantResolver, HeaderTenantResolver>();
+        services.AddSingleton<IContentWorkflowService, InMemoryContentWorkflowService>();
 
         return services;
     }
@@ -87,6 +90,9 @@ public static class DependencyInjection
 
         services.AddScoped<ISystemSettingRepository, EfSystemSettingRepository>();
         services.AddScoped<ISocialClientRepository, EfSocialClientRepository>();
+        services.AddScoped<ISocialNetworkRepository, EfSocialNetworkRepository>();
+        services.AddScoped<IClientReferentAccountRepository, EfClientReferentAccountRepository>();
+        services.AddScoped<SocialNetworkCatalogSeeder>();
         services.AddScoped<IUserPreferenceRepository, EfUserPreferenceRepository>();
         services.AddScoped<IIntegrationProviderCatalogRepository, EfIntegrationProviderCatalogRepository>();
         services.AddScoped<IOrganizationIntegrationRepository, EfOrganizationIntegrationRepository>();

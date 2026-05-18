@@ -14,11 +14,13 @@ const nextConfig: NextConfig = {
       // API proxy
       { source: "/hive-api/:path*", destination: `${apiBaseUrl}/:path*` },
       // Clean workspace URLs → existing pages
-      { source: "/content-workflow", destination: "/workflow" },
+      { source: "/content-generator", destination: "/workflow" },
+      { source: "/single-analyzer", destination: "/analyzer" },
       { source: "/ai-ideas", destination: "/ideas" },
       // Admin URLs → existing pages
       { source: "/admin/organizations", destination: "/organizations" },
-      { source: "/admin/users", destination: "/members" }
+      { source: "/admin/users", destination: "/members" },
+      { source: "/admin/social-networks", destination: "/social-networks" }
     ];
   }
 };

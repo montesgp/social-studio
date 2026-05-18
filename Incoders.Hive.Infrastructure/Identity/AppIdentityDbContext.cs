@@ -32,6 +32,10 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<OrganizationIntegrationCredentialData> OrganizationIntegrationCredentials => Set<OrganizationIntegrationCredentialData>();
 
+    public DbSet<SocialNetworkData> SocialNetworks => Set<SocialNetworkData>();
+
+    public DbSet<ClientReferentAccountData> ClientReferentAccounts => Set<ClientReferentAccountData>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -167,6 +171,69 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .WithMany(x => x.Credentials)
                 .HasForeignKey(x => x.OrganizationIntegrationId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ClientReferentAccountData>(entity =>
+        {
+            entity.ToTable("client_referent_accounts", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.SocialNetworkId).HasColumnName("social_network_id").IsRequired();
+            entity.Property(x => x.ProfileUrl).HasColumnName("profile_url").HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.Handle).HasColumnName("handle").HasMaxLength(100);
+            entity.Property(x => x.Label).HasColumnName("label").HasMaxLength(80);
+            entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(500);
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // FK: client_id → social.clients(id) ON DELETE CASCADE
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: social_network_id → platform.social_networks(id) ON DELETE RESTRICT (cross-schema)
+            entity.HasOne<SocialNetworkData>()
+                .WithMany()
+                .HasForeignKey(x => x.SocialNetworkId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE (cross-schema)
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Composite unique index — core deduplication constraint
+            entity.HasIndex(x => new { x.ClientId, x.SocialNetworkId, x.ProfileUrl })
+                .IsUnique()
+                .HasDatabaseName("ix_client_referent_accounts_client_network_url");
+
+            entity.HasIndex(x => x.ClientId)
+                .HasDatabaseName("ix_client_referent_accounts_client_id");
+
+            entity.HasIndex(x => x.OrganizationId)
+                .HasDatabaseName("ix_client_referent_accounts_organization_id");
+
+            entity.HasIndex(x => x.SocialNetworkId)
+                .HasDatabaseName("ix_client_referent_accounts_social_network_id");
+        });
+
+        builder.Entity<SocialNetworkData>(entity =>
+        {
+            entity.ToTable("social_networks", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.Code).HasColumnName("code").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.DisplayName).HasColumnName("display_name").HasMaxLength(80).IsRequired();
+            entity.Property(x => x.IconKey).HasColumnName("icon_key").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            entity.HasIndex(x => x.Code).IsUnique().HasDatabaseName("ix_social_networks_code");
         });
     }
 }

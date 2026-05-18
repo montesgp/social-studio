@@ -81,7 +81,11 @@ interface ModalState {
   credentials: Record<string, string>;
 }
 
-export function IntegrationsSettingsClient() {
+interface IntegrationsSettingsClientProps {
+  isPlatformAdmin: boolean;
+}
+
+export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSettingsClientProps) {
   const token = useAccessToken();
   const toast = useToast();
 
@@ -346,20 +350,24 @@ export function IntegrationsSettingsClient() {
           </div>
 
           <div className="flex flex-wrap items-end gap-3">
-            <label className="space-y-1 text-sm">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">Organization</span>
-              <select
-                className="h-10 min-w-[240px] rounded-md border border-border bg-background px-3 text-sm"
-                value={selectedOrganizationId}
-                onChange={(event) => setSelectedOrganizationId(event.target.value)}
-              >
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {isPlatformAdmin && organizations.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                  Organization
+                </span>
+                <select
+                  className="h-9 w-[220px] cursor-pointer rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  value={selectedOrganizationId}
+                  onChange={(event) => setSelectedOrganizationId(event.target.value)}
+                >
+                  {organizations.map((organization) => (
+                    <option key={organization.id} value={organization.id}>
+                      {organization.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <Button variant="outline" onClick={() => selectedOrganizationId && token && loadOverview(selectedOrganizationId, token)}>
               <RefreshCcw className={cn("h-4 w-4", refreshing && "animate-spin")} /> Refresh

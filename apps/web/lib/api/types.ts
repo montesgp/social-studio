@@ -42,6 +42,122 @@ export interface SocialClient {
   updatedAtUtc: string;
 }
 
+export type ContentWorkflowSearchCriterion = "niche" | "references" | "viral" | "competitors";
+export type ContentWorkflowStrategyMode = "mixed" | "educational" | "informative" | "entertainment";
+export type ContentWorkflowNetworkSource = "tiktok" | "instagram" | "youtube";
+export type ContentWorkflowActionType = "download_audio" | "transcribe_and_build_script" | "build_carousel";
+
+export interface ContentWorkflowSession {
+  workflowId: string;
+  clientId: string;
+  clientName: string;
+  searchCriterion: ContentWorkflowSearchCriterion | string;
+  strategyMode: ContentWorkflowStrategyMode | string;
+  networkSources: string[];
+  status: string;
+  progressPercentage: number;
+  progressMessage: string;
+  totalResults: number;
+  selectedCount: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface ContentWorkflowStep {
+  key: string;
+  label: string;
+  status: string;
+  message: string;
+  progressPercentage: number;
+}
+
+export interface ContentWorkflowStatus {
+  workflowId: string;
+  status: string;
+  progressPercentage: number;
+  progressMessage: string;
+  steps: ContentWorkflowStep[];
+  updatedAtUtc: string;
+}
+
+export interface ContentWorkflowResult {
+  id: string;
+  title: string;
+  networkSource: string;
+  searchCriterion: string;
+  strategyMode: string;
+  videoUrl: string;
+  thumbnailUrl: string;
+  summary: string;
+  views: number;
+  likes: number;
+  comments: number;
+  isSelected: boolean;
+}
+
+export interface ContentWorkflowPreview {
+  workflowId: string;
+  resultId: string;
+  resultTitle: string;
+  videoAnalysis: string;
+  scriptDraft: string;
+}
+
+export interface ContentWorkflowSelection {
+  workflowId: string;
+  selectedCount: number;
+  selectedResultIds: string[];
+  updatedAtUtc: string;
+}
+
+export interface ContentWorkflowActionResult {
+  actionId: string;
+  workflowId: string;
+  action: string;
+  status: string;
+  resultIds: string[];
+  message: string;
+  executedAtUtc: string;
+}
+
+export interface ContentWorkflowPackage {
+  workflowId: string;
+  packageFileName: string;
+  downloadUrl: string;
+  status: string;
+  itemCount: number;
+  generatedAtUtc: string;
+}
+
+export interface ContentWorkflowHistoryItem {
+  workflowId: string;
+  clientId: string;
+  clientName: string;
+  searchCriterion: string;
+  strategyMode: string;
+  networkSources: string[];
+  status: string;
+  totalResults: number;
+  selectedCount: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface ContentWorkflowHistory {
+  summary: ContentWorkflowHistoryItem;
+  actions: ContentWorkflowActionResult[];
+}
+
+export interface SocialNetwork {
+  id: string;
+  code: string;
+  displayName: string;
+  iconKey: string;
+  isActive: boolean;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
 export type ThemeKey = "dark" | "light" | "system";
 
 export interface UserPreference {
@@ -123,4 +239,47 @@ export interface OrganizationIntegrationsOverview {
   defaultAiModel: string | null;
   checklist: IntegrationSetupChecklistItem[];
   integrations: OrganizationIntegration[];
+}
+
+export interface ClientReferentAccount {
+  id: string;
+  clientId: string;
+  organizationId: string;
+  socialNetworkId: string;
+  socialNetworkCode: string;
+  socialNetworkDisplayName: string;
+  socialNetworkIconKey: string;
+  profileUrl: string;
+  handle: string | null;
+  label: string | null;
+  notes: string | null;
+  isActive: boolean;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface CreateClientReferentAccountPayload {
+  socialNetworkId: string;
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+}
+
+export interface UpdateClientReferentAccountPayload {
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+}
+
+export interface ListClientReferentAccountsQuery {
+  includeInactive?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PagedClientReferentAccounts {
+  items: ClientReferentAccount[];
+  totalCount: number;
 }

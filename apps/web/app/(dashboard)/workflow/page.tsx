@@ -1,10 +1,5 @@
-import { PlaceholderPage } from "@/components/dashboard/placeholder-page";
+import { WorkflowClient } from "@/components/social/workflow/workflow-client";
 
 export default function WorkflowPage() {
-  return (
-    <PlaceholderPage
-      title="Content Workflow"
-      description="Research → insight mapping → idea generation → evaluation → publication."
-    />
-  );
+  return <WorkflowClient />;
 }

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Archive,
+  BrainCircuit,
   Building2,
   CheckCircle2,
   ChevronLeft,
@@ -12,13 +13,16 @@ import {
   Edit3,
   Eye,
   KeyRound,
+  Loader2,
   Plus,
   RefreshCcw,
   RotateCcw,
   Search,
   ShieldCheck,
   Sparkles,
-  X
+  Trash2,
+  X,
+  Zap
 } from "lucide-react";
 import {
   activateOrganization,
@@ -35,6 +39,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
@@ -167,6 +172,10 @@ export function OrganizationsClient() {
   }
 
   async function openDetails(item: Organization) {
+    if (details?.id === item.id) {
+      setDetails(null);
+      return;
+    }
     setDetails(item);
     await refreshDetails(item.id);
   }
@@ -283,11 +292,10 @@ export function OrganizationsClient() {
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 lg:grid-cols-[1fr_auto]">
-            <Input
+            <PasswordInput
               value={manualToken}
               onChange={(event) => setManualToken(event.target.value)}
               placeholder="Optional manual bearer token override"
-              type="password"
             />
             <Button variant="secondary" onClick={() => setManualToken("")}>
               Clear token
@@ -573,6 +581,39 @@ function StatusTabs({ value, onChange }: { value: StatusFilter; onChange: (value
   );
 }
 
+// ── Connector mocks ───────────────────────────────────────────────────────────
+
+interface OrgConnector {
+  id: string;
+  provider: string;
+  providerLabel: string;
+  model: string;
+  isDefault: boolean;
+  apiKeyMasked: string;
+  status: "connected" | "disconnected" | "error";
+}
+
+const claudeModelOptions = [
+  { value: "claude-opus-4-7", label: "Claude Opus 4.7" },
+  { value: "claude-opus-4-5", label: "Claude Opus 4.5" },
+  { value: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
+  { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" }
+];
+
+function getDefaultConnectors(): OrgConnector[] {
+  return [
+    {
+      id: "conn-claude-default",
+      provider: "claude",
+      providerLabel: "Anthropic Claude",
+      model: "claude-opus-4-7",
+      isDefault: true,
+      apiKeyMasked: "sk-ant-••••••••••••••••••••••••••••••6Kzp",
+      status: "connected"
+    }
+  ];
+}
+
 function OrganizationDetailsPanel({
   organization,
   onEdit,
@@ -586,6 +627,54 @@ function OrganizationDetailsPanel({
   onReactivate: (organization: Organization) => void;
   acting: boolean;
 }) {
+  const [detailTab, setDetailTab] = useState<"overview" | "connectors">("overview");
+  const [connectors, setConnectors] = useState<OrgConnector[]>([]);
+  const [addingConnector, setAddingConnector] = useState(false);
+  const [newProvider, setNewProvider] = useState("claude");
+  const [newModel, setNewModel] = useState("claude-opus-4-7");
+  const [newApiKey, setNewApiKey] = useState("");
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<Record<string, "ok" | "fail">>({});
+
+  useEffect(() => {
+    if (organization) {
+      setConnectors(getDefaultConnectors());
+      setDetailTab("overview");
+    }
+  }, [organization?.id]);
+
+  async function handleTestConnection(connector: OrgConnector) {
+    setTestingId(connector.id);
+    await new Promise((r) => setTimeout(r, 1400));
+    setTestResult((prev) => ({ ...prev, [connector.id]: "ok" }));
+    setTestingId(null);
+  }
+
+  async function handleAddConnector() {
+    if (!newApiKey.trim()) return;
+    const masked = `${newApiKey.slice(0, 8)}••••••••••••••••${newApiKey.slice(-4)}`;
+    const newConn: OrgConnector = {
+      id: `conn-${Date.now()}`,
+      provider: newProvider,
+      providerLabel: "Anthropic Claude",
+      model: newModel,
+      isDefault: connectors.length === 0,
+      apiKeyMasked: masked,
+      status: "disconnected"
+    };
+    setConnectors((prev) => [...prev, newConn]);
+    setNewApiKey("");
+    setAddingConnector(false);
+  }
+
+  function handleRemoveConnector(id: string) {
+    setConnectors((prev) => prev.filter((c) => c.id !== id));
+  }
+
+  function handleSetDefault(id: string) {
+    setConnectors((prev) => prev.map((c) => ({ ...c, isDefault: c.id === id })));
+  }
+
   if (!organization) {
     return (
       <Card className="min-h-[28rem]">
@@ -614,36 +703,183 @@ function OrganizationDetailsPanel({
             {organization.isActive ? "Active" : "Archived"}
           </Badge>
         </div>
+        <div className="mt-3 inline-flex rounded-md border border-border bg-background p-1">
+          {(["overview", "connectors"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setDetailTab(tab)}
+              className={cn(
+                "rounded px-3 py-1.5 text-xs font-medium capitalize transition",
+                detailTab === tab ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {tab === "connectors" ? `Connectors (${connectors.length})` : "Overview"}
+            </button>
+          ))}
+        </div>
       </CardHeader>
+
       <CardContent className="space-y-5 p-6">
-        <div className="grid gap-3">
-          <Fact label="Owner user" value={organization.ownerUserId} />
-          <Fact label="Created" value={formatDateTime(organization.createdAtUtc)} />
-          <Fact label="Updated" value={formatDateTime(organization.updatedAtUtc)} />
-          <Fact label="Archived at" value={organization.deactivatedAtUtc ? formatDateTime(organization.deactivatedAtUtc) : "—"} />
-        </div>
+        {detailTab === "overview" && (
+          <>
+            <div className="grid gap-3">
+              <Fact label="Owner user" value={organization.ownerUserId} />
+              <Fact label="Created" value={formatDateTime(organization.createdAtUtc)} />
+              <Fact label="Updated" value={formatDateTime(organization.updatedAtUtc)} />
+              <Fact label="Archived at" value={organization.deactivatedAtUtc ? formatDateTime(organization.deactivatedAtUtc) : "—"} />
+            </div>
 
-        <div className="rounded-2xl border border-border bg-muted/30 p-4">
-          <p className="text-sm font-medium">Next module links</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Social clients, campaigns, content sources and provider overrides must reference this organization.
-          </p>
-        </div>
+            <div className="rounded-2xl border border-border bg-muted/30 p-4">
+              <p className="text-sm font-medium">Next module links</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Social clients, campaigns, content sources and provider overrides must reference this organization.
+              </p>
+            </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => onEdit(organization)}>
-            <Edit3 className="h-4 w-4" /> Edit
-          </Button>
-          {organization.isActive ? (
-            <Button variant="destructive" disabled={acting} onClick={() => onArchive(organization)}>
-              <Archive className="h-4 w-4" /> Archive
-            </Button>
-          ) : (
-            <Button variant="outline" disabled={acting} onClick={() => onReactivate(organization)}>
-              <RotateCcw className="h-4 w-4" /> Reactivate
-            </Button>
-          )}
-        </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => onEdit(organization)}>
+                <Edit3 className="h-4 w-4" /> Edit
+              </Button>
+              {organization.isActive ? (
+                <Button variant="destructive" disabled={acting} onClick={() => onArchive(organization)}>
+                  <Archive className="h-4 w-4" /> Archive
+                </Button>
+              ) : (
+                <Button variant="outline" disabled={acting} onClick={() => onReactivate(organization)}>
+                  <RotateCcw className="h-4 w-4" /> Reactivate
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+
+        {detailTab === "connectors" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">AI provider connectors for this organization.</p>
+              <Button size="sm" variant="outline" onClick={() => setAddingConnector((v) => !v)}>
+                <Plus className="h-4 w-4" /> Add connector
+              </Button>
+            </div>
+
+            {addingConnector && (
+              <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">New connector</p>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Provider</label>
+                  <select
+                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                    value={newProvider}
+                    onChange={(e) => setNewProvider(e.target.value)}
+                  >
+                    <option value="claude">Anthropic Claude</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="gemini">Google Gemini</option>
+                  </select>
+                </div>
+                {newProvider === "claude" && (
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Model</label>
+                    <select
+                      className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                      value={newModel}
+                      onChange={(e) => setNewModel(e.target.value)}
+                    >
+                      {claudeModelOptions.map((m) => (
+                        <option key={m.value} value={m.value}>{m.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">API Key</label>
+                  <Input
+                    type="password"
+                    placeholder="sk-ant-…"
+                    value={newApiKey}
+                    onChange={(e) => setNewApiKey(e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => void handleAddConnector()} disabled={!newApiKey.trim()} className="h-7 text-xs">
+                    Save connector
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setAddingConnector(false)} className="h-7 text-xs">
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {connectors.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-8 text-center text-sm text-muted-foreground space-y-2">
+                <BrainCircuit className="h-8 w-8 opacity-30" />
+                <p>No connectors configured.</p>
+                <p className="text-xs">Add a Claude connector to enable AI features for this org.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {connectors.map((conn) => {
+                  const isOk = testResult[conn.id] === "ok";
+                  const isFail = testResult[conn.id] === "fail";
+                  const isTesting = testingId === conn.id;
+                  return (
+                    <div key={conn.id} className="rounded-xl border border-border bg-background/60 p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <BrainCircuit className="h-4 w-4 text-purple-400 shrink-0" />
+                          <div>
+                            <p className="text-sm font-medium">{conn.providerLabel}</p>
+                            <p className="text-xs text-muted-foreground">{conn.model}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {conn.isDefault && (
+                            <Badge variant="success" className="text-[10px]">Default</Badge>
+                          )}
+                          <Badge
+                            variant={conn.status === "connected" || isOk ? "success" : isFail ? "destructive" : "muted"}
+                            className="text-[10px]"
+                          >
+                            {isTesting ? "Testing…" : isOk ? "Connected" : isFail ? "Error" : conn.status}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-border bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground">
+                        {conn.apiKeyMasked}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          disabled={isTesting}
+                          onClick={() => void handleTestConnection(conn)}
+                        >
+                          {isTesting ? (
+                            <><Loader2 className="h-3 w-3 animate-spin" /> Testing…</>
+                          ) : (
+                            <><Zap className="h-3 w-3" /> Test connection</>
+                          )}
+                        </Button>
+                        {!conn.isDefault && (
+                          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => handleSetDefault(conn.id)}>
+                            Set as default
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => handleRemoveConnector(conn.id)}>
+                          <Trash2 className="h-3 w-3" /> Remove
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -671,7 +907,7 @@ function Notice({ tone, message, onDismiss }: { tone: "error" | "success"; messa
     <div
       className={cn(
         "flex items-center justify-between rounded-xl border p-4 text-sm",
-        tone === "error" ? "border-red-500/40 bg-red-500/10 text-red-100" : "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"
+        tone === "error" ? "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-200" : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
       )}
     >
       <span>{tone === "error" ? `Error: ${message}` : message}</span>

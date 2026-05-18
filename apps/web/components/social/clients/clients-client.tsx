@@ -36,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { ClientReferentAccountsSection } from "@/components/social/clients/client-referent-accounts-section";
 
 type Mode = "create" | "edit";
 type StatusFilter = "active" | "archived" | "all";
@@ -594,6 +595,8 @@ function ClientDetailsPanel({
           <Fact label="Created" value={formatDateTime(client.createdAtUtc)} />
           <Fact label="Updated" value={formatDateTime(client.updatedAtUtc)} />
         </div>
+
+        <ClientReferentAccountsSection clientId={client.id} />
 
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => onEdit(client)}>

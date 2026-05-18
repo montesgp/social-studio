@@ -9,6 +9,7 @@ using Incoders.Hive.Application;
 using Incoders.Hive.Infrastructure.DependencyInjection;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Integrations;
+using Incoders.Hive.Infrastructure.Social;
 using Incoders.Hive.Infrastructure.Tenancy;
 using Microsoft.EntityFrameworkCore;
 
@@ -60,6 +61,7 @@ if (app.Environment.IsDevelopment())
 }
 
 await app.Services.SeedIntegrationCatalogAsync();
+await app.Services.SeedSocialNetworkCatalogAsync();
 await app.Services.SeedIdentityRolesAsync();
 await app.Services.SeedSysAdminUserAsync();
 
@@ -85,7 +87,10 @@ app.MapSystemSettingsEndpoints();
 app.MapTenantsEndpoints();
 app.MapIntegrationsEndpoints();
 app.MapSocialClientsEndpoints();
+app.MapSocialNetworksEndpoints();
+app.MapClientReferentAccountsEndpoints();
 app.MapSocialIntegrationsEndpoints();
+app.MapSocialContentWorkflowEndpoints();
 app.MapUserPreferencesEndpoints();
 
 app.MapDefaultEndpoints();

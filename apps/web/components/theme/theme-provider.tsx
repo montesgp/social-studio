@@ -82,6 +82,10 @@ export function ThemeProvider({
   }, [accessToken, toast]);
 
   async function setTheme(nextThemeKey: ThemeKey) {
+    if (nextThemeKey === themeKey) {
+      return;
+    }
+
     const previous = themeKey;
     setThemeKey(nextThemeKey);
 

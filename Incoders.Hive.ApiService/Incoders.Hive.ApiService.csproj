@@ -72,12 +72,11 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.1" />
+    <PackageReference Include="OpenTelemetry.Api" Version="1.15.3" />
   </ItemGroup>
 
-  <Target Name="SignLocalDevBinaries"
-          AfterTargets="Build"
-          Condition="'$(LocalDevSignBinaries)' == 'true' and '$(OS)' == 'Windows_NT'">
-    <Exec Command='powershell -NoProfile -ExecutionPolicy Bypass -File "$(MSBuildProjectDirectory)\..\scripts\dev\Sign-LocalDevBinaries.ps1" -OutputDir "$(TargetDir)"' />
+  <Target Name="SignLocalDevBinaries" AfterTargets="Build" Condition="'$(LocalDevSignBinaries)' == 'true' and '$(OS)' == 'Windows_NT'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\scripts\dev\Sign-LocalDevBinaries.ps1&quot; -OutputDir &quot;$(TargetDir)&quot;" />
   </Target>
 
 </Project>
