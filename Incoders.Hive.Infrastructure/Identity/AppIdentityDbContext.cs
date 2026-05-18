@@ -32,9 +32,19 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<OrganizationIntegrationCredentialData> OrganizationIntegrationCredentials => Set<OrganizationIntegrationCredentialData>();
 
+    public DbSet<IntegrationProviderCapabilityData> IntegrationProviderCapabilities => Set<IntegrationProviderCapabilityData>();
+
+    public DbSet<OrganizationIntegrationRoutingPolicyData> OrganizationIntegrationRoutingPolicies => Set<OrganizationIntegrationRoutingPolicyData>();
+
+    public DbSet<OrganizationIntegrationRoutingPolicyItemData> OrganizationIntegrationRoutingPolicyItems => Set<OrganizationIntegrationRoutingPolicyItemData>();
+
     public DbSet<SocialNetworkData> SocialNetworks => Set<SocialNetworkData>();
 
     public DbSet<ClientReferentAccountData> ClientReferentAccounts => Set<ClientReferentAccountData>();
+
+    public DbSet<SingleContentAnalysisData> SingleContentAnalyses => Set<SingleContentAnalysisData>();
+
+    public DbSet<IntegrationExecutionAttemptData> IntegrationExecutionAttempts => Set<IntegrationExecutionAttemptData>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -173,6 +183,78 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        builder.Entity<IntegrationProviderCapabilityData>(entity =>
+        {
+            entity.ToTable("integration_provider_capabilities", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.CapabilityKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.PlatformKey).HasMaxLength(64);
+            entity.Property(x => x.IsActive).IsRequired();
+            entity.HasIndex(x => new { x.ProviderId, x.CapabilityKey })
+                .IsUnique()
+                .HasFilter("platform_key IS NULL")
+                .HasDatabaseName("ix_integration_provider_capabilities_provider_capability_global");
+            entity.HasIndex(x => new { x.ProviderId, x.CapabilityKey, x.PlatformKey })
+                .IsUnique()
+                .HasFilter("platform_key IS NOT NULL")
+                .HasDatabaseName("ix_integration_provider_capabilities_provider_capability_platform");
+
+            entity.HasOne(x => x.Provider)
+                .WithMany(x => x.Capabilities)
+                .HasForeignKey(x => x.ProviderId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<OrganizationIntegrationRoutingPolicyData>(entity =>
+        {
+            entity.ToTable("organization_integration_routing_policies", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.FlowKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.CapabilityKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.PlatformKey).HasMaxLength(64);
+            entity.Property(x => x.IsEnabled).IsRequired();
+            entity.HasIndex(x => new { x.OrganizationId, x.FlowKey, x.CapabilityKey })
+                .IsUnique()
+                .HasFilter("platform_key IS NULL")
+                .HasDatabaseName("ix_org_routing_policies_org_flow_capability_global");
+            entity.HasIndex(x => new { x.OrganizationId, x.FlowKey, x.CapabilityKey, x.PlatformKey })
+                .IsUnique()
+                .HasFilter("platform_key IS NOT NULL")
+                .HasDatabaseName("ix_org_routing_policies_org_flow_capability_platform");
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<OrganizationIntegrationRoutingPolicyItemData>(entity =>
+        {
+            entity.ToTable("organization_integration_routing_policy_items", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ConnectionMode).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Priority).IsRequired();
+            entity.Property(x => x.AllowManagedFallback).IsRequired();
+            entity.Property(x => x.MaxAttempts).IsRequired();
+            entity.Property(x => x.TimeoutMs).IsRequired();
+            entity.Property(x => x.SelectedModel).HasMaxLength(200);
+            entity.Property(x => x.IsEnabled).IsRequired();
+            entity.HasIndex(x => new { x.PolicyId, x.Priority })
+                .IsUnique()
+                .HasDatabaseName("ix_org_routing_policy_items_policy_priority");
+
+            entity.HasOne(x => x.Policy)
+                .WithMany(x => x.Items)
+                .HasForeignKey(x => x.PolicyId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Provider)
+                .WithMany(x => x.RoutingPolicyItems)
+                .HasForeignKey(x => x.ProviderId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
         builder.Entity<ClientReferentAccountData>(entity =>
         {
             entity.ToTable("client_referent_accounts", PostgresDatabaseNames.SocialSchema);
@@ -234,6 +316,47 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
             entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
             entity.HasIndex(x => x.Code).IsUnique().HasDatabaseName("ix_social_networks_code");
+        });
+
+        builder.Entity<SingleContentAnalysisData>(entity =>
+        {
+            entity.ToTable("single_content_analyses", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id");
+            entity.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
+            entity.Property(x => x.SourceUrl).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.NormalizedUrl).HasMaxLength(2048);
+            entity.Property(x => x.SourcePlatformKey).HasMaxLength(64);
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.FailureCode).HasMaxLength(128);
+            entity.Property(x => x.FailureMessageKey).HasMaxLength(200);
+            entity.HasIndex(x => new { x.OrganizationId, x.Status })
+                .HasDatabaseName("ix_single_content_analyses_org_status");
+            entity.HasIndex(x => new { x.OrganizationId, x.SourcePlatformKey })
+                .HasDatabaseName("ix_single_content_analyses_org_platform");
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<IntegrationExecutionAttemptData>(entity =>
+        {
+            entity.ToTable("integration_execution_attempts", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.CapabilityKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ProviderKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.FailureCode).HasMaxLength(128);
+            entity.HasIndex(x => new { x.AnalysisId, x.CapabilityKey, x.ProviderKey, x.AttemptNumber })
+                .HasDatabaseName("ix_integration_attempts_analysis_capability_provider_attempt");
+
+            entity.HasOne(x => x.Analysis)
+                .WithMany(x => x.Attempts)
+                .HasForeignKey(x => x.AnalysisId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }
