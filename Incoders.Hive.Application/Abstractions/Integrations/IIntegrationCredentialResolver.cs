@@ -6,6 +6,7 @@ namespace Incoders.Hive.Application.Abstractions.Integrations;
 public interface IIntegrationCredentialResolver
 {
     Task<Result<ResolvedProviderCredential>> ResolveAsync(
+        Guid organizationId,
         IntegrationRouteCandidate candidate,
         CancellationToken cancellationToken = default);
 }

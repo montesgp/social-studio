@@ -119,4 +119,36 @@ public static class IntegrationErrors
     public static readonly Error ProviderFailureDiagnosticInvalid = Error.Validation(
         "integrations.provider_failure_diagnostic_invalid",
         "integrations.errors.provider_failure_diagnostic_invalid");
+
+    public static readonly Error RoutingPolicyNotConfigured = Error.Validation(
+        "integrations.routing_policy_not_configured",
+        "integrations.errors.routing_policy_not_configured");
+
+    public static readonly Error ProviderTimeout = Error.Failure(
+        "integrations.provider_timeout",
+        "integrations.errors.provider_timeout");
+
+    public static readonly Error ProviderRateLimited = Error.Failure(
+        "integrations.provider_rate_limited",
+        "integrations.errors.provider_rate_limited");
+
+    public static readonly Error ProviderCredentialUnavailable = Error.Validation(
+        "integrations.provider_credential_unavailable",
+        "integrations.errors.provider_credential_unavailable");
+
+    public static readonly Error ExternalProviderUnsupported = Error.Validation(
+        "integrations.external_provider_unsupported",
+        "integrations.errors.external_provider_unsupported");
+
+    public static readonly Error ExternalProviderUnavailable = Error.Failure(
+        "integrations.external_provider_unavailable",
+        "integrations.errors.external_provider_unavailable");
+
+    public static readonly Error AiModelRequired = Error.Validation(
+        "integrations.ai_model_required",
+        "integrations.errors.ai_model_required");
+
+    public static readonly Error AiJsonInvalid = Error.Failure(
+        "integrations.ai_json_invalid",
+        "integrations.errors.ai_json_invalid");
 }

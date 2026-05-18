@@ -40,7 +40,7 @@ public sealed class IntegrationRoutingPortContractTests
         var candidate = Candidate("openai", priority: 10);
         IIntegrationCredentialResolver resolver = new FakeCredentialResolver(candidate.ProviderKey);
 
-        var result = await resolver.ResolveAsync(candidate, CancellationToken.None);
+        var result = await resolver.ResolveAsync(Guid.NewGuid(), candidate, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal("openai", result.Value.ProviderKey);
@@ -128,6 +128,7 @@ public sealed class IntegrationRoutingPortContractTests
         }
 
         public Task<Result<ResolvedProviderCredential>> ResolveAsync(
+            Guid organizationId,
             IntegrationRouteCandidate candidate,
             CancellationToken cancellationToken = default)
         {
