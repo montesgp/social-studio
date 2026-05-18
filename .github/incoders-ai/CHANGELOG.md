@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.0
+- Added the reusable TestSprite QA provider layer for ecosystem-wide AI-assisted validation.
+- Introduced `providers/testing/testsprite/testsprite-validation.skill.md` and wired the global test engineer agent to use it when available.
+- Fixed the TestSprite provider manifest so every LOAD target resolves to an existing file.
+
 ## 1.3.0
 - Major content enrichment. Ecosystem moved from skeleton (3-10 line stubs) to operational baseline across `core/`, `profiles/`, `stacks/`, `skills/`, `agents/`.
 - **`core/`**:
