@@ -89,6 +89,7 @@ app.MapIntegrationsEndpoints();
 app.MapSocialClientsEndpoints();
 app.MapSocialNetworksEndpoints();
 app.MapClientReferentAccountsEndpoints();
+app.MapClientBrandManualsEndpoints();
 app.MapSocialIntegrationsEndpoints();
 app.MapSocialContentWorkflowEndpoints();
 app.MapUserPreferencesEndpoints();

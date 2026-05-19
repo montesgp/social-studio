@@ -37,6 +37,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { ClientReferentAccountsSection } from "@/components/social/clients/client-referent-accounts-section";
+import { ClientBrandManualSection } from "@/components/social/clients/client-brand-manual-section";
 
 type Mode = "create" | "edit";
 type StatusFilter = "active" | "archived" | "all";
@@ -597,6 +598,8 @@ function ClientDetailsPanel({
         </div>
 
         <ClientReferentAccountsSection clientId={client.id} />
+
+        <ClientBrandManualSection clientId={client.id} />
 
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => onEdit(client)}>

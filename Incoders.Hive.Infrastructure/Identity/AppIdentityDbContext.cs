@@ -1,9 +1,14 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
+using Incoders.Hive.Infrastructure.Persistence.Postgres.Json;
 
 namespace Incoders.Hive.Infrastructure.Identity;
 
@@ -35,6 +40,8 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
     public DbSet<SocialNetworkData> SocialNetworks => Set<SocialNetworkData>();
 
     public DbSet<ClientReferentAccountData> ClientReferentAccounts => Set<ClientReferentAccountData>();
+
+    public DbSet<ClientBrandManualData> ClientBrandManuals => Set<ClientBrandManualData>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -222,6 +229,51 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .HasDatabaseName("ix_client_referent_accounts_social_network_id");
         });
 
+        builder.Entity<ClientBrandManualData>(entity =>
+        {
+            entity.ToTable("client_brand_manuals", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.Title).HasColumnName("title").HasMaxLength(80).IsRequired();
+            entity.Property(x => x.VoiceAndTone).HasColumnName("voice_and_tone").HasMaxLength(2000);
+            entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(4000);
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // jsonb columns — ADR 3/4/5
+            ConfigureJsonbCollection<ColorEntry>(entity, x => x.ColorPalette, "color_palette");
+            ConfigureJsonbCollection<LogoEntry>(entity, x => x.Logos, "logos");
+            ConfigureJsonbCollection<BackgroundEntry>(entity, x => x.BackgroundTemplates, "background_templates");
+            ConfigureJsonbCollection<TypographyEntry>(entity, x => x.Typography, "typography");
+
+            // FK: client_id → social.clients(id) ON DELETE CASCADE
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => x.ClientId)
+                .HasDatabaseName("ix_client_brand_manuals_client_id");
+
+            entity.HasIndex(x => x.OrganizationId)
+                .HasDatabaseName("ix_client_brand_manuals_organization_id");
+
+            // Partial unique index: at most one active manual per client (ADR 6)
+            entity.HasIndex(x => x.ClientId)
+                .IsUnique()
+                .HasFilter("is_active = true")
+                .HasDatabaseName("ix_client_brand_manuals_one_active_per_client");
+        });
+
         builder.Entity<SocialNetworkData>(entity =>
         {
             entity.ToTable("social_networks", PostgresDatabaseNames.PlatformSchema);
@@ -235,6 +287,35 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
             entity.HasIndex(x => x.Code).IsUnique().HasDatabaseName("ix_social_networks_code");
         });
+    }
+
+    /// <summary>
+    /// Configures a jsonb column with ValueConverter (System.Text.Json) and ValueComparer (deep-equal).
+    /// Resolution 4: null deserializes to empty list. Resolution 5: pinned options via BrandManualJsonOptions.Default.
+    /// Resolution 6: comparer snapshot uses ToList() so Update replaces refs with new List instances.
+    /// </summary>
+    private static void ConfigureJsonbCollection<T>(
+        Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<ClientBrandManualData> entity,
+        System.Linq.Expressions.Expression<Func<ClientBrandManualData, List<T>>> propertyExpression,
+        string columnName)
+        where T : class
+    {
+        var converter = new ValueConverter<List<T>, string>(
+            v => JsonSerializer.Serialize(v, BrandManualJsonOptions.Default),
+            v => JsonSerializer.Deserialize<List<T>>(v, BrandManualJsonOptions.Default) ?? new List<T>());
+
+        var comparer = new ValueComparer<List<T>>(
+            (a, b) => a!.SequenceEqual(b!),
+            x => x.Aggregate(0, (h, e) => HashCode.Combine(h, e!.GetHashCode())),
+            x => x.ToList());
+
+        entity.Property(propertyExpression)
+            .HasColumnName(columnName)
+            .HasColumnType("jsonb")
+            .IsRequired()
+            .HasDefaultValueSql("'[]'")
+            .HasConversion(converter)
+            .Metadata.SetValueComparer(comparer);
     }
 }
 
