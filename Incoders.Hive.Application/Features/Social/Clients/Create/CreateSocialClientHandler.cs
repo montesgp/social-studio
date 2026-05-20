@@ -32,7 +32,8 @@ public sealed class CreateSocialClientHandler
             request.OrganizationId,
             request.Name,
             request.Description,
-            _clock.UtcNow);
+            _clock.UtcNow,
+            request.SectorOrNiche);
 
         if (created.IsFailure)
         {

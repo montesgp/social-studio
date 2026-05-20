@@ -8,4 +8,5 @@ public sealed record UpdateSocialClientCommand(
     Guid Id,
     Guid OrganizationId,
     string Name,
-    string? Description) : IRequest<Result<SocialClientResponse>>;
+    string? Description,
+    string? SectorOrNiche = null) : IRequest<Result<SocialClientResponse>>;

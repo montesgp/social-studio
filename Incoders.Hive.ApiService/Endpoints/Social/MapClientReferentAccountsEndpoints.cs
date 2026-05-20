@@ -6,6 +6,7 @@ using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Create;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Deactivate;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.GetById;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.GetByClient;
+using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Reorder;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Update;
 using Incoders.Hive.Domain.Social.ClientReferentAccounts;
 using MediatR;
@@ -66,6 +67,14 @@ public static class ClientReferentAccountsEndpointsExtensions
             .Produces<ClientReferentAccountResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        // IMPORTANT: /reorder is a static segment — registered BEFORE /{id:guid} variants to avoid ambiguity
+        group.MapPost("/reorder", ReorderAsync)
+            .WithName("ReorderClientReferentAccounts")
+            .WithSummary("Reorder referent accounts by supplying the full ordered list of IDs (0-based position)")
+            .Produces<IReadOnlyList<ReorderedClientReferentAccountResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
         return app;
     }
@@ -208,6 +217,30 @@ public static class ClientReferentAccountsEndpointsExtensions
         return result.Match(r => (IResult)TypedResults.Ok(r));
     }
 
+    private static async Task<IResult> ReorderAsync(
+        Guid clientId,
+        [FromBody] ReorderClientReferentAccountsRequest body,
+        ICurrentTenant currentTenant,
+        ISender sender,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } organizationId)
+        {
+            return ClientReferentAccountErrors.NotFound.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new ReorderClientReferentAccountsCommand(
+                clientId,
+                organizationId.Value,
+                body.OrderedIds),
+            cancellationToken);
+
+        return result.IsSuccess
+            ? TypedResults.Ok(result.Value)
+            : MapError(result.Error);
+    }
+
     /// <summary>
     /// Maps domain errors to HTTP status codes, including 422 for SocialNetworkInactive.
     /// </summary>
@@ -239,3 +272,5 @@ public sealed record UpdateClientReferentAccountRequest(
     string? Handle,
     string? Label,
     string? Notes);
+
+public sealed record ReorderClientReferentAccountsRequest(IReadOnlyList<Guid> OrderedIds);

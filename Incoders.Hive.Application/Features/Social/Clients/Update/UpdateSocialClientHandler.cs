@@ -37,7 +37,7 @@ public sealed class UpdateSocialClientHandler
             return Result.Failure<SocialClientResponse>(ClientErrors.NotFound);
         }
 
-        var renamed = client.Rename(request.Name, request.Description, _clock.UtcNow);
+        var renamed = client.Rename(request.Name, request.Description, _clock.UtcNow, request.SectorOrNiche);
         if (renamed.IsFailure)
         {
             return Result.Failure<SocialClientResponse>(renamed.Error);

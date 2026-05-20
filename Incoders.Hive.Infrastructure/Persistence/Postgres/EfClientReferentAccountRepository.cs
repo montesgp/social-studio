@@ -80,6 +80,47 @@ public sealed class EfClientReferentAccountRepository : IClientReferentAccountRe
         return await query.AnyAsync(ct);
     }
 
+    public async Task<IReadOnlyList<ClientReferentAccount>> GetAllByClientAsync(
+        ClientId clientId,
+        Guid organizationId,
+        CancellationToken ct)
+    {
+        var rows = await _dbContext.ClientReferentAccounts
+            .AsNoTracking()
+            .Where(x => x.ClientId == clientId.Value && x.OrganizationId == organizationId)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.CreatedAtUtc)
+            .ToListAsync(ct);
+
+        return rows.Select(ToDomain).ToList();
+    }
+
+    public async Task ReorderAsync(
+        ClientId clientId,
+        Guid organizationId,
+        IReadOnlyList<Guid> orderedIds,
+        CancellationToken ct)
+    {
+        // Load tracked for mutation
+        var rows = await _dbContext.ClientReferentAccounts
+            .Where(x => x.ClientId == clientId.Value && x.OrganizationId == organizationId)
+            .ToListAsync(ct);
+
+        var rowById = rows.ToDictionary(r => r.Id);
+        var nowUtc = DateTime.UtcNow;
+
+        for (var i = 0; i < orderedIds.Count; i++)
+        {
+            if (rowById.TryGetValue(orderedIds[i], out var row))
+            {
+                row.SortOrder = i;
+                row.UpdatedAtUtc = nowUtc;
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(ct);
+    }
+
     public async Task AddAsync(ClientReferentAccount referentAccount, CancellationToken ct)
     {
         await _dbContext.ClientReferentAccounts.AddAsync(ToData(referentAccount), ct);

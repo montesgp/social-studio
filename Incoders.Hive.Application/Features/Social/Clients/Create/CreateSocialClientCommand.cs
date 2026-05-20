@@ -6,4 +6,5 @@ namespace Incoders.Hive.Application.Features.Social.Clients.Create;
 public sealed record CreateSocialClientCommand(
     Guid OrganizationId,
     string Name,
-    string? Description) : IRequest<Result<SocialClientResponse>>;
+    string? Description,
+    string? SectorOrNiche = null) : IRequest<Result<SocialClientResponse>>;

@@ -136,7 +136,7 @@ public static class SocialClientsEndpointsExtensions
         }
 
         var result = await sender.Send(
-            new CreateSocialClientCommand(organizationId.Value, body.Name, body.Description),
+            new CreateSocialClientCommand(organizationId.Value, body.Name, body.Description, body.SectorOrNiche),
             cancellationToken);
 
         return result.Match(client => TypedResults.Created($"/api/social/clients/{client.Id}", client));
@@ -155,7 +155,7 @@ public static class SocialClientsEndpointsExtensions
         }
 
         var result = await sender.Send(
-            new UpdateSocialClientCommand(id, organizationId.Value, body.Name, body.Description),
+            new UpdateSocialClientCommand(id, organizationId.Value, body.Name, body.Description, body.SectorOrNiche),
             cancellationToken);
 
         return result.Match(client => (IResult)TypedResults.Ok(client));
@@ -198,6 +198,6 @@ public static class SocialClientsEndpointsExtensions
     }
 }
 
-public sealed record CreateSocialClientRequest(string Name, string? Description);
+public sealed record CreateSocialClientRequest(string Name, string? Description, string? SectorOrNiche = null);
 
-public sealed record UpdateSocialClientRequest(string Name, string? Description);
+public sealed record UpdateSocialClientRequest(string Name, string? Description, string? SectorOrNiche = null);

@@ -16,6 +16,7 @@ public sealed record ClientReferentAccountResponse(
     string? Label,
     string? Notes,
     bool IsActive,
+    int SortOrder,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc)
 {
@@ -34,6 +35,7 @@ public sealed record ClientReferentAccountResponse(
             account.Label,
             account.Notes,
             account.IsActive,
+            account.SortOrder,
             account.CreatedAtUtc,
             account.UpdatedAtUtc);
 }
