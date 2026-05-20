@@ -49,7 +49,6 @@ import {
 } from "@/lib/api/content-workflow";
 import {
   generateMockWorkflowPackage,
-  getDefaultMockWorkflowId,
   getMockClients,
   getMockOrganizations,
   getMockWorkflowHistory,
@@ -333,16 +332,6 @@ export function WorkflowClient() {
       setClients(nextClients);
       setSelectedClientId((current) => current || nextClients[0]?.id || "");
       setHistoryItems(nextHistory);
-
-      if (USE_MOCK_WORKFLOW_DATA && !activeWorkflowId) {
-        const defaultId = getDefaultMockWorkflowId();
-        setActiveWorkflowId(defaultId);
-        setPageNumber(1);
-        await Promise.all([
-          loadWorkflowStatus(defaultId, organizationId, accessToken),
-          loadWorkflowResults(defaultId, organizationId, 1, accessToken)
-        ]);
-      }
     } catch (err) {
       setError((err as ApiError).message);
     } finally {
