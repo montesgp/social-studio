@@ -82,6 +82,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { useActiveOrg } from "@/lib/auth/active-org-context";
 
 interface PackageCartItem {
   resultId: string;
@@ -154,13 +155,20 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
-export function WorkflowClient() {
+interface WorkflowClientProps {
+  isPlatformAdmin: boolean;
+}
+
+export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
   const token = useAccessToken();
   const toast = useToast();
+  const { orgId: activeOrgId, isInitialized: orgInitialized } = useActiveOrg();
 
   // Organization + Client
   const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState<string>(() =>
+    activeOrgId ?? ""
+  );
   const [clients, setClients] = useState<SocialClient[]>([]);
   const [selectedClientId, setSelectedClientId] = useState("");
 
@@ -245,6 +253,7 @@ export function WorkflowClient() {
   );
 
   useEffect(() => {
+    if (!orgInitialized) return;
     if (!USE_MOCK_WORKFLOW_DATA && !token) {
       setLoading(false);
       return;
@@ -252,7 +261,13 @@ export function WorkflowClient() {
 
     void bootstrap(token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, orgInitialized]);
+
+  useEffect(() => {
+    if (!isPlatformAdmin && activeOrgId) {
+      setSelectedOrganizationId(activeOrgId);
+    }
+  }, [isPlatformAdmin, activeOrgId]);
 
   useEffect(() => {
     if (!selectedOrganizationId || (!USE_MOCK_WORKFLOW_DATA && !token)) {
@@ -298,12 +313,19 @@ export function WorkflowClient() {
     setError(null);
 
     try {
-      const nextOrganizations = USE_MOCK_WORKFLOW_DATA
-        ? getMockOrganizations()
-        : (await listOrganizations({ page: 1, pageSize: 100, includeInactive: false }, accessToken!)).items;
-      setOrganizations(nextOrganizations);
-      const nextOrganizationId = nextOrganizations[0]?.id ?? "";
-      setSelectedOrganizationId(nextOrganizationId);
+      if (USE_MOCK_WORKFLOW_DATA) {
+        const nextOrganizations = getMockOrganizations();
+        setOrganizations(nextOrganizations);
+        const nextOrganizationId = nextOrganizations[0]?.id ?? "";
+        setSelectedOrganizationId(nextOrganizationId);
+      } else if (isPlatformAdmin) {
+        const nextOrganizations = (await listOrganizations({ page: 1, pageSize: 100, includeInactive: false }, accessToken!)).items;
+        setOrganizations(nextOrganizations);
+        const nextOrganizationId = nextOrganizations[0]?.id ?? "";
+        setSelectedOrganizationId(nextOrganizationId);
+      } else {
+        setSelectedOrganizationId(activeOrgId ?? "");
+      }
     } catch (err) {
       setError((err as ApiError).message);
     } finally {
@@ -812,20 +834,22 @@ export function WorkflowClient() {
             </div>
           </div>
           <div className="flex flex-wrap items-end gap-3">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Organization</span>
-              <select
-                className="h-9 min-w-[220px] rounded-md border border-border bg-background px-3 text-sm"
-                value={selectedOrganizationId}
-                onChange={(event) => setSelectedOrganizationId(event.target.value)}
-              >
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {isPlatformAdmin && organizations.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Organization</span>
+                <select
+                  className="h-9 min-w-[220px] rounded-md border border-border bg-background px-3 text-sm"
+                  value={selectedOrganizationId}
+                  onChange={(event) => setSelectedOrganizationId(event.target.value)}
+                >
+                  {organizations.map((organization) => (
+                    <option key={organization.id} value={organization.id}>
+                      {organization.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <Button
               variant="outline"
               onClick={() => {

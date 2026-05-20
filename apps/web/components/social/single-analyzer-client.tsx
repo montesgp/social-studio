@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { getMockOrganizations } from "@/lib/mocks/content-workflow";
 import type { Organization } from "@/lib/api/types";
+import { useActiveOrg } from "@/lib/auth/active-org-context";
 import {
   getMockVideoByUrl,
   getMockVideoBySearch,
@@ -159,7 +160,12 @@ function SocialTabletPreview({
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function SingleAnalyzerClient() {
+interface SingleAnalyzerClientProps {
+  isPlatformAdmin: boolean;
+}
+
+export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientProps) {
+  const { orgId: activeOrgId } = useActiveOrg();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [inputMode, setInputMode] = useState<"url" | "search">("url");
@@ -196,6 +202,12 @@ export function SingleAnalyzerClient() {
       setHistoryItems(listMockSingleHistory(selectedOrganizationId));
     }
   }, [selectedOrganizationId]);
+
+  useEffect(() => {
+    if (!isPlatformAdmin && activeOrgId) {
+      setSelectedOrganizationId(activeOrgId);
+    }
+  }, [isPlatformAdmin, activeOrgId]);
 
   function resetVideoState() {
     setVideoResult(null);
@@ -367,7 +379,7 @@ export function SingleAnalyzerClient() {
             <p className="text-sm text-muted-foreground">Load any video · analyze · convert</p>
           </div>
         </div>
-        {organizations.length > 0 && (
+        {isPlatformAdmin && organizations.length > 0 && (
           <select
             className="h-8 min-w-[12rem] rounded-md border border-border bg-background px-3 text-xs"
             value={selectedOrganizationId}

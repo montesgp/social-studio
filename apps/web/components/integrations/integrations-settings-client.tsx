@@ -53,6 +53,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { useActiveOrg } from "@/lib/auth/active-org-context";
 
 const categoryLabels: Record<string, string> = {
   AiModel: "AI model providers",
@@ -112,6 +113,7 @@ interface IntegrationsSettingsClientProps {
 export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSettingsClientProps) {
   const token = useAccessToken();
   const toast = useToast();
+  const { orgId: activeOrgId, isInitialized: orgInitialized } = useActiveOrg();
 
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [providers, setProviders] = useState<IntegrationProvider[]>([]);
@@ -129,6 +131,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const [savingRoutingKey, setSavingRoutingKey] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!orgInitialized) return;
     if (!token) {
       setLoading(false);
       setOverview(null);
@@ -139,7 +142,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
     void bootstrap(token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, orgInitialized]);
 
   useEffect(() => {
     if (!token || !selectedOrganizationId) {
@@ -181,21 +184,35 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     setError(null);
 
     try {
-      const [providerCatalog, organizationsPage] = await Promise.all([
-        listIntegrationProviders(accessToken),
-        listOrganizations({ page: 1, pageSize: 100, includeInactive: false }, accessToken)
-      ]);
+      if (isPlatformAdmin) {
+        const [providerCatalog, organizationsPage] = await Promise.all([
+          listIntegrationProviders(accessToken),
+          listOrganizations({ page: 1, pageSize: 100, includeInactive: false }, accessToken)
+        ]);
 
-      setProviders(providerCatalog);
-      setOrganizations(organizationsPage.items);
+        setProviders(providerCatalog);
+        setOrganizations(organizationsPage.items);
 
-      const nextOrganizationId = selectedOrganizationId || organizationsPage.items[0]?.id || "";
-      setSelectedOrganizationId(nextOrganizationId);
+        const nextOrganizationId = selectedOrganizationId || organizationsPage.items[0]?.id || "";
+        setSelectedOrganizationId(nextOrganizationId);
 
-      if (nextOrganizationId) {
-        await loadOverview(nextOrganizationId, accessToken, false);
+        if (nextOrganizationId) {
+          await loadOverview(nextOrganizationId, accessToken, false);
+        } else {
+          setOverview(null);
+        }
       } else {
-        setOverview(null);
+        const providerCatalog = await listIntegrationProviders(accessToken);
+        setProviders(providerCatalog);
+
+        const nextOrganizationId = activeOrgId ?? "";
+        setSelectedOrganizationId(nextOrganizationId);
+
+        if (nextOrganizationId) {
+          await loadOverview(nextOrganizationId, accessToken, false);
+        } else {
+          setOverview(null);
+        }
       }
     } catch (err) {
       setError((err as ApiError).message);

@@ -34,6 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { useActiveOrg } from "@/lib/auth/active-org-context";
 
 type Mode = "create" | "edit";
 type StatusFilter = "active" | "archived" | "all";
@@ -48,6 +49,7 @@ interface NetworksAdminClientProps {
 export function NetworksAdminClient({ isPlatformAdmin = false }: NetworksAdminClientProps) {
   const sessionToken = useAccessToken();
   const toast = useToast();
+  const { isInitialized: orgInitialized } = useActiveOrg();
   const lastErrorToastRef = useRef<{ message: string; at: number } | null>(null);
 
   const [page, setPage] = useState<PageResult<SocialNetwork> | null>(null);
@@ -86,6 +88,7 @@ export function NetworksAdminClient({ isPlatformAdmin = false }: NetworksAdminCl
   }
 
   useEffect(() => {
+    if (!orgInitialized) return;
     if (!effectiveToken) {
       setLoading(false);
       setPage(null);
@@ -93,7 +96,7 @@ export function NetworksAdminClient({ isPlatformAdmin = false }: NetworksAdminCl
     }
     void loadNetworks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageNumber, status, includeInactive, effectiveToken]);
+  }, [pageNumber, status, includeInactive, effectiveToken, orgInitialized]);
 
   async function loadNetworks(nextPage = pageNumber) {
     setLoading(true);
