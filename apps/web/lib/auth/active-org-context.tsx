@@ -29,20 +29,26 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
 
     window.addEventListener(ORG_CONTEXT_CHANGE_EVENT, syncFromStorage);
 
-    if (!getActiveOrganizationId()) {
+    const stored = getActiveOrganizationId();
+    if (stored) {
+      setState({ orgId: stored, isInitialized: true });
+      return () => window.removeEventListener(ORG_CONTEXT_CHANGE_EVENT, syncFromStorage);
+    }
+
+    if (!stored) {
       const token = getAccessToken();
       if (!token) {
         setState({ orgId: null, isInitialized: true });
         return () => window.removeEventListener(ORG_CONTEXT_CHANGE_EVENT, syncFromStorage);
       }
 
-      fetch("/hive-api/api/organizations?page=1&pageSize=1", {
+      fetch("/hive-api/api/me/organizations", {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       })
         .then((r) => (r.ok ? r.json() : null))
-        .then((data: { items?: { id: string }[] } | null) => {
-          const firstId = data?.items?.[0]?.id;
+        .then((data: { id: string }[] | null) => {
+          const firstId = data?.[0]?.id;
           if (firstId) {
             setActiveOrganizationId(firstId);
           } else {
