@@ -49,7 +49,8 @@ public sealed class EfClientReferentAccountRepository : IClientReferentAccountRe
 
         var totalCount = await source.CountAsync(ct);
         var rows = await source
-            .OrderByDescending(x => x.CreatedAtUtc)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.CreatedAtUtc)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(ct);
@@ -79,6 +80,47 @@ public sealed class EfClientReferentAccountRepository : IClientReferentAccountRe
         return await query.AnyAsync(ct);
     }
 
+    public async Task<IReadOnlyList<ClientReferentAccount>> GetAllByClientAsync(
+        ClientId clientId,
+        Guid organizationId,
+        CancellationToken ct)
+    {
+        var rows = await _dbContext.ClientReferentAccounts
+            .AsNoTracking()
+            .Where(x => x.ClientId == clientId.Value && x.OrganizationId == organizationId)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.CreatedAtUtc)
+            .ToListAsync(ct);
+
+        return rows.Select(ToDomain).ToList();
+    }
+
+    public async Task ReorderAsync(
+        ClientId clientId,
+        Guid organizationId,
+        IReadOnlyList<Guid> orderedIds,
+        CancellationToken ct)
+    {
+        // Load tracked for mutation
+        var rows = await _dbContext.ClientReferentAccounts
+            .Where(x => x.ClientId == clientId.Value && x.OrganizationId == organizationId)
+            .ToListAsync(ct);
+
+        var rowById = rows.ToDictionary(r => r.Id);
+        var nowUtc = DateTime.UtcNow;
+
+        for (var i = 0; i < orderedIds.Count; i++)
+        {
+            if (rowById.TryGetValue(orderedIds[i], out var row))
+            {
+                row.SortOrder = i;
+                row.UpdatedAtUtc = nowUtc;
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(ct);
+    }
+
     public async Task AddAsync(ClientReferentAccount referentAccount, CancellationToken ct)
     {
         await _dbContext.ClientReferentAccounts.AddAsync(ToData(referentAccount), ct);
@@ -95,6 +137,7 @@ public sealed class EfClientReferentAccountRepository : IClientReferentAccountRe
         entity.Label = account.Label;
         entity.Notes = account.Notes;
         entity.IsActive = account.IsActive;
+        entity.SortOrder = account.SortOrder;
         entity.UpdatedAtUtc = account.UpdatedAtUtc;
     }
 
@@ -124,7 +167,8 @@ public sealed class EfClientReferentAccountRepository : IClientReferentAccountRe
             d.Notes,
             d.IsActive,
             d.CreatedAtUtc,
-            d.UpdatedAtUtc);
+            d.UpdatedAtUtc,
+            d.SortOrder);
 
     private static ClientReferentAccountData ToData(ClientReferentAccount a) => new()
     {
@@ -137,6 +181,7 @@ public sealed class EfClientReferentAccountRepository : IClientReferentAccountRe
         Label = a.Label,
         Notes = a.Notes,
         IsActive = a.IsActive,
+        SortOrder = a.SortOrder,
         CreatedAtUtc = a.CreatedAtUtc,
         UpdatedAtUtc = a.UpdatedAtUtc,
     };

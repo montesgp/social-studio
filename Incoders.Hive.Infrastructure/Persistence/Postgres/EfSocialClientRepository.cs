@@ -76,6 +76,7 @@ public sealed class EfSocialClientRepository : ISocialClientRepository
 
         entity.Name = client.Name;
         entity.Description = client.Description;
+        entity.SectorOrNiche = client.SectorOrNiche;
         entity.IsActive = client.IsActive;
         entity.UpdatedAtUtc = client.UpdatedAtUtc;
     }
@@ -88,7 +89,8 @@ public sealed class EfSocialClientRepository : ISocialClientRepository
             row.Description,
             row.IsActive,
             row.CreatedAtUtc,
-            row.UpdatedAtUtc);
+            row.UpdatedAtUtc,
+            row.SectorOrNiche);
 
     private static SocialClientData ToData(Client client) =>
         new()
@@ -97,6 +99,7 @@ public sealed class EfSocialClientRepository : ISocialClientRepository
             OrganizationId = client.OrganizationId,
             Name = client.Name,
             Description = client.Description,
+            SectorOrNiche = client.SectorOrNiche,
             IsActive = client.IsActive,
             CreatedAtUtc = client.CreatedAtUtc,
             UpdatedAtUtc = client.UpdatedAtUtc,

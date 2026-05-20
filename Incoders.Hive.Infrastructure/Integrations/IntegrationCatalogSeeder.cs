@@ -67,7 +67,10 @@ public sealed class IntegrationCatalogSeeder
             true,
             true,
             true,
-            [new IntegrationCredentialField("api_token", "API token", true, true, null, "Optional when overriding the system default")]),
+            [
+                new IntegrationCredentialField("api_key", "API key", true, true, null, "Apify API token/key for BYOK or managed mode"),
+                new IntegrationCredentialField("actor_id", "Actor ID", false, true, null, "Apify actor identifier used to extract URL metadata")
+            ]),
         new(
             new Guid("9e024238-bd2f-4f74-b7f4-fab2f01f62d1"),
             "blotato",

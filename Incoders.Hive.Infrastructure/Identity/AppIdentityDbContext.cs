@@ -49,6 +49,10 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<ClientBrandManualData> ClientBrandManuals => Set<ClientBrandManualData>();
 
+    public DbSet<ClientStrategyData> ClientStrategies => Set<ClientStrategyData>();
+
+    public DbSet<MonthlyObjectiveData> MonthlyObjectives => Set<MonthlyObjectiveData>();
+
     public DbSet<SingleContentAnalysisData> SingleContentAnalyses => Set<SingleContentAnalysisData>();
 
     public DbSet<IntegrationExecutionAttemptData> IntegrationExecutionAttempts => Set<IntegrationExecutionAttemptData>();
@@ -117,6 +121,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Description).HasMaxLength(1_000);
+            entity.Property(x => x.SectorOrNiche).HasMaxLength(300);
             entity.Property(x => x.IsActive).IsRequired();
             entity.HasIndex(x => new { x.OrganizationId, x.Name });
             entity.HasOne(x => x.Organization)
@@ -275,6 +280,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.Label).HasColumnName("label").HasMaxLength(80);
             entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(500);
             entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
             entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
             entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
 
@@ -304,6 +310,9 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasIndex(x => x.ClientId)
                 .HasDatabaseName("ix_client_referent_accounts_client_id");
 
+            entity.HasIndex(x => new { x.ClientId, x.SortOrder })
+                .HasDatabaseName("ix_client_referent_accounts_client_sort_order");
+
             entity.HasIndex(x => x.OrganizationId)
                 .HasDatabaseName("ix_client_referent_accounts_organization_id");
 
@@ -326,10 +335,10 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
 
             // jsonb columns — ADR 3/4/5
-            ConfigureJsonbCollection<ColorEntry>(entity, x => x.ColorPalette, "color_palette");
-            ConfigureJsonbCollection<LogoEntry>(entity, x => x.Logos, "logos");
-            ConfigureJsonbCollection<BackgroundEntry>(entity, x => x.BackgroundTemplates, "background_templates");
-            ConfigureJsonbCollection<TypographyEntry>(entity, x => x.Typography, "typography");
+            ConfigureJsonbCollection<ClientBrandManualData, ColorEntry>(entity, x => x.ColorPalette, "color_palette");
+            ConfigureJsonbCollection<ClientBrandManualData, LogoEntry>(entity, x => x.Logos, "logos");
+            ConfigureJsonbCollection<ClientBrandManualData, BackgroundEntry>(entity, x => x.BackgroundTemplates, "background_templates");
+            ConfigureJsonbCollection<ClientBrandManualData, TypographyEntry>(entity, x => x.Typography, "typography");
 
             // FK: client_id → social.clients(id) ON DELETE CASCADE
             entity.HasOne<SocialClientData>()
@@ -354,6 +363,84 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .IsUnique()
                 .HasFilter("is_active = true")
                 .HasDatabaseName("ix_client_brand_manuals_one_active_per_client");
+        });
+
+        builder.Entity<ClientStrategyData>(entity =>
+        {
+            entity.ToTable("client_strategies", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.TargetAudience).HasColumnName("target_audience").HasMaxLength(1000);
+            entity.Property(x => x.PostingFrequency).HasColumnName("posting_frequency").HasMaxLength(200);
+            entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(2000);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // jsonb columns for list fields
+            ConfigureJsonbCollection<ClientStrategyData, string>(entity, x => x.ContentPillars, "content_pillars");
+            ConfigureJsonbCollection<ClientStrategyData, string>(entity, x => x.ToneKeywords, "tone_keywords");
+
+            // FK: client_id → social.clients(id) ON DELETE CASCADE
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // UNIQUE: one strategy per client
+            entity.HasIndex(x => x.ClientId)
+                .IsUnique()
+                .HasDatabaseName("ix_client_strategies_one_per_client");
+
+            entity.HasIndex(x => x.OrganizationId)
+                .HasDatabaseName("ix_client_strategies_organization_id");
+        });
+
+        builder.Entity<MonthlyObjectiveData>(entity =>
+        {
+            entity.ToTable("monthly_objectives", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.Year).HasColumnName("year").IsRequired();
+            entity.Property(x => x.Month).HasColumnName("month").IsRequired();
+            entity.Property(x => x.Objectives).HasColumnName("objectives").HasMaxLength(3000).IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // jsonb column for KPIs list
+            ConfigureJsonbCollection<MonthlyObjectiveData, string>(entity, x => x.Kpis, "kpis");
+
+            // FK: client_id → social.clients(id) ON DELETE CASCADE
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // UNIQUE: one objective per (client, year, month)
+            entity.HasIndex(x => new { x.ClientId, x.Year, x.Month })
+                .IsUnique()
+                .HasDatabaseName("ix_monthly_objectives_client_year_month");
+
+            entity.HasIndex(x => x.ClientId)
+                .HasDatabaseName("ix_monthly_objectives_client_id");
+
+            entity.HasIndex(x => x.OrganizationId)
+                .HasDatabaseName("ix_monthly_objectives_organization_id");
         });
 
         builder.Entity<SocialNetworkData>(entity =>
@@ -414,20 +501,22 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     /// <summary>
     /// Configures a jsonb column with ValueConverter (System.Text.Json) and ValueComparer (deep-equal).
-    /// Resolution 4: null deserializes to empty list. Resolution 5: pinned options via BrandManualJsonOptions.Default.
+    /// Resolution 4: null deserializes to empty list. Resolution 5: pinned options via SocialJsonOptions.Default.
     /// Resolution 6: comparer snapshot uses ToList() so Update replaces refs with new List instances.
+    /// Generic over both the entity type and the item type so it can be reused for all social aggregates (ADR-3).
     /// </summary>
-    private static void ConfigureJsonbCollection<T>(
-        Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<ClientBrandManualData> entity,
-        System.Linq.Expressions.Expression<Func<ClientBrandManualData, List<T>>> propertyExpression,
+    private static void ConfigureJsonbCollection<TEntity, TItem>(
+        Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TEntity> entity,
+        System.Linq.Expressions.Expression<Func<TEntity, List<TItem>>> propertyExpression,
         string columnName)
-        where T : class
+        where TEntity : class
+        where TItem : class
     {
-        var converter = new ValueConverter<List<T>, string>(
-            v => JsonSerializer.Serialize(v, BrandManualJsonOptions.Default),
-            v => JsonSerializer.Deserialize<List<T>>(v, BrandManualJsonOptions.Default) ?? new List<T>());
+        var converter = new ValueConverter<List<TItem>, string>(
+            v => JsonSerializer.Serialize(v, SocialJsonOptions.Default),
+            v => JsonSerializer.Deserialize<List<TItem>>(v, SocialJsonOptions.Default) ?? new List<TItem>());
 
-        var comparer = new ValueComparer<List<T>>(
+        var comparer = new ValueComparer<List<TItem>>(
             (a, b) => a!.SequenceEqual(b!),
             x => x.Aggregate(0, (h, e) => HashCode.Combine(h, e!.GetHashCode())),
             x => x.ToList());

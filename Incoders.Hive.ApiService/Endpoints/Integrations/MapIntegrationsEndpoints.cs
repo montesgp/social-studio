@@ -6,6 +6,7 @@ using Incoders.Hive.Application.Features.Integrations.Delete;
 using Incoders.Hive.Application.Features.Integrations.GetAllProviders;
 using Incoders.Hive.Application.Features.Integrations.GetByProvider;
 using Incoders.Hive.Application.Features.Integrations.GetOverview;
+using Incoders.Hive.Application.Features.Integrations.RoutingPolicies;
 using Incoders.Hive.Application.Features.Integrations.SetDefaultAi;
 using Incoders.Hive.Application.Features.Integrations.TestConnection;
 using Incoders.Hive.Domain.Integrations;
@@ -70,6 +71,20 @@ public static class IntegrationsEndpointsExtensions
             .WithName("SetDefaultAiIntegration")
             .WithSummary("Select default AI provider/model for the resolved organization")
             .Produces<OrganizationIntegrationResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/organization/routing-policies", ListRoutingPoliciesAsync)
+            .WithName("ListOrganizationRoutingPolicies")
+            .WithSummary("List organization routing policies for provider orchestration")
+            .Produces<IReadOnlyList<OrganizationRoutingPolicyResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
+
+        group.MapPut("/organization/routing-policies", UpsertRoutingPolicyAsync)
+            .WithName("UpsertOrganizationRoutingPolicy")
+            .WithSummary("Create or update one organization routing policy")
+            .Produces<OrganizationRoutingPolicyResponse>(StatusCodes.Status200OK)
+            .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -203,6 +218,63 @@ public static class IntegrationsEndpointsExtensions
 
         return result.Match(response => (IResult)TypedResults.Ok(response));
     }
+
+    private static async Task<IResult> ListRoutingPoliciesAsync(
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken,
+        [FromQuery] string? flowKey = null,
+        [FromQuery] string? capabilityKey = null,
+        [FromQuery] string? platformKey = null)
+    {
+        if (currentTenant.TenantId is not { } organizationId)
+        {
+            return IntegrationErrors.OrganizationRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new ListOrganizationRoutingPoliciesQuery(
+                organizationId.Value,
+                flowKey,
+                capabilityKey,
+                platformKey),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    private static async Task<IResult> UpsertRoutingPolicyAsync(
+        [FromBody] UpsertOrganizationRoutingPolicyRequest body,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } organizationId)
+        {
+            return IntegrationErrors.OrganizationRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new UpsertOrganizationRoutingPolicyCommand(
+                organizationId.Value,
+                body.FlowKey,
+                body.CapabilityKey,
+                body.PlatformKey,
+                body.IsEnabled,
+                (body.Candidates ?? Array.Empty<UpsertOrganizationRoutingPolicyCandidateRequest>())
+                    .Select(candidate => new UpsertOrganizationRoutingPolicyCandidateInput(
+                        candidate.ProviderKey,
+                        candidate.Priority,
+                        candidate.AllowManagedFallback,
+                        candidate.MaxAttempts,
+                        candidate.TimeoutMs,
+                        candidate.SelectedModel,
+                        candidate.IsEnabled))
+                    .ToArray()),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
 }
 
 public sealed record ConfigureOrganizationIntegrationRequest(
@@ -214,3 +286,19 @@ public sealed record ConfigureOrganizationIntegrationRequest(
 public sealed record IntegrationCredentialInput(string Key, string? Value);
 
 public sealed record SetDefaultAiIntegrationRequest(string ProviderKey, string? Model);
+
+public sealed record UpsertOrganizationRoutingPolicyRequest(
+    string FlowKey,
+    string CapabilityKey,
+    string? PlatformKey,
+    bool IsEnabled,
+    IReadOnlyList<UpsertOrganizationRoutingPolicyCandidateRequest>? Candidates);
+
+public sealed record UpsertOrganizationRoutingPolicyCandidateRequest(
+    string ProviderKey,
+    int Priority,
+    bool AllowManagedFallback,
+    int MaxAttempts,
+    int TimeoutMs,
+    string? SelectedModel,
+    bool IsEnabled);

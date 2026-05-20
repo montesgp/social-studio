@@ -671,6 +671,32 @@ public sealed class ClientReferentAccountLifecycleTests
             _uniqueIndex.Add((referentAccount.ClientId.Value, referentAccount.SocialNetworkId.Value, referentAccount.ProfileUrl));
         }
 
+        public Task<IReadOnlyList<ClientReferentAccount>> GetAllByClientAsync(
+            ClientId clientId,
+            Guid organizationId,
+            CancellationToken ct)
+        {
+            IReadOnlyList<ClientReferentAccount> items = _store.Values
+                .Where(a => a.ClientId == clientId && a.OrganizationId == organizationId)
+                .OrderBy(a => a.SortOrder).ThenBy(a => a.CreatedAtUtc)
+                .ToList();
+            return Task.FromResult(items);
+        }
+
+        public Task ReorderAsync(
+            ClientId clientId,
+            Guid organizationId,
+            IReadOnlyList<Guid> orderedIds,
+            CancellationToken ct)
+        {
+            var accounts = _store.Values
+                .Where(a => a.ClientId == clientId && a.OrganizationId == organizationId)
+                .ToList();
+
+            ClientReferentAccount.Reorder(accounts, orderedIds, DateTime.UtcNow);
+            return Task.CompletedTask;
+        }
+
         public Task SaveChangesAsync(CancellationToken ct)
         {
             return Task.CompletedTask;

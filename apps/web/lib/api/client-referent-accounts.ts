@@ -82,3 +82,15 @@ export async function activateClientReferentAccount(
     token,
   );
 }
+
+export async function reorderClientReferentAccounts(
+  clientId: string,
+  orderedIds: string[],
+  token?: string,
+): Promise<void> {
+  await apiRequest<void>(
+    `${base(clientId)}/reorder`,
+    { method: "POST", body: JSON.stringify({ orderedIds }) },
+    token,
+  );
+}

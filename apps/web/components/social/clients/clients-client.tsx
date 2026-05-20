@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Archive,
   CheckCircle2,
@@ -20,26 +20,24 @@ import {
 } from "lucide-react";
 import {
   activateSocialClient,
-  createSocialClient,
   deactivateSocialClient,
   getSocialClient,
-  listSocialClients,
-  updateSocialClient
+  listSocialClients
 } from "@/lib/api/social-clients";
 import { ApiError, PageResult, SocialClient } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { ClientReferentAccountsSection } from "@/components/social/clients/client-referent-accounts-section";
 import { ClientBrandManualSection } from "@/components/social/clients/client-brand-manual-section";
+import { ClientFormPanel } from "@/components/social/clients/client-form-panel";
+import { useClientForm } from "@/components/social/clients/use-client-form";
 
-type Mode = "create" | "edit";
 type StatusFilter = "active" | "archived" | "all";
 
 export function ClientsClient() {
@@ -55,17 +53,41 @@ export function ClientsClient() {
   const [status, setStatus] = useState<StatusFilter>("active");
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize] = useState(12);
-  const [formOpen, setFormOpen] = useState(false);
-  const [mode, setMode] = useState<Mode>("create");
-  const [selected, setSelected] = useState<SocialClient | null>(null);
   const [details, setDetails] = useState<SocialClient | null>(null);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
 
-  const items = page?.items ?? [];
   const effectiveToken = sessionToken ?? "";
+  const items = page?.items ?? [];
+
+  const {
+    formOpen,
+    setFormOpen,
+    mode,
+    selected,
+    name,
+    description,
+    sectorOrNiche,
+    submitting,
+    setName,
+    setDescription,
+    setSectorOrNiche,
+    openCreate,
+    openEdit,
+    closeForm,
+    onSubmit,
+  } = useClientForm({
+    effectiveToken,
+    onSuccess: (saved, formMode) => {
+      setSuccess(formMode === "create" ? "Client created." : "Client updated.");
+      toast.success(formMode === "create" ? "Client created" : "Client updated", saved.name);
+      setDetails(saved);
+      void loadClients();
+    },
+    onError: (message) => {
+      setError(message);
+      pushErrorToast(message);
+    },
+  });
   const stats = useMemo(() => {
     const active = items.filter((item) => item.isActive).length;
     return {
@@ -136,58 +158,9 @@ export function ClientsClient() {
     }
   }
 
-  function openCreate() {
-    setMode("create");
-    setSelected(null);
-    setName("");
-    setDescription("");
-    setFormOpen(true);
-  }
-
-  function openEdit(item: SocialClient) {
-    setMode("edit");
-    setSelected(item);
-    setName(item.name);
-    setDescription(item.description ?? "");
-    setFormOpen(true);
-  }
-
   async function openDetails(item: SocialClient) {
     setDetails(item);
     await refreshDetails(item.id);
-  }
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    setSuccess(null);
-
-    try {
-      const payload = { name, description: description.trim() || null };
-      const saved =
-        mode === "create"
-          ? await createSocialClient(payload, effectiveToken || undefined)
-          : selected
-            ? await updateSocialClient(selected.id, payload, effectiveToken || undefined)
-            : null;
-
-      setSuccess(mode === "create" ? "Client created." : "Client updated.");
-      toast.success(mode === "create" ? "Client created" : "Client updated", name.trim());
-      setFormOpen(false);
-      setName("");
-      setDescription("");
-      if (saved) {
-        setDetails(saved);
-      }
-      await loadClients();
-    } catch (err) {
-      const message = (err as ApiError).message;
-      setError(message);
-      pushErrorToast(message);
-    } finally {
-      setSubmitting(false);
-    }
   }
 
   async function onArchive(item: SocialClient) {
@@ -259,6 +232,44 @@ export function ClientsClient() {
         </div>
       </section>
 
+      <AnimatePresence>
+        {formOpen && (
+          <motion.div
+            key="inline-form"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <Card>
+              <CardHeader>
+                <CardTitle>{mode === "create" ? "New client" : "Edit client"}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ClientFormPanel
+                  mode={mode}
+                  clientId={selected?.id ?? null}
+                  name={name}
+                  description={description}
+                  sectorOrNiche={sectorOrNiche}
+                  submitting={submitting}
+                  onNameChange={setName}
+                  onDescriptionChange={setDescription}
+                  onSectorOrNicheChange={setSectorOrNiche}
+                  onSubmit={onSubmit}
+                  onCancel={() => {
+                    closeForm();
+                    setDetails(details);
+                  }}
+                  token={effectiveToken}
+                />
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="grid gap-3 md:grid-cols-4">
         <MetricCard icon={Users} label="Visible" value={stats.visible} hint="Rows in current view" />
         <MetricCard icon={CheckCircle2} label="Active" value={stats.active} hint="Ready for campaigns" />
@@ -287,7 +298,7 @@ export function ClientsClient() {
       {error ? <Notice tone="error" message={error} onDismiss={() => setError(null)} /> : null}
       {success ? <Notice tone="success" message={success} onDismiss={() => setSuccess(null)} /> : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
+      <div className={cn("grid gap-6", !formOpen && "xl:grid-cols-[1fr_420px]")}>
         <Card className="overflow-hidden">
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center justify-between text-base">
@@ -394,13 +405,15 @@ export function ClientsClient() {
           </CardContent>
         </Card>
 
-        <ClientDetailsPanel
-          client={details}
-          onEdit={(item) => openEdit(item)}
-          onArchive={(item) => void onArchive(item)}
-          onReactivate={(item) => void onReactivate(item)}
-          acting={actingId === details?.id}
-        />
+        {!formOpen && (
+          <ClientDetailsPanel
+            client={details}
+            onEdit={(item) => openEdit(item)}
+            onArchive={(item) => void onArchive(item)}
+            onReactivate={(item) => void onReactivate(item)}
+            acting={actingId === details?.id}
+          />
+        )}
       </div>
 
       <Card>
@@ -446,51 +459,6 @@ export function ClientsClient() {
         </CardContent>
       </Card>
 
-      <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{mode === "create" ? "Create client" : "Edit client"}</DialogTitle>
-            <DialogDescription>
-              Manage the Social client profile for this organization.
-            </DialogDescription>
-          </DialogHeader>
-          <form className="space-y-4" onSubmit={onSubmit}>
-            <div className="space-y-2">
-              <label htmlFor="client-name" className="text-sm font-medium">
-                Name
-              </label>
-              <Input
-                id="client-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="e.g. Acme Growth Studio"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="client-description" className="text-sm font-medium">
-                Description <span className="text-muted-foreground">(optional)</span>
-              </label>
-              <textarea
-                id="client-description"
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Brief description of this client..."
-                rows={3}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="secondary" onClick={() => setFormOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={submitting || !name.trim()}>
-                {submitting ? "Saving..." : mode === "create" ? "Create" : "Save changes"}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

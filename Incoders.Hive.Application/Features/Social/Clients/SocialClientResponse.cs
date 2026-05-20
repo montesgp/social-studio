@@ -7,6 +7,7 @@ public sealed record SocialClientResponse(
     Guid OrganizationId,
     string Name,
     string? Description,
+    string? SectorOrNiche,
     bool IsActive,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc)
@@ -17,6 +18,7 @@ public sealed record SocialClientResponse(
             client.OrganizationId,
             client.Name,
             client.Description,
+            client.SectorOrNiche,
             client.IsActive,
             client.CreatedAtUtc,
             client.UpdatedAtUtc);

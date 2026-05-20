@@ -5,6 +5,13 @@ namespace Incoders.Hive.Application.Abstractions.Integrations;
 
 public interface IIntegrationRoutingPolicyRepository
 {
+    Task<IReadOnlyList<IntegrationRoutingPolicy>> ListByOrganizationAsync(
+        Guid organizationId,
+        string? flowKey = null,
+        string? capabilityKey = null,
+        string? platformKey = null,
+        CancellationToken cancellationToken = default);
+
     Task<IntegrationRoutingPolicy?> GetEnabledPolicyAsync(
         Guid organizationId,
         string flowKey,

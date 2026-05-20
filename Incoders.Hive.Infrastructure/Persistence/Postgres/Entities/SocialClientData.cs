@@ -10,6 +10,8 @@ public sealed class SocialClientData
 
     public string? Description { get; set; }
 
+    public string? SectorOrNiche { get; set; }
+
     public bool IsActive { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }
