@@ -25,8 +25,10 @@ public sealed class ApifySocialContentExtractor : ISocialContentExtractor
         SocialContentRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (!ProviderCredentialReader.TryGet(_credential, "api_key", out var token)
-            || !ProviderCredentialReader.TryGet(_credential, "actor_id", out var actorId))
+        var hasApiKey = ProviderCredentialReader.TryGet(_credential, "api_key", out var token)
+            || ProviderCredentialReader.TryGet(_credential, "api_token", out token);
+
+        if (!hasApiKey || !ProviderCredentialReader.TryGet(_credential, "actor_id", out var actorId))
         {
             return Result.Failure<SocialContentSnapshot>(IntegrationErrors.ProviderCredentialUnavailable);
         }

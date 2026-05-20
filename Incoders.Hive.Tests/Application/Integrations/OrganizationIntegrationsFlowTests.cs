@@ -305,7 +305,10 @@ public sealed class OrganizationIntegrationsFlowTests
                     true,
                     true,
                     true,
-                    [new IntegrationCredentialField("api_token", "API token", true, true)],
+                    [
+                        new IntegrationCredentialField("api_key", "API key", true, true),
+                        new IntegrationCredentialField("actor_id", "Actor ID", false, true)
+                    ],
                     nowUtc),
                 CreateProvider(
                     "google-drive",

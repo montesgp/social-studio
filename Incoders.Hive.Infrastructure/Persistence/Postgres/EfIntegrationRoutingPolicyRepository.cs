@@ -15,6 +15,45 @@ public sealed class EfIntegrationRoutingPolicyRepository : IIntegrationRoutingPo
         _dbContext = dbContext;
     }
 
+    public async Task<IReadOnlyList<IntegrationRoutingPolicy>> ListByOrganizationAsync(
+        Guid organizationId,
+        string? flowKey = null,
+        string? capabilityKey = null,
+        string? platformKey = null,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedFlow = NormalizeOptionalKey(flowKey);
+        var normalizedCapability = NormalizeOptionalKey(capabilityKey);
+        var normalizedPlatform = NormalizeOptionalKey(platformKey);
+
+        var query = _dbContext.OrganizationIntegrationRoutingPolicies
+            .AsNoTracking()
+            .Include(x => x.Items)
+                .ThenInclude(x => x.Provider)
+            .Where(x => x.OrganizationId == organizationId);
+
+        if (normalizedFlow is not null)
+        {
+            query = query.Where(x => x.FlowKey == normalizedFlow);
+        }
+
+        if (normalizedCapability is not null)
+        {
+            query = query.Where(x => x.CapabilityKey == normalizedCapability);
+        }
+
+        if (platformKey is not null)
+        {
+            query = query.Where(x => x.PlatformKey == normalizedPlatform);
+        }
+
+        var rows = await query
+            .OrderByDescending(x => x.UpdatedAtUtc)
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(ToDomain).ToArray();
+    }
+
     public async Task<IntegrationRoutingPolicy?> GetEnabledPolicyAsync(
         Guid organizationId,
         string flowKey,

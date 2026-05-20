@@ -12,6 +12,7 @@ import {
   Link2,
   Loader2,
   Music2,
+  Route,
   RefreshCcw,
   Settings2,
   Shield,
@@ -28,8 +29,10 @@ import {
   deleteOrganizationIntegration,
   listIntegrationProviders,
   listOrganizationIntegrations,
+  listOrganizationRoutingPolicies,
   setDefaultAiIntegration,
-  testOrganizationIntegration
+  testOrganizationIntegration,
+  upsertOrganizationRoutingPolicy
 } from "@/lib/api/integrations";
 import { listOrganizations } from "@/lib/api/organizations";
 import {
@@ -39,7 +42,8 @@ import {
   IntegrationStatus,
   Organization,
   OrganizationIntegration,
-  OrganizationIntegrationsOverview
+  OrganizationIntegrationsOverview,
+  OrganizationRoutingPolicy
 } from "@/lib/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -81,6 +85,26 @@ interface ModalState {
   credentials: Record<string, string>;
 }
 
+interface RoutingPolicyDraft {
+  capabilityKey: "social-extraction" | "ai-analysis";
+  platformKey: "tiktok" | "instagram" | "youtube" | null;
+  providerKey: string;
+  selectedModel: string;
+  isEnabled: boolean;
+}
+
+const extractionTargets: Array<{ platformKey: "tiktok" | "instagram" | "youtube"; label: string }> = [
+  { platformKey: "tiktok", label: "TikTok metadata" },
+  { platformKey: "instagram", label: "Instagram metadata" },
+  { platformKey: "youtube", label: "YouTube metadata" }
+];
+
+const singleAnalyzerFlowKey = "single-analyzer";
+
+function policyDraftKey(capabilityKey: string, platformKey: string | null) {
+  return `${capabilityKey}:${platformKey ?? "global"}`;
+}
+
 interface IntegrationsSettingsClientProps {
   isPlatformAdmin: boolean;
 }
@@ -100,6 +124,9 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const [defaultAiProviderKey, setDefaultAiProviderKey] = useState<string>("");
   const [defaultAiModel, setDefaultAiModel] = useState<string>("");
   const [modal, setModal] = useState<ModalState | null>(null);
+  const [routingPolicies, setRoutingPolicies] = useState<OrganizationRoutingPolicy[]>([]);
+  const [routingDrafts, setRoutingDrafts] = useState<Record<string, RoutingPolicyDraft>>({});
+  const [savingRoutingKey, setSavingRoutingKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -143,6 +170,12 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     );
   }, [overview?.integrations]);
 
+  const connectedDataProviders = useMemo(() => {
+    return (overview?.integrations ?? []).filter(
+      (integration) => integration.category === "DataExtraction" && integration.status === "Connected"
+    );
+  }, [overview?.integrations]);
+
   async function bootstrap(accessToken: string) {
     setLoading(true);
     setError(null);
@@ -183,10 +216,21 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     setError(null);
 
     try {
-      const data = await listOrganizationIntegrations(organizationId, accessToken);
+      const [data, policies] = await Promise.all([
+        listOrganizationIntegrations(organizationId, accessToken),
+        listOrganizationRoutingPolicies(
+          organizationId,
+          {
+            flowKey: singleAnalyzerFlowKey
+          },
+          accessToken
+        )
+      ]);
       setOverview(data);
+      setRoutingPolicies(policies);
       setDefaultAiProviderKey(data.defaultAiProviderKey ?? "");
       setDefaultAiModel(data.defaultAiModel ?? "");
+      setRoutingDrafts(createRoutingDrafts(policies, data.integrations, data.defaultAiProviderKey ?? ""));
     } catch (err) {
       setError((err as ApiError).message);
     } finally {
@@ -194,6 +238,116 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
         setRefreshing(false);
       }
     }
+  }
+
+  function createRoutingDrafts(
+    policies: OrganizationRoutingPolicy[],
+    integrations: OrganizationIntegration[],
+    defaultAiProvider: string
+  ) {
+    const drafts: Record<string, RoutingPolicyDraft> = {};
+    const extractionOptions = integrations.filter(
+      (integration) => integration.category === "DataExtraction" && integration.status === "Connected"
+    );
+    const aiOptions = integrations.filter(
+      (integration) => integration.category === "AiModel" && integration.status === "Connected"
+    );
+
+    for (const target of extractionTargets) {
+      const policy = policies.find(
+        (item) =>
+          item.flowKey === singleAnalyzerFlowKey
+          && item.capabilityKey === "social-extraction"
+          && item.platformKey === target.platformKey
+      );
+      const candidate = policy?.candidates.find((item) => item.isEnabled) ?? policy?.candidates[0];
+
+      drafts[policyDraftKey("social-extraction", target.platformKey)] = {
+        capabilityKey: "social-extraction",
+        platformKey: target.platformKey,
+        providerKey: candidate?.providerKey ?? extractionOptions[0]?.providerKey ?? "",
+        selectedModel: candidate?.selectedModel ?? "",
+        isEnabled: policy?.isEnabled ?? true
+      };
+    }
+
+    const aiPolicy = policies.find(
+      (item) =>
+        item.flowKey === singleAnalyzerFlowKey
+        && item.capabilityKey === "ai-analysis"
+        && item.platformKey === null
+    );
+    const aiCandidate = aiPolicy?.candidates.find((item) => item.isEnabled) ?? aiPolicy?.candidates[0];
+    const resolvedAiProviderKey = aiCandidate?.providerKey ?? defaultAiProvider ?? aiOptions[0]?.providerKey ?? "";
+    drafts[policyDraftKey("ai-analysis", null)] = {
+      capabilityKey: "ai-analysis",
+      platformKey: null,
+      providerKey: resolvedAiProviderKey,
+      selectedModel: aiCandidate?.selectedModel ?? "",
+      isEnabled: aiPolicy?.isEnabled ?? true
+    };
+
+    return drafts;
+  }
+
+  async function saveRoutingDraft(draft: RoutingPolicyDraft) {
+    if (!selectedOrganizationId || !token || !draft.providerKey) {
+      return;
+    }
+
+    const draftKey = policyDraftKey(draft.capabilityKey, draft.platformKey);
+    setSavingRoutingKey(draftKey);
+    setError(null);
+
+    try {
+      await upsertOrganizationRoutingPolicy(
+        selectedOrganizationId,
+        {
+          flowKey: singleAnalyzerFlowKey,
+          capabilityKey: draft.capabilityKey,
+          platformKey: draft.platformKey ?? undefined,
+          isEnabled: draft.isEnabled,
+          candidates: [
+            {
+              providerKey: draft.providerKey,
+              priority: 1,
+              allowManagedFallback: true,
+              maxAttempts: 2,
+              timeoutMs: 15_000,
+              selectedModel: draft.selectedModel || undefined,
+              isEnabled: true
+            }
+          ]
+        },
+        token
+      );
+
+      toast.success("Routing policy updated", `${draft.capabilityKey} policy saved.`);
+      await loadOverview(selectedOrganizationId, token, false);
+    } catch (err) {
+      const message = (err as ApiError).message;
+      setError(message);
+      toast.error("Could not save routing policy", message);
+    } finally {
+      setSavingRoutingKey(null);
+    }
+  }
+
+  function patchRoutingDraft(key: string, patch: Partial<RoutingPolicyDraft>) {
+    setRoutingDrafts((prev) => {
+      const current = prev[key];
+      if (!current) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [key]: {
+          ...current,
+          ...patch
+        }
+      };
+    });
   }
 
   function openConfigure(integration: OrganizationIntegration) {
@@ -441,6 +595,125 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                   Save default
                 </Button>
               </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Route className="h-4 w-4 text-primary" /> Single Analyzer routing policy
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Define provider routing for social extraction and AI analysis in the single-analyzer workflow.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="text-xs text-muted-foreground">
+                Existing policies loaded: <span className="text-foreground">{routingPolicies.length}</span>
+              </div>
+
+              {extractionTargets.map((target) => {
+                const key = policyDraftKey("social-extraction", target.platformKey);
+                const draft = routingDrafts[key];
+                if (!draft) {
+                  return null;
+                }
+
+                return (
+                  <div key={key} className="grid gap-3 rounded-xl border border-border bg-background/40 p-4 lg:grid-cols-[1fr_220px_auto_auto]">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">{target.label}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Capability: social-extraction / Platform: {target.platformKey}
+                      </p>
+                    </div>
+                    <select
+                      className="h-10 rounded-md border border-border bg-background px-3 text-sm"
+                      value={draft.providerKey}
+                      onChange={(event) => patchRoutingDraft(key, { providerKey: event.target.value })}
+                      disabled={connectedDataProviders.length === 0}
+                    >
+                      {connectedDataProviders.length === 0 ? (
+                        <option value="">No connected data extraction provider</option>
+                      ) : null}
+                      {connectedDataProviders.map((integration) => (
+                        <option key={integration.providerKey} value={integration.providerKey}>
+                          {integration.providerDisplayName}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={draft.isEnabled}
+                        onChange={(event) => patchRoutingDraft(key, { isEnabled: event.target.checked })}
+                      />
+                      Enabled
+                    </label>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void saveRoutingDraft(draft)}
+                      disabled={!draft.providerKey || savingRoutingKey === key}
+                    >
+                      {savingRoutingKey === key ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                );
+              })}
+
+              {(() => {
+                const key = policyDraftKey("ai-analysis", null);
+                const draft = routingDrafts[key];
+                if (!draft) {
+                  return null;
+                }
+
+                return (
+                  <div className="grid gap-3 rounded-xl border border-border bg-background/40 p-4 lg:grid-cols-[1fr_220px_220px_auto_auto]">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">AI analysis routing</p>
+                      <p className="text-xs text-muted-foreground">
+                        Capability: ai-analysis / Platform: global
+                      </p>
+                    </div>
+                    <select
+                      className="h-10 rounded-md border border-border bg-background px-3 text-sm"
+                      value={draft.providerKey}
+                      onChange={(event) => patchRoutingDraft(key, { providerKey: event.target.value })}
+                      disabled={connectedAiIntegrations.length === 0}
+                    >
+                      {connectedAiIntegrations.length === 0 ? (
+                        <option value="">No connected AI provider</option>
+                      ) : null}
+                      {connectedAiIntegrations.map((integration) => (
+                        <option key={integration.providerKey} value={integration.providerKey}>
+                          {integration.providerDisplayName}
+                        </option>
+                      ))}
+                    </select>
+                    <Input
+                      value={draft.selectedModel}
+                      onChange={(event) => patchRoutingDraft(key, { selectedModel: event.target.value })}
+                      placeholder="Optional model (e.g. claude-opus-4-1)"
+                    />
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={draft.isEnabled}
+                        onChange={(event) => patchRoutingDraft(key, { isEnabled: event.target.checked })}
+                      />
+                      Enabled
+                    </label>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void saveRoutingDraft(draft)}
+                      disabled={!draft.providerKey || savingRoutingKey === key}
+                    >
+                      {savingRoutingKey === key ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
 
