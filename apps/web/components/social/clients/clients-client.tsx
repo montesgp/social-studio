@@ -20,11 +20,9 @@ import {
 } from "lucide-react";
 import {
   activateSocialClient,
-  createSocialClient,
   deactivateSocialClient,
   getSocialClient,
-  listSocialClients,
-  updateSocialClient
+  listSocialClients
 } from "@/lib/api/social-clients";
 import { ApiError, PageResult, SocialClient } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
@@ -38,8 +36,8 @@ import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { ClientReferentAccountsSection } from "@/components/social/clients/client-referent-accounts-section";
 import { ClientBrandManualSection } from "@/components/social/clients/client-brand-manual-section";
+import { useClientForm } from "@/components/social/clients/use-client-form";
 
-type Mode = "create" | "edit";
 type StatusFilter = "active" | "archived" | "all";
 
 export function ClientsClient() {
@@ -55,17 +53,38 @@ export function ClientsClient() {
   const [status, setStatus] = useState<StatusFilter>("active");
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize] = useState(12);
-  const [formOpen, setFormOpen] = useState(false);
-  const [mode, setMode] = useState<Mode>("create");
-  const [selected, setSelected] = useState<SocialClient | null>(null);
   const [details, setDetails] = useState<SocialClient | null>(null);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
 
-  const items = page?.items ?? [];
   const effectiveToken = sessionToken ?? "";
+  const items = page?.items ?? [];
+
+  const {
+    formOpen,
+    setFormOpen,
+    mode,
+    selected,
+    name,
+    description,
+    submitting,
+    setName,
+    setDescription,
+    openCreate,
+    openEdit,
+    onSubmit,
+  } = useClientForm({
+    effectiveToken,
+    onSuccess: (saved, formMode) => {
+      setSuccess(formMode === "create" ? "Client created." : "Client updated.");
+      toast.success(formMode === "create" ? "Client created" : "Client updated", saved.name);
+      setDetails(saved);
+      void loadClients();
+    },
+    onError: (message) => {
+      setError(message);
+      pushErrorToast(message);
+    },
+  });
   const stats = useMemo(() => {
     const active = items.filter((item) => item.isActive).length;
     return {
@@ -136,58 +155,9 @@ export function ClientsClient() {
     }
   }
 
-  function openCreate() {
-    setMode("create");
-    setSelected(null);
-    setName("");
-    setDescription("");
-    setFormOpen(true);
-  }
-
-  function openEdit(item: SocialClient) {
-    setMode("edit");
-    setSelected(item);
-    setName(item.name);
-    setDescription(item.description ?? "");
-    setFormOpen(true);
-  }
-
   async function openDetails(item: SocialClient) {
     setDetails(item);
     await refreshDetails(item.id);
-  }
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    setSuccess(null);
-
-    try {
-      const payload = { name, description: description.trim() || null };
-      const saved =
-        mode === "create"
-          ? await createSocialClient(payload, effectiveToken || undefined)
-          : selected
-            ? await updateSocialClient(selected.id, payload, effectiveToken || undefined)
-            : null;
-
-      setSuccess(mode === "create" ? "Client created." : "Client updated.");
-      toast.success(mode === "create" ? "Client created" : "Client updated", name.trim());
-      setFormOpen(false);
-      setName("");
-      setDescription("");
-      if (saved) {
-        setDetails(saved);
-      }
-      await loadClients();
-    } catch (err) {
-      const message = (err as ApiError).message;
-      setError(message);
-      pushErrorToast(message);
-    } finally {
-      setSubmitting(false);
-    }
   }
 
   async function onArchive(item: SocialClient) {
