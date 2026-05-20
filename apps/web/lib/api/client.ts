@@ -1,5 +1,6 @@
 import { ApiError, ProblemDetails } from "@/lib/api/types";
 import * as httpLoadingStore from "@/lib/loading/http-loading-store";
+import { ACTIVE_ORG_STORAGE_KEY } from "@/lib/auth/session";
 
 const BROWSER_API_BASE_URL = "/hive-api";
 
@@ -21,12 +22,15 @@ export async function apiRequest<T>(path: string, init?: RequestInit, token?: st
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const baseUrl = typeof window === "undefined" ? getServerApiBaseUrl() : BROWSER_API_BASE_URL;
   const isBrowser = typeof window !== "undefined";
+  const baseUrl = isBrowser ? BROWSER_API_BASE_URL : getServerApiBaseUrl();
 
   if (isBrowser) {
-    httpLoadingStore.increment();
+    const orgId = window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+    if (orgId) headers.set("X-Tenant-Id", orgId);
   }
+
+  if (isBrowser) httpLoadingStore.increment();
 
   let response: Response;
   try {

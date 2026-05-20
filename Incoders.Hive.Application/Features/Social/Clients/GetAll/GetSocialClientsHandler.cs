@@ -20,11 +20,6 @@ public sealed class GetSocialClientsHandler
         GetSocialClientsQuery request,
         CancellationToken cancellationToken)
     {
-        if (request.OrganizationId == Guid.Empty)
-        {
-            return Result.Failure<PageResult<SocialClientResponse>>(ClientErrors.OrganizationRequired);
-        }
-
         var (items, totalCount) = await _clients.ListAsync(
             new SocialClientQuery(
                 request.OrganizationId,
@@ -36,8 +31,8 @@ public sealed class GetSocialClientsHandler
 
         return Result.Success(new PageResult<SocialClientResponse>(
             items.Select(SocialClientResponse.FromDomain).ToList(),
-            totalCount,
             request.Page,
-            request.PageSize));
+            request.PageSize,
+            totalCount));
     }
 }

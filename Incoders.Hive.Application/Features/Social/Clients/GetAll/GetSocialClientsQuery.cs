@@ -5,7 +5,7 @@ using MediatR;
 namespace Incoders.Hive.Application.Features.Social.Clients.GetAll;
 
 public sealed record GetSocialClientsQuery(
-    Guid OrganizationId,
+    Guid? OrganizationId,
     string? Name,
     bool IncludeInactive,
     int Page,

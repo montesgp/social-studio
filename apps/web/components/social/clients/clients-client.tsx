@@ -642,7 +642,7 @@ function Notice({ tone, message, onDismiss }: { tone: "error" | "success"; messa
     <div
       className={cn(
         "flex items-center justify-between rounded-xl border p-4 text-sm",
-        tone === "error" ? "border-red-500/40 bg-red-500/10 text-red-100" : "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"
+        tone === "error" ? "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-200" : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
       )}
     >
       <span>{tone === "error" ? `Error: ${message}` : message}</span>

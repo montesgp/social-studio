@@ -16,3 +16,4 @@ export const ACCESS_TOKEN_EXPIRES_COOKIE_NAME = "incoders_hive_access_token_expi
 
 export const AUTH_SESSION_STORAGE_KEY = "incoders.hive.auth.session";
 export const AUTH_SESSION_CHANGE_EVENT = "incoders-hive-auth-session-changed";
+export const ACTIVE_ORG_STORAGE_KEY = "incoders.hive.active.org";

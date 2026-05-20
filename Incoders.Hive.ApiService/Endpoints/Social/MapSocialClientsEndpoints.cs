@@ -1,4 +1,5 @@
 using Incoders.Hive.ApiService.Endpoints.Common;
+using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Application.Common.Pagination;
 using Incoders.Hive.Application.Features.Social.Clients;
@@ -74,19 +75,32 @@ public static class SocialClientsEndpointsExtensions
     private static async Task<IResult> ListAsync(
         ISender sender,
         ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
         CancellationToken cancellationToken,
+        [FromQuery] Guid? organizationId = null,
         [FromQuery] string? name = null,
         [FromQuery] bool includeInactive = false,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
-        if (currentTenant.TenantId is not { } organizationId)
+        Guid? resolvedOrganizationId;
+
+        if (currentUser.IsPlatformAdmin)
         {
-            return ClientErrors.OrganizationRequired.ToProblem();
+            // null = all orgs; explicit param scopes to a specific org
+            resolvedOrganizationId = organizationId;
+        }
+        else
+        {
+            if (currentTenant.TenantId is not { } tenantId)
+            {
+                return ClientErrors.OrganizationRequired.ToProblem();
+            }
+            resolvedOrganizationId = tenantId.Value;
         }
 
         var result = await sender.Send(
-            new GetSocialClientsQuery(organizationId.Value, name, includeInactive, page, pageSize),
+            new GetSocialClientsQuery(resolvedOrganizationId, name, includeInactive, page, pageSize),
             cancellationToken);
 
         return result.Match(r => (IResult)TypedResults.Ok(r));

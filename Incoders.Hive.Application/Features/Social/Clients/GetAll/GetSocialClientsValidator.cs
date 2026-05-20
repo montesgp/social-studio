@@ -6,9 +6,6 @@ public sealed class GetSocialClientsValidator : AbstractValidator<GetSocialClien
 {
     public GetSocialClientsValidator()
     {
-        RuleFor(x => x.OrganizationId)
-            .NotEmpty().WithMessage("social.clients.errors.organization_required");
-
         RuleFor(x => x.Page)
             .GreaterThan(0).WithMessage("common.errors.page_positive");
 

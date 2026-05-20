@@ -3,6 +3,7 @@
 import {
   ACCESS_TOKEN_COOKIE_NAME,
   ACCESS_TOKEN_EXPIRES_COOKIE_NAME,
+  ACTIVE_ORG_STORAGE_KEY,
   AUTH_SESSION_CHANGE_EVENT,
   AUTH_SESSION_STORAGE_KEY,
   REFRESH_TOKEN_COOKIE_NAME,
@@ -128,10 +129,26 @@ export function clearAuthSession() {
   }
 
   window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+  window.localStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
   removeCookie(ACCESS_TOKEN_COOKIE_NAME);
   removeCookie(REFRESH_TOKEN_COOKIE_NAME);
   removeCookie(ACCESS_TOKEN_EXPIRES_COOKIE_NAME);
   publishSessionChange();
+}
+
+export function getActiveOrganizationId(): string | null {
+  if (!isBrowser()) return null;
+  return window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+}
+
+export function setActiveOrganizationId(id: string): void {
+  if (!isBrowser()) return;
+  window.localStorage.setItem(ACTIVE_ORG_STORAGE_KEY, id);
+}
+
+export function clearActiveOrganizationId(): void {
+  if (!isBrowser()) return;
+  window.localStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
 }
 
 export function subscribeToSessionChanges(listener: (session: StoredAuthSession | null) => void) {

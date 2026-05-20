@@ -34,8 +34,12 @@ public sealed class EfSocialClientRepository : ISocialClientRepository
         CancellationToken cancellationToken = default)
     {
         IQueryable<SocialClientData> source = _dbContext.SocialClients
-            .AsNoTracking()
-            .Where(x => x.OrganizationId == query.OrganizationId);
+            .AsNoTracking();
+
+        if (query.OrganizationId.HasValue)
+        {
+            source = source.Where(x => x.OrganizationId == query.OrganizationId.Value);
+        }
 
         if (!query.IncludeInactive)
         {
