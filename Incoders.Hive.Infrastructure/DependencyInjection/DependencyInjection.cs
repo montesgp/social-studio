@@ -1,6 +1,8 @@
 using Incoders.Hive.Application.Abstractions;
+using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Infrastructure.Ai;
 using Incoders.Hive.Infrastructure.Social;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Infrastructure.Caching.InMemory;
@@ -32,6 +34,7 @@ public static class DependencyInjection
 
         services.AddSingleton<ICacheStore, InMemoryCacheStore>();
         services.AddSingleton<IClock, SystemClock>();
+        services.AddHttpClient();
 
         services.TryAddScoped<ICurrentUser, NullCurrentUser>();
 
@@ -98,9 +101,19 @@ public static class DependencyInjection
         services.AddScoped<IIntegrationProviderCatalogRepository, EfIntegrationProviderCatalogRepository>();
         services.AddScoped<IOrganizationIntegrationRepository, EfOrganizationIntegrationRepository>();
         services.AddScoped<IOrganizationIntegrationCredentialRepository, EfOrganizationIntegrationCredentialRepository>();
+        services.AddScoped<IIntegrationRoutingPolicyRepository, EfIntegrationRoutingPolicyRepository>();
+        services.AddScoped<IIntegrationExecutionAttemptRepository, EfIntegrationExecutionAttemptRepository>();
+        services.AddScoped<ISingleContentAnalysisRepository, EfSingleContentAnalysisRepository>();
         services.AddScoped<IIntegrationSecretProtector, DataProtectionIntegrationSecretProtector>();
         services.AddScoped<IIntegrationConnectionTester, DefaultIntegrationConnectionTester>();
         services.AddScoped<IIntegrationResolver, IntegrationResolver>();
+        services.AddScoped<IOrganizationIntegrationResolver, OrganizationIntegrationResolver>();
+        services.AddScoped<IIntegrationCredentialResolver, IntegrationCredentialResolver>();
+        services.AddScoped<IProviderFallbackPolicy, ProviderFallbackPolicy>();
+        services.AddScoped<IIntegrationExecutionPolicy, IntegrationExecutionPolicy>();
+        services.AddScoped<IExternalProviderClientFactory, ExternalProviderClientFactory>();
+        services.AddScoped<IAiCompletionGateway, AiCompletionGateway>();
+        services.AddScoped<ISocialContentResolver, SocialContentResolver>();
         services.AddScoped<IntegrationCatalogSeeder>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 

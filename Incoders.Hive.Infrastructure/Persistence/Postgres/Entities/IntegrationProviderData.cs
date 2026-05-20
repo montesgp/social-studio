@@ -31,4 +31,8 @@ public sealed class IntegrationProviderData
     public DateTime UpdatedAtUtc { get; set; }
 
     public ICollection<OrganizationIntegrationData> OrganizationIntegrations { get; set; } = new List<OrganizationIntegrationData>();
+
+    public ICollection<IntegrationProviderCapabilityData> Capabilities { get; set; } = new List<IntegrationProviderCapabilityData>();
+
+    public ICollection<OrganizationIntegrationRoutingPolicyItemData> RoutingPolicyItems { get; set; } = new List<OrganizationIntegrationRoutingPolicyItemData>();
 }
