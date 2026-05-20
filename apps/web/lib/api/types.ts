@@ -37,6 +37,7 @@ export interface SocialClient {
   organizationId: string;
   name: string;
   description: string | null;
+  sectorOrNiche?: string | null;
   isActive: boolean;
   createdAtUtc: string;
   updatedAtUtc: string;
@@ -241,6 +242,30 @@ export interface OrganizationIntegrationsOverview {
   integrations: OrganizationIntegration[];
 }
 
+export interface OrganizationRoutingPolicyCandidate {
+  providerId: string;
+  providerKey: string;
+  connectionMode: IntegrationConnectionMode;
+  priority: number;
+  allowManagedFallback: boolean;
+  maxAttempts: number;
+  timeoutMs: number;
+  selectedModel: string | null;
+  isEnabled: boolean;
+}
+
+export interface OrganizationRoutingPolicy {
+  id: string;
+  organizationId: string;
+  flowKey: string;
+  capabilityKey: string;
+  platformKey: string | null;
+  isEnabled: boolean;
+  candidates: OrganizationRoutingPolicyCandidate[];
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
 export interface ClientReferentAccount {
   id: string;
   clientId: string;
@@ -254,6 +279,7 @@ export interface ClientReferentAccount {
   label: string | null;
   notes: string | null;
   isActive: boolean;
+  sortOrder: number;
   createdAtUtc: string;
   updatedAtUtc: string;
 }
@@ -349,4 +375,42 @@ export interface UpdateClientBrandManualPayload {
 export interface PagedClientBrandManuals {
   items: ClientBrandManual[];
   totalCount: number;
+}
+
+export interface ClientStrategy {
+  id: string;
+  clientId: string;
+  organizationId: string;
+  contentPillars: string[];
+  toneKeywords: string[];
+  targetAudience: string | null;
+  postingFrequency: string | null;
+  notes: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface UpsertClientStrategyPayload {
+  contentPillars: string[];
+  toneKeywords: string[];
+  targetAudience?: string | null;
+  postingFrequency?: string | null;
+  notes?: string | null;
+}
+
+export interface MonthlyObjective {
+  id: string;
+  clientId: string;
+  organizationId: string;
+  year: number;
+  month: number;
+  objectives: string;
+  kpis: string[];
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface UpsertMonthlyObjectivePayload {
+  objectives: string;
+  kpis?: string[];
 }

@@ -7,6 +7,7 @@ import {
   createClientReferentAccount,
   deactivateClientReferentAccount,
   listClientReferentAccounts,
+  reorderClientReferentAccounts,
   updateClientReferentAccount,
 } from "@/lib/api/client-referent-accounts";
 import { listSocialNetworks } from "@/lib/api/social-networks";
@@ -27,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { SortableChildTable, Column } from "@/components/ui/sortable-child-table";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
 
@@ -51,13 +53,11 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
   const [accounts, setAccounts] = useState<ClientReferentAccount[]>([]);
   const [networks, setNetworks] = useState<SocialNetwork[]>([]);
   const [loading, setLoading] = useState(true);
-  const [acting, setActing] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<ClientReferentAccount | null>(null);
 
-  // Create dialog form
   const [createNetworkId, setCreateNetworkId] = useState("");
   const [createProfileUrl, setCreateProfileUrl] = useState("");
   const [createHandle, setCreateHandle] = useState("");
@@ -66,7 +66,6 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
   const [createProfileUrlError, setCreateProfileUrlError] = useState<string | null>(null);
   const [submittingCreate, setSubmittingCreate] = useState(false);
 
-  // Edit dialog form
   const [editProfileUrl, setEditProfileUrl] = useState("");
   const [editHandle, setEditHandle] = useState("");
   const [editLabel, setEditLabel] = useState("");
@@ -81,7 +80,8 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
     setLoading(true);
     try {
       const result = await listClientReferentAccounts(clientId, { includeInactive: false }, effectiveToken);
-      setAccounts(result.items);
+      const sorted = [...result.items].sort((a, b) => a.sortOrder - b.sortOrder);
+      setAccounts(sorted);
     } catch {
       toast.error("Referent accounts", "Failed to load referent accounts.");
     } finally {
@@ -97,9 +97,7 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
     if (!effectiveToken) return;
     listSocialNetworks({}, effectiveToken)
       .then((result) => setNetworks(result.items))
-      .catch(() => {
-        // Networks failed to load — dropdown will be empty
-      });
+      .catch(() => {});
   }, [effectiveToken]);
 
   function openCreate() {
@@ -180,33 +178,104 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
     }
   }
 
-  async function handleDeactivate(account: ClientReferentAccount) {
-    setActing(account.id);
+  async function handleReorder(orderedIds: string[]) {
     try {
-      await deactivateClientReferentAccount(clientId, account.id, effectiveToken);
-      toast.success("Deactivated", "Referent account archived.");
+      await reorderClientReferentAccounts(clientId, orderedIds, effectiveToken);
       void loadAccounts();
     } catch (err) {
-      const message = (err as { message?: string })?.message ?? "Failed to deactivate.";
-      toast.error("Deactivate failed", message);
-    } finally {
-      setActing(null);
+      const message = (err as { message?: string })?.message ?? "Failed to reorder accounts.";
+      toast.error("Reorder failed", message);
+      void loadAccounts();
     }
   }
 
-  async function handleActivate(account: ClientReferentAccount) {
-    setActing(account.id);
+  async function handleToggleActive(id: string, currentlyActive: boolean) {
     try {
-      await activateClientReferentAccount(clientId, account.id, effectiveToken);
-      toast.success("Activated", "Referent account reactivated.");
+      if (currentlyActive) {
+        await deactivateClientReferentAccount(clientId, id, effectiveToken);
+        toast.success("Deactivated", "Referent account archived.");
+      } else {
+        await activateClientReferentAccount(clientId, id, effectiveToken);
+        toast.success("Activated", "Referent account reactivated.");
+      }
       void loadAccounts();
     } catch (err) {
-      const message = (err as { message?: string })?.message ?? "Failed to activate.";
-      toast.error("Activate failed", message);
-    } finally {
-      setActing(null);
+      const message = (err as { message?: string })?.message ?? "Failed to update account status.";
+      toast.error("Status update failed", message);
     }
   }
+
+  const columns: Column<ClientReferentAccount>[] = [
+    {
+      key: "account",
+      label: "Account",
+      render: (account) => {
+        const Icon = getSocialNetworkIcon(account.socialNetworkIconKey);
+        return (
+          <div className="flex items-center gap-2 min-w-0">
+            <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">
+                {account.handle ?? truncate(account.profileUrl, 40)}
+              </p>
+              {account.label ? (
+                <p className="text-xs text-muted-foreground">{account.label}</p>
+              ) : null}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      key: "network",
+      label: "Network",
+      render: (account) => (
+        <span className="text-xs text-muted-foreground">{account.socialNetworkDisplayName}</span>
+      ),
+    },
+    {
+      key: "url",
+      label: "URL",
+      render: (account) => (
+        <a
+          href={account.profileUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          <ExternalLink className="h-3 w-3" />
+          {truncate(account.profileUrl, 36)}
+        </a>
+      ),
+    },
+    {
+      key: "status",
+      label: "Status",
+      render: (account) => (
+        <div className="flex items-center gap-1.5">
+          <Badge variant={account.isActive ? "success" : "muted"} className="text-xs">
+            {account.isActive ? "Active" : "Inactive"}
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={() => openEdit(account)}
+          >
+            Edit
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={() => void handleToggleActive(account.id, account.isActive)}
+          >
+            {account.isActive ? "Archive" : "Restore"}
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-3">
@@ -217,82 +286,16 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
         </Button>
       </div>
 
-      {loading ? (
-        <p className="text-xs text-muted-foreground">Loading…</p>
-      ) : accounts.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          No referent accounts yet. Add one to start tracking.
-        </p>
-      ) : (
-        <div className="max-h-[400px] overflow-y-auto space-y-2 pr-1">
-          {accounts.map((account) => {
-            const Icon = getSocialNetworkIcon(account.socialNetworkIconKey);
-            return (
-              <div
-                key={account.id}
-                className="flex items-start justify-between gap-2 rounded-lg border border-border bg-muted/30 p-3"
-              >
-                <div className="flex items-start gap-2 min-w-0">
-                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {account.handle ?? truncate(account.profileUrl, 40)}
-                    </p>
-                    {account.label ? (
-                      <p className="text-xs text-muted-foreground">{account.label}</p>
-                    ) : null}
-                    <a
-                      href={account.profileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-xs text-primary hover:underline"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      {truncate(account.profileUrl, 48)}
-                    </a>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <Badge variant={account.isActive ? "success" : "muted"} className="text-xs">
-                    {account.isActive ? "Active" : "Inactive"}
-                  </Badge>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-6 px-2 text-xs"
-                    onClick={() => openEdit(account)}
-                  >
-                    Edit
-                  </Button>
-                  {account.isActive ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-6 px-2 text-xs text-destructive hover:text-destructive"
-                      disabled={acting === account.id}
-                      onClick={() => handleDeactivate(account)}
-                    >
-                      Archive
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-6 px-2 text-xs"
-                      disabled={acting === account.id}
-                      onClick={() => handleActivate(account)}
-                    >
-                      Restore
-                    </Button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <SortableChildTable<ClientReferentAccount>
+        items={accounts}
+        getId={(item) => item.id}
+        columns={columns}
+        onReorder={(orderedIds) => void handleReorder(orderedIds)}
+        primaryLabel="Principal"
+        isLoading={loading}
+        emptyState="No referent accounts yet. Add one to start tracking."
+      />
 
-      {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -313,14 +316,11 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 required
               >
-                {networks.map((n) => {
-                  const NIcon = getSocialNetworkIcon(n.iconKey);
-                  return (
-                    <option key={n.id} value={n.id}>
-                      {n.displayName}
-                    </option>
-                  );
-                })}
+                {networks.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.displayName}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="space-y-1">
@@ -390,7 +390,6 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
         </DialogContent>
       </Dialog>
 
-      {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
