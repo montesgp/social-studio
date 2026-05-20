@@ -139,6 +139,91 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("users", "identity");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientBrandManualData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BackgroundTemplates")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("background_templates")
+                        .HasDefaultValueSql("'[]'");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_id");
+
+                    b.Property<string>("ColorPalette")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("color_palette")
+                        .HasDefaultValueSql("'[]'");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Logos")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("logos")
+                        .HasDefaultValueSql("'[]'");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("notes");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("title");
+
+                    b.Property<string>("Typography")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("typography")
+                        .HasDefaultValueSql("'[]'");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<string>("VoiceAndTone")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("voice_and_tone");
+
+                    b.HasKey("Id")
+                        .HasName("pk_client_brand_manuals");
+
+                    b.HasIndex("ClientId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_client_brand_manuals_one_active_per_client")
+                        .HasFilter("is_active = true");
+
+                    b.HasIndex("OrganizationId")
+                        .HasDatabaseName("ix_client_brand_manuals_organization_id");
+
+                    b.ToTable("client_brand_manuals", "social");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientReferentAccountData", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1103,6 +1188,23 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasName("pk_user_tokens");
 
                     b.ToTable("user_tokens", "identity");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientBrandManualData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_client_brand_manuals_clients_client_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_client_brand_manuals_organizations_organization_id");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientReferentAccountData", b =>

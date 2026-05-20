@@ -283,3 +283,70 @@ export interface PagedClientReferentAccounts {
   items: ClientReferentAccount[];
   totalCount: number;
 }
+
+export interface ColorEntry {
+  name: string;
+  hex: string;
+  role: string | null;
+}
+
+export interface LogoEntry {
+  name: string;
+  url: string;
+  variant: string | null;
+}
+
+export interface BackgroundEntry {
+  name: string;
+  url: string;
+  useCase: string | null;
+}
+
+export interface TypographyEntry {
+  name: string;
+  fontFamily: string;
+  role: string | null;
+  fontUrl: string | null;
+  weight: string | null;
+}
+
+export interface ClientBrandManual {
+  id: string;
+  clientId: string;
+  organizationId: string;
+  title: string;
+  colorPalette: ColorEntry[];
+  logos: LogoEntry[];
+  backgroundTemplates: BackgroundEntry[];
+  typography: TypographyEntry[];
+  voiceAndTone: string | null;
+  notes: string | null;
+  isActive: boolean;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface CreateClientBrandManualPayload {
+  title: string;
+  colorPalette: ColorEntry[];
+  logos: LogoEntry[];
+  backgroundTemplates: BackgroundEntry[];
+  typography: TypographyEntry[];
+  voiceAndTone?: string;
+  notes?: string;
+}
+
+export interface UpdateClientBrandManualPayload {
+  title: string;
+  colorPalette: ColorEntry[];
+  logos: LogoEntry[];
+  backgroundTemplates: BackgroundEntry[];
+  typography: TypographyEntry[];
+  voiceAndTone?: string;
+  notes?: string;
+}
+
+export interface PagedClientBrandManuals {
+  items: ClientBrandManual[];
+  totalCount: number;
+}
