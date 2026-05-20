@@ -191,6 +191,47 @@ public sealed class ClientTests
         Assert.Equal("social.clients.already_active", result.Error.Code);
     }
 
+    // --- SectorOrNiche ---
+
+    [Fact]
+    public void Create_WithValidSectorOrNiche_ReturnsSectorOrNiche()
+    {
+        var result = Client.Create(ClientId.New(), Guid.NewGuid(), "Acme Social", "desc", Now, "Beauty & Wellness");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Beauty & Wellness", result.Value.SectorOrNiche);
+    }
+
+    [Fact]
+    public void Create_WithSectorOrNicheExceeding300Chars_ReturnsError()
+    {
+        var tooLong = new string('x', Client.SectorOrNicheMaxLength + 1);
+        var result = Client.Create(ClientId.New(), Guid.NewGuid(), "Acme", null, Now, tooLong);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("social.clients.sector_or_niche_too_long", result.Error.Code);
+    }
+
+    [Fact]
+    public void Create_WithNullSectorOrNiche_Succeeds()
+    {
+        var result = Client.Create(ClientId.New(), Guid.NewGuid(), "Acme Social", null, Now, null);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value.SectorOrNiche);
+    }
+
+    [Fact]
+    public void Rename_ThreadsSectorOrNicheThrough()
+    {
+        var client = Client.Create(ClientId.New(), Guid.NewGuid(), "Acme Social", null, Now, null).Value;
+
+        var result = client.Rename("Acme Social", null, Now, "Fashion & Style");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Fashion & Style", client.SectorOrNiche);
+    }
+
     private static Client CreateValidClient()
     {
         var result = Client.Create(ClientId.New(), Guid.NewGuid(), "Acme Social", "Primary account", Now);

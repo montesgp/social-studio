@@ -117,6 +117,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Description).HasMaxLength(1_000);
+            entity.Property(x => x.SectorOrNiche).HasMaxLength(300);
             entity.Property(x => x.IsActive).IsRequired();
             entity.HasIndex(x => new { x.OrganizationId, x.Name });
             entity.HasOne(x => x.Organization)
@@ -275,6 +276,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.Label).HasColumnName("label").HasMaxLength(80);
             entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(500);
             entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
             entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
             entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
 
@@ -304,6 +306,9 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasIndex(x => x.ClientId)
                 .HasDatabaseName("ix_client_referent_accounts_client_id");
 
+            entity.HasIndex(x => new { x.ClientId, x.SortOrder })
+                .HasDatabaseName("ix_client_referent_accounts_client_sort_order");
+
             entity.HasIndex(x => x.OrganizationId)
                 .HasDatabaseName("ix_client_referent_accounts_organization_id");
 
@@ -326,10 +331,10 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
 
             // jsonb columns — ADR 3/4/5
-            ConfigureJsonbCollection<ColorEntry>(entity, x => x.ColorPalette, "color_palette");
-            ConfigureJsonbCollection<LogoEntry>(entity, x => x.Logos, "logos");
-            ConfigureJsonbCollection<BackgroundEntry>(entity, x => x.BackgroundTemplates, "background_templates");
-            ConfigureJsonbCollection<TypographyEntry>(entity, x => x.Typography, "typography");
+            ConfigureJsonbCollection<ClientBrandManualData, ColorEntry>(entity, x => x.ColorPalette, "color_palette");
+            ConfigureJsonbCollection<ClientBrandManualData, LogoEntry>(entity, x => x.Logos, "logos");
+            ConfigureJsonbCollection<ClientBrandManualData, BackgroundEntry>(entity, x => x.BackgroundTemplates, "background_templates");
+            ConfigureJsonbCollection<ClientBrandManualData, TypographyEntry>(entity, x => x.Typography, "typography");
 
             // FK: client_id → social.clients(id) ON DELETE CASCADE
             entity.HasOne<SocialClientData>()
@@ -414,20 +419,22 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     /// <summary>
     /// Configures a jsonb column with ValueConverter (System.Text.Json) and ValueComparer (deep-equal).
-    /// Resolution 4: null deserializes to empty list. Resolution 5: pinned options via BrandManualJsonOptions.Default.
+    /// Resolution 4: null deserializes to empty list. Resolution 5: pinned options via SocialJsonOptions.Default.
     /// Resolution 6: comparer snapshot uses ToList() so Update replaces refs with new List instances.
+    /// Generic over both the entity type and the item type so it can be reused for all social aggregates (ADR-3).
     /// </summary>
-    private static void ConfigureJsonbCollection<T>(
-        Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<ClientBrandManualData> entity,
-        System.Linq.Expressions.Expression<Func<ClientBrandManualData, List<T>>> propertyExpression,
+    private static void ConfigureJsonbCollection<TEntity, TItem>(
+        Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TEntity> entity,
+        System.Linq.Expressions.Expression<Func<TEntity, List<TItem>>> propertyExpression,
         string columnName)
-        where T : class
+        where TEntity : class
+        where TItem : class
     {
-        var converter = new ValueConverter<List<T>, string>(
-            v => JsonSerializer.Serialize(v, BrandManualJsonOptions.Default),
-            v => JsonSerializer.Deserialize<List<T>>(v, BrandManualJsonOptions.Default) ?? new List<T>());
+        var converter = new ValueConverter<List<TItem>, string>(
+            v => JsonSerializer.Serialize(v, SocialJsonOptions.Default),
+            v => JsonSerializer.Deserialize<List<TItem>>(v, SocialJsonOptions.Default) ?? new List<TItem>());
 
-        var comparer = new ValueComparer<List<T>>(
+        var comparer = new ValueComparer<List<TItem>>(
             (a, b) => a!.SequenceEqual(b!),
             x => x.Aggregate(0, (h, e) => HashCode.Combine(h, e!.GetHashCode())),
             x => x.ToList());

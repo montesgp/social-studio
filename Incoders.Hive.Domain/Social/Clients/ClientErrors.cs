@@ -31,4 +31,8 @@ public static class ClientErrors
     public static readonly Error AlreadyActive = Error.Conflict(
         "social.clients.already_active",
         "social.clients.errors.already_active");
+
+    public static readonly Error SectorOrNicheTooLong = Error.Validation(
+        "social.clients.sector_or_niche_too_long",
+        "social.clients.errors.sector_or_niche_too_long");
 }

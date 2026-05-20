@@ -272,6 +272,12 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("social_network_id");
 
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("sort_order");
+
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at_utc");
@@ -287,6 +293,9 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
 
                     b.HasIndex("SocialNetworkId")
                         .HasDatabaseName("ix_client_referent_accounts_social_network_id");
+
+                    b.HasIndex("ClientId", "SortOrder")
+                        .HasDatabaseName("ix_client_referent_accounts_client_sort_order");
 
                     b.HasIndex("ClientId", "SocialNetworkId", "ProfileUrl")
                         .IsUnique()
@@ -841,6 +850,11 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.Property<Guid>("OrganizationId")
                         .HasColumnType("uuid")
                         .HasColumnName("organization_id");
+
+                    b.Property<string>("SectorOrNiche")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("sector_or_niche");
 
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone")

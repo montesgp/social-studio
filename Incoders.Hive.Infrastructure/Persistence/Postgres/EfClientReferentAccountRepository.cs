@@ -49,7 +49,8 @@ public sealed class EfClientReferentAccountRepository : IClientReferentAccountRe
 
         var totalCount = await source.CountAsync(ct);
         var rows = await source
-            .OrderByDescending(x => x.CreatedAtUtc)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.CreatedAtUtc)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(ct);
@@ -95,6 +96,7 @@ public sealed class EfClientReferentAccountRepository : IClientReferentAccountRe
         entity.Label = account.Label;
         entity.Notes = account.Notes;
         entity.IsActive = account.IsActive;
+        entity.SortOrder = account.SortOrder;
         entity.UpdatedAtUtc = account.UpdatedAtUtc;
     }
 
@@ -124,7 +126,8 @@ public sealed class EfClientReferentAccountRepository : IClientReferentAccountRe
             d.Notes,
             d.IsActive,
             d.CreatedAtUtc,
-            d.UpdatedAtUtc);
+            d.UpdatedAtUtc,
+            d.SortOrder);
 
     private static ClientReferentAccountData ToData(ClientReferentAccount a) => new()
     {
@@ -137,6 +140,7 @@ public sealed class EfClientReferentAccountRepository : IClientReferentAccountRe
         Label = a.Label,
         Notes = a.Notes,
         IsActive = a.IsActive,
+        SortOrder = a.SortOrder,
         CreatedAtUtc = a.CreatedAtUtc,
         UpdatedAtUtc = a.UpdatedAtUtc,
     };
