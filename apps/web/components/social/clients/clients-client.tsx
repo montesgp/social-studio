@@ -33,6 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { ClientReferentAccountsSection } from "@/components/social/clients/client-referent-accounts-section";
 import { ClientBrandManualSection } from "@/components/social/clients/client-brand-manual-section";
 import { ClientFormPanel } from "@/components/social/clients/client-form-panel";
@@ -42,6 +43,7 @@ type StatusFilter = "active" | "archived" | "all";
 
 export function ClientsClient() {
   const sessionToken = useAccessToken();
+  const { isInitialized: orgInitialized } = useActiveOrg();
   const toast = useToast();
   const lastErrorToastRef = useRef<{ message: string; at: number } | null>(null);
 
@@ -110,6 +112,8 @@ export function ClientsClient() {
   }
 
   useEffect(() => {
+    if (!orgInitialized) return;
+
     if (!effectiveToken) {
       setLoading(false);
       setPage(null);
@@ -118,7 +122,7 @@ export function ClientsClient() {
 
     void loadClients();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageNumber, status, effectiveToken, sessionToken]);
+  }, [pageNumber, status, effectiveToken, sessionToken, orgInitialized]);
 
   async function loadClients(nextPage = pageNumber) {
     setLoading(true);

@@ -6,6 +6,7 @@ import {
   ACTIVE_ORG_STORAGE_KEY,
   AUTH_SESSION_CHANGE_EVENT,
   AUTH_SESSION_STORAGE_KEY,
+  ORG_CONTEXT_CHANGE_EVENT,
   REFRESH_TOKEN_COOKIE_NAME,
   StoredAuthSession,
   TokenResponse
@@ -144,11 +145,13 @@ export function getActiveOrganizationId(): string | null {
 export function setActiveOrganizationId(id: string): void {
   if (!isBrowser()) return;
   window.localStorage.setItem(ACTIVE_ORG_STORAGE_KEY, id);
+  window.dispatchEvent(new CustomEvent(ORG_CONTEXT_CHANGE_EVENT));
 }
 
 export function clearActiveOrganizationId(): void {
   if (!isBrowser()) return;
   window.localStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
+  window.dispatchEvent(new CustomEvent(ORG_CONTEXT_CHANGE_EVENT));
 }
 
 export function subscribeToSessionChanges(listener: (session: StoredAuthSession | null) => void) {
