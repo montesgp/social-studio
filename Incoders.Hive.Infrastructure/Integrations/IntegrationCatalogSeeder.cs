@@ -19,7 +19,8 @@ public sealed class IntegrationCatalogSeeder
             true,
             false,
             false,
-            [new IntegrationCredentialField("api_key", "API key", true, true, "sk-...", "Organization-scoped OpenAI API key")]),
+            [new IntegrationCredentialField("api_key", "API key", true, true, "sk-...", "Organization-scoped OpenAI API key")],
+            ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o3-mini"]),
         new(
             new Guid("f3df8bd4-3d68-4e03-b1d4-2ddbbdc3490c"),
             "gemini",
@@ -31,7 +32,8 @@ public sealed class IntegrationCatalogSeeder
             true,
             false,
             false,
-            [new IntegrationCredentialField("api_key", "API key", true, true, "AIza...", "Organization-scoped Gemini API key")]),
+            [new IntegrationCredentialField("api_key", "API key", true, true, "AIza...", "Organization-scoped Gemini API key")],
+            ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]),
         new(
             new Guid("ca29d4f8-f929-4d28-9d2f-e45f77967ae8"),
             "claude",
@@ -43,7 +45,8 @@ public sealed class IntegrationCatalogSeeder
             true,
             false,
             false,
-            [new IntegrationCredentialField("api_key", "API key", true, true, "sk-ant-...", "Organization-scoped Anthropic API key")]),
+            [new IntegrationCredentialField("api_key", "API key", true, true, "sk-ant-...", "Organization-scoped Anthropic API key")],
+            ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]),
         new(
             new Guid("b2610b54-a258-48d3-b2d2-12f70ac99d52"),
             "canva",
@@ -55,7 +58,8 @@ public sealed class IntegrationCatalogSeeder
             false,
             false,
             false,
-            [new IntegrationCredentialField("access_token", "Access token", true, true, null, "OAuth/token credential for Canva API")]),
+            [new IntegrationCredentialField("access_token", "Access token", true, true, null, "OAuth/token credential for Canva API")],
+            []),
         new(
             new Guid("83b6f049-f598-47e9-a1c5-77d1f57cb694"),
             "apify",
@@ -70,7 +74,8 @@ public sealed class IntegrationCatalogSeeder
             [
                 new IntegrationCredentialField("api_key", "API key", true, true, null, "Apify API token/key for BYOK or managed mode"),
                 new IntegrationCredentialField("actor_id", "Actor ID", false, true, null, "Apify actor identifier used to extract URL metadata")
-            ]),
+            ],
+            []),
         new(
             new Guid("9e024238-bd2f-4f74-b7f4-fab2f01f62d1"),
             "blotato",
@@ -85,7 +90,8 @@ public sealed class IntegrationCatalogSeeder
             [
                 new IntegrationCredentialField("api_key", "API key", true, true, null, "Organization-scoped Blotato API key"),
                 new IntegrationCredentialField("workspace_id", "Workspace id", false, false, null, "Optional workspace override")
-            ]),
+            ],
+            []),
         new(
             new Guid("3d3f7086-fbb6-41af-8bc8-c46d02d31001"),
             "google-drive",
@@ -102,7 +108,8 @@ public sealed class IntegrationCatalogSeeder
                 new IntegrationCredentialField("client_secret", "Client secret", true, true, null, "OAuth client secret for Google Drive API"),
                 new IntegrationCredentialField("refresh_token", "Refresh token", true, true, null, "Refresh token for the target Drive account"),
                 new IntegrationCredentialField("folder_id", "Folder ID", false, false, null, "Optional target folder for generated packages")
-            ]),
+            ],
+            []),
         new(
             new Guid("4f00fb80-7f54-45a4-8a57-dfbf2d320002"),
             "data365",
@@ -114,7 +121,8 @@ public sealed class IntegrationCatalogSeeder
             true,
             false,
             false,
-            [new IntegrationCredentialField("api_key", "API key", true, true, null, "Organization-scoped Data365 API key")]),
+            [new IntegrationCredentialField("api_key", "API key", true, true, null, "Organization-scoped Data365 API key")],
+            []),
         new(
             new Guid("4d19d1e0-62ef-4b88-a841-4c0280a90003"),
             "genspark-ai",
@@ -126,7 +134,8 @@ public sealed class IntegrationCatalogSeeder
             true,
             false,
             false,
-            [new IntegrationCredentialField("api_key", "API key", true, true, null, "Organization-scoped GenSpark AI API key")]),
+            [new IntegrationCredentialField("api_key", "API key", true, true, null, "Organization-scoped GenSpark AI API key")],
+            ["genspark-basic", "genspark-pro"]),
         new(
             new Guid("54d56310-30b4-4bda-b19e-69d6ac8d0004"),
             "tiktok",
@@ -141,7 +150,8 @@ public sealed class IntegrationCatalogSeeder
             [
                 new IntegrationCredentialField("access_token", "Access token", true, true, null, "OAuth access token for TikTok"),
                 new IntegrationCredentialField("account_id", "Account ID", false, false, null, "Optional TikTok account identifier")
-            ]),
+            ],
+            []),
         new(
             new Guid("9fdc75bf-4f2f-4704-9b45-fec83e210005"),
             "youtube",
@@ -157,7 +167,8 @@ public sealed class IntegrationCatalogSeeder
                 new IntegrationCredentialField("client_id", "Client ID", true, true, null, "OAuth client id for YouTube Data API"),
                 new IntegrationCredentialField("client_secret", "Client secret", true, true, null, "OAuth client secret for YouTube Data API"),
                 new IntegrationCredentialField("refresh_token", "Refresh token", true, true, null, "Refresh token for the target YouTube channel")
-            ]),
+            ],
+            []),
         new(
             new Guid("7bda524a-1c87-4a6f-a6b0-f413e25c0006"),
             "instagram",
@@ -172,7 +183,8 @@ public sealed class IntegrationCatalogSeeder
             [
                 new IntegrationCredentialField("access_token", "Access token", true, true, null, "Meta/Instagram access token"),
                 new IntegrationCredentialField("account_id", "Account ID", false, true, null, "Instagram business account id")
-            ])
+            ],
+            [])
     ];
 
     private readonly IIntegrationProviderCatalogRepository _providers;
@@ -205,6 +217,7 @@ public sealed class IntegrationCatalogSeeder
                 seed.SupportsSystemDefault,
                 seed.SystemDefaultReadOnly,
                 seed.CredentialFields,
+                seed.AvailableModels,
                 _clock.UtcNow);
 
             if (createResult.IsFailure)
@@ -229,5 +242,6 @@ public sealed class IntegrationCatalogSeeder
         bool SupportsManagedByIncoders,
         bool SupportsSystemDefault,
         bool SystemDefaultReadOnly,
-        IReadOnlyList<IntegrationCredentialField> CredentialFields);
+        IReadOnlyList<IntegrationCredentialField> CredentialFields,
+        IReadOnlyList<string> AvailableModels);
 }

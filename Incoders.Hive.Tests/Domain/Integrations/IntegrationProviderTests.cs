@@ -24,6 +24,7 @@ public sealed class IntegrationProviderTests
                 new IntegrationCredentialField("api_key", "API key", true, true),
                 new IntegrationCredentialField("api_key", "API key duplicate", true, false)
             ],
+            [],
             Now);
 
         Assert.True(result.IsFailure);
@@ -44,6 +45,7 @@ public sealed class IntegrationProviderTests
             false,
             false,
             false,
+            [],
             [],
             Now);
 
@@ -66,6 +68,7 @@ public sealed class IntegrationProviderTests
             false,
             false,
             [new IntegrationCredentialField("service_account_json", "Service account JSON", true, true)],
+            [],
             Now);
 
         Assert.True(result.IsSuccess);

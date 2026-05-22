@@ -1,3 +1,4 @@
+using Incoders.Hive.ApiService.Endpoints.Admin;
 using Incoders.Hive.ApiService.Endpoints.Auth;
 using Incoders.Hive.ApiService.Endpoints.Common;
 using Incoders.Hive.ApiService.Endpoints.Integrations;
@@ -82,6 +83,7 @@ app.UseAuthorization();
 app.MapGet("/", () => "API service is running.");
 
 app.MapAuthEndpoints();
+app.MapAdminUsersEndpoints();
 app.MapMeEndpoints();
 app.MapSystemSettingsEndpoints();
 app.MapTenantsEndpoints();

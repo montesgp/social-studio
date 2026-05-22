@@ -117,6 +117,10 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("text")
                         .HasColumnName("security_stamp");
 
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean")
                         .HasColumnName("two_factor_enabled");
@@ -492,6 +496,11 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<string>("AvailableModelsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("available_models_json");
 
                     b.Property<string>("Category")
                         .IsRequired()

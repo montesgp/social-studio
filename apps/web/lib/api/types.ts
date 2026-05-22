@@ -202,6 +202,7 @@ export interface IntegrationProvider {
   supportsSystemDefault: boolean;
   systemDefaultReadOnly: boolean;
   credentialFields: IntegrationCredentialField[];
+  availableModels: string[];
 }
 
 export interface OrganizationIntegration {

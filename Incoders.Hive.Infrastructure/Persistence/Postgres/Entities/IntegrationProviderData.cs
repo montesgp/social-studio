@@ -24,6 +24,8 @@ public sealed class IntegrationProviderData
 
     public string CredentialFieldsJson { get; set; } = "[]";
 
+    public string AvailableModelsJson { get; set; } = "[]";
+
     public bool IsActive { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }

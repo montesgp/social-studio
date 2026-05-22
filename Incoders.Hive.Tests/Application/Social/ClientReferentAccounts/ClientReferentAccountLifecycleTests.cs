@@ -288,7 +288,7 @@ public sealed class ClientReferentAccountLifecycleTests
     }
 
     [Fact]
-    public async Task ListHandler_OrderedByCreatedAtUtcDesc()
+    public async Task ListHandler_OrderedBySortOrderThenCreatedAtUtc()
     {
         var harness = new Harness(Now);
         var (clientId, orgId, networkId) = await harness.SeedActiveClientAndNetwork();
@@ -313,9 +313,8 @@ public sealed class ClientReferentAccountLifecycleTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(2, result.Value.Items.Count);
-        // brand2 (Later) should come first (DESC)
-        Assert.Equal("https://www.instagram.com/brand2", result.Value.Items[0].ProfileUrl);
-        Assert.Equal("https://www.instagram.com/brand1", result.Value.Items[1].ProfileUrl);
+        Assert.Equal("https://www.instagram.com/brand1", result.Value.Items[0].ProfileUrl);
+        Assert.Equal("https://www.instagram.com/brand2", result.Value.Items[1].ProfileUrl);
     }
 
     // --- Update ---
@@ -628,7 +627,10 @@ public sealed class ClientReferentAccountLifecycleTests
                 source = source.Where(a => a.IsActive);
             }
 
-            var ordered = source.OrderByDescending(a => a.CreatedAtUtc).ToList();
+            var ordered = source
+                .OrderBy(a => a.SortOrder)
+                .ThenBy(a => a.CreatedAtUtc)
+                .ToList();
             var items = ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();
             return Task.FromResult<(IReadOnlyList<ClientReferentAccount>, int)>((items, ordered.Count));
         }

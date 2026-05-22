@@ -106,6 +106,36 @@ function policyDraftKey(capabilityKey: string, platformKey: string | null) {
   return `${capabilityKey}:${platformKey ?? "global"}`;
 }
 
+function ModelSelect({
+  models,
+  value,
+  onChange,
+  placeholder,
+}: {
+  models: string[];
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  if (models.length === 0) {
+    return (
+      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+    );
+  }
+  return (
+    <select
+      className="h-10 rounded-md border border-border bg-background px-3 text-sm w-full"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">Select model...</option>
+      {models.map((m) => (
+        <option key={m} value={m}>{m}</option>
+      ))}
+    </select>
+  );
+}
+
 interface IntegrationsSettingsClientProps {
   isPlatformAdmin: boolean;
 }
@@ -548,7 +578,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       </section>
 
       {error ? (
-        <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</div>
+        <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
       ) : null}
 
       {!selectedOrganizationId ? (
@@ -603,9 +633,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                     </option>
                   ))}
                 </select>
-                <Input
+                <ModelSelect
+                  models={providers.find((p) => p.key === defaultAiProviderKey)?.availableModels ?? []}
                   value={defaultAiModel}
-                  onChange={(event) => setDefaultAiModel(event.target.value)}
+                  onChange={(v) => setDefaultAiModel(v)}
                   placeholder="Optional model (e.g. gpt-4.1-mini)"
                 />
                 <Button type="submit" disabled={!defaultAiProviderKey || refreshing}>
@@ -708,9 +739,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                         </option>
                       ))}
                     </select>
-                    <Input
+                    <ModelSelect
+                      models={providers.find((p) => p.key === draft.providerKey)?.availableModels ?? []}
                       value={draft.selectedModel}
-                      onChange={(event) => patchRoutingDraft(key, { selectedModel: event.target.value })}
+                      onChange={(v) => patchRoutingDraft(key, { selectedModel: v })}
                       placeholder="Optional model (e.g. claude-opus-4-1)"
                     />
                     <label className="flex items-center gap-2 text-sm">
@@ -777,7 +809,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                           </Badge>
                         ) : null}
                         {integration.lastError ? (
-                          <p className="text-red-300">Last error: {integration.lastError}</p>
+                          <p className="text-destructive/80 text-sm">Last error: {integration.lastError}</p>
                         ) : null}
                       </div>
 
@@ -846,11 +878,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
               {modal.integration.category === "AiModel" ? (
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Default model (optional)</label>
-                  <Input
+                  <ModelSelect
+                    models={providers.find((p) => p.key === modal.integration.providerKey)?.availableModels ?? []}
                     value={modal.selectedAiModel}
-                    onChange={(event) =>
-                      setModal((prev) => (prev ? { ...prev, selectedAiModel: event.target.value } : prev))
-                    }
+                    onChange={(v) => setModal((prev) => (prev ? { ...prev, selectedAiModel: v } : prev))}
                     placeholder="e.g. gpt-4.1-mini"
                   />
                 </div>
@@ -931,7 +962,7 @@ function StatusBadge({ status }: { status: IntegrationStatus }) {
   }
 
   if (status === "Failed") {
-    return <Badge className="bg-red-500/20 text-red-300">Failed</Badge>;
+    return <Badge className="bg-destructive/20 text-destructive">Failed</Badge>;
   }
 
   if (status === "Disabled") {

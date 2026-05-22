@@ -70,6 +70,7 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
         existing.SupportsSystemDefault = provider.SupportsSystemDefault;
         existing.SystemDefaultReadOnly = provider.SystemDefaultReadOnly;
         existing.CredentialFieldsJson = SerializeCredentialFields(provider.CredentialFields);
+        existing.AvailableModelsJson = SerializeModels(provider.AvailableModels);
         existing.IsActive = provider.IsActive;
         existing.UpdatedAtUtc = provider.UpdatedAtUtc;
     }
@@ -77,6 +78,7 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
     private static IntegrationProvider ToDomain(IntegrationProviderData row)
     {
         var fields = DeserializeCredentialFields(row.CredentialFieldsJson);
+        var models = DeserializeModels(row.AvailableModelsJson);
 
         return IntegrationProvider.Restore(
             new IntegrationProviderId(row.Id),
@@ -90,6 +92,7 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
             row.SupportsSystemDefault,
             row.SystemDefaultReadOnly,
             fields,
+            models,
             row.IsActive,
             row.CreatedAtUtc,
             row.UpdatedAtUtc);
@@ -109,6 +112,7 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
             SupportsSystemDefault = provider.SupportsSystemDefault,
             SystemDefaultReadOnly = provider.SystemDefaultReadOnly,
             CredentialFieldsJson = SerializeCredentialFields(provider.CredentialFields),
+            AvailableModelsJson = SerializeModels(provider.AvailableModels),
             IsActive = provider.IsActive,
             CreatedAtUtc = provider.CreatedAtUtc,
             UpdatedAtUtc = provider.UpdatedAtUtc,
@@ -128,5 +132,20 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
 
         return JsonSerializer.Deserialize<List<IntegrationCredentialField>>(json, JsonOptions)
                ?? [];
+    }
+
+    private static string SerializeModels(IReadOnlyList<string> models)
+    {
+        return JsonSerializer.Serialize(models, JsonOptions);
+    }
+
+    private static IReadOnlyList<string> DeserializeModels(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<List<string>>(json, JsonOptions) ?? [];
     }
 }

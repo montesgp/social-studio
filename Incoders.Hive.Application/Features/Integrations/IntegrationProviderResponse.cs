@@ -13,7 +13,8 @@ public sealed record IntegrationProviderResponse(
     bool SupportsManagedByIncoders,
     bool SupportsSystemDefault,
     bool SystemDefaultReadOnly,
-    IReadOnlyList<IntegrationCredentialFieldResponse> CredentialFields)
+    IReadOnlyList<IntegrationCredentialFieldResponse> CredentialFields,
+    string[] AvailableModels)
 {
     public static IntegrationProviderResponse FromDomain(IntegrationProvider provider) =>
         new(
@@ -27,5 +28,6 @@ public sealed record IntegrationProviderResponse(
             provider.SupportsManagedByIncoders,
             provider.SupportsSystemDefault,
             provider.SystemDefaultReadOnly,
-            provider.CredentialFields.Select(IntegrationCredentialFieldResponse.FromDomain).ToList());
+            provider.CredentialFields.Select(IntegrationCredentialFieldResponse.FromDomain).ToList(),
+            [.. provider.AvailableModels]);
 }

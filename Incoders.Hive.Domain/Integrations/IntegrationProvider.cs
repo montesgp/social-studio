@@ -20,6 +20,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
         bool supportsSystemDefault,
         bool systemDefaultReadOnly,
         IReadOnlyList<IntegrationCredentialField> credentialFields,
+        IReadOnlyList<string> availableModels,
         bool isActive,
         DateTime createdAtUtc,
         DateTime updatedAtUtc)
@@ -35,6 +36,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
         SupportsSystemDefault = supportsSystemDefault;
         SystemDefaultReadOnly = systemDefaultReadOnly;
         CredentialFields = credentialFields;
+        AvailableModels = availableModels;
         IsActive = isActive;
         CreatedAtUtc = createdAtUtc;
         UpdatedAtUtc = updatedAtUtc;
@@ -60,6 +62,8 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
 
     public IReadOnlyList<IntegrationCredentialField> CredentialFields { get; private set; }
 
+    public IReadOnlyList<string> AvailableModels { get; private set; }
+
     public bool IsActive { get; private set; }
 
     public DateTime CreatedAtUtc { get; private set; }
@@ -78,6 +82,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
         bool supportsSystemDefault,
         bool systemDefaultReadOnly,
         IReadOnlyList<IntegrationCredentialField> credentialFields,
+        IReadOnlyList<string> availableModels,
         DateTime nowUtc)
     {
         var normalizedKey = key?.Trim().ToLowerInvariant() ?? string.Empty;
@@ -85,6 +90,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
         var normalizedDescription = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
         var normalizedIconKey = iconKey?.Trim().ToLowerInvariant() ?? string.Empty;
         var fields = credentialFields ?? [];
+        var models = availableModels ?? [];
 
         if (string.IsNullOrWhiteSpace(normalizedKey) || normalizedKey.Length > KeyMaxLength)
         {
@@ -134,6 +140,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
             supportsSystemDefault,
             systemDefaultReadOnly,
             fields,
+            models,
             true,
             nowUtc,
             nowUtc));
@@ -151,6 +158,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
         bool supportsSystemDefault,
         bool systemDefaultReadOnly,
         IReadOnlyList<IntegrationCredentialField> credentialFields,
+        IReadOnlyList<string> availableModels,
         bool isActive,
         DateTime createdAtUtc,
         DateTime updatedAtUtc)
@@ -167,6 +175,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
             supportsSystemDefault,
             systemDefaultReadOnly,
             credentialFields,
+            availableModels,
             isActive,
             createdAtUtc,
             updatedAtUtc);

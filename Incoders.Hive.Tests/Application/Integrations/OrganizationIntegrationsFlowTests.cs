@@ -414,6 +414,7 @@ public sealed class OrganizationIntegrationsFlowTests
                 supportsSystemDefault,
                 readonlySystemDefault,
                 fields,
+                [],
                 nowUtc);
 
             return created.Value;

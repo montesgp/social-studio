@@ -53,6 +53,7 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
   const [accounts, setAccounts] = useState<ClientReferentAccount[]>([]);
   const [networks, setNetworks] = useState<SocialNetwork[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showArchived, setShowArchived] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -79,7 +80,7 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
     if (!effectiveToken) return;
     setLoading(true);
     try {
-      const result = await listClientReferentAccounts(clientId, { includeInactive: false }, effectiveToken);
+      const result = await listClientReferentAccounts(clientId, { includeInactive: showArchived }, effectiveToken);
       const sorted = [...result.items].sort((a, b) => a.sortOrder - b.sortOrder);
       setAccounts(sorted);
     } catch {
@@ -87,7 +88,7 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
     } finally {
       setLoading(false);
     }
-  }, [clientId, effectiveToken, toast]);
+  }, [clientId, effectiveToken, showArchived, toast]);
 
   useEffect(() => {
     void loadAccounts();
@@ -279,11 +280,22 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm font-semibold text-foreground">Referent Accounts</p>
-        <Button variant="outline" size="sm" onClick={openCreate}>
-          <Plus className="h-3.5 w-3.5" /> Add Account
-        </Button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-border"
+            />
+            Show archived
+          </label>
+          <Button variant="outline" size="sm" onClick={openCreate}>
+            <Plus className="h-3.5 w-3.5" /> Add Account
+          </Button>
+        </div>
       </div>
 
       <SortableChildTable<ClientReferentAccount>
