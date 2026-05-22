@@ -10,10 +10,7 @@ using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Reorder;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Update;
 using Incoders.Hive.Domain.Social.ClientReferentAccounts;
 using MediatR;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Routing;
 
 namespace Incoders.Hive.ApiService.Endpoints.Social;
 

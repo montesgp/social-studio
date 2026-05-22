@@ -3,11 +3,7 @@ using Incoders.Hive.Application.Features.UserPreferences;
 using Incoders.Hive.Application.Features.UserPreferences.GetCurrent;
 using Incoders.Hive.Application.Features.UserPreferences.Update;
 using MediatR;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Routing;
 
 namespace Incoders.Hive.ApiService.Endpoints.UserPreferences;
 

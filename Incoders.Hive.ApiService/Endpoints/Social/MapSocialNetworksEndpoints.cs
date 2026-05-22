@@ -10,11 +10,7 @@ using Incoders.Hive.Application.Features.Social.Networks.GetById;
 using Incoders.Hive.Application.Features.Social.Networks.Update;
 using Incoders.Hive.Infrastructure.Identity;
 using MediatR;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Routing;
 
 namespace Incoders.Hive.ApiService.Endpoints.Social;
 

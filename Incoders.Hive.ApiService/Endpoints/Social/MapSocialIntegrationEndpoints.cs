@@ -3,10 +3,6 @@ using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Application.Features.Social.Integrations;
 using Incoders.Hive.Domain.Integrations;
 using MediatR;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.AspNetCore.Routing;
 
 namespace Incoders.Hive.ApiService.Endpoints.Social;
 

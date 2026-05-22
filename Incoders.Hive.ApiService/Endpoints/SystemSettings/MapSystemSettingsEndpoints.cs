@@ -8,11 +8,7 @@ using Incoders.Hive.Application.Features.SystemSettings.GetById;
 using Incoders.Hive.Application.Features.SystemSettings.Update;
 using Incoders.Hive.Domain.SystemSettings;
 using MediatR;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Routing;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 
 namespace Incoders.Hive.ApiService.Endpoints.SystemSettings;
