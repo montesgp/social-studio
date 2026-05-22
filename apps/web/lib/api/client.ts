@@ -53,8 +53,17 @@ export async function apiRequest<T>(path: string, init?: RequestInit, token?: st
       // ignored
     }
 
+    const validationErrors = problem?.errors;
+    const validationMessage =
+      validationErrors && typeof validationErrors === "object"
+        ? Object.values(validationErrors as Record<string, unknown>)
+            .flatMap((value) => (Array.isArray(value) ? value : [value]))
+            .filter((value): value is string => typeof value === "string")
+            .join(" ")
+        : "";
+
     const error: ApiError = {
-      message: problem?.detail ?? problem?.title ?? `HTTP ${response.status}`,
+      message: validationMessage || problem?.detail || problem?.title || `HTTP ${response.status}`,
       problem
     };
 

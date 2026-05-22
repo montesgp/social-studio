@@ -75,6 +75,8 @@
   - selective end-to-end for critical user journeys
 - Tests MUST be deterministic, isolated, and stable in CI.
 - Regressions MUST include a reproducing test.
+- Entity end-to-end slices MUST include deterministic tests for the full supported lifecycle, not only the happy-path create/read case. When an entity exposes lifecycle operations, tests MUST cover create, get by id, list one/many, filtering/search, update, deactivate/archive, reactivate, delete only when delete is a real product operation, tenant/ownership boundaries, authorization rules, validation failures, and relevant business invariants.
+- If an entity intentionally omits a lifecycle operation (for example, archive instead of hard delete), tests MUST assert the real contract and the omission MUST be clear in the spec or review notes.
 
 ## 10) Coverage Policy (MUST)
 - 100% global coverage is not a blanket requirement.
