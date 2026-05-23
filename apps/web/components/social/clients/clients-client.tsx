@@ -10,6 +10,8 @@ import {
   Clock3,
   Edit3,
   Eye,
+  LayoutGrid,
+  LayoutList,
   Plus,
   RefreshCcw,
   RotateCcw,
@@ -40,6 +42,7 @@ import { ClientFormPanel } from "@/components/social/clients/client-form-panel";
 import { useClientForm } from "@/components/social/clients/use-client-form";
 
 type StatusFilter = "active" | "archived" | "all";
+type ViewMode = "grid" | "table";
 
 export function ClientsClient() {
   const sessionToken = useAccessToken();
@@ -57,6 +60,7 @@ export function ClientsClient() {
   const [pageSize] = useState(12);
   const [details, setDetails] = useState<SocialClient | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
   const effectiveToken = sessionToken ?? "";
   const items = page?.items ?? [];
@@ -306,85 +310,161 @@ export function ClientsClient() {
         <Card className="overflow-hidden">
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center justify-between text-base">
-              <span>Client grid</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                Page {page?.page ?? pageNumber} of {Math.max(page?.totalPages ?? 1, 1)}
-              </span>
+              <span>Clients</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={viewMode === "grid" ? "default" : "outline"}
+                  className="h-7 px-2"
+                  title="Grid view"
+                  onClick={() => setViewMode("grid")}
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant={viewMode === "table" ? "default" : "outline"}
+                  className="h-7 px-2"
+                  title="Table view"
+                  onClick={() => setViewMode("table")}
+                >
+                  <LayoutList className="h-4 w-4" />
+                </Button>
+                <span className="text-xs font-normal text-muted-foreground">
+                  Page {page?.page ?? pageNumber} of {Math.max(page?.totalPages ?? 1, 1)}
+                </span>
+              </div>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {loading ? (
-              <div className="grid gap-3 p-4 md:grid-cols-2">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <div key={index} className="h-36 animate-pulse rounded-2xl border border-border bg-muted/40" />
-                ))}
-              </div>
-            ) : items.length === 0 ? (
-              <EmptyState onCreate={openCreate} />
-            ) : (
-              <div className="grid gap-3 p-4 md:grid-cols-2">
-                {items.map((item, index) => (
-                  <motion.article
-                    key={item.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.03 }}
-                    className={cn(
-                      "group rounded-2xl border border-border bg-background/40 p-4 transition hover:border-primary/60 hover:bg-muted/30",
-                      details?.id === item.id && "border-primary/80 bg-primary/10"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h2 className="font-semibold">{item.name}</h2>
-                          <Badge variant={item.isActive ? "success" : "muted"}>
-                            {item.isActive ? "Active" : "Archived"}
-                          </Badge>
+            {viewMode === "grid" ? (
+              loading ? (
+                <div className="grid gap-3 p-4 md:grid-cols-2">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div key={index} className="h-36 animate-pulse rounded-2xl border border-border bg-muted/40" />
+                  ))}
+                </div>
+              ) : items.length === 0 ? (
+                <EmptyState onCreate={openCreate} />
+              ) : (
+                <div className="grid gap-3 p-4 md:grid-cols-2">
+                  {items.map((item, index) => (
+                    <motion.article
+                      key={item.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.03 }}
+                      className={cn(
+                        "group rounded-2xl border border-border bg-background/40 p-4 transition hover:border-primary/60 hover:bg-muted/30",
+                        details?.id === item.id && "border-primary/80 bg-primary/10"
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h2 className="font-semibold">{item.name}</h2>
+                            <Badge variant={item.isActive ? "success" : "muted"}>
+                              {item.isActive ? "Active" : "Archived"}
+                            </Badge>
+                          </div>
+                          {item.description ? (
+                            <p className="mt-1 max-w-[32rem] truncate text-xs text-muted-foreground">{item.description}</p>
+                          ) : (
+                            <p className="mt-2 max-w-[32rem] truncate text-xs text-muted-foreground">{item.id}</p>
+                          )}
                         </div>
-                        {item.description ? (
-                          <p className="mt-1 max-w-[32rem] truncate text-xs text-muted-foreground">{item.description}</p>
+                        <Button variant="outline" size="sm" onClick={() => void openDetails(item)}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                        <Fact label="Updated" value={formatDate(item.updatedAtUtc)} />
+                        <Fact label="Created" value={formatDate(item.createdAtUtc)} />
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
+                          <Edit3 className="h-4 w-4" /> Edit
+                        </Button>
+                        {item.isActive ? (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={actingId === item.id}
+                            onClick={() => void onArchive(item)}
+                          >
+                            <Archive className="h-4 w-4" /> Archive
+                          </Button>
                         ) : (
-                          <p className="mt-2 max-w-[32rem] truncate text-xs text-muted-foreground">{item.id}</p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={actingId === item.id}
+                            onClick={() => void onReactivate(item)}
+                          >
+                            <RotateCcw className="h-4 w-4" /> Reactivate
+                          </Button>
                         )}
                       </div>
-                      <Button variant="outline" size="sm" onClick={() => void openDetails(item)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                      <Fact label="Updated" value={formatDate(item.updatedAtUtc)} />
-                      <Fact label="Created" value={formatDate(item.createdAtUtc)} />
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
-                        <Edit3 className="h-4 w-4" /> Edit
-                      </Button>
-                      {item.isActive ? (
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          disabled={actingId === item.id}
-                          onClick={() => void onArchive(item)}
-                        >
-                          <Archive className="h-4 w-4" /> Archive
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={actingId === item.id}
-                          onClick={() => void onReactivate(item)}
-                        >
-                          <RotateCcw className="h-4 w-4" /> Reactivate
-                        </Button>
-                      )}
-                    </div>
-                  </motion.article>
-                ))}
-              </div>
+                    </motion.article>
+                  ))}
+                </div>
+              )
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    Array.from({ length: 4 }).map((_, index) => (
+                      <TableRow key={index}>
+                        {Array.from({ length: 5 }).map((__, col) => (
+                          <TableCell key={col}>
+                            <div className="h-4 animate-pulse rounded bg-muted/40" />
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  ) : items.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="py-12 text-center text-sm text-muted-foreground">
+                        No clients in this view.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    items.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.name}</TableCell>
+                        <TableCell>
+                          <Badge variant={item.isActive ? "success" : "muted"}>{item.isActive ? "Active" : "Archived"}</Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">
+                          {item.description ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{formatDate(item.createdAtUtc)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="inline-flex gap-2">
+                            <Button variant="outline" size="sm" onClick={() => void openDetails(item)}>
+                              Details
+                            </Button>
+                            <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
+                              Edit
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
             )}
 
             <div className="flex items-center justify-between border-t border-border p-4">
@@ -419,49 +499,6 @@ export function ClientsClient() {
           />
         )}
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Data table</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">{item.name}</TableCell>
-                  <TableCell>
-                    <Badge variant={item.isActive ? "success" : "muted"}>{item.isActive ? "Active" : "Archived"}</Badge>
-                  </TableCell>
-                  <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">
-                    {item.description ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{formatDate(item.createdAtUtc)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => void openDetails(item)}>
-                        Details
-                      </Button>
-                      <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
-                        Edit
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
 
     </div>
   );

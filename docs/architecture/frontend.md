@@ -17,7 +17,7 @@ This iteration introduces the first frontend at `apps/web` for the Hive Social m
 - Dashboard overview
 - Organizations cockpit (connected end-to-end)
   - create organization
-  - list/search/paginate organizations
+  - list/search/paginate organizations in grid or table view
   - inspect organization details
   - rename/update organization
   - archive/deactivate organization

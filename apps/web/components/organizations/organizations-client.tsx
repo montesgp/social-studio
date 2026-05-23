@@ -13,6 +13,8 @@ import {
   Edit3,
   Eye,
   KeyRound,
+  LayoutGrid,
+  List,
   Loader2,
   Plus,
   RefreshCcw,
@@ -46,6 +48,7 @@ import { useAccessToken } from "@/components/auth/use-access-token";
 
 type Mode = "create" | "edit";
 type StatusFilter = "active" | "archived" | "all";
+type OrganizationViewMode = "grid" | "table";
 
 const tokenStorageKey = "incoders.hive.apiToken";
 
@@ -60,6 +63,7 @@ export function OrganizationsClient() {
   const [success, setSuccess] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("active");
+  const [viewMode, setViewMode] = useState<OrganizationViewMode>("grid");
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize] = useState(12);
   const [manualToken, setManualToken] = useState("");
@@ -72,7 +76,7 @@ export function OrganizationsClient() {
   const [submitting, setSubmitting] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
 
-  const items = page?.items ?? [];
+  const items = useMemo(() => page?.items ?? [], [page?.items]);
   const effectiveToken = manualToken || (sessionToken ?? "");
   const stats = useMemo(() => {
     const active = items.filter((item) => item.isActive).length;
@@ -338,23 +342,51 @@ export function OrganizationsClient() {
       <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
         <Card className="overflow-hidden">
           <CardHeader className="border-b border-border">
-            <CardTitle className="flex items-center justify-between text-base">
-              <span>Organization grid</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                Page {page?.page ?? pageNumber} of {Math.max(page?.totalPages ?? 1, 1)}
-              </span>
+            <CardTitle className="flex flex-wrap items-center justify-between gap-3 text-base">
+              <span>{viewMode === "grid" ? "Organization grid" : "Organization table"}</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={viewMode === "grid" ? "default" : "outline"}
+                  className="h-7 px-2"
+                  title="Grid view"
+                  onClick={() => setViewMode("grid")}
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant={viewMode === "table" ? "default" : "outline"}
+                  className="h-7 px-2"
+                  title="Table view"
+                  onClick={() => setViewMode("table")}
+                >
+                  <List className="h-4 w-4" />
+                </Button>
+                <span className="text-xs font-normal text-muted-foreground">
+                  Page {page?.page ?? pageNumber} of {Math.max(page?.totalPages ?? 1, 1)}
+                </span>
+              </div>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {loading ? (
-              <div className="grid gap-3 p-4 md:grid-cols-2">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <div key={index} className="h-36 animate-pulse rounded-2xl border border-border bg-muted/40" />
-                ))}
-              </div>
+              viewMode === "grid" ? (
+                <div className="grid gap-3 p-4 md:grid-cols-2">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div key={index} className="h-36 animate-pulse rounded-2xl border border-border bg-muted/40" />
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={index} className="mb-3 h-12 animate-pulse rounded-md border border-border bg-muted/40" />
+                  ))}
+                </div>
+              )
             ) : items.length === 0 ? (
               <EmptyState onCreate={openCreate} />
-            ) : (
+            ) : viewMode === "grid" ? (
               <div className="grid gap-3 p-4 md:grid-cols-2">
                 {items.map((item, index) => (
                   <motion.article
@@ -414,6 +446,42 @@ export function OrganizationsClient() {
                   </motion.article>
                 ))}
               </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Owner</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item) => (
+                    <TableRow key={item.id} className={details?.id === item.id ? "bg-primary/10" : undefined}>
+                      <TableCell className="font-medium">{item.name}</TableCell>
+                      <TableCell>
+                        <Badge variant={item.isActive ? "success" : "muted"}>
+                          {item.isActive ? "Active" : "Archived"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{shortId(item.ownerUserId)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{formatDate(item.createdAtUtc)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="inline-flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => void openDetails(item)}>
+                            <Eye className="h-4 w-4" /> Details
+                          </Button>
+                          <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
+                            <Edit3 className="h-4 w-4" /> Edit
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
 
             <div className="flex items-center justify-between border-t border-border p-4">
@@ -446,47 +514,6 @@ export function OrganizationsClient() {
           acting={actingId === details?.id}
         />
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Data table</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Owner</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">{item.name}</TableCell>
-                  <TableCell>
-                    <Badge variant={item.isActive ? "success" : "muted"}>{item.isActive ? "Active" : "Archived"}</Badge>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{shortId(item.ownerUserId)}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{formatDate(item.createdAtUtc)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => void openDetails(item)}>
-                        Details
-                      </Button>
-                      <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
-                        Edit
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent>

@@ -21,6 +21,8 @@ Define organization/tenant capabilities, constraints, invariants, events, and ac
 ## Acceptance Criteria
 - A user can create an organization from the web cockpit.
 - A user can list, search, inspect, update, archive and reactivate organizations from the web cockpit.
+- The web cockpit shows either grid view or table view according to the user's current selection; grid is the default.
+- Grid view and table view share the same organization pagination behavior.
 - The web cockpit surfaces operation errors and success states through in-app notifications.
 - Archived organizations are recoverable.
 - Hard-delete is not part of the MVP organization lifecycle.

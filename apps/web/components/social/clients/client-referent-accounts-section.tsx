@@ -258,6 +258,7 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
             {account.isActive ? "Active" : "Inactive"}
           </Badge>
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="h-6 px-2 text-xs"
@@ -266,6 +267,7 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
             Edit
           </Button>
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="h-6 px-2 text-xs"
@@ -292,7 +294,7 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
             />
             Show archived
           </label>
-          <Button variant="outline" size="sm" onClick={openCreate}>
+          <Button type="button" variant="outline" size="sm" onClick={openCreate}>
             <Plus className="h-3.5 w-3.5" /> Add Account
           </Button>
         </div>
