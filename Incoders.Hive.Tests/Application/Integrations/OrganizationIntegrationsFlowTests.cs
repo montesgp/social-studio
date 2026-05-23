@@ -5,6 +5,7 @@ using Incoders.Hive.Application.Features.Integrations.Configure;
 using Incoders.Hive.Application.Features.Integrations.GetByProvider;
 using Incoders.Hive.Application.Features.Integrations.GetOverview;
 using Incoders.Hive.Application.Features.Integrations.SetDefaultAi;
+using Incoders.Hive.Application.Features.Integrations.TestConnection;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Tests.Common;
 
@@ -132,6 +133,17 @@ public sealed class OrganizationIntegrationsFlowTests
         Assert.True(openAiConfigured.IsSuccess);
         Assert.True(canvaConfigured.IsSuccess);
         Assert.True(blotatoConfigured.IsSuccess);
+        Assert.Equal(IntegrationStatus.Configured, openAiConfigured.Value.Status);
+
+        Assert.True((await harness.TestConnection.Handle(
+            new TestOrganizationIntegrationConnectionCommand(organizationId, "openai"),
+            CancellationToken.None)).IsSuccess);
+        Assert.True((await harness.TestConnection.Handle(
+            new TestOrganizationIntegrationConnectionCommand(organizationId, "canva"),
+            CancellationToken.None)).IsSuccess);
+        Assert.True((await harness.TestConnection.Handle(
+            new TestOrganizationIntegrationConnectionCommand(organizationId, "blotato"),
+            CancellationToken.None)).IsSuccess);
 
         var defaultAi = await harness.SetDefaultAi.Handle(
             new SetDefaultAiIntegrationCommand(organizationId, "openai", "gpt-4.1-mini"),
@@ -150,6 +162,72 @@ public sealed class OrganizationIntegrationsFlowTests
         Assert.Equal("gpt-4.1-mini", overview.Value.DefaultAiModel);
     }
 
+    [Fact]
+    public async Task ConfigureProvider_SavesCredentialsAsConfiguredWithoutMarkingConnected_AndGetByProviderReturnsValues()
+    {
+        var harness = new IntegrationsHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        var configured = await harness.Configure.Handle(
+            new ConfigureOrganizationIntegrationCommand(
+                organizationId,
+                "apify",
+                IntegrationConnectionMode.BringYourOwnKey,
+                true,
+                null,
+                new Dictionary<string, string>
+                {
+                    ["api_key"] = "apify-token",
+                    ["actor_id"] = "clockworks/tiktok-scraper"
+                }),
+            CancellationToken.None);
+
+        Assert.True(configured.IsSuccess);
+        Assert.Equal(IntegrationStatus.Configured, configured.Value.Status);
+        Assert.Empty(configured.Value.CredentialValues);
+
+        var loaded = await harness.GetByProvider.Handle(
+            new GetOrganizationIntegrationByProviderQuery(organizationId, "apify"),
+            CancellationToken.None);
+
+        Assert.True(loaded.IsSuccess);
+        Assert.Equal(IntegrationStatus.Configured, loaded.Value.Status);
+        Assert.Equal("apify-token", loaded.Value.CredentialValues["api_key"]);
+        Assert.Equal("clockworks/tiktok-scraper", loaded.Value.CredentialValues["actor_id"]);
+    }
+
+    [Fact]
+    public async Task ConfigureApify_AllowsActorMappingsByNetworkAndVariant()
+    {
+        var harness = new IntegrationsHarness(Now);
+        var organizationId = Guid.NewGuid();
+        const string actorMappingsJson = "[{\"networkKey\":\"tiktok\",\"variantKey\":\"single-video\",\"actorId\":\"clockworks/tiktok-scraper\"},{\"networkKey\":\"instagram\",\"variantKey\":\"profile\",\"actorId\":\"vendor/instagram-profile\"}]";
+
+        var configured = await harness.Configure.Handle(
+            new ConfigureOrganizationIntegrationCommand(
+                organizationId,
+                "apify",
+                IntegrationConnectionMode.BringYourOwnKey,
+                true,
+                null,
+                new Dictionary<string, string>
+                {
+                    ["api_key"] = "apify-token",
+                    ["actor_mappings_json"] = actorMappingsJson
+                }),
+            CancellationToken.None);
+
+        Assert.True(configured.IsSuccess);
+        Assert.Equal(IntegrationStatus.Configured, configured.Value.Status);
+
+        var loaded = await harness.GetByProvider.Handle(
+            new GetOrganizationIntegrationByProviderQuery(organizationId, "apify"),
+            CancellationToken.None);
+
+        Assert.True(loaded.IsSuccess);
+        Assert.Equal(actorMappingsJson, loaded.Value.CredentialValues["actor_mappings_json"]);
+    }
+
     private sealed class IntegrationsHarness
     {
         private readonly InMemoryIntegrationProviderCatalogRepository _providers;
@@ -161,16 +239,15 @@ public sealed class OrganizationIntegrationsFlowTests
             Credentials = new InMemoryOrganizationIntegrationCredentialRepository();
 
             var protector = new FakeIntegrationSecretProtector();
-            var tester = new AlwaysSuccessfulConnectionTester();
             var unitOfWork = new InMemoryUnitOfWork();
             var clock = new TestClock(nowUtc);
+            var tester = new AlwaysSuccessfulConnectionTester();
 
             Configure = new ConfigureOrganizationIntegrationHandler(
                 _providers,
                 Integrations,
                 Credentials,
                 protector,
-                tester,
                 unitOfWork,
                 clock);
 
@@ -182,12 +259,22 @@ public sealed class OrganizationIntegrationsFlowTests
             GetByProvider = new GetOrganizationIntegrationByProviderHandler(
                 _providers,
                 Integrations,
-                Credentials);
+                Credentials,
+                protector);
 
             SetDefaultAi = new SetDefaultAiIntegrationHandler(
                 _providers,
                 Integrations,
                 Credentials,
+                unitOfWork,
+                clock);
+
+            TestConnection = new TestOrganizationIntegrationConnectionHandler(
+                _providers,
+                Integrations,
+                Credentials,
+                protector,
+                tester,
                 unitOfWork,
                 clock);
         }
@@ -203,6 +290,8 @@ public sealed class OrganizationIntegrationsFlowTests
         public GetOrganizationIntegrationByProviderHandler GetByProvider { get; }
 
         public SetDefaultAiIntegrationHandler SetDefaultAi { get; }
+
+        public TestOrganizationIntegrationConnectionHandler TestConnection { get; }
     }
 
     private sealed class InMemoryIntegrationProviderCatalogRepository : IIntegrationProviderCatalogRepository
@@ -307,7 +396,8 @@ public sealed class OrganizationIntegrationsFlowTests
                     true,
                     [
                         new IntegrationCredentialField("api_key", "API key", true, true),
-                        new IntegrationCredentialField("actor_id", "Actor ID", false, true)
+                        new IntegrationCredentialField("actor_id", "Default actor ID", false, false),
+                        new IntegrationCredentialField("actor_mappings_json", "Actor mappings", false, false)
                     ],
                     nowUtc),
                 CreateProvider(

@@ -36,7 +36,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
-import { ClientReferentAccountsSection } from "@/components/social/clients/client-referent-accounts-section";
 import { ClientBrandManualSection } from "@/components/social/clients/client-brand-manual-section";
 import { ClientFormPanel } from "@/components/social/clients/client-form-panel";
 import { useClientForm } from "@/components/social/clients/use-client-form";
@@ -605,8 +604,6 @@ function ClientDetailsPanel({
           <Fact label="Created" value={formatDateTime(client.createdAtUtc)} />
           <Fact label="Updated" value={formatDateTime(client.updatedAtUtc)} />
         </div>
-
-        <ClientReferentAccountsSection clientId={client.id} />
 
         <ClientBrandManualSection clientId={client.id} />
 

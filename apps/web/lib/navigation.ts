@@ -11,7 +11,11 @@ import {
   ShieldCheck,
   CalendarClock,
   PlugZap,
-  ScanSearch
+  ScanSearch,
+  Store,
+  ShoppingBag,
+  Package,
+  Tags
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -29,6 +33,33 @@ export interface NavGroup {
   items: NavItem[];
 }
 
+export type WorkspaceModuleKey = "social" | "ecommerce";
+
+export interface WorkspaceModule {
+  key: WorkspaceModuleKey;
+  label: string;
+  description: string;
+  shortLabel: string;
+  icon: LucideIcon;
+}
+
+export const workspaceModules: WorkspaceModule[] = [
+  {
+    key: "social",
+    label: "Hive Social",
+    description: "Content operations",
+    shortLabel: "Social",
+    icon: Share2
+  },
+  {
+    key: "ecommerce",
+    label: "Hive E-Commerce",
+    description: "Commerce operations",
+    shortLabel: "Commerce",
+    icon: Store
+  }
+];
+
 /**
  * Workspace navigation — daily operational workflow.
  * Order is intentional: primary workflow first, management last.
@@ -37,12 +68,15 @@ export interface NavGroup {
  *   /content-generator → /workflow
  *   /ai-ideas         → /ideas
  */
-export const workspaceNavigation: NavGroup[] = [
+const workspaceHomeNavigation: NavGroup[] = [
   {
     items: [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }
     ]
-  },
+  }
+];
+
+const socialModuleNavigation: NavGroup[] = [
   {
     label: "Content",
     items: [
@@ -51,7 +85,22 @@ export const workspaceNavigation: NavGroup[] = [
       { href: "/ai-ideas", label: "AI Ideas", icon: Sparkles },
       { href: "/publications", label: "Publications", icon: Send }
     ]
-  },
+  }
+];
+
+const ecommerceModuleNavigation: NavGroup[] = [
+  {
+    label: "Commerce",
+    items: [
+      { href: "/commerce/products", label: "Products", icon: Package, comingSoon: true },
+      { href: "/commerce/orders", label: "Orders", icon: ShoppingBag, comingSoon: true },
+      { href: "/commerce/catalog", label: "Catalog", icon: Tags, comingSoon: true },
+      { href: "/commerce/storefront", label: "Storefront", icon: Store, comingSoon: true }
+    ]
+  }
+];
+
+const sharedManagementNavigation: NavGroup[] = [
   {
     label: "Management",
     items: [
@@ -60,6 +109,14 @@ export const workspaceNavigation: NavGroup[] = [
     ]
   }
 ];
+
+export function getWorkspaceNavigation(moduleKey: WorkspaceModuleKey): NavGroup[] {
+  return [
+    ...workspaceHomeNavigation,
+    ...(moduleKey === "ecommerce" ? ecommerceModuleNavigation : socialModuleNavigation),
+    ...sharedManagementNavigation
+  ];
+}
 
 /**
  * Admin navigation — platform/sysadmin operations.

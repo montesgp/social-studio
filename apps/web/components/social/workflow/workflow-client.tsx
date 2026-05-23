@@ -31,9 +31,12 @@ import {
   Trash2,
   Video,
   WandSparkles,
+  X,
   Youtube
 } from "lucide-react";
 import { listOrganizations } from "@/lib/api/organizations";
+import { listSocialNetworks } from "@/lib/api/social-networks";
+import { getSocialNetworkIcon } from "@/lib/social-network-icons";
 import {
   generateContentWorkflowPackage,
   getContentWorkflowHistory,
@@ -74,11 +77,13 @@ import {
   ContentWorkflowStrategyMode,
   Organization,
   PageResult,
-  SocialClient
+  SocialClient,
+  SocialNetwork
 } from "@/lib/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { useAccessToken } from "@/components/auth/use-access-token";
@@ -100,7 +105,8 @@ const searchOptions: Array<{ value: ContentWorkflowSearchCriterion; label: strin
   { value: "niche", label: "Niche" },
   { value: "references", label: "References" },
   { value: "viral", label: "Viral" },
-  { value: "competitors", label: "Competitors" }
+  { value: "competitors", label: "Competitors" },
+  { value: "own", label: "Own best performers" }
 ];
 
 const strategyOptions: Array<{ value: ContentWorkflowStrategyMode; label: string }> = [
@@ -175,7 +181,8 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
   // Workflow config
   const [searchCriterion, setSearchCriterion] = useState<ContentWorkflowSearchCriterion>("niche");
   const [strategyMode, setStrategyMode] = useState<ContentWorkflowStrategyMode>("mixed");
-  const [networkSources, setNetworkSources] = useState<string[]>(["tiktok", "instagram"]);
+  const [availableNetworks, setAvailableNetworks] = useState<SocialNetwork[]>([]);
+  const [networkSources, setNetworkSources] = useState<string[]>([]);
   const [maxResults, setMaxResults] = useState(12);
 
   // Workflow state
@@ -313,6 +320,13 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
     setError(null);
 
     try {
+      // Always load real networks from the catalog
+      const networksResult = await listSocialNetworks({ includeInactive: false, pageSize: 100 }, accessToken).catch(() => null);
+      if (networksResult) {
+        setAvailableNetworks(networksResult.items);
+        setNetworkSources(networksResult.items.slice(0, 2).map((n) => n.code));
+      }
+
       if (USE_MOCK_WORKFLOW_DATA) {
         const nextOrganizations = getMockOrganizations();
         setOrganizations(nextOrganizations);
@@ -338,18 +352,14 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
     setError(null);
 
     try {
-      let nextClients: SocialClient[] = [];
-      let nextHistory: ContentWorkflowHistoryItem[] = [];
+      // Always load real clients regardless of mock flag
+      const nextClients = accessToken
+        ? await listWorkflowClients(organizationId, accessToken).then((response) => response.items)
+        : getMockClients(organizationId);
 
-      if (USE_MOCK_WORKFLOW_DATA) {
-        nextClients = getMockClients(organizationId);
-        nextHistory = listMockWorkflowHistory(organizationId, 12);
-      } else {
-        [nextClients, nextHistory] = await Promise.all([
-          listWorkflowClients(organizationId, accessToken!).then((response) => response.items),
-          listContentWorkflowHistory(organizationId, 12, accessToken!)
-        ]);
-      }
+      const nextHistory: ContentWorkflowHistoryItem[] = USE_MOCK_WORKFLOW_DATA
+        ? listMockWorkflowHistory(organizationId, 12)
+        : await listContentWorkflowHistory(organizationId, 12, accessToken!);
 
       setClients(nextClients);
       setSelectedClientId((current) => current || nextClients[0]?.id || "");
@@ -837,8 +847,8 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
             {isPlatformAdmin && organizations.length > 0 && (
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Organization</span>
-                <select
-                  className="h-9 min-w-[220px] rounded-md border border-border bg-background px-3 text-sm"
+                <Select
+                  className="min-w-[220px]"
                   value={selectedOrganizationId}
                   onChange={(event) => setSelectedOrganizationId(event.target.value)}
                 >
@@ -847,7 +857,7 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                       {organization.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
             )}
             <Button
@@ -873,11 +883,11 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
         <CardHeader>
           <CardTitle className="text-base">Configuration</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 lg:grid-cols-2 xl:grid-cols-5">
+        <CardContent className="grid gap-4 lg:grid-cols-2 xl:grid-cols-6">
           <div className="space-y-2">
             <label className="text-sm font-medium">Client</label>
-            <select
-              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+            <Select
+              className="w-full"
               value={selectedClientId}
               onChange={(event) => setSelectedClientId(event.target.value)}
             >
@@ -889,12 +899,12 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                   {client.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">Search criterion</label>
-            <select
-              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+            <Select
+              className="w-full"
               value={searchCriterion}
               onChange={(event) => setSearchCriterion(event.target.value as ContentWorkflowSearchCriterion)}
             >
@@ -903,12 +913,12 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                   {option.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">Content strategy</label>
-            <select
-              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+            <Select
+              className="w-full"
               value={strategyMode}
               onChange={(event) => setStrategyMode(event.target.value as ContentWorkflowStrategyMode)}
             >
@@ -917,7 +927,7 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                   {option.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">Max results</label>
@@ -931,29 +941,58 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
             />
             <p className="text-xs text-muted-foreground">Limit candidates to save AI analysis tokens.</p>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2 xl:col-span-2">
             <label className="text-sm font-medium">Source networks</label>
-            <div className="grid grid-cols-1 gap-2">
-              {networkOptions.map((network) => {
-                const Icon = network.icon;
-                return (
-                  <label
-                    key={network.value}
-                    className="flex items-center gap-2 rounded-lg border border-border/80 bg-background/60 px-2 py-1.5 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={networkSources.includes(network.value)}
-                      onChange={() => toggleNetwork(network.value)}
-                    />
-                    <Icon className="h-4 w-4 text-primary" />
-                    {network.label}
-                  </label>
-                );
-              })}
-            </div>
+            {availableNetworks.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Loading networks…</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {/* Selected — highlighted chips with remove (×) */}
+                {networkSources.map((code) => {
+                  const network = availableNetworks.find((n) => n.code === code);
+                  if (!network) return null;
+                  const Icon = getSocialNetworkIcon(code);
+                  return (
+                    <span
+                      key={code}
+                      className="flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/15 px-3 py-1 text-xs font-medium text-primary"
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      {network.displayName}
+                      <button
+                        type="button"
+                        onClick={() => toggleNetwork(code)}
+                        className="ml-0.5 text-primary/60 hover:text-primary transition-colors"
+                        aria-label={`Remove ${network.displayName}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  );
+                })}
+                {/* Available but not selected — muted chips with add (+) */}
+                {availableNetworks
+                  .filter((n) => !networkSources.includes(n.code))
+                  .map((network) => {
+                    const Icon = getSocialNetworkIcon(network.code);
+                    return (
+                      <button
+                        key={network.code}
+                        type="button"
+                        onClick={() => toggleNetwork(network.code)}
+                        className="flex items-center gap-1.5 rounded-full border border-border/60 bg-background/60 px-3 py-1 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+                        aria-label={`Add ${network.displayName}`}
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                        {network.displayName}
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
           </div>
-          <div className="lg:col-span-2 xl:col-span-5">
+          <div className="lg:col-span-2 xl:col-span-6">
             <Button
               onClick={() => void startGeneration()}
               disabled={busy || !selectedClientId || !selectedOrganizationId || networkSources.length === 0}
@@ -1158,11 +1197,10 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                               {result.strategyMode}
                             </span>
                             {(() => {
-                              const net = networkOptions.find(n => n.value === result.networkSource);
-                              if (!net) return <Badge variant="muted">{result.networkSource}</Badge>;
-                              const NetIcon = net.icon;
+                              const NetIcon = getSocialNetworkIcon(result.networkSource);
+                              const networkLabel = availableNetworks.find((n) => n.code === result.networkSource)?.displayName ?? result.networkSource;
                               return (
-                                <span title={net.label}>
+                                <span title={networkLabel}>
                                   <NetIcon className="h-4 w-4 text-muted-foreground shrink-0" />
                                 </span>
                               );
@@ -1466,8 +1504,8 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                       <label className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
                         Mutation format
                       </label>
-                      <select
-                        className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+                      <Select
+                        className="w-full"
                         value={mutationMode}
                         onChange={(event) => setMutationMode(event.target.value)}
                       >
@@ -1476,7 +1514,7 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                             {option.label}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     </div>
 
                     {/* Tablet emulator */}
@@ -1603,8 +1641,8 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                         {/* Edit form: only shown when editing */}
                         {editingCartItemId === item.resultId && (
                           <div className="mt-3 space-y-2 border-t border-border pt-3">
-                            <select
-                              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+                            <Select
+                              className="w-full"
                               value={editCartMutation}
                               onChange={(e) => setEditCartMutation(e.target.value)}
                             >
@@ -1613,7 +1651,7 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                                   {option.label}
                                 </option>
                               ))}
-                            </select>
+                            </Select>
                             <textarea
                               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                               rows={2}

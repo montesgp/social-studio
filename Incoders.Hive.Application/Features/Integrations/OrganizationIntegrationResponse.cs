@@ -21,4 +21,5 @@ public sealed record OrganizationIntegrationResponse(
     bool SupportsSystemDefault,
     bool SystemDefaultReadOnly,
     IReadOnlyList<IntegrationCredentialFieldResponse> CredentialFields,
-    IReadOnlyList<string> ConfiguredCredentialKeys);
+    IReadOnlyList<string> ConfiguredCredentialKeys,
+    IReadOnlyDictionary<string, string> CredentialValues);

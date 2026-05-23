@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
+import { Select } from "@/components/ui/select";
 
 const availableRoles = ["sysadmin", "admin"] as const;
 
@@ -306,15 +307,15 @@ export function UsersTable() {
               <label className="text-sm font-medium" htmlFor="admin-user-status">
                 Status
               </label>
-              <select
+              <Select
                 id="admin-user-status"
                 value={form.status}
                 onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as UserStatus }))}
-                className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                className="w-full"
               >
                 <option value="Active">Active</option>
                 <option value="Suspended">Suspended</option>
-              </select>
+              </Select>
             </div>
 
             <fieldset className="space-y-2">

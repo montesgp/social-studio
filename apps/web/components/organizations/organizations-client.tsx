@@ -42,6 +42,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
+import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
@@ -795,28 +796,30 @@ function OrganizationDetailsPanel({
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">New connector</p>
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground">Provider</label>
-                  <select
-                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                  <Select
+                    size="sm"
+                    className="w-full"
                     value={newProvider}
                     onChange={(e) => setNewProvider(e.target.value)}
                   >
                     <option value="claude">Anthropic Claude</option>
                     <option value="openai">OpenAI</option>
                     <option value="gemini">Google Gemini</option>
-                  </select>
+                  </Select>
                 </div>
                 {newProvider === "claude" && (
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">Model</label>
-                    <select
-                      className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                    <Select
+                      size="sm"
+                      className="w-full"
                       value={newModel}
                       onChange={(e) => setNewModel(e.target.value)}
                     >
                       {claudeModelOptions.map((m) => (
                         <option key={m.value} value={m.value}>{m.label}</option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
                 )}
                 <div className="space-y-1">

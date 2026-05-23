@@ -28,7 +28,8 @@ public sealed class ApifySocialContentExtractor : ISocialContentExtractor
         var hasApiKey = ProviderCredentialReader.TryGet(_credential, "api_key", out var token)
             || ProviderCredentialReader.TryGet(_credential, "api_token", out token);
 
-        if (!hasApiKey || !ProviderCredentialReader.TryGet(_credential, "actor_id", out var actorId))
+        var actorId = ResolveActorId(request);
+        if (!hasApiKey || string.IsNullOrWhiteSpace(actorId))
         {
             return Result.Failure<SocialContentSnapshot>(IntegrationErrors.ProviderCredentialUnavailable);
         }
@@ -62,4 +63,54 @@ public sealed class ApifySocialContentExtractor : ISocialContentExtractor
             >= 500 => IntegrationErrors.ExternalProviderUnavailable,
             _ => IntegrationErrors.ExternalProviderUnavailable,
         };
+
+    private string? ResolveActorId(SocialContentRequest request)
+    {
+        if (ProviderCredentialReader.TryGet(_credential, "actor_mappings_json", out var json)
+            && TryResolveMappedActor(json, request.PlatformKey, request.CapabilityKey, out var mappedActorId))
+        {
+            return mappedActorId;
+        }
+
+        return ProviderCredentialReader.TryGet(_credential, "actor_id", out var fallbackActorId)
+            ? fallbackActorId
+            : null;
+    }
+
+    private static bool TryResolveMappedActor(
+        string json,
+        string platformKey,
+        string capabilityKey,
+        out string actorId)
+    {
+        actorId = string.Empty;
+
+        try
+        {
+            var mappings = JsonSerializer.Deserialize<List<ApifyActorMapping>>(json, JsonOptions) ?? [];
+            var candidates = mappings
+                .Where(x => !string.IsNullOrWhiteSpace(x.ActorId) && Matches(x.NetworkKey, platformKey))
+                .ToList();
+            var match = candidates.FirstOrDefault(x => Matches(x.VariantKey, capabilityKey))
+                ?? candidates.FirstOrDefault(x => Matches(x.VariantKey, "default"))
+                ?? candidates.FirstOrDefault();
+
+            actorId = match?.ActorId?.Trim() ?? string.Empty;
+            return !string.IsNullOrWhiteSpace(actorId);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool Matches(string? value, string expected) =>
+        string.Equals(value?.Trim(), expected.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private sealed record ApifyActorMapping(
+        string NetworkKey,
+        string VariantKey,
+        string ActorId);
 }

@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ClientReferentAccountsSection } from "@/components/social/clients/client-referent-accounts-section";
+import { ClientBrandManualSection } from "@/components/social/clients/client-brand-manual-section";
 import { ClientStrategySection } from "@/components/social/clients/client-strategy-section";
 import { MonthlyObjectivesSection } from "@/components/social/clients/monthly-objectives-section";
 
@@ -125,6 +126,10 @@ export function ClientFormPanel({
         <>
           <CollapsibleSection title="Referent Accounts">
             <ClientReferentAccountsSection clientId={clientId} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Brand Manual">
+            <ClientBrandManualSection clientId={clientId} />
           </CollapsibleSection>
 
           <CollapsibleSection title="Strategy">

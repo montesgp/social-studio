@@ -43,7 +43,7 @@ export interface SocialClient {
   updatedAtUtc: string;
 }
 
-export type ContentWorkflowSearchCriterion = "niche" | "references" | "viral" | "competitors";
+export type ContentWorkflowSearchCriterion = "niche" | "references" | "viral" | "competitors" | "own";
 export type ContentWorkflowStrategyMode = "mixed" | "educational" | "informative" | "entertainment";
 export type ContentWorkflowNetworkSource = "tiktok" | "instagram" | "youtube";
 export type ContentWorkflowActionType = "download_audio" | "transcribe_and_build_script" | "build_carousel";
@@ -179,7 +179,7 @@ export type IntegrationProviderCategory =
 
 export type IntegrationConnectionMode = "BringYourOwnKey" | "ManagedByIncoders" | "SystemDefault";
 
-export type IntegrationStatus = "NotConfigured" | "Connected" | "Failed" | "Disabled";
+export type IntegrationStatus = "NotConfigured" | "Configured" | "Connected" | "Failed" | "Disabled";
 
 export interface IntegrationCredentialField {
   key: string;
@@ -225,6 +225,7 @@ export interface OrganizationIntegration {
   systemDefaultReadOnly: boolean;
   credentialFields: IntegrationCredentialField[];
   configuredCredentialKeys: string[];
+  credentialValues: Record<string, string>;
 }
 
 export interface IntegrationSetupChecklistItem {

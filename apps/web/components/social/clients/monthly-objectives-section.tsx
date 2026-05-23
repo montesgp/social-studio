@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { getMonthlyObjective, upsertMonthlyObjective } from "@/lib/api/monthly-objectives";
 import type { UpsertMonthlyObjectivePayload } from "@/lib/api/types";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 
 interface MonthlyObjectivesSectionProps {
   clientId: string;
@@ -154,36 +155,40 @@ export function MonthlyObjectivesSection({ clientId, token }: MonthlyObjectivesS
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-3">
-        <div className="space-y-1">
-          <label htmlFor="obj-month" className="text-sm font-medium">Month</label>
-          <select
+      <div className="grid gap-3 sm:grid-cols-[minmax(12rem,1fr)_minmax(8rem,0.7fr)]">
+        <div className="space-y-2">
+          <label htmlFor="obj-month" className="block text-sm font-medium text-foreground">
+            Month
+          </label>
+          <Select
             id="obj-month"
             value={month}
             onChange={(e) => setMonth(Number(e.target.value))}
-            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            className="w-full"
           >
             {MONTHS.map((m) => (
               <option key={m.value} value={m.value}>
                 {m.label}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
-        <div className="space-y-1">
-          <label htmlFor="obj-year" className="text-sm font-medium">Year</label>
-          <select
+        <div className="space-y-2">
+          <label htmlFor="obj-year" className="block text-sm font-medium text-foreground">
+            Year
+          </label>
+          <Select
             id="obj-year"
             value={year}
             onChange={(e) => setYear(Number(e.target.value))}
-            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            className="w-full"
           >
             {getYearOptions().map((y) => (
               <option key={y} value={y}>
                 {y}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 

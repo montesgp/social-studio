@@ -12,6 +12,7 @@ import {
   Link2,
   Loader2,
   Music2,
+  Plus,
   Route,
   RefreshCcw,
   Settings2,
@@ -27,6 +28,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   configureOrganizationIntegration,
   deleteOrganizationIntegration,
+  getOrganizationIntegration,
   listIntegrationProviders,
   listOrganizationIntegrations,
   listOrganizationRoutingPolicies,
@@ -43,13 +45,17 @@ import {
   Organization,
   OrganizationIntegration,
   OrganizationIntegrationsOverview,
-  OrganizationRoutingPolicy
+  OrganizationRoutingPolicy,
+  SocialNetwork
 } from "@/lib/api/types";
+import { listSocialNetworks } from "@/lib/api/social-networks";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useToast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { useAccessToken } from "@/components/auth/use-access-token";
@@ -84,26 +90,77 @@ interface ModalState {
   enabled: boolean;
   selectedAiModel: string;
   credentials: Record<string, string>;
+  apifyActorMappings: ApifyActorMappingDraft[];
+}
+
+interface ApifyActorMappingDraft {
+  id: string;
+  networkKey: string;
+  variantKey: string;
+  actorId: string;
 }
 
 interface RoutingPolicyDraft {
   capabilityKey: "social-extraction" | "ai-analysis";
-  platformKey: "tiktok" | "instagram" | "youtube" | null;
+  platformKey: string | null;
   providerKey: string;
   selectedModel: string;
   isEnabled: boolean;
 }
 
-const extractionTargets: Array<{ platformKey: "tiktok" | "instagram" | "youtube"; label: string }> = [
-  { platformKey: "tiktok", label: "TikTok metadata" },
-  { platformKey: "instagram", label: "Instagram metadata" },
-  { platformKey: "youtube", label: "YouTube metadata" }
-];
-
 const singleAnalyzerFlowKey = "single-analyzer";
+const apifyActorMappingsCredentialKey = "actor_mappings_json";
 
 function policyDraftKey(capabilityKey: string, platformKey: string | null) {
   return `${capabilityKey}:${platformKey ?? "global"}`;
+}
+
+function newApifyActorMapping(defaultNetworkKey: string): ApifyActorMappingDraft {
+  return {
+    id: crypto.randomUUID(),
+    networkKey: defaultNetworkKey,
+    variantKey: "default",
+    actorId: ""
+  };
+}
+
+function parseApifyActorMappings(value: string | undefined): ApifyActorMappingDraft[] {
+  if (!value?.trim()) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Array<Partial<ApifyActorMappingDraft>>;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item) => {
+        const networkKey = typeof item.networkKey === "string" ? item.networkKey.trim() : "";
+        return {
+          id: crypto.randomUUID(),
+          networkKey,
+          variantKey: item.variantKey?.trim() || "default",
+          actorId: item.actorId?.trim() || ""
+        };
+      })
+      .filter((item) => item.networkKey.length > 0 && item.actorId.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function serializeApifyActorMappings(mappings: ApifyActorMappingDraft[]) {
+  return JSON.stringify(
+    mappings
+      .map((item) => ({
+        networkKey: item.networkKey,
+        variantKey: item.variantKey.trim() || "default",
+        actorId: item.actorId.trim()
+      }))
+      .filter((item) => item.actorId.length > 0)
+  );
 }
 
 function ModelSelect({
@@ -123,8 +180,8 @@ function ModelSelect({
     );
   }
   return (
-    <select
-      className="h-10 rounded-md border border-border bg-background px-3 text-sm w-full"
+    <Select
+      className="w-full"
       value={value}
       onChange={(e) => onChange(e.target.value)}
     >
@@ -132,7 +189,7 @@ function ModelSelect({
       {models.map((m) => (
         <option key={m} value={m}>{m}</option>
       ))}
-    </select>
+    </Select>
   );
 }
 
@@ -149,6 +206,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const [providers, setProviders] = useState<IntegrationProvider[]>([]);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<string>("");
   const [overview, setOverview] = useState<OrganizationIntegrationsOverview | null>(null);
+  const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -167,6 +225,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       setOverview(null);
       setOrganizations([]);
       setProviders([]);
+      setSocialNetworks([]);
       return;
     }
 
@@ -208,6 +267,22 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       (integration) => integration.category === "DataExtraction" && integration.status === "Connected"
     );
   }, [overview?.integrations]);
+
+  const socialNetworkOptions = useMemo(() => {
+    return socialNetworks
+      .filter((network) => network.isActive)
+      .map((network) => ({
+        value: network.code,
+        label: network.displayName
+      }));
+  }, [socialNetworks]);
+
+  const extractionTargets = useMemo(() => {
+    return socialNetworkOptions.map((network) => ({
+      platformKey: network.value,
+      label: `${network.label} metadata`
+    }));
+  }, [socialNetworkOptions]);
 
   async function bootstrap(accessToken: string) {
     setLoading(true);
@@ -263,7 +338,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     setError(null);
 
     try {
-      const [data, policies] = await Promise.all([
+      const [data, policies, networksPage] = await Promise.all([
         listOrganizationIntegrations(organizationId, accessToken),
         listOrganizationRoutingPolicies(
           organizationId,
@@ -271,13 +346,16 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
             flowKey: singleAnalyzerFlowKey
           },
           accessToken
-        )
+        ),
+        listSocialNetworks({ page: 1, pageSize: 100, includeInactive: false }, accessToken)
       ]);
+      const activeNetworks = networksPage.items.filter((network) => network.isActive);
       setOverview(data);
       setRoutingPolicies(policies);
+      setSocialNetworks(activeNetworks);
       setDefaultAiProviderKey(data.defaultAiProviderKey ?? "");
       setDefaultAiModel(data.defaultAiModel ?? "");
-      setRoutingDrafts(createRoutingDrafts(policies, data.integrations, data.defaultAiProviderKey ?? ""));
+      setRoutingDrafts(createRoutingDrafts(policies, data.integrations, data.defaultAiProviderKey ?? "", activeNetworks));
     } catch (err) {
       setError((err as ApiError).message);
     } finally {
@@ -290,7 +368,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   function createRoutingDrafts(
     policies: OrganizationRoutingPolicy[],
     integrations: OrganizationIntegration[],
-    defaultAiProvider: string
+    defaultAiProvider: string,
+    activeNetworks: SocialNetwork[]
   ) {
     const drafts: Record<string, RoutingPolicyDraft> = {};
     const extractionOptions = integrations.filter(
@@ -300,18 +379,18 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       (integration) => integration.category === "AiModel" && integration.status === "Connected"
     );
 
-    for (const target of extractionTargets) {
+    for (const network of activeNetworks) {
       const policy = policies.find(
         (item) =>
           item.flowKey === singleAnalyzerFlowKey
           && item.capabilityKey === "social-extraction"
-          && item.platformKey === target.platformKey
+          && item.platformKey === network.code
       );
       const candidate = policy?.candidates.find((item) => item.isEnabled) ?? policy?.candidates[0];
 
-      drafts[policyDraftKey("social-extraction", target.platformKey)] = {
+      drafts[policyDraftKey("social-extraction", network.code)] = {
         capabilityKey: "social-extraction",
-        platformKey: target.platformKey,
+        platformKey: network.code,
         providerKey: candidate?.providerKey ?? extractionOptions[0]?.providerKey ?? "",
         selectedModel: candidate?.selectedModel ?? "",
         isEnabled: policy?.isEnabled ?? true
@@ -397,22 +476,79 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     });
   }
 
-  function openConfigure(integration: OrganizationIntegration) {
-    const mode = integration.isReadOnly
-      ? integration.supportsBringYourOwnKey
-        ? "BringYourOwnKey"
-        : integration.supportsManagedByIncoders
-          ? "ManagedByIncoders"
-          : integration.connectionMode
-      : integration.connectionMode;
+  function addApifyActorMapping() {
+    const defaultNetworkKey = socialNetworkOptions[0]?.value ?? "";
+    if (!defaultNetworkKey) {
+      return;
+    }
 
-    setModal({
-      integration,
-      mode,
-      enabled: integration.status !== "Disabled",
-      selectedAiModel: integration.selectedAiModel ?? "",
-      credentials: {}
-    });
+    setModal((prev) =>
+      prev
+        ? {
+            ...prev,
+            apifyActorMappings: [...prev.apifyActorMappings, newApifyActorMapping(defaultNetworkKey)]
+          }
+        : prev
+    );
+  }
+
+  function patchApifyActorMapping(id: string, patch: Partial<ApifyActorMappingDraft>) {
+    setModal((prev) =>
+      prev
+        ? {
+            ...prev,
+            apifyActorMappings: prev.apifyActorMappings.map((item) =>
+              item.id === id ? { ...item, ...patch } : item
+            )
+          }
+        : prev
+    );
+  }
+
+  function removeApifyActorMapping(id: string) {
+    setModal((prev) =>
+      prev
+        ? {
+            ...prev,
+            apifyActorMappings: prev.apifyActorMappings.filter((item) => item.id !== id)
+          }
+        : prev
+    );
+  }
+
+  async function openConfigure(integration: OrganizationIntegration) {
+    if (!selectedOrganizationId || !token) {
+      return;
+    }
+
+    setRefreshing(true);
+    setError(null);
+
+    try {
+      const detail = await getOrganizationIntegration(selectedOrganizationId, integration.providerKey, token);
+      const mode = detail.isReadOnly
+        ? detail.supportsBringYourOwnKey
+          ? "BringYourOwnKey"
+          : detail.supportsManagedByIncoders
+            ? "ManagedByIncoders"
+            : detail.connectionMode
+        : detail.connectionMode;
+
+      setModal({
+        integration: detail,
+        mode,
+        enabled: detail.status !== "Disabled",
+        selectedAiModel: detail.selectedAiModel ?? "",
+        credentials: detail.credentialValues ?? {},
+        apifyActorMappings: parseApifyActorMappings(detail.credentialValues?.[apifyActorMappingsCredentialKey])
+      });
+    } catch (err) {
+      const message = (err as ApiError).message;
+      setError(message);
+      toast.error("Could not load integration", message);
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function saveConfiguration(event: FormEvent<HTMLFormElement>) {
@@ -426,8 +562,16 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
     try {
       const credentialEntries = Object.entries(modal.credentials)
+        .filter(([key]) => key !== apifyActorMappingsCredentialKey)
         .filter(([, value]) => value.trim().length > 0)
         .map(([key, value]) => ({ key, value }));
+
+      if (modal.integration.providerKey === "apify") {
+        credentialEntries.push({
+          key: apifyActorMappingsCredentialKey,
+          value: serializeApifyActorMappings(modal.apifyActorMappings)
+        });
+      }
 
       await configureOrganizationIntegration(
         selectedOrganizationId,
@@ -556,8 +700,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                 <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
                   Organization
                 </span>
-                <select
-                  className="h-9 w-[220px] cursor-pointer rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                <Select
+                  className="w-[220px] cursor-pointer"
                   value={selectedOrganizationId}
                   onChange={(event) => setSelectedOrganizationId(event.target.value)}
                 >
@@ -566,7 +710,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                       {organization.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
             )}
 
@@ -618,8 +762,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
             </CardHeader>
             <CardContent>
               <form className="grid gap-3 lg:grid-cols-[1fr_1fr_auto]" onSubmit={saveDefaultAi}>
-                <select
-                  className="h-10 rounded-md border border-border bg-background px-3 text-sm"
+                <Select
                   value={defaultAiProviderKey}
                   onChange={(event) => setDefaultAiProviderKey(event.target.value)}
                   required
@@ -632,7 +775,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                       {integration.providerDisplayName}
                     </option>
                   ))}
-                </select>
+                </Select>
                 <ModelSelect
                   models={providers.find((p) => p.key === defaultAiProviderKey)?.availableModels ?? []}
                   value={defaultAiModel}
@@ -675,8 +818,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                         Capability: social-extraction / Platform: {target.platformKey}
                       </p>
                     </div>
-                    <select
-                      className="h-10 rounded-md border border-border bg-background px-3 text-sm"
+                    <Select
                       value={draft.providerKey}
                       onChange={(event) => patchRoutingDraft(key, { providerKey: event.target.value })}
                       disabled={connectedDataProviders.length === 0}
@@ -689,7 +831,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                           {integration.providerDisplayName}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                     <label className="flex items-center gap-2 text-sm">
                       <input
                         type="checkbox"
@@ -724,8 +866,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                         Capability: ai-analysis / Platform: global
                       </p>
                     </div>
-                    <select
-                      className="h-10 rounded-md border border-border bg-background px-3 text-sm"
+                    <Select
                       value={draft.providerKey}
                       onChange={(event) => patchRoutingDraft(key, { providerKey: event.target.value })}
                       disabled={connectedAiIntegrations.length === 0}
@@ -738,7 +879,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                           {integration.providerDisplayName}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                     <ModelSelect
                       models={providers.find((p) => p.key === draft.providerKey)?.availableModels ?? []}
                       value={draft.selectedModel}
@@ -814,7 +955,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                       </div>
 
                       <div className="flex flex-wrap gap-2">
-                        <Button variant="secondary" size="sm" onClick={() => openConfigure(integration)}>
+                        <Button variant="secondary" size="sm" onClick={() => void openConfigure(integration)}>
                           <KeyRound className="h-4 w-4" /> Connect / Configure
                         </Button>
                         <Button variant="outline" size="sm" onClick={() => void runTest(integration)}>
@@ -849,8 +990,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
             <form className="space-y-4" onSubmit={saveConfiguration}>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Connection mode</label>
-                <select
-                  className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+                <Select
+                  className="w-full"
                   value={modal.mode}
                   onChange={(event) => setModal((prev) => (prev ? { ...prev, mode: event.target.value as IntegrationConnectionMode } : prev))}
                 >
@@ -863,7 +1004,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                   {modal.integration.supportsSystemDefault ? (
                     <option value="SystemDefault">SystemDefault</option>
                   ) : null}
-                </select>
+                </Select>
               </div>
 
               <label className="flex items-center gap-2 text-sm">
@@ -895,31 +1036,53 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
               ) : null}
 
               {modal.mode !== "SystemDefault"
-                ? modal.integration.credentialFields.map((field) => {
+                ? modal.integration.credentialFields
+                  .filter((field) => field.key !== apifyActorMappingsCredentialKey)
+                  .map((field) => {
                     const isConfigured = modal.integration.configuredCredentialKeys.includes(field.key);
                     return (
                       <div key={field.key} className="space-y-2">
                         <label className="text-sm font-medium">
                           {field.label} {field.isRequired ? <span className="text-red-300">*</span> : null}
                         </label>
-                        <Input
-                          type={field.isSecret ? "password" : "text"}
-                          value={modal.credentials[field.key] ?? ""}
-                          onChange={(event) =>
-                            setModal((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    credentials: {
-                                      ...prev.credentials,
-                                      [field.key]: event.target.value
+                        {field.isSecret ? (
+                          <PasswordInput
+                            value={modal.credentials[field.key] ?? ""}
+                            onChange={(event) =>
+                              setModal((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      credentials: {
+                                        ...prev.credentials,
+                                        [field.key]: event.target.value
+                                      }
                                     }
-                                  }
-                                : prev
-                            )
-                          }
-                          placeholder={field.placeholder ?? undefined}
-                        />
+                                  : prev
+                              )
+                            }
+                            placeholder={field.placeholder ?? undefined}
+                          />
+                        ) : (
+                          <Input
+                            type="text"
+                            value={modal.credentials[field.key] ?? ""}
+                            onChange={(event) =>
+                              setModal((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      credentials: {
+                                        ...prev.credentials,
+                                        [field.key]: event.target.value
+                                      }
+                                    }
+                                  : prev
+                              )
+                            }
+                            placeholder={field.placeholder ?? undefined}
+                          />
+                        )}
                         <p className="text-xs text-muted-foreground">
                           {field.helpText ?? ""} {isConfigured ? "(Existing value already configured)" : ""}
                         </p>
@@ -927,6 +1090,89 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                     );
                   })
                 : null}
+
+              {modal.integration.providerKey === "apify" && modal.mode !== "SystemDefault" ? (
+                <div className="space-y-3 rounded-xl border border-border bg-background/40 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">Actor routing</p>
+                      <p className="text-xs text-muted-foreground">
+                        Map Apify actors by active social network and generator variant.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={addApifyActorMapping}
+                      disabled={socialNetworkOptions.length === 0}
+                    >
+                      <Plus className="h-4 w-4" /> Add actor
+                    </Button>
+                  </div>
+
+                  {socialNetworkOptions.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No active social networks are available in the platform catalog.
+                    </p>
+                  ) : modal.apifyActorMappings.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No actor routes configured yet. The default actor ID remains available as a fallback.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {modal.apifyActorMappings.map((mapping) => {
+                        const isKnownNetwork = socialNetworkOptions.some((option) => option.value === mapping.networkKey);
+
+                        return (
+                          <div key={mapping.id} className="grid gap-2 rounded-lg border border-border/70 p-2 md:grid-cols-[140px_1fr_1fr_auto]">
+                            <Select
+                              value={mapping.networkKey}
+                              onChange={(event) =>
+                                patchApifyActorMapping(mapping.id, {
+                                  networkKey: event.target.value
+                                })
+                              }
+                            >
+                              {!isKnownNetwork ? (
+                                <option value={mapping.networkKey}>{mapping.networkKey} (inactive)</option>
+                              ) : null}
+                              {socialNetworkOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </Select>
+                            <Input
+                              value={mapping.variantKey}
+                              onChange={(event) =>
+                                patchApifyActorMapping(mapping.id, { variantKey: event.target.value })
+                              }
+                              placeholder="Variant key, e.g. single-video"
+                            />
+                            <Input
+                              value={mapping.actorId}
+                              onChange={(event) =>
+                                patchApifyActorMapping(mapping.id, { actorId: event.target.value })
+                              }
+                              placeholder="Apify actor ID"
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeApifyActorMapping(mapping.id)}
+                              aria-label="Remove actor route"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : null}
 
               <div className="flex justify-end gap-2">
                 {modal.integration.integrationId ? (
@@ -958,7 +1204,11 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
 function StatusBadge({ status }: { status: IntegrationStatus }) {
   if (status === "Connected") {
-    return <Badge variant="success">Connected</Badge>;
+    return <Badge variant="success">Connected on</Badge>;
+  }
+
+  if (status === "Configured") {
+    return <Badge variant="outline">Configured</Badge>;
   }
 
   if (status === "Failed") {
@@ -966,7 +1216,7 @@ function StatusBadge({ status }: { status: IntegrationStatus }) {
   }
 
   if (status === "Disabled") {
-    return <Badge variant="muted">Disabled</Badge>;
+    return <Badge variant="muted">Connected off</Badge>;
   }
 
   return <Badge variant="muted">Not configured</Badge>;

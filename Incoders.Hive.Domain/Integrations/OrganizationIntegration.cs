@@ -168,10 +168,8 @@ public sealed class OrganizationIntegration : Entity<OrganizationIntegrationId>
             return Result.Success();
         }
 
-        if (Status == IntegrationStatus.Disabled)
-        {
-            Status = IntegrationStatus.NotConfigured;
-        }
+        Status = IntegrationStatus.Configured;
+        IsDefaultAi = false;
 
         return Result.Success();
     }

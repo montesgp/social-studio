@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ScanSearch,
   Search,
-  Link2,
   Download,
   Clock,
   RefreshCw,
@@ -21,11 +20,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getMockOrganizations } from "@/lib/mocks/content-workflow";
-import type { Organization } from "@/lib/api/types";
+import { Select } from "@/components/ui/select";
+import { getMockClients, getMockOrganizations } from "@/lib/mocks/content-workflow";
+import { listWorkflowClients } from "@/lib/api/content-workflow";
+import type { Organization, SocialClient, SocialNetwork } from "@/lib/api/types";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
+import { listSocialNetworks } from "@/lib/api/social-networks";
+import { useAccessToken } from "@/components/auth/use-access-token";
 import {
-  getMockVideoByUrl,
   getMockVideoBySearch,
   analyzeMockVideo,
   generateMockSingleDownload,
@@ -33,6 +35,7 @@ import {
   recordMockAnalysis,
   type SingleAnalyzerResult,
 } from "@/lib/mocks/single-analyzer";
+import { scrapeVideoByUrl, type ScrapedVideo } from "@/lib/api/single-analyzer";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -41,12 +44,6 @@ const strategyColors: Record<string, string> = {
   informative: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
   entertainment: "bg-amber-500/15 text-amber-300 border-amber-500/30",
 };
-
-const networkOptions = [
-  { value: "tiktok", label: "TikTok" },
-  { value: "instagram", label: "Instagram" },
-  { value: "youtube", label: "YouTube" },
-];
 
 const strategyOptions = [
   { value: "educational", label: "Educational" },
@@ -64,6 +61,46 @@ function formatDate(iso: string) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function formatDuration(seconds: number | null | undefined): string {
+  if (typeof seconds !== "number" || seconds <= 0) return "—";
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+function mapScrapedToResult(scraped: ScrapedVideo, organizationId: string): SingleAnalyzerResult {
+  const now = new Date().toISOString();
+  return {
+    id: `sa-live-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    organizationId,
+    clientId: null,
+    clientName: null,
+    inputMode: "url",
+    inputUrl: scraped.sourceUrl,
+    searchQuery: "",
+    networkSource: scraped.networkSource,
+    thumbnailUrl: scraped.thumbnailUrl || `https://picsum.photos/seed/${encodeURIComponent(scraped.sourceUrl)}/640/360`,
+    videoUrl: scraped.videoUrl,
+    title: scraped.title,
+    author: scraped.author,
+    views: scraped.views,
+    likes: scraped.likes,
+    comments: scraped.comments,
+    strategyMode: "",
+    videoAnalysis: "",
+    scriptDraft: "",
+    analyzedAtUtc: now,
+    downloadedAtUtc: null,
+    contentType: scraped.contentType,
+    shares: scraped.shares,
+    saves: scraped.saves,
+    durationSeconds: scraped.durationSeconds,
+    publishedAtUtc: scraped.publishedAtUtc,
+    hashtags: scraped.hashtags,
+    dataSource: "apify",
+  };
 }
 
 // ── Local sub-components ───────────────────────────────────────────────────────
@@ -166,12 +203,20 @@ interface SingleAnalyzerClientProps {
 
 export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientProps) {
   const { orgId: activeOrgId } = useActiveOrg();
+  const token = useAccessToken();
+  const effectiveToken = token ?? undefined;
+
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
+  const [clients, setClients] = useState<SocialClient[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [clientsLoading, setClientsLoading] = useState(false);
+  const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>([]);
+  const [networksLoading, setNetworksLoading] = useState(true);
   const [inputMode, setInputMode] = useState<"url" | "search">("url");
   const [urlInput, setUrlInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchNetwork, setSearchNetwork] = useState("tiktok");
+  const [searchNetwork, setSearchNetwork] = useState("");
   const [searchStrategy, setSearchStrategy] = useState("educational");
   const [videoResult, setVideoResult] = useState<SingleAnalyzerResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -183,13 +228,77 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [generatedFlyers, setGeneratedFlyers] = useState<Record<string, string>>({});
   const [generatingConversion, setGeneratingConversion] = useState<string | null>(null);
   const [rightPanelTab, setRightPanelTab] = useState<"conversion" | "preview">("conversion");
-  const [previewNetworkTab, setPreviewNetworkTab] = useState("tiktok");
+  const [previewNetworkTab, setPreviewNetworkTab] = useState("");
   const [mutationMode, setMutationMode] = useState<"script" | "carousel" | "flyer">("script");
   const [historyItems, setHistoryItems] = useState<SingleAnalyzerResult[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadResult, setDownloadResult] = useState<{ fileName: string; downloadUrl: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Derived — always in sync with API data
+  const networkOptions = socialNetworks.map((n) => ({ value: n.code, label: n.displayName }));
+  const selectedClient = useMemo(
+    () => clients.find((client) => client.id === selectedClientId) ?? null,
+    [clients, selectedClientId]
+  );
+
+  const loadNetworks = useCallback(async () => {
+    if (!effectiveToken) return;
+    setNetworksLoading(true);
+    try {
+      const result = await listSocialNetworks({ page: 1, pageSize: 100 }, effectiveToken);
+      setSocialNetworks(result.items);
+      if (result.items.length > 0) {
+        setSearchNetwork((prev) =>
+          result.items.some((n) => n.code === prev) ? prev : result.items[0].code
+        );
+        setPreviewNetworkTab((prev) =>
+          result.items.some((n) => n.code === prev) ? prev : result.items[0].code
+        );
+      }
+    } catch {
+      // silent — select stays disabled until retry
+    } finally {
+      setNetworksLoading(false);
+    }
+  }, [effectiveToken]);
+
+  useEffect(() => {
+    void loadNetworks();
+  }, [loadNetworks]);
+
+  const loadClients = useCallback(async () => {
+    if (!selectedOrganizationId) {
+      setClients([]);
+      setSelectedClientId("");
+      return;
+    }
+
+    setClientsLoading(true);
+    try {
+      const result = effectiveToken
+        ? (await listWorkflowClients(selectedOrganizationId, effectiveToken)).items
+        : getMockClients(selectedOrganizationId);
+      const activeClients = result.filter((client) => client.isActive);
+      setClients(activeClients);
+      setSelectedClientId((current) =>
+        current && activeClients.some((client) => client.id === current) ? current : ""
+      );
+    } catch {
+      const activeClients = getMockClients(selectedOrganizationId).filter((client) => client.isActive);
+      setClients(activeClients);
+      setSelectedClientId((current) =>
+        current && activeClients.some((client) => client.id === current) ? current : ""
+      );
+    } finally {
+      setClientsLoading(false);
+    }
+  }, [effectiveToken, selectedOrganizationId]);
+
+  useEffect(() => {
+    void loadClients();
+  }, [loadClients]);
 
   useEffect(() => {
     const orgs = getMockOrganizations();
@@ -223,13 +332,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     if (!urlInput.trim()) return;
     setIsLoading(true);
     resetVideoState();
-    await sleep(600);
     try {
-      const result = getMockVideoByUrl(selectedOrganizationId, urlInput.trim());
+      const scraped = await scrapeVideoByUrl(urlInput.trim());
+      const result = mapScrapedToResult(scraped, selectedOrganizationId);
       setVideoResult(result);
       setPreviewNetworkTab(result.networkSource);
-    } catch {
-      setError("Failed to load video. Check the URL and try again.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load video. Check the URL and try again.");
     } finally {
       setIsLoading(false);
     }
@@ -269,6 +378,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     }, 80);
     await sleep(duration);
     clearInterval(interval);
+    // Register the loaded video so the analysis builds on real (scraped) data
+    // instead of falling back to generic mock defaults.
+    recordMockAnalysis(videoResult);
     const analyzed = analyzeMockVideo(selectedOrganizationId, videoResult.id);
     recordMockAnalysis(analyzed);
     setAnalyzingProgress(100);
@@ -281,8 +393,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   function buildScriptContent(network: string) {
     if (!videoResult) return "";
+    const clientLine = selectedClient
+      ? `Client orientation: adapt this mutation for ${selectedClient.name}.`
+      : "Client orientation: none - keep the original video's angle and positioning.";
     return [
       `── ${network.toUpperCase()} SCRIPT ──`,
+      clientLine,
+      "",
       videoResult.scriptDraft || "(Run analysis to generate script)",
       "",
       `Hook adapted for ${network}: lead with the strongest transformation.`,
@@ -292,11 +409,16 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   function buildCarouselContent(network: string) {
     if (!videoResult) return "";
+    const clientLine = selectedClient
+      ? `[ Client Orientation ] ${selectedClient.name}`
+      : "[ Client Orientation ] None - preserve original positioning";
     const points = videoResult.videoAnalysis
       ? videoResult.videoAnalysis.split("\n").filter(Boolean).slice(1, 4).map((l) => `→ ${l}`)
       : ["→ (Analyze video to generate key points)"];
     return [
       `📱 ${network.toUpperCase()} CAROUSEL`,
+      "",
+      clientLine,
       "",
       "[ Slide 1 — Cover ]",
       videoResult.title,
@@ -311,9 +433,14 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   function buildFlyerContent(network: string) {
     if (!videoResult) return "";
+    const clientLine = selectedClient
+      ? `CLIENT: ${selectedClient.name}`
+      : "CLIENT: None - original video orientation";
     return [
       `🖼️ ${network.toUpperCase()} FLYER`,
       "══════════════",
+      clientLine,
+      "",
       `HEADLINE: ${videoResult.title.toUpperCase().slice(0, 50)}`,
       "",
       `AUTHOR: ${videoResult.author}`,
@@ -380,15 +507,16 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
           </div>
         </div>
         {isPlatformAdmin && organizations.length > 0 && (
-          <select
-            className="h-8 min-w-[12rem] rounded-md border border-border bg-background px-3 text-xs"
+          <Select
+            size="sm"
+            className="min-w-[12rem]"
             value={selectedOrganizationId}
             onChange={(e) => setSelectedOrganizationId(e.target.value)}
           >
             {organizations.map((org) => (
               <option key={org.id} value={org.id}>{org.name}</option>
             ))}
-          </select>
+          </Select>
         )}
       </div>
 
@@ -421,44 +549,54 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
             </CardHeader>
             <CardContent className="pt-0 space-y-3">
               {inputMode === "url" ? (
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Paste TikTok, Instagram or YouTube URL…"
-                    value={urlInput}
-                    onChange={(e) => setUrlInput(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && void loadVideoByUrl()}
-                    className="h-8 text-xs"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={() => void loadVideoByUrl()}
-                    disabled={isLoading || !urlInput.trim()}
-                    className="h-8 px-3 text-xs"
-                  >
-                    {isLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : "Load"}
-                  </Button>
+                <div className="space-y-1.5">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Paste a TikTok video URL…"
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && void loadVideoByUrl()}
+                      className="h-8 text-xs"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => void loadVideoByUrl()}
+                      disabled={isLoading || !urlInput.trim()}
+                      className="h-8 px-3 text-xs"
+                    >
+                      {isLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : "Load"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground/70">
+                    {isLoading
+                      ? "Scraping the video… this can take up to a minute."
+                      : "We fetch live metrics from the source before you pick a client."}
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-2">
                   <div className="flex gap-2">
-                    <select
-                      className="h-8 w-32 rounded-md border border-border bg-background px-2 text-xs"
+                    <Select
+                      size="sm"
+                      className="w-32"
                       value={searchNetwork}
                       onChange={(e) => setSearchNetwork(e.target.value)}
+                      disabled={networksLoading || networkOptions.length === 0}
                     >
                       {networkOptions.map((n) => (
                         <option key={n.value} value={n.value}>{n.label}</option>
                       ))}
-                    </select>
-                    <select
-                      className="h-8 w-36 rounded-md border border-border bg-background px-2 text-xs"
+                    </Select>
+                    <Select
+                      size="sm"
+                      className="w-36"
                       value={searchStrategy}
                       onChange={(e) => setSearchStrategy(e.target.value)}
                     >
                       {strategyOptions.map((s) => (
                         <option key={s.value} value={s.value}>{s.label}</option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
                   <div className="flex gap-2">
                     <Input
@@ -508,12 +646,39 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                 <div>
                   <h3 className="text-sm font-semibold text-foreground line-clamp-2">{videoResult.title}</h3>
                   <p className="mt-0.5 text-xs text-muted-foreground">{videoResult.author}</p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <Badge variant="outline" className="text-xs capitalize">
+                      {videoResult.contentType ?? "video"}
+                    </Badge>
+                    {videoResult.publishedAtUtc && (
+                      <Badge variant="outline" className="text-xs">
+                        {formatDate(videoResult.publishedAtUtc)}
+                      </Badge>
+                    )}
+                    {videoResult.dataSource === "apify" && (
+                      <Badge variant="outline" className="text-xs border-purple-500/30 text-purple-400">
+                        Live data
+                      </Badge>
+                    )}
+                  </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <Fact label="Views" value={videoResult.views.toLocaleString()} />
                   <Fact label="Likes" value={videoResult.likes.toLocaleString()} />
                   <Fact label="Comments" value={videoResult.comments.toLocaleString()} />
+                  <Fact label="Shares" value={(videoResult.shares ?? 0).toLocaleString()} />
+                  <Fact label="Saves" value={(videoResult.saves ?? 0).toLocaleString()} />
+                  <Fact label="Duration" value={formatDuration(videoResult.durationSeconds)} />
                 </div>
+                {videoResult.hashtags && videoResult.hashtags.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {videoResult.hashtags.slice(0, 8).map((tag) => (
+                      <span key={tag} className="text-xs text-muted-foreground/70">
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {!isAnalyzed ? (
                   <Button
                     className="w-full h-8 text-xs mt-1"
@@ -617,6 +782,33 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
               <CardContent className="pt-0">
                 {rightPanelTab === "conversion" && (
                   <div className="space-y-4">
+                    {/* Client context — chosen before generating, drives brand orientation */}
+                    <div className="grid gap-1.5">
+                      <label htmlFor="single-analyzer-client" className="text-xs font-medium text-muted-foreground">
+                        Client context
+                      </label>
+                      <Select
+                        id="single-analyzer-client"
+                        size="sm"
+                        className="w-full"
+                        value={selectedClientId}
+                        onChange={(e) => setSelectedClientId(e.target.value)}
+                        disabled={clientsLoading}
+                      >
+                        <option value="">No client - neutral generation</option>
+                        {clients.map((client) => (
+                          <option key={client.id} value={client.id}>
+                            {client.name}
+                          </option>
+                        ))}
+                      </Select>
+                      <p className="text-xs text-muted-foreground/70">
+                        {selectedClient
+                          ? `Content will be generated for ${selectedClient.name}.`
+                          : "Pick a client to orient the generated content toward their brand."}
+                      </p>
+                    </div>
+
                     {/* Format mode selector */}
                     <div className="flex gap-1.5">
                       {(["script", "carousel", "flyer"] as const).map((mode) => (
@@ -733,6 +925,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     <p className="text-xs font-medium text-foreground/90 truncate">{item.title}</p>
                     <p className="text-xs text-muted-foreground/60 capitalize">
                       {item.networkSource} · {formatDate(item.analyzedAtUtc)}
+                    </p>
+                    <p className="text-xs text-muted-foreground/50">
+                      {item.clientName ? `Client: ${item.clientName}` : "No client context"}
                     </p>
                   </div>
                   {item.strategyMode && (

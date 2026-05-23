@@ -74,6 +74,17 @@ function hasSignal(
 
 // --- Row editors ---
 
+/** Normalize any valid hex variant to #RRGGBB for <input type="color"> */
+function toPickerValue(hex: string): string {
+  const h = hex.trim();
+  if (/^#[0-9a-fA-F]{3}$/.test(h)) {
+    return `#${h[1]}${h[1]}${h[2]}${h[2]}${h[3]}${h[3]}`;
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(h)) return h;
+  if (/^#[0-9a-fA-F]{8}$/.test(h)) return h.slice(0, 7);
+  return "#000000";
+}
+
 function ColorRow({
   entry,
   onChange,
@@ -93,12 +104,21 @@ function ColorRow({
         className="flex-1"
       />
       <div className="flex flex-col gap-1">
-        <Input
-          placeholder="#FF0000"
-          value={entry.hex}
-          onChange={(e) => onChange({ ...entry, hex: e.target.value })}
-          className="w-28"
-        />
+        <div className="flex items-center gap-1">
+          <input
+            type="color"
+            value={toPickerValue(entry.hex)}
+            onChange={(e) => onChange({ ...entry, hex: e.target.value })}
+            className="h-9 w-9 shrink-0 cursor-pointer rounded border border-input bg-background p-0.5"
+            title="Pick a color"
+          />
+          <Input
+            placeholder="#FF0000"
+            value={entry.hex}
+            onChange={(e) => onChange({ ...entry, hex: e.target.value })}
+            className="w-28"
+          />
+        </div>
         {hexError && <p className="text-xs text-destructive">{hexError}</p>}
       </div>
       <Input

@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Incoders.Hive.ApiService.Endpoints.Admin;
 using Incoders.Hive.ApiService.Endpoints.Auth;
 using Incoders.Hive.ApiService.Endpoints.Common;
@@ -24,6 +25,10 @@ builder.AddServiceDefaults();
 // Add services to the container.
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();

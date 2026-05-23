@@ -8,9 +8,11 @@ internal static class IntegrationResponseFactory
         Guid organizationId,
         IntegrationProvider provider,
         OrganizationIntegration? integration,
-        IReadOnlyList<string> configuredCredentialKeys)
+        IReadOnlyList<string> configuredCredentialKeys,
+        IReadOnlyDictionary<string, string>? credentialValues = null)
     {
         var providerResponse = IntegrationProviderResponse.FromDomain(provider);
+        var values = credentialValues ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         if (integration is null)
         {
@@ -45,7 +47,8 @@ internal static class IntegrationResponseFactory
                 provider.SupportsSystemDefault,
                 provider.SystemDefaultReadOnly,
                 providerResponse.CredentialFields,
-                configuredCredentialKeys);
+                configuredCredentialKeys,
+                values);
         }
 
         return new OrganizationIntegrationResponse(
@@ -67,6 +70,7 @@ internal static class IntegrationResponseFactory
             provider.SupportsSystemDefault,
             provider.SystemDefaultReadOnly,
             providerResponse.CredentialFields,
-            configuredCredentialKeys);
+            configuredCredentialKeys,
+            values);
     }
 }

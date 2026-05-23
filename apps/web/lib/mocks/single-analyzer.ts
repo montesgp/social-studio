@@ -9,6 +9,8 @@ const networkCopy: Record<string, string> = {
 export interface SingleAnalyzerResult {
   id: string;
   organizationId: string;
+  clientId: string | null;
+  clientName: string | null;
   inputMode: "url" | "search";
   inputUrl: string;
   searchQuery: string;
@@ -25,6 +27,14 @@ export interface SingleAnalyzerResult {
   scriptDraft: string;
   analyzedAtUtc: string;
   downloadedAtUtc: string | null;
+  // Optional rich metadata sourced from the live scraping integration (Apify).
+  contentType?: string;
+  shares?: number;
+  saves?: number;
+  durationSeconds?: number | null;
+  publishedAtUtc?: string | null;
+  hashtags?: string[];
+  dataSource?: "apify" | "mock";
 }
 
 const analyzerSessions = new Map<string, SingleAnalyzerResult>();
@@ -51,6 +61,8 @@ function slugify(text: string): string {
 function buildResult(
   id: string,
   organizationId: string,
+  clientId: string | null,
+  clientName: string | null,
   inputMode: "url" | "search",
   inputUrl: string,
   searchQuery: string,
@@ -66,6 +78,8 @@ function buildResult(
   return {
     id,
     organizationId,
+    clientId,
+    clientName,
     inputMode,
     inputUrl,
     searchQuery,
@@ -85,7 +99,12 @@ function buildResult(
   };
 }
 
-export function getMockVideoByUrl(organizationId: string, url: string): SingleAnalyzerResult {
+export function getMockVideoByUrl(
+  organizationId: string,
+  url: string,
+  clientId: string | null = null,
+  clientName: string | null = null
+): SingleAnalyzerResult {
   const now = new Date().toISOString();
   const networkSource = deriveNetworkFromUrl(url);
   const id = `sa-url-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -100,6 +119,8 @@ export function getMockVideoByUrl(organizationId: string, url: string): SingleAn
   return buildResult(
     id,
     organizationId,
+    clientId,
+    clientName,
     "url",
     url,
     "",
@@ -118,7 +139,9 @@ export function getMockVideoBySearch(
   organizationId: string,
   query: string,
   networkSource: string,
-  strategyMode: string
+  strategyMode: string,
+  clientId: string | null = null,
+  clientName: string | null = null
 ): SingleAnalyzerResult {
   const now = new Date().toISOString();
   const id = `sa-search-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -134,6 +157,8 @@ export function getMockVideoBySearch(
   return buildResult(
     id,
     organizationId,
+    clientId,
+    clientName,
     "search",
     "",
     query,
@@ -153,6 +178,8 @@ export function analyzeMockVideo(organizationId: string, id: string): SingleAnal
   const base = existing ?? {
     id,
     organizationId,
+    clientId: null,
+    clientName: null,
     inputMode: "url" as const,
     inputUrl: "",
     searchQuery: "",
@@ -172,11 +199,15 @@ export function analyzeMockVideo(organizationId: string, id: string): SingleAnal
   };
 
   const networkLabel = networkCopy[base.networkSource] ?? base.networkSource;
+  const clientContext = base.clientName
+    ? `Client context: ${base.clientName} - adapt future mutations to this client's active brand strategy.`
+    : "Client context: none - preserve the original video's positioning without client-specific orientation.";
 
   const analyzed: SingleAnalyzerResult = {
     ...base,
     videoAnalysis: [
       `Network source: ${networkLabel}`,
+      clientContext,
       `Hook style: direct promise in the first 2 seconds — strong pattern interrupt.`,
       `Format angle: ${base.strategyMode} narrative with visual rhythm, B-roll cuts every 3s, and CTA pacing in the last 4s.`,
       `Engagement signals: ${base.views.toLocaleString()} views · ${base.likes.toLocaleString()} likes · ${base.comments.toLocaleString()} comments.`,
@@ -234,6 +265,8 @@ function seedDefaultHistory() {
     {
       id: "sa-seed-001",
       organizationId: orgId,
+      clientId: "client-wellness-lab",
+      clientName: "Wellness Lab",
       inputMode: "url",
       inputUrl: "https://www.tiktok.com/@creator/video/123456",
       searchQuery: "",
@@ -265,6 +298,8 @@ function seedDefaultHistory() {
     {
       id: "sa-seed-002",
       organizationId: orgId,
+      clientId: "client-wellness-lab",
+      clientName: "Wellness Lab",
       inputMode: "search",
       inputUrl: "",
       searchQuery: "morning routine habits",
@@ -296,6 +331,8 @@ function seedDefaultHistory() {
     {
       id: "sa-seed-003",
       organizationId: orgId,
+      clientId: "client-growth-studio",
+      clientName: "Growth Studio",
       inputMode: "search",
       inputUrl: "",
       searchQuery: "content creation for beginners",

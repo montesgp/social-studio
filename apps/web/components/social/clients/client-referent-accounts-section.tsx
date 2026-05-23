@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { SortableChildTable, Column } from "@/components/ui/sortable-child-table";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
@@ -323,11 +324,11 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
               <label className="text-sm font-medium" htmlFor="create-network">
                 Social Network
               </label>
-              <select
+              <Select
                 id="create-network"
                 value={createNetworkId}
                 onChange={(e) => setCreateNetworkId(e.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="w-full"
                 required
               >
                 {networks.map((n) => (
@@ -335,7 +336,7 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
                     {n.displayName}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="create-url">
