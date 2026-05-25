@@ -210,6 +210,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [defaultAiProviderKey, setDefaultAiProviderKey] = useState<string>("");
@@ -398,7 +399,21 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     setDefaultAiModel("");
     setModal(null);
     setError(null);
-    setRefreshing(true);
+    setRefreshing(false);
+  }
+
+  async function refreshOverview() {
+    if (!selectedOrganizationId || !token || manualRefreshing) {
+      return;
+    }
+
+    setManualRefreshing(true);
+
+    try {
+      await loadOverview(selectedOrganizationId, token);
+    } finally {
+      setManualRefreshing(false);
+    }
   }
 
   function createRoutingDrafts(
@@ -750,8 +765,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
               </div>
             )}
 
-            <Button variant="outline" onClick={() => selectedOrganizationId && token && loadOverview(selectedOrganizationId, token)}>
-              <RefreshCcw className={cn("h-4 w-4", refreshing && "animate-spin")} /> Refresh
+            <Button variant="outline" onClick={() => void refreshOverview()} disabled={!selectedOrganizationId || !token || manualRefreshing}>
+              <RefreshCcw className={cn("h-4 w-4", manualRefreshing && "animate-spin")} /> Refresh
             </Button>
           </div>
         </div>
@@ -771,24 +786,28 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
       {overview ? (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <CheckCircle2 className="h-4 w-4 text-primary" /> Required setup checklist
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-3">
-              {overview.checklist.map((item) => (
-                <div key={item.key} className="rounded-xl border border-border bg-background/40 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="font-medium">{item.label}</p>
-                    <Badge variant={item.isCompleted ? "success" : "muted"}>{item.isCompleted ? "Done" : "Pending"}</Badge>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">{item.requirement}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+          <section className="grid gap-4 lg:grid-cols-2">
+            {overview.checklistGroups.map((checklist) => (
+              <Card key={checklist.key}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <CheckCircle2 className="h-4 w-4 text-primary" /> {checklist.label}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  {checklist.items.map((item) => (
+                    <div key={item.key} className="rounded-xl border border-border bg-background/40 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="font-medium">{item.label}</p>
+                        <Badge variant={item.isCompleted ? "success" : "muted"}>{item.isCompleted ? "Done" : "Pending"}</Badge>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">{item.requirement}</p>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            ))}
+          </section>
 
           <Card>
             <CardHeader>

@@ -272,11 +272,18 @@ export interface IntegrationSetupChecklistItem {
   requirement: string;
 }
 
+export interface IntegrationSetupChecklist {
+  key: string;
+  label: string;
+  items: IntegrationSetupChecklistItem[];
+}
+
 export interface OrganizationIntegrationsOverview {
   organizationId: string;
   defaultAiProviderKey: string | null;
   defaultAiModel: string | null;
   checklist: IntegrationSetupChecklistItem[];
+  checklistGroups: IntegrationSetupChecklist[];
   integrations: OrganizationIntegration[];
 }
 

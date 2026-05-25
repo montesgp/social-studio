@@ -5,4 +5,5 @@ public sealed record OrganizationIntegrationsOverviewResponse(
     string? DefaultAiProviderKey,
     string? DefaultAiModel,
     IReadOnlyList<IntegrationSetupChecklistItemResponse> Checklist,
+    IReadOnlyList<IntegrationSetupChecklistResponse> ChecklistGroups,
     IReadOnlyList<OrganizationIntegrationResponse> Integrations);

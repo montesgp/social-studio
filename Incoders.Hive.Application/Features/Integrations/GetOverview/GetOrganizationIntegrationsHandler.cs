@@ -67,35 +67,51 @@ public sealed class GetOrganizationIntegrationsHandler
             x.Category == IntegrationProviderCategory.AiModel
             && x.Status == IntegrationStatus.Connected);
 
-        var hasCanva = responseIntegrations.Any(x =>
-            string.Equals(x.ProviderKey, "canva", StringComparison.OrdinalIgnoreCase)
+        var hasContentDataProvider = responseIntegrations.Any(x =>
+            x.Category == IntegrationProviderCategory.DataExtraction
+            && (string.Equals(x.ProviderKey, "apify", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(x.ProviderKey, "data365", StringComparison.OrdinalIgnoreCase))
             && x.Status == IntegrationStatus.Connected);
 
-        var hasBlotato = responseIntegrations.Any(x =>
-            string.Equals(x.ProviderKey, "blotato", StringComparison.OrdinalIgnoreCase)
-            && x.Status == IntegrationStatus.Connected);
-
-        var checklist = new List<IntegrationSetupChecklistItemResponse>
+        var singleAnalyzerChecklist = new List<IntegrationSetupChecklistItemResponse>
         {
             new(
-                "ai-provider",
-                "Connect at least one AI provider",
+                "single-analyzer-data-provider",
+                "Connect Apify or Data365",
+                true,
+                hasContentDataProvider,
+                "At least one content data provider must be connected to resolve social content."),
+            new(
+                "single-analyzer-ai-provider",
+                "Connect at least one AI model provider",
                 true,
                 hasAiProvider,
-                "At least one AI provider must be connected to run generation and evaluation flows."),
-            new(
-                "canva",
-                "Connect Canva",
-                true,
-                hasCanva,
-                "Canva integration is required for design/canvas workflow steps."),
-            new(
-                "blotato",
-                "Connect Blotato",
-                true,
-                hasBlotato,
-                "Blotato integration is required for publication workflow steps.")
+                "At least one AI model provider must be connected to analyze resolved content.")
         };
+
+        var generatorChecklist = new List<IntegrationSetupChecklistItemResponse>
+        {
+            new(
+                "generator-data-provider",
+                "Connect Apify or Data365",
+                true,
+                hasContentDataProvider,
+                "At least one content data provider must be connected before generated ideas can use source content."),
+            new(
+                "generator-ai-provider",
+                "Connect at least one AI model provider",
+                true,
+                hasAiProvider,
+                "At least one AI model provider must be connected to generate content ideas.")
+        };
+
+        var checklistGroups = new List<IntegrationSetupChecklistResponse>
+        {
+            new("single-analyzer", "Single Analyzer", singleAnalyzerChecklist),
+            new("generator", "Generator required setup checklist", generatorChecklist)
+        };
+
+        var checklist = singleAnalyzerChecklist.Concat(generatorChecklist).ToList();
 
         var defaultAi = responseIntegrations.FirstOrDefault(x =>
             x.Category == IntegrationProviderCategory.AiModel
@@ -107,6 +123,7 @@ public sealed class GetOrganizationIntegrationsHandler
             defaultAi?.ProviderKey,
             defaultAi?.SelectedAiModel,
             checklist,
+            checklistGroups,
             responseIntegrations);
 
         return Result.Success(overview);

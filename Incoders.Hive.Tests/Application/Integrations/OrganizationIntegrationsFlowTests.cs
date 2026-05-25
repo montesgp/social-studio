@@ -16,7 +16,7 @@ public sealed class OrganizationIntegrationsFlowTests
     private static readonly DateTime Now = new(2026, 5, 16, 12, 0, 0, DateTimeKind.Utc);
 
     [Fact]
-    public async Task Overview_IncludesReadonlySystemDefaultApify_AndChecklistStartsPending()
+    public async Task Overview_IncludesReadonlySystemDefaultApify_AndChecklistRequiresAiOnly()
     {
         var harness = new IntegrationsHarness(Now);
         var organizationId = Guid.NewGuid();
@@ -33,7 +33,14 @@ public sealed class OrganizationIntegrationsFlowTests
         Assert.True(apify.IsReadOnly);
         Assert.Null(apify.IntegrationId);
 
-        Assert.All(overview.Value.Checklist, item => Assert.False(item.IsCompleted));
+        Assert.Equal(["single-analyzer", "generator"], overview.Value.ChecklistGroups.Select(x => x.Key));
+        Assert.All(
+            overview.Value.ChecklistGroups,
+            group =>
+            {
+                Assert.Contains(group.Items, item => item.Key.EndsWith("data-provider", StringComparison.Ordinal) && item.IsCompleted);
+                Assert.Contains(group.Items, item => item.Key.EndsWith("ai-provider", StringComparison.Ordinal) && !item.IsCompleted);
+            });
     }
 
     [Fact]
@@ -86,7 +93,7 @@ public sealed class OrganizationIntegrationsFlowTests
     }
 
     [Fact]
-    public async Task ConfigureRequiredProviders_ThenChecklistIsCompleted_AndDefaultAiCanBeSelected()
+    public async Task ConfigureRequiredProviders_ThenChecklistGroupsAreCompleted_AndDefaultAiCanBeSelected()
     {
         var harness = new IntegrationsHarness(Now);
         var organizationId = Guid.NewGuid();
@@ -104,45 +111,11 @@ public sealed class OrganizationIntegrationsFlowTests
                 }),
             CancellationToken.None);
 
-        var canvaConfigured = await harness.Configure.Handle(
-            new ConfigureOrganizationIntegrationCommand(
-                organizationId,
-                "canva",
-                IntegrationConnectionMode.BringYourOwnKey,
-                true,
-                null,
-                new Dictionary<string, string>
-                {
-                    ["access_token"] = "canva-token"
-                }),
-            CancellationToken.None);
-
-        var blotatoConfigured = await harness.Configure.Handle(
-            new ConfigureOrganizationIntegrationCommand(
-                organizationId,
-                "blotato",
-                IntegrationConnectionMode.BringYourOwnKey,
-                true,
-                null,
-                new Dictionary<string, string>
-                {
-                    ["api_key"] = "blotato-token"
-                }),
-            CancellationToken.None);
-
         Assert.True(openAiConfigured.IsSuccess);
-        Assert.True(canvaConfigured.IsSuccess);
-        Assert.True(blotatoConfigured.IsSuccess);
         Assert.Equal(IntegrationStatus.Configured, openAiConfigured.Value.Status);
 
         Assert.True((await harness.TestConnection.Handle(
             new TestOrganizationIntegrationConnectionCommand(organizationId, "openai"),
-            CancellationToken.None)).IsSuccess);
-        Assert.True((await harness.TestConnection.Handle(
-            new TestOrganizationIntegrationConnectionCommand(organizationId, "canva"),
-            CancellationToken.None)).IsSuccess);
-        Assert.True((await harness.TestConnection.Handle(
-            new TestOrganizationIntegrationConnectionCommand(organizationId, "blotato"),
             CancellationToken.None)).IsSuccess);
 
         var defaultAi = await harness.SetDefaultAi.Handle(
@@ -157,7 +130,9 @@ public sealed class OrganizationIntegrationsFlowTests
             CancellationToken.None);
 
         Assert.True(overview.IsSuccess);
-        Assert.All(overview.Value.Checklist, item => Assert.True(item.IsCompleted));
+        Assert.All(overview.Value.ChecklistGroups, group => Assert.All(group.Items, item => Assert.True(item.IsCompleted)));
+        Assert.DoesNotContain(overview.Value.Checklist, item => item.Key.Contains("canva", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(overview.Value.Checklist, item => item.Key.Contains("blotato", StringComparison.OrdinalIgnoreCase));
         Assert.Equal("openai", overview.Value.DefaultAiProviderKey);
         Assert.Equal("gpt-4.1-mini", overview.Value.DefaultAiModel);
     }
