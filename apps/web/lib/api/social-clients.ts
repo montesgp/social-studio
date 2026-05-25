@@ -2,6 +2,7 @@ import { apiRequest } from "@/lib/api/client";
 import { PageResult, SocialClient } from "@/lib/api/types";
 
 export interface SocialClientsQuery {
+  organizationId?: string;
   name?: string;
   includeInactive?: boolean;
   page?: number;
@@ -15,6 +16,7 @@ export interface SocialClientPayload {
 
 export async function listSocialClients(query: SocialClientsQuery, token?: string) {
   const params = new URLSearchParams();
+  if (query.organizationId) params.set("organizationId", query.organizationId);
   if (query.name) params.set("name", query.name);
   if (query.includeInactive) params.set("includeInactive", "true");
   params.set("page", String(query.page ?? 1));

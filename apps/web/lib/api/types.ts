@@ -35,6 +35,7 @@ export interface Organization {
 export interface SocialClient {
   id: string;
   organizationId: string;
+  organizationName?: string | null;
   name: string;
   description: string | null;
   sectorOrNiche?: string | null;

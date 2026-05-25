@@ -116,6 +116,46 @@ function roleBadgeVariant(role: string): "default" | "outline" {
   return role === "sysadmin" ? "default" : "outline";
 }
 
+function UserOrganizationModulesCell({
+  user,
+  organizationId,
+}: {
+  user: AdminUser;
+  organizationId: string;
+}) {
+  const organizationModules = organizationId
+    ? user.organizationModules.filter((entry) => entry.organizationId === organizationId)
+    : user.organizationModules;
+
+  if (organizationModules.length === 0) {
+    return <span>No module assignments</span>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {organizationModules.map((entry) => (
+        <div key={entry.organizationId} className="space-y-1">
+          <p className="font-medium text-foreground">{entry.organizationName}</p>
+          <div className="flex flex-wrap gap-1">
+            {entry.modules.length > 0 ? (
+              entry.modules
+                .slice()
+                .sort((left, right) => left.sortOrder - right.sortOrder)
+                .map((module) => (
+                  <Badge key={`${entry.organizationId}-${module.key}`} variant="outline" className="text-xs">
+                    {module.shortLabel || module.label}
+                  </Badge>
+                ))
+            ) : (
+              <span>No modules</span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function UsersTable() {
   const accessToken = useAccessToken();
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -128,13 +168,20 @@ export function UsersTable() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [form, setForm] = useState<UserFormState>(emptyForm);
+  const [filterOrganizationId, setFilterOrganizationId] = useState("");
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const isEditing = editingUser !== null;
-  const sortedUsers = useMemo(
-    () => [...users].sort((a, b) => a.email.localeCompare(b.email)),
-    [users]
+  const sortedUsers = useMemo(() => [...users].sort((a, b) => a.email.localeCompare(b.email)), [users]);
+  const visibleUsers = useMemo(
+    () =>
+      filterOrganizationId
+        ? sortedUsers.filter((user) =>
+            user.organizationModules.some((entry) => entry.organizationId === filterOrganizationId)
+          )
+        : sortedUsers,
+    [filterOrganizationId, sortedUsers]
   );
 
   const selectedOrganizationModules = useMemo(
@@ -389,14 +436,29 @@ export function UsersTable() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </div>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4" />
-          Add User
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            className="min-w-[220px]"
+            value={filterOrganizationId}
+            onChange={(event) => setFilterOrganizationId(event.target.value)}
+            disabled={organizations.length === 0}
+          >
+            <option value="">All organizations</option>
+            {organizations.map((organization) => (
+              <option key={organization.id} value={organization.id}>
+                {organization.name}
+              </option>
+            ))}
+          </Select>
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            Add User
+          </Button>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-md border">
@@ -412,7 +474,7 @@ export function UsersTable() {
             </tr>
           </thead>
           <tbody className="divide-y">
-            {sortedUsers.map((user) => (
+            {visibleUsers.map((user) => (
               <tr key={user.id} className="transition-colors hover:bg-muted/30">
                 <td className="px-4 py-3 font-mono text-xs">{user.email}</td>
                 <td className="px-4 py-3 text-muted-foreground">{user.displayName ?? "-"}</td>
@@ -430,9 +492,7 @@ export function UsersTable() {
                   </div>
                 </td>
                 <td className="px-4 py-3 text-xs text-muted-foreground">
-                  {user.organizationModules.length > 0
-                    ? `${user.organizationModules.length} org · ${user.organizationModules.reduce((sum, item) => sum + item.modules.length, 0)} modules`
-                    : "No module assignments"}
+                  <UserOrganizationModulesCell user={user} organizationId={filterOrganizationId} />
                 </td>
                 <td className="px-4 py-3">
                   <Badge variant={user.status === "Active" ? "default" : "destructive"}>
@@ -459,7 +519,7 @@ export function UsersTable() {
             ))}
           </tbody>
         </table>
-        {sortedUsers.length === 0 ? (
+        {visibleUsers.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">No users found.</p>
         ) : null}
       </div>

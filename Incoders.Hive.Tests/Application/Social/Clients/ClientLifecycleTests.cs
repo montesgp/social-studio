@@ -73,6 +73,22 @@ public sealed class ClientLifecycleTests
         Assert.Equal("Acme", result.Value.Items[0].Name);
     }
 
+    [Fact]
+    public async Task List_ReturnsAllOrganizationClients_WhenOrganizationFilterIsNull()
+    {
+        var harness = new SocialClientHarness(Now);
+
+        await harness.Create.Handle(new CreateSocialClientCommand(Guid.NewGuid(), "Acme", null), CancellationToken.None);
+        await harness.Create.Handle(new CreateSocialClientCommand(Guid.NewGuid(), "Other", null), CancellationToken.None);
+
+        var result = await harness.List.Handle(
+            new GetSocialClientsQuery(null, null, false, 1, 20),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, result.Value.Items.Count);
+    }
+
     // --- Update ---
 
     [Fact]
@@ -372,8 +388,12 @@ public sealed class ClientLifecycleTests
             SocialClientQuery query,
             CancellationToken cancellationToken = default)
         {
-            IEnumerable<Client> source = _clients.Values
-                .Where(x => x.OrganizationId == query.OrganizationId);
+            IEnumerable<Client> source = _clients.Values;
+
+            if (query.OrganizationId.HasValue)
+            {
+                source = source.Where(x => x.OrganizationId == query.OrganizationId.Value);
+            }
 
             if (!query.IncludeInactive)
             {

@@ -26,12 +26,14 @@ import {
   getSocialClient,
   listSocialClients
 } from "@/lib/api/social-clients";
-import { ApiError, PageResult, SocialClient } from "@/lib/api/types";
+import { listOrganizations } from "@/lib/api/organizations";
+import { ApiError, Organization, PageResult, SocialClient } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
@@ -43,13 +45,19 @@ import { useClientForm } from "@/components/social/clients/use-client-form";
 type StatusFilter = "active" | "archived" | "all";
 type ViewMode = "grid" | "table";
 
-export function ClientsClient() {
+interface ClientsClientProps {
+  isPlatformAdmin: boolean;
+}
+
+export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
   const sessionToken = useAccessToken();
   const { orgId, isInitialized: orgInitialized } = useActiveOrg();
   const toast = useToast();
   const lastErrorToastRef = useRef<{ message: string; at: number } | null>(null);
 
   const [page, setPage] = useState<PageResult<SocialClient> | null>(null);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -62,11 +70,18 @@ export function ClientsClient() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
   const effectiveToken = sessionToken ?? "";
-  const items = page?.items ?? [];
+  const items = useMemo(() => page?.items ?? [], [page]);
+
+  const organizationNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const organization of organizations) {
+      map.set(organization.id, organization.name);
+    }
+    return map;
+  }, [organizations]);
 
   const {
     formOpen,
-    setFormOpen,
     mode,
     selected,
     name,
@@ -121,9 +136,19 @@ export function ClientsClient() {
   }, [orgId, orgInitialized]);
 
   useEffect(() => {
+    if (!orgInitialized || !effectiveToken || !isPlatformAdmin) {
+      setOrganizations([]);
+      return;
+    }
+
+    void loadOrganizations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveToken, isPlatformAdmin, orgInitialized]);
+
+  useEffect(() => {
     if (!orgInitialized) return;
 
-    if (!effectiveToken || !orgId) {
+    if (!effectiveToken || (!isPlatformAdmin && !orgId)) {
       setLoading(false);
       setPage(null);
       setDetails(null);
@@ -132,7 +157,21 @@ export function ClientsClient() {
 
     void loadClients();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageNumber, status, effectiveToken, sessionToken, orgInitialized, orgId]);
+  }, [pageNumber, status, effectiveToken, sessionToken, orgInitialized, orgId, isPlatformAdmin, selectedOrganizationId]);
+
+  async function loadOrganizations() {
+    try {
+      const data = await listOrganizations(
+        { includeInactive: false, page: 1, pageSize: 100 },
+        effectiveToken || undefined
+      );
+      setOrganizations([...data.items].sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (err) {
+      const message = (err as ApiError).message;
+      setError(message);
+      pushErrorToast(message);
+    }
+  }
 
   async function loadClients(nextPage = pageNumber) {
     setLoading(true);
@@ -140,6 +179,7 @@ export function ClientsClient() {
     try {
       const data = await listSocialClients(
         {
+          organizationId: isPlatformAdmin && selectedOrganizationId ? selectedOrganizationId : undefined,
           name: query || undefined,
           includeInactive: status !== "active",
           page: nextPage,
@@ -221,6 +261,16 @@ export function ClientsClient() {
     void loadClients(1);
   }
 
+  function resolveOrganizationName(client: SocialClient) {
+    return client.organizationName ?? organizationNameById.get(client.organizationId) ?? client.organizationId;
+  }
+
+  function changeOrganizationFilter(organizationId: string) {
+    setSelectedOrganizationId(organizationId);
+    setPageNumber(1);
+    setDetails(null);
+  }
+
   return (
     <div className="space-y-6">
       <section className="relative overflow-hidden rounded-3xl border border-border bg-card p-6 shadow-2xl">
@@ -234,7 +284,9 @@ export function ClientsClient() {
             <div>
               <h1 className="text-3xl font-semibold tracking-tight md:text-5xl">Clients cockpit</h1>
               <p className="mt-3 text-sm leading-6 text-muted-foreground md:text-base">
-                Manage Social customers under the resolved organization.
+                {isPlatformAdmin
+                  ? "Manage Social customers across organizations."
+                  : "Manage Social customers under the resolved organization."}
               </p>
             </div>
           </div>
@@ -297,7 +349,7 @@ export function ClientsClient() {
 
       <Card>
         <CardContent className="p-4">
-          <form className="grid gap-3 lg:grid-cols-[1fr_auto_auto]" onSubmit={applyFilters}>
+          <form className="grid gap-3 lg:grid-cols-[1fr_auto_auto_auto]" onSubmit={applyFilters}>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
@@ -307,6 +359,20 @@ export function ClientsClient() {
                 placeholder="Search clients by name..."
               />
             </div>
+            {isPlatformAdmin ? (
+              <Select
+                className="min-w-[220px]"
+                value={selectedOrganizationId}
+                onChange={(event) => changeOrganizationFilter(event.target.value)}
+              >
+                <option value="">All organizations</option>
+                {organizations.map((organization) => (
+                  <option key={organization.id} value={organization.id}>
+                    {organization.name}
+                  </option>
+                ))}
+              </Select>
+            ) : null}
             <StatusTabs value={status} onChange={setStatus} />
             <Button type="submit">Apply</Button>
           </form>
@@ -377,6 +443,9 @@ export function ClientsClient() {
                               {item.isActive ? "Active" : "Archived"}
                             </Badge>
                           </div>
+                          {isPlatformAdmin ? (
+                            <p className="mt-1 text-xs text-muted-foreground">{resolveOrganizationName(item)}</p>
+                          ) : null}
                           {item.description ? (
                             <p className="mt-1 max-w-[32rem] truncate text-xs text-muted-foreground">{item.description}</p>
                           ) : (
@@ -389,6 +458,7 @@ export function ClientsClient() {
                       </div>
 
                       <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                        {isPlatformAdmin ? <Fact label="Organization" value={resolveOrganizationName(item)} /> : null}
                         <Fact label="Updated" value={formatDate(item.updatedAtUtc)} />
                         <Fact label="Created" value={formatDate(item.createdAtUtc)} />
                       </div>
@@ -426,6 +496,7 @@ export function ClientsClient() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
+                    {isPlatformAdmin ? <TableHead>Organization</TableHead> : null}
                     <TableHead>Status</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Created</TableHead>
@@ -436,7 +507,7 @@ export function ClientsClient() {
                   {loading ? (
                     Array.from({ length: 4 }).map((_, index) => (
                       <TableRow key={index}>
-                        {Array.from({ length: 5 }).map((__, col) => (
+                        {Array.from({ length: isPlatformAdmin ? 6 : 5 }).map((__, col) => (
                           <TableCell key={col}>
                             <div className="h-4 animate-pulse rounded bg-muted/40" />
                           </TableCell>
@@ -445,7 +516,7 @@ export function ClientsClient() {
                     ))
                   ) : items.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="py-12 text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={isPlatformAdmin ? 6 : 5} className="py-12 text-center text-sm text-muted-foreground">
                         No clients in this view.
                       </TableCell>
                     </TableRow>
@@ -453,6 +524,9 @@ export function ClientsClient() {
                     items.map((item) => (
                       <TableRow key={item.id}>
                         <TableCell className="font-medium">{item.name}</TableCell>
+                        {isPlatformAdmin ? (
+                          <TableCell className="text-xs text-muted-foreground">{resolveOrganizationName(item)}</TableCell>
+                        ) : null}
                         <TableCell>
                           <Badge variant={item.isActive ? "success" : "muted"}>{item.isActive ? "Active" : "Archived"}</Badge>
                         </TableCell>
@@ -502,6 +576,7 @@ export function ClientsClient() {
         {!formOpen && (
           <ClientDetailsPanel
             client={details}
+            organizationName={details && isPlatformAdmin ? resolveOrganizationName(details) : null}
             onEdit={(item) => openEdit(item)}
             onArchive={(item) => void onArchive(item)}
             onReactivate={(item) => void onReactivate(item)}
@@ -551,17 +626,15 @@ function StatusTabs({ value, onChange }: { value: StatusFilter; onChange: (value
   return (
     <div className="inline-flex rounded-md border border-border bg-background p-1">
       {options.map((option) => (
-        <button
+        <Button
           key={option.value}
           type="button"
+          variant={value === option.value ? "secondary" : "ghost"}
+          size="sm"
           onClick={() => onChange(option.value)}
-          className={cn(
-            "rounded px-3 py-2 text-sm text-muted-foreground transition",
-            value === option.value && "bg-muted text-foreground"
-          )}
         >
           {option.label}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -569,12 +642,14 @@ function StatusTabs({ value, onChange }: { value: StatusFilter; onChange: (value
 
 function ClientDetailsPanel({
   client,
+  organizationName,
   onEdit,
   onArchive,
   onReactivate,
   acting
 }: {
   client: SocialClient | null;
+  organizationName: string | null;
   onEdit: (client: SocialClient) => void;
   onArchive: (client: SocialClient) => void;
   onReactivate: (client: SocialClient) => void;
@@ -611,6 +686,7 @@ function ClientDetailsPanel({
       </CardHeader>
       <CardContent className="space-y-5 p-6">
         <div className="grid gap-3">
+          {organizationName ? <Fact label="Organization" value={organizationName} /> : null}
           {client.description ? <Fact label="Description" value={client.description} /> : null}
           <Fact label="Created" value={formatDateTime(client.createdAtUtc)} />
           <Fact label="Updated" value={formatDateTime(client.updatedAtUtc)} />

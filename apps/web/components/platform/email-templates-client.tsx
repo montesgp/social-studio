@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code2, Eye, Loader2, Mail, Save } from "lucide-react";
 import { listEmailTemplates, upsertEmailTemplate } from "@/lib/api/platform-configuration";
 import { ApiError, EmailTemplate } from "@/lib/api/types";
@@ -38,29 +38,33 @@ export function EmailTemplatesClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  useEffect(() => {
-    const previewDocument = previewFrameRef.current?.contentDocument;
-    if (!previewDocument) return;
+  const renderPreview = useCallback(() => {
+    const doc = previewFrameRef.current?.contentDocument;
+    if (!doc || !doc.body) return;
 
     const parsed = new DOMParser().parseFromString(htmlBody, "text/html");
-    previewDocument.documentElement.lang = parsed.documentElement.lang || "es";
-    previewDocument.head.innerHTML = parsed.head.innerHTML;
-    previewDocument.body.innerHTML = parsed.body.innerHTML;
 
-    const parsedBodyStyle = parsed.body.getAttribute("style");
-    if (parsedBodyStyle) {
-      previewDocument.body.setAttribute("style", parsedBodyStyle);
-    } else {
-      previewDocument.body.removeAttribute("style");
+    doc.documentElement.lang = parsed.documentElement.lang || "es";
+
+    // Only swap head when it actually changed to avoid re-fetching external CSS/fonts
+    const newHeadHtml = parsed.head.innerHTML;
+    if (doc.head.innerHTML !== newHeadHtml) {
+      doc.head.innerHTML = newHeadHtml;
     }
 
-    const parsedBodyClassName = parsed.body.getAttribute("class");
-    if (parsedBodyClassName) {
-      previewDocument.body.setAttribute("class", parsedBodyClassName);
-    } else {
-      previewDocument.body.removeAttribute("class");
-    }
+    doc.body.innerHTML = parsed.body.innerHTML;
+
+    const bodyStyle = parsed.body.getAttribute("style");
+    bodyStyle ? doc.body.setAttribute("style", bodyStyle) : doc.body.removeAttribute("style");
+
+    const bodyClass = parsed.body.getAttribute("class");
+    bodyClass ? doc.body.setAttribute("class", bodyClass) : doc.body.removeAttribute("class");
   }, [htmlBody]);
+
+  // Keep preview in sync with every htmlBody change
+  useEffect(() => {
+    renderPreview();
+  }, [renderPreview]);
 
   useEffect(() => {
     if (!selected) return;
@@ -231,6 +235,7 @@ export function EmailTemplatesClient() {
                   title="Email preview"
                   sandbox="allow-same-origin"
                   srcDoc="<!DOCTYPE html><html lang='es'><head></head><body></body></html>"
+                  onLoad={renderPreview}
                   className="h-[620px] w-full rounded-md border border-border bg-white"
                 />
               </CardContent>

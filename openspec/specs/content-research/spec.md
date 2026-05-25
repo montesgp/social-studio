@@ -8,6 +8,8 @@ Content research retrieves candidate high-performing content by client, niche, r
 - A user MUST select or resolve an organization before creating/listing social clients.
 - The system MUST persist clients in the `social` module schema.
 - Client lookup/list operations MUST NOT return clients from another organization.
+- Sysadmins MAY list clients across organizations and filter the list by organization.
+- Sysadmin client list views MUST show the organization each client belongs to.
 - Single-content analysis workflows MAY run without a selected client; in that case generated mutations MUST preserve the source video's original positioning without client-specific orientation.
 - When a single-content analysis workflow offers client selection, selectable clients MUST be active and scoped to the resolved organization.
 

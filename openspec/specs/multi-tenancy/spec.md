@@ -12,6 +12,7 @@ Define organization/tenant capabilities, constraints, invariants, events, and ac
 - Reactivate an archived organization.
 - Use organization id as the root boundary for Social module data.
 - Configure workspace module visibility per organization-user association, including explicit module ordering.
+- Sysadmin user administration MUST support filtering users by organization assignment and show the concrete organization-to-module mapping instead of aggregate-only counts.
 
 ## Events
 - OrganizationCreated
@@ -29,3 +30,4 @@ Define organization/tenant capabilities, constraints, invariants, events, and ac
 - Hard-delete is not part of the MVP organization lifecycle.
 - Organization-owned module data must be scoped by `organization_id`.
 - Sysadmins can assign and reorder modules per user and organization; non-sysadmin users only see assigned modules in the workspace selector for the active organization.
+- Sysadmins can filter the users table by organization and inspect which modules each listed user has for each organization.
