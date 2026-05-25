@@ -2,29 +2,34 @@ using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Incoders.Hive.Infrastructure.Social;
 
+/// <summary>
+/// Resolves social content by calling the org's connected extraction provider DIRECTLY.
+/// Extraction does NOT use a routing policy — the provider (e.g. "apify") is resolved from
+/// the organization's encrypted integration config. Routing remains a concern of the AI
+/// analysis step (handled separately), not of extraction.
+/// </summary>
 public sealed class SocialContentResolver : ISocialContentResolver
 {
-    private const string SingleAnalyzerFlowKey = "single-analyzer";
     private const string SocialExtractionCapability = "social-extraction";
+    private const string DefaultExtractionProviderKey = "apify";
 
-    private readonly IOrganizationIntegrationResolver _routeResolver;
-    private readonly IIntegrationCredentialResolver _credentialResolver;
+    private readonly IIntegrationResolver _integrationResolver;
     private readonly IExternalProviderClientFactory _clientFactory;
-    private readonly IIntegrationExecutionPolicy _executionPolicy;
+    private readonly ILogger<SocialContentResolver> _logger;
 
     public SocialContentResolver(
-        IOrganizationIntegrationResolver routeResolver,
-        IIntegrationCredentialResolver credentialResolver,
+        IIntegrationResolver integrationResolver,
         IExternalProviderClientFactory clientFactory,
-        IIntegrationExecutionPolicy executionPolicy)
+        ILogger<SocialContentResolver>? logger = null)
     {
-        _routeResolver = routeResolver;
-        _credentialResolver = credentialResolver;
+        _integrationResolver = integrationResolver;
         _clientFactory = clientFactory;
-        _executionPolicy = executionPolicy;
+        _logger = logger ?? NullLogger<SocialContentResolver>.Instance;
     }
 
     public async Task<Result<SocialContentResolution>> ResolveAsync(
@@ -33,61 +38,80 @@ public sealed class SocialContentResolver : ISocialContentResolver
     {
         var platformKey = NormalizePlatform(request.PlatformHint);
         var normalizedUrl = NormalizeUrl(request.SourceUrl);
-        var route = await _routeResolver.ResolveRouteAsync(
-            new IntegrationRouteRequest(
-                request.OrganizationId,
-                SingleAnalyzerFlowKey,
-                SocialExtractionCapability,
-                platformKey,
-                request.PreferredProviderKey,
-                PreferredModel: null),
+        var providerKey = string.IsNullOrWhiteSpace(request.PreferredProviderKey)
+            ? DefaultExtractionProviderKey
+            : request.PreferredProviderKey.Trim();
+
+        _logger.LogInformation(
+            "Single Analyzer extraction: resolving provider {ProviderKey} for platform {PlatformKey} (org {OrganizationId}).",
+            providerKey,
+            platformKey,
+            request.OrganizationId);
+
+        var resolved = await _integrationResolver.ResolveProviderAsync(
+            request.OrganizationId,
+            providerKey,
             cancellationToken);
 
-        if (route.IsFailure)
+        if (resolved.IsFailure)
         {
-            return Result.Failure<SocialContentResolution>(route.Error);
+            _logger.LogWarning(
+                "Single Analyzer extraction: provider {ProviderKey} unavailable for org {OrganizationId}: {ErrorCode}.",
+                providerKey,
+                request.OrganizationId,
+                resolved.Error.Code);
+
+            return Result.Failure<SocialContentResolution>(resolved.Error);
         }
 
-        var execution = await _executionPolicy.ExecuteAsync(
-            new IntegrationExecutionRequest(
+        var credential = new ResolvedProviderCredential(
+            Guid.Empty,
+            resolved.Value.ProviderKey,
+            resolved.Value.ConnectionMode,
+            resolved.Value.Credentials,
+            resolved.Value.SelectedAiModel);
+
+        ISocialContentExtractor extractor;
+        try
+        {
+            extractor = _clientFactory.Create<ISocialContentExtractor>(credential);
+        }
+        catch (InvalidOperationException)
+        {
+            _logger.LogWarning(
+                "Single Analyzer extraction: provider {ProviderKey} has no extractor client registered.",
+                providerKey);
+
+            return Result.Failure<SocialContentResolution>(IntegrationErrors.ExternalProviderUnsupported);
+        }
+
+        var snapshot = await extractor.ExtractAsync(
+            new SocialContentRequest(
                 request.OrganizationId,
-                request.AnalysisId,
-                SingleAnalyzerFlowKey,
-                SocialExtractionCapability,
-                platformKey),
-            route.Value.Candidates,
-            async (candidate, token) =>
-            {
-                var credential = await _credentialResolver.ResolveAsync(request.OrganizationId, candidate, token);
-                if (credential.IsFailure)
-                {
-                    return Result.Failure<SocialContentSnapshot>(credential.Error);
-                }
-
-                ISocialContentExtractor extractor;
-                try
-                {
-                    extractor = _clientFactory.Create<ISocialContentExtractor>(credential.Value);
-                }
-                catch (InvalidOperationException)
-                {
-                    return Result.Failure<SocialContentSnapshot>(IntegrationErrors.ExternalProviderUnsupported);
-                }
-
-                return await extractor.ExtractAsync(
-                    new SocialContentRequest(
-                        request.OrganizationId,
-                        request.SourceUrl,
-                        normalizedUrl,
-                        platformKey,
-                        SocialExtractionCapability),
-                    token);
-            },
+                request.SourceUrl,
+                normalizedUrl,
+                platformKey,
+                SocialExtractionCapability),
             cancellationToken);
 
-        return execution.IsSuccess
-            ? Result.Success(new SocialContentResolution(execution.Value.Payload, execution.Value.Diagnostics))
-            : Result.Failure<SocialContentResolution>(execution.Error);
+        if (snapshot.IsFailure)
+        {
+            _logger.LogWarning(
+                "Single Analyzer extraction: provider {ProviderKey} failed for platform {PlatformKey}: {ErrorCode}.",
+                providerKey,
+                platformKey,
+                snapshot.Error.Code);
+
+            return Result.Failure<SocialContentResolution>(snapshot.Error);
+        }
+
+        _logger.LogInformation(
+            "Single Analyzer extraction: provider {ProviderKey} succeeded for platform {PlatformKey} ({WarningCount} warnings).",
+            providerKey,
+            platformKey,
+            snapshot.Value.Warnings.Count);
+
+        return Result.Success(new SocialContentResolution(snapshot.Value, []));
     }
 
     private static string NormalizePlatform(string? platformHint) =>

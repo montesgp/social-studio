@@ -2,12 +2,32 @@ import { apiRequest } from "@/lib/api/client";
 
 export type UserStatus = "Active" | "Suspended";
 
+export interface AdminUserModuleAssignment {
+  key: string;
+  label: string;
+  description: string;
+  shortLabel: string;
+  sortOrder: number;
+}
+
+export interface AdminUserOrganizationModules {
+  organizationId: string;
+  organizationName: string;
+  modules: AdminUserModuleAssignment[];
+}
+
 export interface AdminUser {
   id: string;
   email: string;
   displayName: string | null;
   status: UserStatus;
   roles: string[];
+  organizationModules: AdminUserOrganizationModules[];
+}
+
+export interface AdminUserOrganizationModulesPayload {
+  organizationId: string;
+  orderedModuleKeys: string[];
 }
 
 export interface CreateAdminUserPayload {
@@ -16,6 +36,7 @@ export interface CreateAdminUserPayload {
   password: string;
   status: UserStatus;
   roles: string[];
+  organizationModules?: AdminUserOrganizationModulesPayload[];
 }
 
 export interface UpdateAdminUserPayload {
@@ -23,6 +44,7 @@ export interface UpdateAdminUserPayload {
   displayName?: string | null;
   status: UserStatus;
   roles: string[];
+  organizationModules?: AdminUserOrganizationModulesPayload[];
 }
 
 export async function getAdminUsers(token: string): Promise<AdminUser[]> {

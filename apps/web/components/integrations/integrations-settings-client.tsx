@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
   BrainCircuit,
@@ -201,6 +201,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const token = useAccessToken();
   const toast = useToast();
   const { orgId: activeOrgId, isInitialized: orgInitialized } = useActiveOrg();
+  const overviewRequestIdRef = useRef(0);
 
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [providers, setProviders] = useState<IntegrationProvider[]>([]);
@@ -241,6 +242,18 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     void loadOverview(selectedOrganizationId, token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOrganizationId]);
+
+  useEffect(() => {
+    if (isPlatformAdmin || !orgInitialized) {
+      return;
+    }
+
+    const nextOrganizationId = activeOrgId ?? "";
+    if (nextOrganizationId !== selectedOrganizationId) {
+      changeSelectedOrganization(nextOrganizationId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrgId, isPlatformAdmin, orgInitialized, selectedOrganizationId]);
 
   const groupedIntegrations = useMemo(() => {
     const map = new Map<string, OrganizationIntegration[]>();
@@ -331,6 +344,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       return;
     }
 
+    const requestId = ++overviewRequestIdRef.current;
+
     if (useRefreshState) {
       setRefreshing(true);
     }
@@ -350,6 +365,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
         listSocialNetworks({ page: 1, pageSize: 100, includeInactive: false }, accessToken)
       ]);
       const activeNetworks = networksPage.items.filter((network) => network.isActive);
+      if (requestId !== overviewRequestIdRef.current) {
+        return;
+      }
+
       setOverview(data);
       setRoutingPolicies(policies);
       setSocialNetworks(activeNetworks);
@@ -357,12 +376,29 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       setDefaultAiModel(data.defaultAiModel ?? "");
       setRoutingDrafts(createRoutingDrafts(policies, data.integrations, data.defaultAiProviderKey ?? "", activeNetworks));
     } catch (err) {
+      if (requestId !== overviewRequestIdRef.current) {
+        return;
+      }
+
       setError((err as ApiError).message);
     } finally {
-      if (useRefreshState) {
+      if (useRefreshState && requestId === overviewRequestIdRef.current) {
         setRefreshing(false);
       }
     }
+  }
+
+  function changeSelectedOrganization(organizationId: string) {
+    overviewRequestIdRef.current += 1;
+    setSelectedOrganizationId(organizationId);
+    setOverview(null);
+    setRoutingPolicies([]);
+    setRoutingDrafts({});
+    setDefaultAiProviderKey("");
+    setDefaultAiModel("");
+    setModal(null);
+    setError(null);
+    setRefreshing(true);
   }
 
   function createRoutingDrafts(
@@ -703,7 +739,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                 <Select
                   className="w-[220px] cursor-pointer"
                   value={selectedOrganizationId}
-                  onChange={(event) => setSelectedOrganizationId(event.target.value)}
+                  onChange={(event) => changeSelectedOrganization(event.target.value)}
                 >
                   {organizations.map((organization) => (
                     <option key={organization.id} value={organization.id}>

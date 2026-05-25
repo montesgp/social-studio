@@ -30,7 +30,10 @@ internal static class SocialSnapshotMapper
             rawPayloadReference,
             string.IsNullOrWhiteSpace(GetString(root, "transcript"))
                 ? [new SocialContentWarning("transcript_missing", "social.warnings.transcript_missing")]
-                : []);
+                : [],
+            [],
+            null,
+            null);
     }
 
     private static string? GetString(JsonElement root, string property)

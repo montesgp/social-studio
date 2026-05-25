@@ -13,7 +13,10 @@ public sealed record SingleAnalyzerContentSnapshot(
     IReadOnlyDictionary<string, long> Metrics,
     string? Transcript,
     IReadOnlyList<SingleAnalyzerMediaReference> MediaReferences,
-    string? RawPayloadReference)
+    string? RawPayloadReference,
+    IReadOnlyList<string> Tags,
+    string? ContentType,
+    DateTimeOffset? PublishedAtUtc)
 {
     public static Result<SingleAnalyzerContentSnapshot> Create(
         string platformKey,
@@ -26,10 +29,14 @@ public sealed record SingleAnalyzerContentSnapshot(
         IReadOnlyDictionary<string, long> metrics,
         string? transcript,
         IReadOnlyList<SingleAnalyzerMediaReference> mediaReferences,
-        string? rawPayloadReference)
+        string? rawPayloadReference,
+        IReadOnlyList<string>? tags = null,
+        string? contentType = null,
+        DateTimeOffset? publishedAtUtc = null)
     {
         var safeMetrics = metrics ?? new Dictionary<string, long>();
         var safeMediaReferences = mediaReferences ?? Array.Empty<SingleAnalyzerMediaReference>();
+        var safeTags = tags ?? Array.Empty<string>();
 
         if (string.IsNullOrWhiteSpace(platformKey)
             || string.IsNullOrWhiteSpace(canonicalUrl)
@@ -50,7 +57,10 @@ public sealed record SingleAnalyzerContentSnapshot(
             new Dictionary<string, long>(safeMetrics),
             NormalizeOptional(transcript),
             safeMediaReferences.ToArray(),
-            NormalizeOptional(rawPayloadReference)));
+            NormalizeOptional(rawPayloadReference),
+            safeTags.ToArray(),
+            NormalizeOptional(contentType),
+            publishedAtUtc));
     }
 
     private static string NormalizeKey(string value) => value.Trim().ToLowerInvariant();

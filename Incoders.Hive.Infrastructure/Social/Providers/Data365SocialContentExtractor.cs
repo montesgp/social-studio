@@ -4,6 +4,8 @@ using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Infrastructure.Integrations;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Incoders.Hive.Infrastructure.Social.Providers;
 
@@ -11,13 +13,16 @@ public sealed class Data365SocialContentExtractor : ISocialContentExtractor
 {
     private readonly ResolvedProviderCredential _credential;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<Data365SocialContentExtractor> _logger;
 
     public Data365SocialContentExtractor(
         ResolvedProviderCredential credential,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        ILogger<Data365SocialContentExtractor>? logger = null)
     {
         _credential = credential;
         _httpClientFactory = httpClientFactory;
+        _logger = logger ?? NullLogger<Data365SocialContentExtractor>.Instance;
     }
 
     public async Task<Result<SocialContentSnapshot>> ExtractAsync(
@@ -26,6 +31,12 @@ public sealed class Data365SocialContentExtractor : ISocialContentExtractor
     {
         if (!ProviderCredentialReader.TryGet(_credential, "api_key", out var apiKey))
         {
+            _logger.LogWarning(
+                "Data365 extraction cannot start because the API key is missing. OrganizationId={OrganizationId} PlatformKey={PlatformKey} CapabilityKey={CapabilityKey}",
+                request.OrganizationId,
+                request.PlatformKey,
+                request.CapabilityKey);
+
             return Result.Failure<SocialContentSnapshot>(IntegrationErrors.ProviderCredentialUnavailable);
         }
 
@@ -38,6 +49,14 @@ public sealed class Data365SocialContentExtractor : ISocialContentExtractor
 
         if (!response.IsSuccessStatusCode)
         {
+            _logger.LogWarning(
+                "Data365 extraction failed with external status. OrganizationId={OrganizationId} PlatformKey={PlatformKey} CapabilityKey={CapabilityKey} StatusCode={StatusCode} ReasonPhrase={ReasonPhrase}",
+                request.OrganizationId,
+                request.PlatformKey,
+                request.CapabilityKey,
+                (int)response.StatusCode,
+                response.ReasonPhrase);
+
             return Result.Failure<SocialContentSnapshot>(MapStatus(response));
         }
 

@@ -868,6 +868,85 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("organization_integration_routing_policy_items", "platform");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationModuleData", b =>
+                {
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<Guid>("ModuleId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("module_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("sort_order");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("OrganizationId", "ModuleId")
+                        .HasName("pk_organization_modules");
+
+                    b.HasIndex("ModuleId")
+                        .HasDatabaseName("ix_organization_modules_module_id");
+
+                    b.HasIndex("OrganizationId", "SortOrder")
+                        .HasDatabaseName("ix_organization_modules_org_sort_order");
+
+                    b.ToTable("organization_modules", "platform");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationUserModuleData", b =>
+                {
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<Guid>("ModuleId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("module_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("sort_order");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("OrganizationId", "UserId", "ModuleId")
+                        .HasName("pk_organization_user_modules");
+
+                    b.HasIndex("ModuleId")
+                        .HasDatabaseName("ix_organization_user_modules_module_id");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_organization_user_modules_user_id");
+
+                    b.HasIndex("OrganizationId", "UserId", "SortOrder")
+                        .HasDatabaseName("ix_organization_user_modules_org_user_sort_order");
+
+                    b.ToTable("organization_user_modules", "platform");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SingleContentAnalysisData", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1048,6 +1127,62 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasDatabaseName("ix_social_networks_code");
 
                     b.ToTable("social_networks", "platform");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SystemModuleData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(280)
+                        .HasColumnType("character varying(280)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("display_name");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("ModuleKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("key_module");
+
+                    b.Property<string>("ShortLabel")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("short_label");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_system_modules");
+
+                    b.HasIndex("IsActive")
+                        .HasDatabaseName("ix_system_modules_is_active");
+
+                    b.HasIndex("ModuleKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_system_modules_key_module");
+
+                    b.ToTable("system_modules", "platform");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SystemSettingData", b =>
@@ -1501,6 +1636,55 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.Navigation("Policy");
 
                     b.Navigation("Provider");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationModuleData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SystemModuleData", "Module")
+                        .WithMany()
+                        .HasForeignKey("ModuleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_organization_modules_system_modules_module_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_organization_modules_organizations_organization_id");
+
+                    b.Navigation("Module");
+
+                    b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationUserModuleData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SystemModuleData", "Module")
+                        .WithMany()
+                        .HasForeignKey("ModuleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_organization_user_modules_system_modules_module_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_organization_user_modules_organizations_organization_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_organization_user_modules_users_user_id");
+
+                    b.Navigation("Module");
+
+                    b.Navigation("Organization");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SingleContentAnalysisData", b =>

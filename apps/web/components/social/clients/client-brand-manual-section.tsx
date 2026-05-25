@@ -6,10 +6,10 @@ import {
   activateClientBrandManual,
   createClientBrandManual,
   deactivateClientBrandManual,
-  getActiveClientBrandManual,
   listClientBrandManuals,
   updateClientBrandManual,
 } from "@/lib/api/client-brand-manuals";
+import { uploadClientImageAsset } from "@/lib/api/client-assets";
 import type {
   BackgroundEntry,
   ClientBrandManual,
@@ -28,6 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ImageUploadField } from "@/components/ui/image-upload-field";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
@@ -40,7 +41,7 @@ function validateHex(hex: string): string | null {
   return null;
 }
 
-function validateUrl(url: string): string | null {
+function validateHttpUrl(url: string): string | null {
   const trimmed = url.trim();
   if (!trimmed) return "URL is required.";
   if (trimmed.length < 10) return "URL must be at least 10 characters.";
@@ -134,51 +135,54 @@ function ColorRow({
   );
 }
 
-function UrlRow({
+function ImageAssetRow({
   name,
   url,
   extra,
   extraPlaceholder,
+  assetLabel,
   onChangeName,
   onChangeUrl,
   onChangeExtra,
+  onUpload,
   onRemove,
 }: {
   name: string;
   url: string;
   extra: string | null;
   extraPlaceholder: string;
+  assetLabel: string;
   onChangeName: (v: string) => void;
   onChangeUrl: (v: string) => void;
   onChangeExtra: (v: string | null) => void;
+  onUpload: (file: File) => Promise<string>;
   onRemove: () => void;
 }) {
-  const urlError = url ? validateUrl(url) : null;
   return (
-    <div className="flex gap-2 items-start flex-wrap">
-      <Input
-        placeholder="Name"
-        value={name}
-        onChange={(e) => onChangeName(e.target.value)}
-        className="flex-1 min-w-24"
-      />
-      <div className="flex flex-col gap-1 flex-1 min-w-40">
+    <div className="grid gap-2 rounded-md border border-border/60 bg-muted/20 p-3">
+      <div className="flex gap-2 items-start flex-wrap">
         <Input
-          placeholder="https://..."
-          value={url}
-          onChange={(e) => onChangeUrl(e.target.value)}
+          placeholder="Name"
+          value={name}
+          onChange={(e) => onChangeName(e.target.value)}
+          className="flex-1 min-w-24"
         />
-        {urlError && <p className="text-xs text-destructive">{urlError}</p>}
+        <Input
+          placeholder={extraPlaceholder}
+          value={extra ?? ""}
+          onChange={(e) => onChangeExtra(e.target.value || null)}
+          className="w-32"
+        />
+        <Button type="button" variant="outline" size="sm" onClick={onRemove}>
+          ×
+        </Button>
       </div>
-      <Input
-        placeholder={extraPlaceholder}
-        value={extra ?? ""}
-        onChange={(e) => onChangeExtra(e.target.value || null)}
-        className="w-28"
+      <ImageUploadField
+        value={url}
+        onChange={onChangeUrl}
+        onUpload={onUpload}
+        previewAlt={assetLabel}
       />
-      <Button type="button" variant="outline" size="sm" onClick={onRemove}>
-        ×
-      </Button>
     </div>
   );
 }
@@ -192,7 +196,7 @@ function TypoRow({
   onChange: (e: TypographyEntry) => void;
   onRemove: () => void;
 }) {
-  const fontUrlError = entry.fontUrl ? validateUrl(entry.fontUrl) : null;
+  const fontUrlError = entry.fontUrl ? validateHttpUrl(entry.fontUrl) : null;
   return (
     <div className="flex gap-2 items-start flex-wrap">
       <Input
@@ -266,14 +270,28 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
   const [fVoice, setFVoice] = useState("");
   const [fNotes, setFNotes] = useState("");
 
+  const handleImageUpload = useCallback(
+    async (file: File) => {
+      if (!effectiveToken) {
+        throw new Error("Tu sesión expiró. Vuelve a iniciar sesión.");
+      }
+
+      const uploaded = await uploadClientImageAsset(clientId, file, effectiveToken);
+      return uploaded.url;
+    },
+    [clientId, effectiveToken],
+  );
+
   const reload = useCallback(async () => {
     if (!effectiveToken) return;
     setLoading(true);
     try {
-      const activeManual = await getActiveClientBrandManual(clientId, effectiveToken).catch(
-        () => null,
+      const activePage = await listClientBrandManuals(
+        clientId,
+        { includeInactive: false, page: 1, pageSize: 1 },
+        effectiveToken,
       );
-      setActive(activeManual);
+      setActive(activePage.items[0] ?? null);
     } catch {
       setActive(null);
     } finally {
@@ -615,12 +633,13 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                 </Button>
               </div>
               {fLogos.map((l, i) => (
-                <UrlRow
+                <ImageAssetRow
                   key={i}
                   name={l.name}
                   url={l.url}
                   extra={l.variant}
                   extraPlaceholder="Variant"
+                  assetLabel={`Logo ${l.name || i + 1}`}
                   onChangeName={(v) => {
                     const copy = [...fLogos];
                     copy[i] = { ...copy[i], name: v };
@@ -636,6 +655,7 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                     copy[i] = { ...copy[i], variant: v };
                     setFLogos(copy);
                   }}
+                  onUpload={handleImageUpload}
                   onRemove={() => setFLogos(fLogos.filter((_, idx) => idx !== i))}
                 />
               ))}
@@ -657,12 +677,13 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                 </Button>
               </div>
               {fBg.map((b, i) => (
-                <UrlRow
+                <ImageAssetRow
                   key={i}
                   name={b.name}
                   url={b.url}
                   extra={b.useCase}
                   extraPlaceholder="Use Case"
+                  assetLabel={`Background ${b.name || i + 1}`}
                   onChangeName={(v) => {
                     const copy = [...fBg];
                     copy[i] = { ...copy[i], name: v };
@@ -678,6 +699,7 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                     copy[i] = { ...copy[i], useCase: v };
                     setFBg(copy);
                   }}
+                  onUpload={handleImageUpload}
                   onRemove={() => setFBg(fBg.filter((_, idx) => idx !== i))}
                 />
               ))}

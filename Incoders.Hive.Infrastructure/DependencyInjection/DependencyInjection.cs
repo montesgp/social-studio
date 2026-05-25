@@ -1,5 +1,6 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Infrastructure.Ai;
@@ -8,8 +9,11 @@ using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Infrastructure.Caching.InMemory;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Integrations;
+using Incoders.Hive.Infrastructure.Integrations.HealthChecks;
+using Incoders.Hive.Infrastructure.PlatformConfiguration;
 using Incoders.Hive.Infrastructure.Persistence;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
+using Incoders.Hive.Infrastructure.Social.Providers.Apify;
 using Incoders.Hive.Infrastructure.Social.Workflow;
 using Incoders.Hive.Infrastructure.Tenancy;
 using Incoders.Hive.Infrastructure.Time;
@@ -42,8 +46,18 @@ public static class DependencyInjection
         services.AddIdentityAuth(configuration);
 
         services.AddMultiTenancy(configuration);
+        services.AddClientAssetStorage(configuration);
 
 
+        return services;
+    }
+
+    private static IServiceCollection AddClientAssetStorage(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<ClientAssetStorageOptions>()
+            .Bind(configuration.GetSection(ClientAssetStorageOptions.SectionName));
+
+        services.AddScoped<IClientAssetStorage, LocalClientAssetStorage>();
         return services;
     }
 
@@ -99,6 +113,8 @@ public static class DependencyInjection
         services.AddScoped<IClientStrategyRepository, EfClientStrategyRepository>();
         services.AddScoped<IMonthlyObjectiveRepository, EfMonthlyObjectiveRepository>();
         services.AddScoped<SocialNetworkCatalogSeeder>();
+        services.AddScoped<PlatformSystemModuleSeeder>();
+        services.AddScoped<PlatformEmailTemplateSeeder>();
         services.AddScoped<IUserPreferenceRepository, EfUserPreferenceRepository>();
         services.AddScoped<IIntegrationProviderCatalogRepository, EfIntegrationProviderCatalogRepository>();
         services.AddScoped<IOrganizationIntegrationRepository, EfOrganizationIntegrationRepository>();
@@ -106,7 +122,40 @@ public static class DependencyInjection
         services.AddScoped<IIntegrationRoutingPolicyRepository, EfIntegrationRoutingPolicyRepository>();
         services.AddScoped<IIntegrationExecutionAttemptRepository, EfIntegrationExecutionAttemptRepository>();
         services.AddScoped<ISingleContentAnalysisRepository, EfSingleContentAnalysisRepository>();
+        // Per-platform Apify scrape adapters (ISocialPlatformScrapeAdapter)
+        services.AddScoped<ISocialPlatformScrapeAdapter, TikTokApifyScrapeAdapter>();
+        services.AddScoped<ISocialPlatformScrapeAdapter, InstagramApifyScrapeAdapter>();
+        services.AddScoped<ISocialPlatformScrapeAdapter, DefaultApifyScrapeAdapter>();
+
+        // AI provider selection — thin adapter over IIntegrationResolver.ResolveDefaultAiProviderAsync
+        services.AddScoped<IDefaultAiSelector, DefaultAiSelector>();
+
+        // Long, single-shot outbound calls (Apify run-sync; LLM completions) regularly exceed the
+        // Aspire standard resilience handler's ~10s per-attempt timeout that AddServiceDefaults()
+        // applies to ALL HttpClients — which CANCELS them and retries (each retry restarts the
+        // upstream actor run / LLM generation). Opt these clients OUT of the global resilience and
+        // use a plain long timeout. Deliberate retry/fallback is a business-layer concern
+        // (IIntegrationExecutionPolicy), not the HTTP layer.
+        // RemoveAllResilienceHandlers is [Experimental] (EXTEXP0001) — the documented per-client opt-out.
+        string[] longRunningHttpClients =
+        [
+            nameof(Incoders.Hive.Infrastructure.Social.Providers.ApifySocialContentExtractor),
+            nameof(Incoders.Hive.Infrastructure.Ai.Providers.ClaudeModelClient),
+            nameof(Incoders.Hive.Infrastructure.Ai.Providers.OpenAiModelClient),
+            nameof(Incoders.Hive.Infrastructure.Ai.Providers.GeminiModelClient),
+        ];
+#pragma warning disable EXTEXP0001
+        foreach (var clientName in longRunningHttpClients)
+        {
+            services.AddHttpClient(clientName, client => client.Timeout = TimeSpan.FromSeconds(120))
+                .RemoveAllResilienceHandlers();
+        }
+#pragma warning restore EXTEXP0001
+
         services.AddScoped<IIntegrationSecretProtector, DataProtectionIntegrationSecretProtector>();
+        // Real per-provider connectivity probes used by "Test connection".
+        services.AddScoped<IExternalIntegrationHealthCheck, ApifyIntegrationHealthCheck>();
+        services.AddScoped<IExternalIntegrationHealthCheck, ClaudeIntegrationHealthCheck>();
         services.AddScoped<IIntegrationConnectionTester, DefaultIntegrationConnectionTester>();
         services.AddScoped<IIntegrationResolver, IntegrationResolver>();
         services.AddScoped<IOrganizationIntegrationResolver, OrganizationIntegrationResolver>();

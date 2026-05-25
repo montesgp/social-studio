@@ -1,90 +1,96 @@
-// Client + mapping layer for the Single Analyzer scraping integration.
-// The provider-specific (Apify) shape is normalized into ScrapedVideo so the
-// rest of the app never depends on Apify field names.
+// Client for the backend single-analyzer pipeline.
+// The Next.js route handler for scraping has been removed (CAP5-MUST-01/03).
+// Apify is called server-side — no token or Apify domain is reachable from the browser.
 
-export interface ScrapedVideo {
-  networkSource: string;
-  contentType: string;
-  sourceUrl: string;
-  title: string;
-  author: string;
-  thumbnailUrl: string;
-  videoUrl: string;
-  views: number;
-  likes: number;
-  comments: number;
-  shares: number;
-  saves: number;
-  durationSeconds: number | null;
-  publishedAtUtc: string | null;
-  hashtags: string[];
+import { apiRequest } from "@/lib/api/client";
+import type { SingleContentAnalysisResponse, SingleAnalyzerContentSnapshot, SingleAnalyzerAnalysis } from "@/lib/api/types";
+import type { SingleAnalyzerResult } from "@/lib/mocks/single-analyzer";
+
+export type { SingleContentAnalysisResponse };
+
+export interface AnalyzeSingleContentPayload {
+  url: string;
+  clientId?: string;
 }
 
-// Subset of the Apify TikTok Scraper item we consume. All optional — the actor
-// may omit fields depending on the post.
-export interface ApifyTikTokItem {
-  id?: string;
-  text?: string;
-  webVideoUrl?: string;
-  playCount?: number;
-  diggCount?: number;
-  commentCount?: number;
-  shareCount?: number;
-  collectCount?: number;
-  createTimeISO?: string;
-  isSlideshow?: boolean;
-  authorMeta?: { name?: string; nickName?: string; avatar?: string };
-  videoMeta?: { coverUrl?: string; originalCoverUrl?: string; duration?: number };
-  hashtags?: Array<{ name?: string }>;
+/**
+ * Call the backend analyze endpoint (POST /api/social/single-analyzer/analyze).
+ * This is ONE-SHOT: scrape + AI analysis + persist happens on the server side.
+ * The browser never contacts Apify directly.
+ */
+export async function analyzeSingleContent(
+  payload: AnalyzeSingleContentPayload,
+  token?: string
+): Promise<SingleContentAnalysisResponse> {
+  return apiRequest<SingleContentAnalysisResponse>(
+    "/api/social/single-analyzer/analyze",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
 }
 
-function toNumber(value: number | undefined): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-export function mapApifyTikTokItem(item: ApifyTikTokItem, sourceUrl: string): ScrapedVideo {
-  const author = item.authorMeta?.nickName || item.authorMeta?.name || "Unknown creator";
-  const thumbnailUrl =
-    item.videoMeta?.coverUrl || item.videoMeta?.originalCoverUrl || item.authorMeta?.avatar || "";
+/**
+ * Map the backend `SingleContentAnalysisResponse` to the UI-local `SingleAnalyzerResult` shape.
+ * Keeps the existing component shape stable so the UI requires minimal changes.
+ */
+export function mapBackendResponseToResult(
+  response: SingleContentAnalysisResponse,
+  organizationId: string
+): SingleAnalyzerResult {
+  const snapshot: SingleAnalyzerContentSnapshot = response.snapshot;
+  const analysis: SingleAnalyzerAnalysis = response.analysis;
 
   return {
-    networkSource: "tiktok",
-    contentType: item.isSlideshow ? "slideshow" : "video",
-    sourceUrl: item.webVideoUrl || sourceUrl,
-    title: item.text?.trim() || "Untitled TikTok video",
-    author,
-    thumbnailUrl,
-    videoUrl: item.webVideoUrl || sourceUrl,
-    views: toNumber(item.playCount),
-    likes: toNumber(item.diggCount),
-    comments: toNumber(item.commentCount),
-    shares: toNumber(item.shareCount),
-    saves: toNumber(item.collectCount),
-    durationSeconds: typeof item.videoMeta?.duration === "number" ? item.videoMeta.duration : null,
-    publishedAtUtc: item.createTimeISO ?? null,
-    hashtags: (item.hashtags ?? [])
-      .map((h) => h.name?.trim())
-      .filter((name): name is string => Boolean(name)),
+    id: response.id,
+    organizationId,
+    clientId: response.clientId ?? null,
+    clientName: null, // not returned by the analyze endpoint; enriched client-side if needed
+    inputMode: "url" as const,
+    inputUrl: response.sourceUrl,
+    searchQuery: "",
+    networkSource: response.platformKey,
+    thumbnailUrl:
+      snapshot.thumbnailUrl ??
+      `https://picsum.photos/seed/${encodeURIComponent(response.sourceUrl)}/640/360`,
+    videoUrl:
+      snapshot.mediaReferences.find((r) => r.kind === "video")?.uri ??
+      snapshot.canonicalUrl,
+    title: snapshot.title ?? "Untitled",
+    author: snapshot.author ?? "Unknown creator",
+    views: snapshot.metrics["views"] ?? 0,
+    likes: snapshot.metrics["likes"] ?? 0,
+    comments: snapshot.metrics["comments"] ?? 0,
+    strategyMode: "",
+    // Combine AI analysis into a single readable block for the existing videoAnalysis field.
+    videoAnalysis: analysis
+      ? [
+          analysis.summary,
+          "",
+          `Likely audience: ${analysis.likelyAudience}`,
+          `Narrative: ${analysis.narrativeStructure}`,
+          "",
+          analysis.strengths.length > 0
+            ? `Strengths:\n${analysis.strengths.map((s) => `• ${s}`).join("\n")}`
+            : "",
+          analysis.weaknesses.length > 0
+            ? `Weaknesses:\n${analysis.weaknesses.map((w) => `• ${w}`).join("\n")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "",
+    scriptDraft: analysis?.derivedIdeas?.[0]?.concept ?? "",
+    analyzedAtUtc: response.completedAtUtc ?? response.updatedAtUtc,
+    downloadedAtUtc: null,
+    contentType: snapshot.contentType ?? undefined,
+    shares: snapshot.metrics["shares"] ?? 0,
+    saves: snapshot.metrics["saves"] ?? 0,
+    durationSeconds: snapshot.durationSeconds ?? null,
+    publishedAtUtc: snapshot.publishedAtUtc,
+    hashtags: snapshot.tags ?? [],
+    dataSource: "apify",
   };
-}
-
-export async function scrapeVideoByUrl(url: string): Promise<ScrapedVideo> {
-  const response = await fetch("/api/single-analyzer/scrape", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
-  });
-
-  if (!response.ok) {
-    let message = `Scrape failed (HTTP ${response.status}).`;
-    try {
-      const problem = (await response.json()) as { error?: string };
-      if (problem.error) message = problem.error;
-    } catch {
-      // keep default message
-    }
-    throw new Error(message);
-  }
-
-  return (await response.json()) as ScrapedVideo;
 }

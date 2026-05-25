@@ -3,26 +3,22 @@ using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Infrastructure.Ai;
-using Incoders.Hive.Infrastructure.Integrations;
 
 namespace Incoders.Hive.Tests.Infrastructure.Ai;
 
 public sealed class AiCompletionGatewayTests
 {
     [Fact]
-    public async Task CompleteJsonAsync_RepairsInvalidJsonOnceBeforeFailingOver()
+    public async Task CompleteJsonAsync_RepairsInvalidJsonOnceBeforeFailing()
     {
         var organizationId = Guid.NewGuid();
-        var candidate = Candidate("openai");
         var modelClient = new QueueAiModelClient(
             new AiCompletionResponse("not-json", "openai", "gpt-test", []),
             new AiCompletionResponse("{\"value\":\"fixed\"}", "openai", "gpt-test", []));
 
         var gateway = new AiCompletionGateway(
-            new StaticRouteResolver(candidate),
-            new StaticCredentialResolver(),
-            new StaticClientFactory(modelClient),
-            new IntegrationExecutionPolicy(new ProviderFallbackPolicy(), new InMemoryAttemptRepository(), TimeProvider.System));
+            new StaticIntegrationResolver("openai"),
+            new StaticClientFactory(modelClient));
 
         var result = await gateway.CompleteJsonAsync<TestPayload>(
             new AiJsonCompletionRequest(
@@ -31,28 +27,35 @@ public sealed class AiCompletionGatewayTests
                 "ai-analysis",
                 "single-analyzer-v1",
                 "{\"input\":\"video\"}",
-                PreferredProviderKey: null,
+                PreferredProviderKey: "openai",
                 PreferredModel: "gpt-test"),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal("fixed", result.Value.Payload.Value);
+        Assert.Equal("openai", result.Value.ProviderKey);
         Assert.Equal(2, modelClient.Calls);
     }
 
-    private sealed record TestPayload(string Value);
+    [Fact]
+    public async Task CompleteJsonAsync_FailsWhenNoProviderKey()
+    {
+        var gateway = new AiCompletionGateway(
+            new StaticIntegrationResolver("openai"),
+            new StaticClientFactory(new QueueAiModelClient()));
 
-    private static IntegrationRouteCandidate Candidate(string providerKey) =>
-        IntegrationRouteCandidate.Create(
-            Guid.NewGuid(),
-            providerKey,
-            IntegrationConnectionMode.BringYourOwnKey,
-            priority: 1,
-            allowManagedFallback: true,
-            maxAttempts: 1,
-            timeoutMs: 2_000,
-            selectedModel: "gpt-test",
-            isEnabled: true).Value;
+        var result = await gateway.CompleteJsonAsync<TestPayload>(
+            new AiJsonCompletionRequest(
+                Guid.NewGuid(), null, "ai-analysis", "single-analyzer-v1", "{}",
+                PreferredProviderKey: null,
+                PreferredModel: null),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(IntegrationErrors.DefaultAiProviderNotConnected.Code, result.Error.Code);
+    }
+
+    private sealed record TestPayload(string Value);
 
     private sealed class QueueAiModelClient : IAiModelClient
     {
@@ -74,33 +77,32 @@ public sealed class AiCompletionGatewayTests
         }
     }
 
-    private sealed class StaticRouteResolver : IOrganizationIntegrationResolver
+    private sealed class StaticIntegrationResolver : IIntegrationResolver
     {
-        private readonly IntegrationRouteCandidate _candidate;
+        private readonly string _providerKey;
 
-        public StaticRouteResolver(IntegrationRouteCandidate candidate)
-        {
-            _candidate = candidate;
-        }
+        public StaticIntegrationResolver(string providerKey) => _providerKey = providerKey;
 
-        public Task<Result<IntegrationRouteResolution>> ResolveRouteAsync(
-            IntegrationRouteRequest request,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(Result.Success(new IntegrationRouteResolution([_candidate], [])));
-    }
-
-    private sealed class StaticCredentialResolver : IIntegrationCredentialResolver
-    {
-        public Task<Result<ResolvedProviderCredential>> ResolveAsync(
+        public Task<Result<ResolvedIntegration>> ResolveProviderAsync(
             Guid organizationId,
-            IntegrationRouteCandidate candidate,
+            string providerKey,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(Result.Success(new ResolvedProviderCredential(
-                candidate.ProviderId,
-                candidate.ProviderKey,
-                candidate.ConnectionMode,
-                new Dictionary<string, string> { ["api_key"] = "test" },
-                candidate.SelectedModel)));
+            Task.FromResult(Result.Success(new ResolvedIntegration(
+                organizationId,
+                _providerKey,
+                _providerKey,
+                IntegrationProviderCategory.AiModel,
+                IntegrationConnectionMode.BringYourOwnKey,
+                IntegrationStatus.Connected,
+                IsReadOnly: false,
+                IsDefaultAi: true,
+                SelectedAiModel: "gpt-test",
+                new Dictionary<string, string> { ["api_key"] = "test" })));
+
+        public Task<Result<ResolvedIntegration>> ResolveDefaultAiProviderAsync(
+            Guid organizationId,
+            CancellationToken cancellationToken = default) =>
+            ResolveProviderAsync(organizationId, _providerKey, cancellationToken);
     }
 
     private sealed class StaticClientFactory : IExternalProviderClientFactory
@@ -115,16 +117,5 @@ public sealed class AiCompletionGatewayTests
         public TClient Create<TClient>(ResolvedProviderCredential credential)
             where TClient : notnull =>
             (TClient)_client;
-    }
-
-    private sealed class InMemoryAttemptRepository : IIntegrationExecutionAttemptRepository
-    {
-        public Task AddAsync(IntegrationExecutionAttemptRecord attempt, CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
-
-        public Task<IReadOnlyList<IntegrationExecutionAttemptRecord>> ListByAnalysisIdAsync(
-            Guid analysisId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<IntegrationExecutionAttemptRecord>>([]);
     }
 }

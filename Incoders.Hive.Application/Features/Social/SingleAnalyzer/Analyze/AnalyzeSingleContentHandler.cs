@@ -22,8 +22,6 @@ public sealed class AnalyzeSingleContentHandler
                 request.UserId,
                 request.Url,
                 request.ClientId,
-                request.PreferredExtractionProviderKey,
-                request.PreferredAiProviderKey,
-                request.PreferredAiModel),
+                request.PreferredExtractionProviderKey),
             cancellationToken);
 }

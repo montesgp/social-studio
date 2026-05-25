@@ -2,7 +2,6 @@ using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
-using Incoders.Hive.Infrastructure.Integrations;
 using Incoders.Hive.Infrastructure.Social;
 
 namespace Incoders.Hive.Tests.Infrastructure.Social;
@@ -10,29 +9,38 @@ namespace Incoders.Hive.Tests.Infrastructure.Social;
 public sealed class SocialContentResolverTests
 {
     [Fact]
-    public async Task ResolveAsync_PreservesPartialExtractionWarnings()
+    public async Task ResolveAsync_ResolvesExtractionProviderDirectly_WithoutRoutingPolicy()
     {
-        var candidate = Candidate("apify");
         var warning = new SocialContentWarning("transcript_missing", "social.warnings.transcript_missing");
-        var extractor = new StaticExtractor(new SocialContentSnapshot(
-            "tiktok",
-            "https://www.tiktok.com/@brand/video/123",
-            Title: "Hook example",
-            Description: null,
-            Author: "@brand",
-            ThumbnailUrl: null,
-            DurationSeconds: null,
-            Metrics: new Dictionary<string, long>(),
-            Transcript: null,
-            MediaReferences: [],
-            RawPayloadReference: "provider://apify/run/1",
-            Warnings: [warning]));
+        var extractor = new StaticExtractor(Snapshot(warnings: [warning]));
+        var integrationResolver = new StaticIntegrationResolver("apify");
 
+        var resolver = new SocialContentResolver(integrationResolver, new StaticClientFactory(extractor));
+
+        var result = await resolver.ResolveAsync(
+            new SocialContentResolutionRequest(
+                Guid.NewGuid(),
+                AnalysisId: null,
+                ClientId: null,
+                SourceUrl: "https://www.tiktok.com/@brand/video/123",
+                PlatformHint: "tiktok",
+                PreferredProviderKey: "apify"),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("apify", integrationResolver.LastProviderKey);
+        Assert.Equal("tiktok", result.Value.Snapshot.PlatformKey);
+        Assert.Single(result.Value.Snapshot.Warnings);
+        Assert.Equal("transcript_missing", result.Value.Snapshot.Warnings[0].Code);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_DefaultsToApify_WhenNoProviderKeyProvided()
+    {
+        var integrationResolver = new StaticIntegrationResolver("apify");
         var resolver = new SocialContentResolver(
-            new StaticRouteResolver(candidate),
-            new StaticCredentialResolver(),
-            new StaticClientFactory(extractor),
-            new IntegrationExecutionPolicy(new ProviderFallbackPolicy(), new InMemoryAttemptRepository(), TimeProvider.System));
+            integrationResolver,
+            new StaticClientFactory(new StaticExtractor(Snapshot())));
 
         var result = await resolver.ResolveAsync(
             new SocialContentResolutionRequest(
@@ -45,22 +53,49 @@ public sealed class SocialContentResolverTests
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal("tiktok", result.Value.Snapshot.PlatformKey);
-        Assert.Single(result.Value.Snapshot.Warnings);
-        Assert.Equal("transcript_missing", result.Value.Snapshot.Warnings[0].Code);
+        Assert.Equal("apify", integrationResolver.LastProviderKey);
     }
 
-    private static IntegrationRouteCandidate Candidate(string providerKey) =>
-        IntegrationRouteCandidate.Create(
-            Guid.NewGuid(),
-            providerKey,
-            IntegrationConnectionMode.BringYourOwnKey,
-            priority: 1,
-            allowManagedFallback: true,
-            maxAttempts: 1,
-            timeoutMs: 2_000,
-            selectedModel: null,
-            isEnabled: true).Value;
+    [Fact]
+    public async Task ResolveAsync_ReturnsProviderError_WhenExtractionProviderNotConnected()
+    {
+        var integrationResolver = new StaticIntegrationResolver(
+            Result.Failure<ResolvedIntegration>(IntegrationErrors.IntegrationNotConnected));
+        var resolver = new SocialContentResolver(
+            integrationResolver,
+            new StaticClientFactory(new StaticExtractor(Snapshot())));
+
+        var result = await resolver.ResolveAsync(
+            new SocialContentResolutionRequest(
+                Guid.NewGuid(),
+                AnalysisId: null,
+                ClientId: null,
+                SourceUrl: "https://www.tiktok.com/@brand/video/123",
+                PlatformHint: "tiktok",
+                PreferredProviderKey: null),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(IntegrationErrors.IntegrationNotConnected.Code, result.Error.Code);
+    }
+
+    private static SocialContentSnapshot Snapshot(IReadOnlyList<SocialContentWarning>? warnings = null) =>
+        new(
+            "tiktok",
+            "https://www.tiktok.com/@brand/video/123",
+            Title: "Hook example",
+            Description: null,
+            Author: "@brand",
+            ThumbnailUrl: null,
+            DurationSeconds: null,
+            Metrics: new Dictionary<string, long>(),
+            Transcript: null,
+            MediaReferences: [],
+            RawPayloadReference: "provider://apify/run/1",
+            Warnings: warnings ?? [],
+            Tags: [],
+            ContentType: null,
+            PublishedAtUtc: null);
 
     private sealed class StaticExtractor : ISocialContentExtractor
     {
@@ -77,33 +112,44 @@ public sealed class SocialContentResolverTests
             Task.FromResult(Result.Success(_snapshot));
     }
 
-    private sealed class StaticRouteResolver : IOrganizationIntegrationResolver
+    private sealed class StaticIntegrationResolver : IIntegrationResolver
     {
-        private readonly IntegrationRouteCandidate _candidate;
+        private readonly Result<ResolvedIntegration> _result;
 
-        public StaticRouteResolver(IntegrationRouteCandidate candidate)
+        public string? LastProviderKey { get; private set; }
+
+        public StaticIntegrationResolver(string providerKey)
+            => _result = Result.Success(new ResolvedIntegration(
+                Guid.NewGuid(),
+                providerKey,
+                providerKey,
+                IntegrationProviderCategory.DataExtraction,
+                IntegrationConnectionMode.BringYourOwnKey,
+                IntegrationStatus.Connected,
+                IsReadOnly: false,
+                IsDefaultAi: false,
+                SelectedAiModel: null,
+                new Dictionary<string, string>
+                {
+                    ["api_key"] = "test",
+                    ["actor_mappings_json"] = "[]"
+                }));
+
+        public StaticIntegrationResolver(Result<ResolvedIntegration> result) => _result = result;
+
+        public Task<Result<ResolvedIntegration>> ResolveProviderAsync(
+            Guid organizationId,
+            string providerKey,
+            CancellationToken cancellationToken = default)
         {
-            _candidate = candidate;
+            LastProviderKey = providerKey;
+            return Task.FromResult(_result);
         }
 
-        public Task<Result<IntegrationRouteResolution>> ResolveRouteAsync(
-            IntegrationRouteRequest request,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(Result.Success(new IntegrationRouteResolution([_candidate], [])));
-    }
-
-    private sealed class StaticCredentialResolver : IIntegrationCredentialResolver
-    {
-        public Task<Result<ResolvedProviderCredential>> ResolveAsync(
+        public Task<Result<ResolvedIntegration>> ResolveDefaultAiProviderAsync(
             Guid organizationId,
-            IntegrationRouteCandidate candidate,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(Result.Success(new ResolvedProviderCredential(
-                candidate.ProviderId,
-                candidate.ProviderKey,
-                candidate.ConnectionMode,
-                new Dictionary<string, string> { ["api_key"] = "test" },
-                candidate.SelectedModel)));
+            Task.FromResult(_result);
     }
 
     private sealed class StaticClientFactory : IExternalProviderClientFactory
@@ -118,16 +164,5 @@ public sealed class SocialContentResolverTests
         public TClient Create<TClient>(ResolvedProviderCredential credential)
             where TClient : notnull =>
             (TClient)_extractor;
-    }
-
-    private sealed class InMemoryAttemptRepository : IIntegrationExecutionAttemptRepository
-    {
-        public Task AddAsync(IntegrationExecutionAttemptRecord attempt, CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
-
-        public Task<IReadOnlyList<IntegrationExecutionAttemptRecord>> ListByAnalysisIdAsync(
-            Guid analysisId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<IntegrationExecutionAttemptRecord>>([]);
     }
 }

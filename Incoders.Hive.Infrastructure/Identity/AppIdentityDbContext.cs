@@ -25,6 +25,12 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<TenantMembershipData> TenantMemberships => Set<TenantMembershipData>();
 
+    public DbSet<SystemModuleData> SystemModules => Set<SystemModuleData>();
+
+    public DbSet<OrganizationModuleData> OrganizationModules => Set<OrganizationModuleData>();
+
+    public DbSet<OrganizationUserModuleData> OrganizationUserModules => Set<OrganizationUserModuleData>();
+
     public DbSet<SystemSettingData> SystemSettings => Set<SystemSettingData>();
 
     public DbSet<SocialClientData> SocialClients => Set<SocialClientData>();
@@ -101,6 +107,77 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .WithMany()
                 .HasForeignKey(x => x.TenantId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<SystemModuleData>(entity =>
+        {
+            entity.ToTable("system_modules", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ModuleKey).HasColumnName("key_module").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.DisplayName).HasColumnName("display_name").HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Description).HasColumnName("description").HasMaxLength(280).IsRequired();
+            entity.Property(x => x.ShortLabel).HasColumnName("short_label").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            entity.HasIndex(x => x.ModuleKey).IsUnique();
+            entity.HasIndex(x => x.IsActive).HasDatabaseName("ix_system_modules_is_active");
+        });
+
+        builder.Entity<OrganizationModuleData>(entity =>
+        {
+            entity.ToTable("organization_modules", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => new { x.OrganizationId, x.ModuleId });
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id");
+            entity.Property(x => x.ModuleId).HasColumnName("module_id");
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Module)
+                .WithMany()
+                .HasForeignKey(x => x.ModuleId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.OrganizationId, x.SortOrder })
+                .HasDatabaseName("ix_organization_modules_org_sort_order");
+        });
+
+        builder.Entity<OrganizationUserModuleData>(entity =>
+        {
+            entity.ToTable("organization_user_modules", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => new { x.OrganizationId, x.UserId, x.ModuleId });
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id");
+            entity.Property(x => x.ModuleId).HasColumnName("module_id");
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Module)
+                .WithMany()
+                .HasForeignKey(x => x.ModuleId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => x.UserId)
+                .HasDatabaseName("ix_organization_user_modules_user_id");
+
+            entity.HasIndex(x => new { x.OrganizationId, x.UserId, x.SortOrder })
+                .HasDatabaseName("ix_organization_user_modules_org_user_sort_order");
         });
 
         builder.Entity<SystemSettingData>(entity =>

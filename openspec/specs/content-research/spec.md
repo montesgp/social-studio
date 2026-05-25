@@ -11,6 +11,55 @@ Content research retrieves candidate high-performing content by client, niche, r
 - Single-content analysis workflows MAY run without a selected client; in that case generated mutations MUST preserve the source video's original positioning without client-specific orientation.
 - When a single-content analysis workflow offers client selection, selectable clients MUST be active and scoped to the resolved organization.
 
+## Single-Content Analysis Pipeline
+
+The single-analyzer pipeline is a backend-owned, synchronous flow:
+
+### Endpoint
+`POST /api/social/single-analyzer/analyze` — authenticated, tenant-scoped.
+
+### Request
+```json
+{ "url": "<social_content_url>", "clientId": "<optional_guid>" }
+```
+- `PreferredAiProviderKey` and `PreferredAiModel` are NOT accepted. AI provider selection is always driven by the organization's integration configuration (is_default_ai → most recently configured/updated AiModel integration).
+
+### Response
+Returns `SingleContentAnalysisResponse` (200 OK) with:
+- `id`, `organizationId`, `userId`, `clientId`, `sourceUrl`, `normalizedUrl`, `platformKey`, `canonicalUrl`
+- `status`: one of `Requested | ResolvingContent | ContentResolved | ContentResolvedPartial | Analyzing | Analyzed | Failed`
+- `snapshot`: `{ platformKey, canonicalUrl, title, description, author, thumbnailUrl, durationSeconds, metrics, transcript, mediaReferences, rawPayloadReference }`
+- `analysis`: `{ summary, detectedHooks, likelyAudience, narrativeStructure, strengths, weaknesses, derivedIdeas, clientAdaptationRecommendations, confidence, warnings }`
+- `warnings`, `diagnostics`, `aiProviderKey`, `aiModel`, `createdAtUtc`, `updatedAtUtc`, `completedAtUtc`
+
+### Platform Support
+Content extraction uses per-platform Apify adapters. Supported platforms:
+- `tiktok` — actor `GdWCkxBtKWOsKjdch`, input shape `{ postURLs, resultsPerPage, shouldDownload*: false }`
+- `instagram` — actor `shu8hvrXbJbY3Eb9W`, input shape `{ resultsType: "posts", directUrls, resultsLimit: 1, addParentData: false }`
+- Adding a new platform requires only a new adapter class and an `actor_mappings_json` entry.
+
+### AI Provider Selection (per-org)
+1. Organization integration marked `is_default_ai = true` + Connected is used first.
+2. If none, the most recently configured/updated (`UpdatedAtUtc DESC`) connected AiModel integration is the fallback.
+3. If no AiModel integration exists, analysis fails with `AI.NoProviderConfigured`.
+
+### Error HTTP Mapping
+
+| Failure | HTTP | Code |
+|---|---|---|
+| Missing Apify integration | 422 | `Integration.ApifyNotConfigured` |
+| Unsupported platform | 422 | `ContentExtraction.UnsupportedPlatform` |
+| No AI provider configured | 422 | `AI.NoProviderConfigured` |
+| Invalid URL | 400 | `ContentExtraction.InvalidUrl` |
+| Empty Apify response | 422 | `ContentExtraction.EmptyResponse` |
+| Provider timeout/rate-limit | 500 (TODO: map to 502/503/504 in follow-up) | `Integration.*` |
+
+### Frontend Integration
+- `apps/web/lib/api/single-analyzer.ts` → `analyzeSingleContent(payload, token)` — calls the backend endpoint via `apiRequest`.
+- The Next.js route handler `app/api/single-analyzer/scrape/route.ts` has been DELETED. No Apify token is accessible from the browser.
+- The "By URL" UI path triggers a single backend call that populates both the snapshot card and the analysis section.
+- The "By Search" path remains mock (deferred).
+
 ## Events
 - TBD
 
@@ -20,3 +69,6 @@ Content research retrieves candidate high-performing content by client, niche, r
 - A client id from another organization returns not found.
 - A CM can run single-content analysis with no client selected and receive neutral mutations based on the original video.
 - A CM can choose an active client in the resolved organization before generating single-content mutations.
+- A CM can paste a TikTok or Instagram URL; the backend scrapes and analyzes it in one call; no Apify request is visible in the browser.
+- When no AI integration is configured, the endpoint returns 422 with `code: "AI.NoProviderConfigured"`.
+- Tenant isolation: the organizationId is always sourced from the authenticated principal, never from the request body.

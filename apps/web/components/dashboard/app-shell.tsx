@@ -2,19 +2,22 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { useAccessToken } from "@/components/auth/use-access-token";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeSelector } from "@/components/theme/theme-selector";
 import { SidebarAreaSwitcher } from "@/components/dashboard/sidebar-area-switcher";
 import { adminNavigation, getWorkspaceNavigation, workspaceModules } from "@/lib/navigation";
 import type { NavGroup, WorkspaceModule, WorkspaceModuleKey } from "@/lib/navigation";
+import { getWorkspaceModules } from "@/lib/api/me";
 import { ThemeKey } from "@/lib/api/types";
 import { HttpLoader } from "@/components/ui/http-loader";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Button } from "@/components/ui/button";
+import { useActiveOrg } from "@/lib/auth/active-org-context";
 
 function NavGroupSection({
   group,
@@ -140,12 +143,66 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [activeModuleKey, setActiveModuleKey] = useState<WorkspaceModuleKey>("social");
+  const accessToken = useAccessToken();
+  const { orgId, isInitialized: isOrgInitialized } = useActiveOrg();
+  const [activeModuleKey, setActiveModuleKey] = useState<WorkspaceModuleKey>("hive-social");
+  const [availableModules, setAvailableModules] = useState<WorkspaceModule[]>([]);
+  const [modulesLoaded, setModulesLoaded] = useState(false);
   const isAdminArea = pathname.startsWith("/admin");
   const activeArea = isAdminArea ? "admin" : "workspace";
-  const activeModule = workspaceModules.find((module) => module.key === activeModuleKey) ?? workspaceModules[0];
-  const navGroups = isAdminArea ? adminNavigation : getWorkspaceNavigation(activeModule.key);
+  const moduleOptions = useMemo(
+    () => (isPlatformAdmin ? availableModules.length > 0 ? availableModules : workspaceModules : availableModules),
+    [availableModules, isPlatformAdmin]
+  );
+  const activeModule = moduleOptions.find((module) => module.key === activeModuleKey) ?? moduleOptions[0] ?? null;
+  const navGroups = isAdminArea ? adminNavigation : getWorkspaceNavigation(activeModule?.key);
   const layoutId = `sidebar-active-${activeArea}`;
+
+  useEffect(() => {
+    if (!accessToken) {
+      setAvailableModules([]);
+      setModulesLoaded(false);
+      return;
+    }
+
+    if (!isPlatformAdmin && !isOrgInitialized) {
+      return;
+    }
+
+    let cancelled = false;
+    setModulesLoaded(false);
+
+    void (async () => {
+      try {
+        const apiModules = await getWorkspaceModules(accessToken);
+        if (cancelled) return;
+
+        const mapped = apiModules
+          .map((module) => workspaceModules.find((candidate) => candidate.key === module.key))
+          .filter((module): module is WorkspaceModule => module !== undefined);
+
+        setAvailableModules(mapped);
+        setActiveModuleKey((current) => {
+          if (mapped.some((module) => module.key === current)) {
+            return current;
+          }
+
+          return mapped[0]?.key ?? "hive-social";
+        });
+      } catch {
+        if (cancelled) return;
+        setAvailableModules(isPlatformAdmin ? workspaceModules : []);
+      } finally {
+        if (!cancelled) {
+          setModulesLoaded(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isOrgInitialized, isPlatformAdmin, orgId]);
 
   function changeModule(moduleKey: WorkspaceModuleKey) {
     setActiveModuleKey(moduleKey);
@@ -163,16 +220,26 @@ export function AppShell({
           <aside className="border-r border-border bg-card/50 p-3">
             <div className="mb-6">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">Incoders Hive</p>
-              <h1 className="text-xl font-semibold">{isAdminArea ? "Platform Admin" : activeModule.label}</h1>
+              <h1 className="text-xl font-semibold">{isAdminArea ? "Platform Admin" : activeModule?.label ?? "Workspace"}</h1>
             </div>
 
             {!isAdminArea ? (
               <div className="mb-5">
-                <ModuleSwitcher
-                  modules={workspaceModules}
-                  activeModule={activeModule.key}
-                  onChange={changeModule}
-                />
+                {moduleOptions.length > 0 ? (
+                  <ModuleSwitcher
+                    modules={moduleOptions}
+                    activeModule={activeModule?.key ?? "hive-social"}
+                    onChange={changeModule}
+                  />
+                ) : modulesLoaded ? (
+                  <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                    No modules assigned for this organization.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                    Loading modules...
+                  </div>
+                )}
               </div>
             ) : null}
 
@@ -194,7 +261,9 @@ export function AppShell({
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">
-                    {isAdminArea ? "Platform operations and governance" : activeModule.description}
+                    {isAdminArea
+                      ? "Platform operations and governance"
+                      : activeModule?.description ?? "No module assigned to this workspace context."}
                   </p>
                 </div>
                 <div className="rounded-lg border border-border bg-card/50 px-3 py-2">

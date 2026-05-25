@@ -34,6 +34,10 @@ import {
   listOrganizations,
   updateOrganization
 } from "@/lib/api/organizations";
+import {
+  getOrganizationModules,
+  updateOrganizationModules
+} from "@/lib/api/organization-modules";
 import { ApiError, Organization, PageResult } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +47,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Select } from "@/components/ui/select";
+import { Column, SortableChildTable } from "@/components/ui/sortable-child-table";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
@@ -509,6 +514,7 @@ export function OrganizationsClient() {
 
         <OrganizationDetailsPanel
           organization={details}
+          token={effectiveToken || undefined}
           onEdit={(item) => openEdit(item)}
           onArchive={(item) => void onArchive(item)}
           onReactivate={(item) => void onReactivate(item)}
@@ -621,6 +627,13 @@ interface OrgConnector {
   status: "connected" | "disconnected" | "error";
 }
 
+interface OrganizationModuleOption {
+  key: string;
+  label: string;
+  description: string;
+  shortLabel: string;
+}
+
 const claudeModelOptions = [
   { value: "claude-opus-4-7", label: "Claude Opus 4.7" },
   { value: "claude-opus-4-5", label: "Claude Opus 4.5" },
@@ -644,18 +657,20 @@ function getDefaultConnectors(): OrgConnector[] {
 
 function OrganizationDetailsPanel({
   organization,
+  token,
   onEdit,
   onArchive,
   onReactivate,
   acting
 }: {
   organization: Organization | null;
+  token?: string;
   onEdit: (organization: Organization) => void;
   onArchive: (organization: Organization) => void;
   onReactivate: (organization: Organization) => void;
   acting: boolean;
 }) {
-  const [detailTab, setDetailTab] = useState<"overview" | "connectors">("overview");
+  const [detailTab, setDetailTab] = useState<"overview" | "connectors" | "modules">("overview");
   const [connectors, setConnectors] = useState<OrgConnector[]>([]);
   const [addingConnector, setAddingConnector] = useState(false);
   const [newProvider, setNewProvider] = useState("claude");
@@ -663,13 +678,123 @@ function OrganizationDetailsPanel({
   const [newApiKey, setNewApiKey] = useState("");
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, "ok" | "fail">>({});
+  const [modulesLoading, setModulesLoading] = useState(false);
+  const [modulesSaving, setModulesSaving] = useState(false);
+  const [moduleError, setModuleError] = useState<string | null>(null);
+  const [availableModules, setAvailableModules] = useState<OrganizationModuleOption[]>([]);
+  const [assignedModuleKeys, setAssignedModuleKeys] = useState<string[]>([]);
+
+  const assignedModuleItems = useMemo(() => {
+    const byKey = new Map(availableModules.map((module) => [module.key, module]));
+    return assignedModuleKeys
+      .map((key) => byKey.get(key))
+      .filter((module): module is OrganizationModuleOption => module !== undefined);
+  }, [availableModules, assignedModuleKeys]);
+
+  const moduleColumns: Column<OrganizationModuleOption>[] = [
+    {
+      key: "module",
+      label: "Module",
+      render: (module) => <span className="font-medium">{module.label}</span>,
+    },
+    {
+      key: "description",
+      label: "Description",
+      render: (module) => <span className="text-xs text-muted-foreground">{module.description}</span>,
+    },
+  ];
 
   useEffect(() => {
+    if (!organization) {
+      setAvailableModules([]);
+      setAssignedModuleKeys([]);
+      setModuleError(null);
+      return;
+    }
+
     if (organization) {
       setConnectors(getDefaultConnectors());
       setDetailTab("overview");
     }
-  }, [organization?.id]);
+
+    if (!token) {
+      setAvailableModules([]);
+      setAssignedModuleKeys([]);
+      setModuleError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setModulesLoading(true);
+    setModuleError(null);
+
+    void (async () => {
+      try {
+        const response = await getOrganizationModules(organization.id, token);
+        if (cancelled) return;
+
+        const nextAvailableModules = response.availableModules.map((module) => ({
+          key: module.moduleKey,
+          label: module.displayName,
+          description: module.description,
+          shortLabel: module.shortLabel,
+        }));
+        const nextAssignedKeys = response.assignedModules
+          .sort((left, right) => left.sortOrder - right.sortOrder)
+          .map((module) => module.moduleKey);
+
+        setAvailableModules(nextAvailableModules);
+        setAssignedModuleKeys(nextAssignedKeys);
+      } catch (err) {
+        if (cancelled) return;
+        setModuleError((err as ApiError).message ?? "Could not load organization modules.");
+        setAvailableModules([]);
+        setAssignedModuleKeys([]);
+      } finally {
+        if (!cancelled) {
+          setModulesLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [organization, token]);
+
+  function toggleAssignedModule(moduleKey: string) {
+    setAssignedModuleKeys((current) =>
+      current.includes(moduleKey)
+        ? current.filter((key) => key !== moduleKey)
+        : [...current, moduleKey]
+    );
+  }
+
+  async function handleSaveModules() {
+    if (!organization || !token) return;
+
+    setModulesSaving(true);
+    setModuleError(null);
+    try {
+      const response = await updateOrganizationModules(organization.id, assignedModuleKeys, token);
+      const nextAvailableModules = response.availableModules.map((module) => ({
+        key: module.moduleKey,
+        label: module.displayName,
+        description: module.description,
+        shortLabel: module.shortLabel,
+      }));
+      const nextAssignedKeys = response.assignedModules
+        .sort((left, right) => left.sortOrder - right.sortOrder)
+        .map((module) => module.moduleKey);
+
+      setAvailableModules(nextAvailableModules);
+      setAssignedModuleKeys(nextAssignedKeys);
+    } catch (err) {
+      setModuleError((err as ApiError).message ?? "Could not save organization modules.");
+    } finally {
+      setModulesSaving(false);
+    }
+  }
 
   async function handleTestConnection(connector: OrgConnector) {
     setTestingId(connector.id);
@@ -732,7 +857,7 @@ function OrganizationDetailsPanel({
           </Badge>
         </div>
         <div className="mt-3 inline-flex rounded-md border border-border bg-background p-1">
-          {(["overview", "connectors"] as const).map((tab) => (
+          {(["overview", "connectors", "modules"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
@@ -742,7 +867,11 @@ function OrganizationDetailsPanel({
                 detailTab === tab ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
               )}
             >
-              {tab === "connectors" ? `Connectors (${connectors.length})` : "Overview"}
+              {tab === "connectors"
+                ? `Connectors (${connectors.length})`
+                : tab === "modules"
+                  ? `Modules (${assignedModuleKeys.length})`
+                  : "Overview"}
             </button>
           ))}
         </div>
@@ -907,6 +1036,73 @@ function OrganizationDetailsPanel({
                   );
                 })}
               </div>
+            )}
+          </div>
+        )}
+
+        {detailTab === "modules" && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Assign system modules to this organization and define selector order. Changes are persisted only when you click save.
+            </p>
+
+            {moduleError ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {moduleError}
+              </div>
+            ) : null}
+
+            {modulesLoading ? (
+              <p className="text-xs text-muted-foreground">Loading organization modules...</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-3">
+                  {availableModules.map((module) => (
+                    <label key={module.key} className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={assignedModuleKeys.includes(module.key)}
+                        onChange={() => toggleAssignedModule(module.key)}
+                        className="h-4 w-4 rounded border-border"
+                      />
+                      {module.label}
+                    </label>
+                  ))}
+                </div>
+
+                <SortableChildTable<OrganizationModuleOption>
+                  items={assignedModuleItems}
+                  getId={(item) => item.key}
+                  columns={moduleColumns}
+                  onReorder={(orderedIds) => setAssignedModuleKeys(orderedIds)}
+                  primaryLabel="Primary"
+                  emptyState="No modules assigned to this organization."
+                />
+
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={modulesLoading || modulesSaving}
+                    onClick={() => setAssignedModuleKeys([])}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={modulesLoading || modulesSaving || !token}
+                    onClick={() => void handleSaveModules()}
+                  >
+                    {modulesSaving ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" /> Saving...
+                      </>
+                    ) : (
+                      "Save modules"
+                    )}
+                  </Button>
+                </div>
+              </>
             )}
           </div>
         )}

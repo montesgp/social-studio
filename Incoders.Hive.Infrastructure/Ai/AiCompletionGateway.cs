@@ -3,30 +3,32 @@ using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Incoders.Hive.Infrastructure.Ai;
 
+/// <summary>
+/// Resolves the AI provider DIRECTLY from the organization's integration config (no routing policy).
+/// The provider key is chosen upstream by IDefaultAiSelector (is_default_ai → last configured).
+/// Routing-per-client for AI is a future concern; for now we use the org's default agent.
+/// </summary>
 public sealed class AiCompletionGateway : IAiCompletionGateway
 {
-    private const string SingleAnalyzerFlowKey = "single-analyzer";
-
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private readonly IOrganizationIntegrationResolver _routeResolver;
-    private readonly IIntegrationCredentialResolver _credentialResolver;
+    private readonly IIntegrationResolver _integrationResolver;
     private readonly IExternalProviderClientFactory _clientFactory;
-    private readonly IIntegrationExecutionPolicy _executionPolicy;
+    private readonly ILogger<AiCompletionGateway> _logger;
 
     public AiCompletionGateway(
-        IOrganizationIntegrationResolver routeResolver,
-        IIntegrationCredentialResolver credentialResolver,
+        IIntegrationResolver integrationResolver,
         IExternalProviderClientFactory clientFactory,
-        IIntegrationExecutionPolicy executionPolicy)
+        ILogger<AiCompletionGateway>? logger = null)
     {
-        _routeResolver = routeResolver;
-        _credentialResolver = credentialResolver;
+        _integrationResolver = integrationResolver;
         _clientFactory = clientFactory;
-        _executionPolicy = executionPolicy;
+        _logger = logger ?? NullLogger<AiCompletionGateway>.Instance;
     }
 
     public async Task<Result<AiJsonCompletionResponse<TResponse>>> CompleteJsonAsync<TResponse>(
@@ -34,66 +36,75 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
         CancellationToken cancellationToken = default)
         where TResponse : notnull
     {
-        var route = await _routeResolver.ResolveRouteAsync(
-            new IntegrationRouteRequest(
+        var providerKey = request.PreferredProviderKey?.Trim();
+        if (string.IsNullOrWhiteSpace(providerKey))
+        {
+            _logger.LogWarning(
+                "AI completion has no provider key. OrganizationId={OrganizationId} CapabilityKey={CapabilityKey}",
                 request.OrganizationId,
-                SingleAnalyzerFlowKey,
-                request.CapabilityKey,
-                PlatformKey: null,
-                request.PreferredProviderKey,
-                request.PreferredModel),
-            cancellationToken);
+                request.CapabilityKey);
 
-        if (route.IsFailure)
-        {
-            return Result.Failure<AiJsonCompletionResponse<TResponse>>(route.Error);
+            return Result.Failure<AiJsonCompletionResponse<TResponse>>(IntegrationErrors.DefaultAiProviderNotConnected);
         }
 
-        var execution = await _executionPolicy.ExecuteAsync(
-            new IntegrationExecutionRequest(
+        var resolved = await _integrationResolver.ResolveProviderAsync(request.OrganizationId, providerKey, cancellationToken);
+        if (resolved.IsFailure)
+        {
+            _logger.LogWarning(
+                "AI completion: provider {ProviderKey} unavailable for org {OrganizationId}: {ErrorCode}.",
+                providerKey,
                 request.OrganizationId,
-                request.AnalysisId,
-                SingleAnalyzerFlowKey,
-                request.CapabilityKey,
-                PlatformKey: null),
-            route.Value.Candidates,
-            async (candidate, token) => await CompleteJsonForCandidateAsync<TResponse>(request, candidate, token),
-            cancellationToken);
+                resolved.Error.Code);
 
-        if (execution.IsFailure)
-        {
-            return Result.Failure<AiJsonCompletionResponse<TResponse>>(execution.Error);
+            return Result.Failure<AiJsonCompletionResponse<TResponse>>(resolved.Error);
         }
 
-        return Result.Success(new AiJsonCompletionResponse<TResponse>(
-            execution.Value.Payload.Payload,
-            execution.Value.Candidate.ProviderKey,
-            execution.Value.Payload.Model,
-            execution.Value.Diagnostics));
-    }
-
-    private async Task<Result<AiJsonCandidateResponse<TResponse>>> CompleteJsonForCandidateAsync<TResponse>(
-        AiJsonCompletionRequest request,
-        IntegrationRouteCandidate candidate,
-        CancellationToken cancellationToken)
-        where TResponse : notnull
-    {
-        var credential = await _credentialResolver.ResolveAsync(request.OrganizationId, candidate, cancellationToken);
-        if (credential.IsFailure)
-        {
-            return Result.Failure<AiJsonCandidateResponse<TResponse>>(credential.Error);
-        }
+        var model = request.PreferredModel ?? resolved.Value.SelectedAiModel;
+        var credential = new ResolvedProviderCredential(
+            Guid.Empty,
+            resolved.Value.ProviderKey,
+            resolved.Value.ConnectionMode,
+            resolved.Value.Credentials,
+            model);
 
         IAiModelClient client;
         try
         {
-            client = _clientFactory.Create<IAiModelClient>(credential.Value);
+            client = _clientFactory.Create<IAiModelClient>(credential);
         }
         catch (InvalidOperationException)
         {
-            return Result.Failure<AiJsonCandidateResponse<TResponse>>(IntegrationErrors.ExternalProviderUnsupported);
+            _logger.LogWarning("AI completion: provider {ProviderKey} has no model client registered.", providerKey);
+            return Result.Failure<AiJsonCompletionResponse<TResponse>>(IntegrationErrors.ExternalProviderUnsupported);
         }
 
+        var parsed = await CompleteAndParseAsync<TResponse>(request, client, model, cancellationToken);
+        if (parsed.IsFailure)
+        {
+            _logger.LogWarning(
+                "AI completion failed for org {OrganizationId} provider {ProviderKey} model {Model}: {ErrorCode}.",
+                request.OrganizationId,
+                providerKey,
+                model ?? "(provider default)",
+                parsed.Error.Code);
+
+            return Result.Failure<AiJsonCompletionResponse<TResponse>>(parsed.Error);
+        }
+
+        return Result.Success(new AiJsonCompletionResponse<TResponse>(
+            parsed.Value.Payload,
+            resolved.Value.ProviderKey,
+            parsed.Value.Model,
+            []));
+    }
+
+    private async Task<Result<AiJsonCandidateResponse<TResponse>>> CompleteAndParseAsync<TResponse>(
+        AiJsonCompletionRequest request,
+        IAiModelClient client,
+        string? model,
+        CancellationToken cancellationToken)
+        where TResponse : notnull
+    {
         var completion = await client.CompleteAsync(
             new AiCompletionRequest(
                 request.OrganizationId,
@@ -101,7 +112,7 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
                 request.PromptVersionKey,
                 request.InputJson,
                 request.PreferredProviderKey,
-                request.PreferredModel ?? credential.Value.SelectedModel),
+                model),
             cancellationToken);
 
         if (completion.IsFailure)
@@ -112,11 +123,10 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
         var parsed = TryParse<TResponse>(completion.Value.Output);
         if (parsed.IsSuccess)
         {
-            return Result.Success(new AiJsonCandidateResponse<TResponse>(
-                parsed.Value,
-                completion.Value.Model));
+            return Result.Success(new AiJsonCandidateResponse<TResponse>(parsed.Value, completion.Value.Model));
         }
 
+        // One JSON-repair retry against the same provider before giving up.
         var repair = await client.CompleteAsync(
             new AiCompletionRequest(
                 request.OrganizationId,
@@ -124,7 +134,7 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
                 $"{request.PromptVersionKey}:json-repair",
                 $"Return only valid JSON for this schema. Invalid output: {completion.Value.Output}",
                 request.PreferredProviderKey,
-                request.PreferredModel ?? credential.Value.SelectedModel),
+                model),
             cancellationToken);
 
         if (repair.IsFailure)
@@ -154,8 +164,6 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
         }
     }
 
-    private sealed record AiJsonCandidateResponse<TResponse>(
-        TResponse Payload,
-        string? Model)
+    private sealed record AiJsonCandidateResponse<TResponse>(TResponse Payload, string? Model)
         where TResponse : notnull;
 }

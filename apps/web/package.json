@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
+    "dev": "next dev",
+    "build": "node -e \"process.env.NEXT_DIST_DIR='.next-build'; const result = require('child_process').spawnSync('next', ['build'], { env: process.env, shell: true, stdio: 'inherit' }); process.exit(result.status ?? 1)\"",
     "start": "next start",
     "lint": "next lint"
   },

@@ -36,6 +36,7 @@ Feature code that re-implements any of these — inline or as a local component 
 |-----------------------------|------------------------|--------------------------------------|
 | Text input                  | `<Input>`              | `@/components/ui/input`              |
 | Password input              | `<PasswordInput>`      | `@/components/ui/password-input`     |
+| Checkbox / toggle input     | `<Checkbox>`           | `@/components/ui/checkbox`           |
 | Dropdown / select           | `<Select>`             | `@/components/ui/select`             |
 | Action button               | `<Button>`             | `@/components/ui/button`             |
 | Status label / tag          | `<Badge>`              | `@/components/ui/badge`              |

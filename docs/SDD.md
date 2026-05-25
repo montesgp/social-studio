@@ -67,6 +67,8 @@ Model routing is configurable. Use cases call application ports such as `IAiIdea
 ## 8. Persistence
 Supabase is initial infrastructure provider. Domain and Application must not depend on Supabase SDKs. RLS must support organization/client boundaries.
 
+Client-managed image assets (for example brand manual logos and backgrounds) are uploaded through backend endpoints and stored behind a storage adapter abstraction. Persisted business records keep the resulting URL reference, never raw file payloads.
+
 Persistence schemas:
 - `identity` for authentication/authorization data.
 - `platform` for organizations, memberships, system settings and shared provider/model catalogs.
@@ -79,6 +81,15 @@ Integrations persistence model:
 - `platform.organization_integrations` is organization-scoped provider state (mode/status/default model flags).
 - `platform.organization_integration_credentials` stores encrypted organization credential values.
 - Product modules such as Social consume integration resolution through an abstraction (`IIntegrationResolver`) instead of reading provider credentials or appsettings directly.
+
+Social network catalog model:
+- Platform social networks store an `icon_key` selected from the frontend social-network icon allowlist, not arbitrary icon text, so admin users can preview the assigned icon and downstream UI can render it consistently.
+
+Platform configuration model:
+- Email templates for authentication/system notifications are platform-owned settings stored as typed JSON in `platform.system_settings` under stable `email_templates.*` keys. Sysadmins edit HTML bodies with preview; runtime mail delivery will resolve the same keys.
+- API startup seeds branded default templates for confirmation, magic-link, password reset, and invitation flows, without overwriting already configured templates.
+- Platform integrations that are not organization/content integrations, such as SMTP email delivery and future WhatsApp messaging, are platform-owned settings stored under stable `platform_integrations.*` keys. Secret values must be protected before persistence and returned to UI only as configured/not-configured flags.
+- Workspace module availability is configured by sysadmins per `(organization_id, user_id)` mapping in `platform.organization_user_modules`, with explicit `sort_order` for selector ordering. Non-sysadmin users only see assigned modules for the active organization context; sysadmins always see the full module catalog ordered by module creation date descending.
 
 ## 9. Frontend Design
 Use Next.js App Router. Build a workflow dashboard around client selection, content research, insight mapping, idea generation/evaluation and publication pipeline. Use shadcn/ui and Radix primitives for accessible components.

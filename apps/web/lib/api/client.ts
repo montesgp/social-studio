@@ -15,7 +15,12 @@ function getServerApiBaseUrl() {
 
 export async function apiRequest<T>(path: string, init?: RequestInit, token?: string): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (init?.body !== undefined && init.body !== null && !headers.has("Content-Type")) {
+  const isFormDataBody =
+    typeof FormData !== "undefined" &&
+    init?.body !== undefined &&
+    init.body instanceof FormData;
+
+  if (init?.body !== undefined && init.body !== null && !isFormDataBody && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (token) {

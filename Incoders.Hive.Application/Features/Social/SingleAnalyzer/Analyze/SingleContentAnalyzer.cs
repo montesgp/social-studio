@@ -1,17 +1,19 @@
 using System.Text.Json;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Incoders.Hive.Application.Features.Social.SingleAnalyzer.Analyze;
 
 public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
 {
-    private const string AiAnalysisCapability = "ai-analysis";
-    private const string PromptVersionKey = "single-analyzer.analysis.v1";
+    private const string FlowKey = "single-analyzer";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -20,19 +22,28 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
     private readonly IClock _clock;
     private readonly ISocialContentResolver _contentResolver;
     private readonly IAiCompletionGateway _aiGateway;
+    private readonly IDefaultAiSelector _defaultAiSelector;
+    private readonly IContentAnalysisProfileProvider _profileProvider;
+    private readonly ILogger<SingleContentAnalyzer> _logger;
 
     public SingleContentAnalyzer(
         ISingleContentAnalysisRepository analyses,
         IUnitOfWork unitOfWork,
         IClock clock,
         ISocialContentResolver contentResolver,
-        IAiCompletionGateway aiGateway)
+        IAiCompletionGateway aiGateway,
+        IDefaultAiSelector defaultAiSelector,
+        IContentAnalysisProfileProvider profileProvider,
+        ILogger<SingleContentAnalyzer>? logger = null)
     {
         _analyses = analyses;
         _unitOfWork = unitOfWork;
         _clock = clock;
         _contentResolver = contentResolver;
         _aiGateway = aiGateway;
+        _defaultAiSelector = defaultAiSelector;
+        _profileProvider = profileProvider;
+        _logger = logger ?? NullLogger<SingleContentAnalyzer>.Instance;
     }
 
     public async Task<Result<SingleContentAnalysisResponse>> AnalyzeAsync(
@@ -51,6 +62,18 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             return Result.Failure<SingleContentAnalysisResponse>(validation.Error);
         }
 
+        // Resolve the module profile — provides capability keys, prompt version, and platform detection.
+        var profileResult = _profileProvider.ForFlow(FlowKey);
+        var profile = profileResult.IsSuccess ? profileResult.Value : null;
+
+        // Use profile for platform detection if available; otherwise fall back to domain value object.
+        var platformKey = profile is not null
+            ? profile.DetectPlatform(sourceUrl.Value.OriginalUrl)
+            : sourceUrl.Value.PlatformKey;
+
+        var aiCapabilityKey = profile?.AiCapabilityKey ?? "ai-analysis";
+        var promptVersionKey = profile?.PromptVersionKey ?? "single-analyzer.analysis.v1";
+
         var analysis = CreateInitialRecord(request, sourceUrl.Value);
         await _analyses.AddAsync(analysis, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -60,18 +83,29 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             SingleContentAnalysisStatus.ResolvingContent,
             cancellationToken);
 
+        _logger.LogInformation(
+            "Single Analyzer: starting analysis {AnalysisId} for {Url} (org {OrganizationId}, platform {PlatformKey}).",
+            analysis.Id,
+            request.Url,
+            request.OrganizationId,
+            platformKey);
+
         var content = await _contentResolver.ResolveAsync(
             new SocialContentResolutionRequest(
                 request.OrganizationId,
                 analysis.Id,
                 request.ClientId,
                 sourceUrl.Value.OriginalUrl,
-                sourceUrl.Value.PlatformKey,
-                request.PreferredExtractionProviderKey),
+                platformKey,
+                request.PreferredExtractionProviderKey ?? profile?.ExtractionProviderKey),
             cancellationToken);
 
         if (content.IsFailure)
         {
+            _logger.LogWarning(
+                "Single Analyzer: content resolution failed for analysis {AnalysisId}: {ErrorCode}.",
+                analysis.Id,
+                content.Error.Code);
             await PersistFailureAsync(analysis, content.Error, [], cancellationToken);
             return Result.Failure<SingleContentAnalysisResponse>(content.Error);
         }
@@ -104,19 +138,46 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             SingleContentAnalysisStatus.Analyzing,
             cancellationToken);
 
+        // AI provider selection is always org-integration-driven (CAP3-MUST-04):
+        // is_default_ai first, else the last-configured AI integration for the org.
+        var selectedAi = await _defaultAiSelector.SelectAsync(request.OrganizationId, cancellationToken);
+        if (selectedAi.IsFailure)
+        {
+            _logger.LogWarning(
+                "Single Analyzer: AI provider selection failed for analysis {AnalysisId}: {ErrorCode}.",
+                analysis.Id,
+                selectedAi.Error.Code);
+            await PersistFailureAsync(analysis, selectedAi.Error, content.Value.Diagnostics, cancellationToken);
+            return Result.Failure<SingleContentAnalysisResponse>(selectedAi.Error);
+        }
+
+        var aiProviderKey = selectedAi.Value.ProviderKey;
+        var aiModel = selectedAi.Value.Model;
+
+        _logger.LogInformation(
+            "Single Analyzer: analysis {AnalysisId} using AI provider {ProviderKey} (model {Model}).",
+            analysis.Id,
+            aiProviderKey,
+            aiModel ?? "(provider default)");
+
         var ai = await _aiGateway.CompleteJsonAsync<SingleAnalyzerAnalysis>(
             new AiJsonCompletionRequest(
                 request.OrganizationId,
                 analysis.Id,
-                AiAnalysisCapability,
-                PromptVersionKey,
+                aiCapabilityKey,
+                promptVersionKey,
                 JsonSerializer.Serialize(CreateAiInput(sourceUrl.Value, content.Value.Snapshot), JsonOptions),
-                request.PreferredAiProviderKey,
-                request.PreferredAiModel),
+                aiProviderKey,
+                aiModel),
             cancellationToken);
 
         if (ai.IsFailure)
         {
+            _logger.LogWarning(
+                "Single Analyzer: AI analysis failed for analysis {AnalysisId} (provider {ProviderKey}): {ErrorCode}.",
+                analysis.Id,
+                aiProviderKey,
+                ai.Error.Code);
             await PersistFailureAsync(analysis, ai.Error, content.Value.Diagnostics, cancellationToken);
             return Result.Failure<SingleContentAnalysisResponse>(ai.Error);
         }
@@ -147,6 +208,11 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
 
         await _analyses.UpdateAsync(analysis, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Single Analyzer: analysis {AnalysisId} completed successfully (provider {ProviderKey}).",
+            analysis.Id,
+            aiProviderKey);
 
         return Result.Success(new SingleContentAnalysisResponse(
             analysis.Id,
@@ -263,7 +329,10 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             snapshot.MediaReferences
                 .Select(x => new SingleAnalyzerMediaReference(x.Kind, x.Uri, x.MimeType))
                 .ToArray(),
-            snapshot.RawPayloadReference);
+            snapshot.RawPayloadReference,
+            snapshot.Tags,
+            snapshot.ContentType,
+            snapshot.PublishedAtUtc);
 
     private static IReadOnlyList<ProviderFailureDiagnostic> MergeDiagnostics(
         IReadOnlyList<ProviderFailureDiagnostic> first,

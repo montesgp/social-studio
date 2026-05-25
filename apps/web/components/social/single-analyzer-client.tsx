@@ -12,7 +12,6 @@ import {
   ImageIcon,
   Megaphone,
   CheckCircle2,
-  X,
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -35,7 +34,8 @@ import {
   recordMockAnalysis,
   type SingleAnalyzerResult,
 } from "@/lib/mocks/single-analyzer";
-import { scrapeVideoByUrl, type ScrapedVideo } from "@/lib/api/single-analyzer";
+import { analyzeSingleContent, mapBackendResponseToResult } from "@/lib/api/single-analyzer";
+import { SupportError } from "@/components/support/support-error";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -68,39 +68,6 @@ function formatDuration(seconds: number | null | undefined): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.round(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
-function mapScrapedToResult(scraped: ScrapedVideo, organizationId: string): SingleAnalyzerResult {
-  const now = new Date().toISOString();
-  return {
-    id: `sa-live-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-    organizationId,
-    clientId: null,
-    clientName: null,
-    inputMode: "url",
-    inputUrl: scraped.sourceUrl,
-    searchQuery: "",
-    networkSource: scraped.networkSource,
-    thumbnailUrl: scraped.thumbnailUrl || `https://picsum.photos/seed/${encodeURIComponent(scraped.sourceUrl)}/640/360`,
-    videoUrl: scraped.videoUrl,
-    title: scraped.title,
-    author: scraped.author,
-    views: scraped.views,
-    likes: scraped.likes,
-    comments: scraped.comments,
-    strategyMode: "",
-    videoAnalysis: "",
-    scriptDraft: "",
-    analyzedAtUtc: now,
-    downloadedAtUtc: null,
-    contentType: scraped.contentType,
-    shares: scraped.shares,
-    saves: scraped.saves,
-    durationSeconds: scraped.durationSeconds,
-    publishedAtUtc: scraped.publishedAtUtc,
-    hashtags: scraped.hashtags,
-    dataSource: "apify",
-  };
 }
 
 // ── Local sub-components ───────────────────────────────────────────────────────
@@ -234,7 +201,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadResult, setDownloadResult] = useState<{ fileName: string; downloadUrl: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ code?: string; message: string } | null>(null);
 
   // Derived — always in sync with API data
   const networkOptions = socialNetworks.map((n) => ({ value: n.code, label: n.displayName }));
@@ -333,12 +300,32 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setIsLoading(true);
     resetVideoState();
     try {
-      const scraped = await scrapeVideoByUrl(urlInput.trim());
-      const result = mapScrapedToResult(scraped, selectedOrganizationId);
+      // ONE-SHOT: the backend performs scrape + AI analysis + persist in a single call.
+      // The browser never contacts Apify directly (CAP5-MUST-01/03).
+      const response = await analyzeSingleContent(
+        {
+          url: urlInput.trim(),
+          clientId: selectedClientId || undefined,
+        },
+        effectiveToken
+      );
+      const result = mapBackendResponseToResult(response, selectedOrganizationId);
       setVideoResult(result);
       setPreviewNetworkTab(result.networkSource);
+      // The backend returned a fully analyzed result — mark as analyzed immediately.
+      if (response.status === "Analyzed") {
+        setIsAnalyzed(true);
+        setHistoryItems(listMockSingleHistory(selectedOrganizationId));
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load video. Check the URL and try again.");
+      const err = e as { message?: string; problem?: Record<string, unknown> };
+      const code = typeof err.problem?.code === "string" ? err.problem.code : undefined;
+      setError({
+        code,
+        message:
+          err?.message ||
+          "Analysis failed. The URL may be unsupported or the backend took too long (up to 60 s). Try again.",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -359,7 +346,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setVideoResult(result);
       setPreviewNetworkTab(result.networkSource);
     } catch {
-      setError("Search failed. Try a different keyword.");
+      setError({ message: "Search failed. Try a different keyword." });
     } finally {
       setIsLoading(false);
     }
@@ -520,16 +507,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         )}
       </div>
 
-      {/* Error banner */}
-      {error && (
-        <div className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-200">
-          <X className="h-4 w-4 shrink-0" />
-          <span>{error}</span>
-          <button type="button" className="ml-auto opacity-70 hover:opacity-100" onClick={() => setError(null)}>
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
+      {/* Error banner with built-in support actions */}
+      <SupportError
+        error={error}
+        context={{ feature: "single-analyzer", organizationId: selectedOrganizationId }}
+        onDismiss={() => setError(null)}
+      />
 
       {/* Main 2-col grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -564,13 +547,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       disabled={isLoading || !urlInput.trim()}
                       className="h-8 px-3 text-xs"
                     >
-                      {isLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : "Load"}
+                      {isLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : "Analyze"}
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground/70">
                     {isLoading
-                      ? "Scraping the video… this can take up to a minute."
-                      : "We fetch live metrics from the source before you pick a client."}
+                      ? "Analyzing… fetching and processing the video can take up to 60 seconds."
+                      : "Paste a URL to scrape and analyze the video in one step."}
                   </p>
                 </div>
               ) : (

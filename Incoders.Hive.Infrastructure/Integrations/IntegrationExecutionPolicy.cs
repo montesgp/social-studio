@@ -2,6 +2,8 @@ using System.Diagnostics;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Incoders.Hive.Infrastructure.Integrations;
 
@@ -10,15 +12,18 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
     private readonly IProviderFallbackPolicy _fallbackPolicy;
     private readonly IIntegrationExecutionAttemptRepository _attemptRepository;
     private readonly TimeProvider _timeProvider;
+    private readonly ILogger<IntegrationExecutionPolicy> _logger;
 
     public IntegrationExecutionPolicy(
         IProviderFallbackPolicy fallbackPolicy,
         IIntegrationExecutionAttemptRepository attemptRepository,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        ILogger<IntegrationExecutionPolicy>? logger = null)
     {
         _fallbackPolicy = fallbackPolicy;
         _attemptRepository = attemptRepository;
         _timeProvider = timeProvider;
+        _logger = logger ?? NullLogger<IntegrationExecutionPolicy>.Instance;
     }
 
     public async Task<Result<ProviderExecutionResult<TResponse>>> ExecuteAsync<TResponse>(
@@ -53,6 +58,17 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
 
                 if (result.IsSuccess)
                 {
+                    _logger.LogInformation(
+                        "Integration provider attempt succeeded. OrganizationId={OrganizationId} AnalysisId={AnalysisId} FlowKey={FlowKey} CapabilityKey={CapabilityKey} PlatformKey={PlatformKey} ProviderKey={ProviderKey} Attempt={Attempt} ElapsedMs={ElapsedMs}",
+                        request.OrganizationId,
+                        request.AnalysisId,
+                        request.FlowKey,
+                        request.CapabilityKey,
+                        request.PlatformKey,
+                        candidate.ProviderKey,
+                        attempt,
+                        stopwatch.ElapsedMilliseconds);
+
                     await PersistAttemptAsync(
                         request,
                         candidate,
@@ -79,6 +95,20 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
                     result.Error,
                     (int)stopwatch.ElapsedMilliseconds);
                 diagnostics.Add(diagnostic);
+
+                _logger.LogWarning(
+                    "Integration provider attempt failed. OrganizationId={OrganizationId} AnalysisId={AnalysisId} FlowKey={FlowKey} CapabilityKey={CapabilityKey} PlatformKey={PlatformKey} ProviderKey={ProviderKey} Attempt={Attempt} FailureCode={FailureCode} MessageKey={MessageKey} Retryable={Retryable} ElapsedMs={ElapsedMs}",
+                    request.OrganizationId,
+                    request.AnalysisId,
+                    request.FlowKey,
+                    request.CapabilityKey,
+                    request.PlatformKey,
+                    candidate.ProviderKey,
+                    attempt,
+                    diagnostic.FailureCode,
+                    diagnostic.MessageKey,
+                    diagnostic.IsRetryable,
+                    diagnostic.ElapsedMs);
 
                 await PersistAttemptAsync(
                     request,
@@ -108,9 +138,22 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
             }
         }
 
-        return Result.Failure<ProviderExecutionResult<TResponse>>(diagnostics.Count > 0
+        var finalError = diagnostics.Count > 0
             ? Error.Failure(diagnostics[^1].FailureCode, diagnostics[^1].MessageKey)
-            : IntegrationErrors.ExternalProviderUnavailable);
+            : IntegrationErrors.ExternalProviderUnavailable;
+
+        _logger.LogError(
+            "Integration execution exhausted all candidates. OrganizationId={OrganizationId} AnalysisId={AnalysisId} FlowKey={FlowKey} CapabilityKey={CapabilityKey} PlatformKey={PlatformKey} FinalFailureCode={FailureCode} MessageKey={MessageKey} DiagnosticsCount={DiagnosticsCount}",
+            request.OrganizationId,
+            request.AnalysisId,
+            request.FlowKey,
+            request.CapabilityKey,
+            request.PlatformKey,
+            finalError.Code,
+            finalError.MessageKey,
+            diagnostics.Count);
+
+        return Result.Failure<ProviderExecutionResult<TResponse>>(finalError);
     }
 
     private ProviderFailureDiagnostic CreateDiagnostic(

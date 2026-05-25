@@ -181,7 +181,10 @@ public sealed class IntegrationRoutingPortContractTests
                 Transcript: null,
                 MediaReferences: [],
                 RawPayloadReference: "provider://payload/123",
-                Warnings: [new SocialContentWarning("transcript_missing", "social.content.warnings.transcript_missing")])));
+                Warnings: [new SocialContentWarning("transcript_missing", "social.content.warnings.transcript_missing")],
+                Tags: [],
+                ContentType: null,
+                PublishedAtUtc: null)));
         }
     }
 

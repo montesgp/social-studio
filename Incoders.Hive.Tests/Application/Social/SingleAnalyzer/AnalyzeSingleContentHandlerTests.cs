@@ -1,5 +1,6 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Features.Social.SingleAnalyzer.Analyze;
 using Incoders.Hive.Domain.Common;
@@ -32,9 +33,7 @@ public sealed class AnalyzeSingleContentHandlerTests
                 userId,
                 " HTTPS://WWW.TIKTOK.COM/@brand/video/123#comments ",
                 ClientId: null,
-                PreferredExtractionProviderKey: "apify",
-                PreferredAiProviderKey: "openai",
-                PreferredAiModel: "gpt-test"),
+                PreferredExtractionProviderKey: "apify"),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -89,9 +88,7 @@ public sealed class AnalyzeSingleContentHandlerTests
                 Guid.NewGuid(),
                 "https://example.com/posts/abc",
                 ClientId: null,
-                PreferredExtractionProviderKey: null,
-                PreferredAiProviderKey: null,
-                PreferredAiModel: null),
+                PreferredExtractionProviderKey: null),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -117,9 +114,7 @@ public sealed class AnalyzeSingleContentHandlerTests
                 Guid.NewGuid(),
                 "https://www.instagram.com/reel/abc",
                 ClientId: null,
-                PreferredExtractionProviderKey: null,
-                PreferredAiProviderKey: null,
-                PreferredAiModel: null),
+                PreferredExtractionProviderKey: null),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -143,9 +138,7 @@ public sealed class AnalyzeSingleContentHandlerTests
                 Guid.NewGuid(),
                 "https://youtu.be/abc123",
                 ClientId: null,
-                PreferredExtractionProviderKey: null,
-                PreferredAiProviderKey: null,
-                PreferredAiModel: null),
+                PreferredExtractionProviderKey: null),
             CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -166,9 +159,7 @@ public sealed class AnalyzeSingleContentHandlerTests
                 Guid.NewGuid(),
                 "not a url",
                 ClientId: null,
-                PreferredExtractionProviderKey: null,
-                PreferredAiProviderKey: null,
-                PreferredAiModel: null),
+                PreferredExtractionProviderKey: null),
             CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -201,7 +192,10 @@ public sealed class AnalyzeSingleContentHandlerTests
                 new SocialMediaReference("video", "https://cdn.example.com/video.mp4", "video/mp4")
             ],
             RawPayloadReference: "provider://apify/runs/1",
-            Warnings: warnings);
+            Warnings: warnings,
+            Tags: ["conversion"],
+            ContentType: "video",
+            PublishedAtUtc: null);
 
     private static ProviderFailureDiagnostic Diagnostic(string capability, string provider) =>
         ProviderFailureDiagnostic.Create(
@@ -250,7 +244,9 @@ public sealed class AnalyzeSingleContentHandlerTests
                 UnitOfWork,
                 Clock,
                 ContentResolver,
-                AiGateway);
+                AiGateway,
+                new NullDefaultAiSelector(),
+                new NullProfileProvider());
             Handler = new AnalyzeSingleContentHandler(Analyzer);
         }
 
@@ -399,5 +395,26 @@ public sealed class AnalyzeSingleContentHandlerTests
             SaveCalls++;
             return Task.FromResult(0);
         }
+    }
+
+    /// <summary>
+    /// AI selector stub used in existing handler tests. Returns a default selection so the
+    /// analyzer reaches the AI gateway (the behavior being tested). Dedicated default-AI
+    /// selection tests live in AnalyzeSingleContentDefaultAiTests.
+    /// </summary>
+    private sealed class NullDefaultAiSelector : IDefaultAiSelector
+    {
+        public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
+            Task.FromResult(Result.Success(new DefaultAiSelection("openai", "gpt-test")));
+    }
+
+    /// <summary>
+    /// No-op profile provider — returns failure so the analyzer falls back to its own constants.
+    /// Existing handler tests do not exercise the profile path (TASK 04 tests do).
+    /// </summary>
+    private sealed class NullProfileProvider : IContentAnalysisProfileProvider
+    {
+        public Result<IContentAnalysisProfile> ForFlow(string flowKey) =>
+            Result.Failure<IContentAnalysisProfile>(new Error("test.no_profile", "No profile", ErrorType.NotFound));
     }
 }

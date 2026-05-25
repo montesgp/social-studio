@@ -1,7 +1,12 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { getAccessToken, getActiveOrganizationId, setActiveOrganizationId } from "@/lib/auth/client-session";
+import {
+  clearActiveOrganizationId,
+  getAccessToken,
+  getActiveOrganizationId,
+  setActiveOrganizationId
+} from "@/lib/auth/client-session";
 import { ORG_CONTEXT_CHANGE_EVENT } from "@/lib/auth/session";
 
 interface ActiveOrgState {
@@ -18,7 +23,7 @@ export function useActiveOrg(): ActiveOrgState {
 export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<ActiveOrgState>(() => {
     const stored = typeof window !== "undefined" ? getActiveOrganizationId() : null;
-    return { orgId: stored, isInitialized: stored !== null };
+    return { orgId: stored, isInitialized: false };
   });
 
   useEffect(() => {
@@ -29,36 +34,50 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
 
     window.addEventListener(ORG_CONTEXT_CHANGE_EVENT, syncFromStorage);
 
-    const stored = getActiveOrganizationId();
-    if (stored) {
-      setState({ orgId: stored, isInitialized: true });
+    const token = getAccessToken();
+    if (!token) {
+      setState({ orgId: null, isInitialized: true });
       return () => window.removeEventListener(ORG_CONTEXT_CHANGE_EVENT, syncFromStorage);
     }
 
-    if (!stored) {
-      const token = getAccessToken();
-      if (!token) {
-        setState({ orgId: null, isInitialized: true });
-        return () => window.removeEventListener(ORG_CONTEXT_CHANGE_EVENT, syncFromStorage);
-      }
+    let cancelled = false;
+    void fetch("/hive-api/api/me/organizations", {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { id: string }[] | null) => {
+        if (cancelled) return;
 
-      fetch("/hive-api/api/me/organizations", {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data: { id: string }[] | null) => {
-          const firstId = data?.[0]?.id;
-          if (firstId) {
-            setActiveOrganizationId(firstId);
+        const organizations = data ?? [];
+        const stored = getActiveOrganizationId();
+        const hasStored = !!stored && organizations.some((organization) => organization.id === stored);
+        const nextOrgId = hasStored ? stored : organizations[0]?.id ?? null;
+
+        if (nextOrgId) {
+          if (nextOrgId !== stored) {
+            setActiveOrganizationId(nextOrgId);
           } else {
-            setState({ orgId: null, isInitialized: true });
+            setState({ orgId: nextOrgId, isInitialized: true });
           }
-        })
-        .catch(() => setState({ orgId: null, isInitialized: true }));
-    }
+          return;
+        }
 
-    return () => window.removeEventListener(ORG_CONTEXT_CHANGE_EVENT, syncFromStorage);
+        if (stored) {
+          clearActiveOrganizationId();
+        } else {
+          setState({ orgId: null, isInitialized: true });
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setState({ orgId: getActiveOrganizationId(), isInitialized: true });
+      });
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener(ORG_CONTEXT_CHANGE_EVENT, syncFromStorage);
+    };
   }, []);
 
   return <ActiveOrgContext.Provider value={state}>{children}</ActiveOrgContext.Provider>;

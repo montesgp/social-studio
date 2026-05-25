@@ -1,6 +1,9 @@
 using Incoders.Hive.Infrastructure.Identity;
+using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
+using Incoders.Hive.Domain.Tenants;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace Incoders.Hive.ApiService.Endpoints.Admin;
 
@@ -45,32 +48,55 @@ public static class AdminUsersEndpointsExtensions
         return app;
     }
 
-    private static async Task<IResult> ListUsersAsync(UserManager<ApplicationUser> users)
+    private static async Task<IResult> ListUsersAsync(
+        UserManager<ApplicationUser> users,
+        AppIdentityDbContext db,
+        CancellationToken cancellationToken)
     {
         var result = new List<AdminUserResponse>();
-        foreach (var user in users.Users.OrderBy(u => u.Email).ToList())
+        var allUsers = await users.Users
+            .OrderBy(u => u.Email)
+            .ToListAsync(cancellationToken);
+
+        foreach (var user in allUsers)
         {
-            result.Add(await ToResponseAsync(user, users));
+            result.Add(await ToResponseAsync(user, users, db, cancellationToken));
         }
+
         return TypedResults.Ok(result);
     }
 
-    private static async Task<IResult> GetUserAsync(Guid id, UserManager<ApplicationUser> users)
+    private static async Task<IResult> GetUserAsync(
+        Guid id,
+        UserManager<ApplicationUser> users,
+        AppIdentityDbContext db,
+        CancellationToken cancellationToken)
     {
         var user = await users.FindByIdAsync(id.ToString());
         return user is null
             ? TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "User not found")
-            : TypedResults.Ok(await ToResponseAsync(user, users));
+            : TypedResults.Ok(await ToResponseAsync(user, users, db, cancellationToken));
     }
 
     private static async Task<IResult> CreateUserAsync(
         [FromBody] CreateAdminUserRequest body,
-        UserManager<ApplicationUser> users)
+        UserManager<ApplicationUser> users,
+        AppIdentityDbContext db,
+        CancellationToken cancellationToken)
     {
         var rolesValidation = ValidateRoles(body.Roles);
         if (rolesValidation is not null)
         {
             return rolesValidation;
+        }
+
+        var organizationModulesValidation = await ValidateOrganizationModulesAsync(
+            body.OrganizationModules,
+            db,
+            cancellationToken);
+        if (organizationModulesValidation is not null)
+        {
+            return organizationModulesValidation;
         }
 
         var user = new ApplicationUser
@@ -97,18 +123,30 @@ public static class AdminUsersEndpointsExtensions
             }
         }
 
-        return TypedResults.Created($"/api/admin/users/{user.Id}", await ToResponseAsync(user, users));
+        await SaveOrganizationModulesAsync(user.Id, body.OrganizationModules, db, cancellationToken);
+        return TypedResults.Created($"/api/admin/users/{user.Id}", await ToResponseAsync(user, users, db, cancellationToken));
     }
 
     private static async Task<IResult> UpdateUserAsync(
         Guid id,
         [FromBody] UpdateAdminUserRequest body,
-        UserManager<ApplicationUser> users)
+        UserManager<ApplicationUser> users,
+        AppIdentityDbContext db,
+        CancellationToken cancellationToken)
     {
         var rolesValidation = ValidateRoles(body.Roles);
         if (rolesValidation is not null)
         {
             return rolesValidation;
+        }
+
+        var organizationModulesValidation = await ValidateOrganizationModulesAsync(
+            body.OrganizationModules,
+            db,
+            cancellationToken);
+        if (organizationModulesValidation is not null)
+        {
+            return organizationModulesValidation;
         }
 
         var user = await users.FindByIdAsync(id.ToString());
@@ -151,7 +189,8 @@ public static class AdminUsersEndpointsExtensions
             }
         }
 
-        return TypedResults.Ok(await ToResponseAsync(user, users));
+        await SaveOrganizationModulesAsync(user.Id, body.OrganizationModules, db, cancellationToken);
+        return TypedResults.Ok(await ToResponseAsync(user, users, db, cancellationToken));
     }
 
     private static async Task<IResult> SetStatusAsync(
@@ -166,17 +205,70 @@ public static class AdminUsersEndpointsExtensions
         }
 
         user.Status = body.Status;
-        await users.UpdateAsync(user);
+        var update = await users.UpdateAsync(user);
+        if (!update.Succeeded)
+        {
+            return BuildIdentityProblem(update);
+        }
 
         return TypedResults.NoContent();
     }
 
     private static async Task<AdminUserResponse> ToResponseAsync(
         ApplicationUser user,
-        UserManager<ApplicationUser> users)
+        UserManager<ApplicationUser> users,
+        AppIdentityDbContext db,
+        CancellationToken cancellationToken)
     {
         var roles = await users.GetRolesAsync(user);
-        return new AdminUserResponse(user.Id, user.Email!, user.DisplayName, user.Status, [.. roles.Order()]);
+
+        var modulesRows = await db.OrganizationUserModules
+            .AsNoTracking()
+            .Where(x => x.UserId == user.Id)
+            .Join(
+                db.Tenants.AsNoTracking(),
+                assignment => assignment.OrganizationId,
+                organization => organization.Id,
+                (assignment, organization) => new { assignment, organization })
+            .Join(
+                db.SystemModules.AsNoTracking(),
+                pair => pair.assignment.ModuleId,
+                module => module.Id,
+                (pair, module) => new
+                {
+                    pair.assignment.OrganizationId,
+                    OrganizationName = pair.organization.Name,
+                    ModuleKey = module.ModuleKey,
+                    Label = module.DisplayName,
+                    Description = module.Description,
+                    ShortLabel = module.ShortLabel,
+                    pair.assignment.SortOrder,
+                })
+            .OrderBy(x => x.OrganizationName)
+            .ThenBy(x => x.SortOrder)
+            .ThenBy(x => x.Label)
+            .ToListAsync(cancellationToken);
+
+        var organizationModules = modulesRows
+            .GroupBy(x => new { x.OrganizationId, x.OrganizationName })
+            .Select(group => new AdminUserOrganizationModulesResponse(
+                group.Key.OrganizationId,
+                group.Key.OrganizationName,
+                group.Select(x => new AdminUserModuleAssignmentResponse(
+                    x.ModuleKey,
+                    x.Label,
+                    x.Description,
+                    x.ShortLabel,
+                    x.SortOrder)).ToArray()))
+            .ToArray();
+
+        return new AdminUserResponse(
+            user.Id,
+            user.Email!,
+            user.DisplayName,
+            user.Status,
+            [.. roles.Order()],
+            organizationModules);
     }
 
     private static IResult? ValidateRoles(IReadOnlyList<string> roles)
@@ -193,6 +285,235 @@ public static class AdminUsersEndpointsExtensions
             });
     }
 
+    private static async Task<IResult?> ValidateOrganizationModulesAsync(
+        IReadOnlyList<AdminUserOrganizationModulesRequest>? organizationModules,
+        AppIdentityDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var requested = organizationModules ?? [];
+
+        var duplicateOrganizations = requested
+            .GroupBy(x => x.OrganizationId)
+            .Where(x => x.Count() > 1)
+            .Select(x => x.Key)
+            .ToArray();
+        if (duplicateOrganizations.Length > 0)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["organizationModules"] =
+                [
+                    $"Duplicate organization entries are not allowed: {string.Join(", ", duplicateOrganizations)}"
+                ],
+            });
+        }
+
+        var requestedModuleKeys = requested
+            .SelectMany(x => NormalizeModuleKeys(x.OrderedModuleKeys ?? []))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var organizationIds = requested
+            .Select(x => x.OrganizationId)
+            .Distinct()
+            .ToArray();
+
+        if (organizationIds.Length == 0)
+        {
+            return null;
+        }
+
+        var existingOrganizationIds = await db.Tenants
+            .AsNoTracking()
+            .Where(x => organizationIds.Contains(x.Id))
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        var missingOrganizationIds = organizationIds
+            .Except(existingOrganizationIds)
+            .ToArray();
+        if (missingOrganizationIds.Length > 0)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["organizationModules"] =
+                [
+                    $"Unknown organizations: {string.Join(", ", missingOrganizationIds)}"
+                ],
+            });
+        }
+
+        var existingModules = await db.SystemModules
+            .AsNoTracking()
+            .Where(x => x.IsActive && requestedModuleKeys.Contains(x.ModuleKey))
+            .Select(x => x.ModuleKey)
+            .ToListAsync(cancellationToken);
+        var unknownModuleKeys = requestedModuleKeys
+            .Except(existingModules, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (unknownModuleKeys.Length > 0)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["organizationModules"] =
+                [
+                    $"Unsupported module keys: {string.Join(", ", unknownModuleKeys)}"
+                ],
+            });
+        }
+
+        var allowedByOrganization = await db.OrganizationModules
+            .AsNoTracking()
+            .Where(x => organizationIds.Contains(x.OrganizationId))
+            .Join(
+                db.SystemModules.AsNoTracking(),
+                assignment => assignment.ModuleId,
+                module => module.Id,
+                (assignment, module) => new { assignment.OrganizationId, module.ModuleKey })
+            .ToListAsync(cancellationToken);
+
+        var allowedLookup = allowedByOrganization
+            .GroupBy(x => x.OrganizationId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(x => x.ModuleKey).ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+        foreach (var request in requested)
+        {
+            var requestedForOrganization = NormalizeModuleKeys(request.OrderedModuleKeys ?? []);
+            if (requestedForOrganization.Count == 0)
+            {
+                continue;
+            }
+
+            var allowed = allowedLookup.TryGetValue(request.OrganizationId, out var keys)
+                ? keys
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var disallowed = requestedForOrganization
+                .Where(x => !allowed.Contains(x))
+                .ToArray();
+            if (disallowed.Length > 0)
+            {
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["organizationModules"] =
+                    [
+                        $"Organization {request.OrganizationId} is missing assigned modules: {string.Join(", ", disallowed)}"
+                    ],
+                });
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task SaveOrganizationModulesAsync(
+        Guid userId,
+        IReadOnlyList<AdminUserOrganizationModulesRequest>? organizationModules,
+        AppIdentityDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var existing = await db.OrganizationUserModules
+            .Where(x => x.UserId == userId)
+            .ToListAsync(cancellationToken);
+        if (existing.Count > 0)
+        {
+            db.OrganizationUserModules.RemoveRange(existing);
+        }
+
+        var nowUtc = DateTime.UtcNow;
+        var requestedOrganizationIds = new HashSet<Guid>();
+
+        foreach (var group in organizationModules ?? [])
+        {
+            requestedOrganizationIds.Add(group.OrganizationId);
+            var orderedModuleKeys = NormalizeModuleKeys(group.OrderedModuleKeys ?? []);
+            if (orderedModuleKeys.Count == 0)
+            {
+                continue;
+            }
+
+            var moduleRows = await db.OrganizationModules
+                .AsNoTracking()
+                .Where(x => x.OrganizationId == group.OrganizationId)
+                .Join(
+                    db.SystemModules.AsNoTracking(),
+                    assignment => assignment.ModuleId,
+                    module => module.Id,
+                    (assignment, module) => new { assignment.ModuleId, module.ModuleKey })
+                .Where(x => orderedModuleKeys.Contains(x.ModuleKey))
+                .ToListAsync(cancellationToken);
+            var moduleIdByKey = moduleRows
+                .ToDictionary(x => x.ModuleKey, x => x.ModuleId, StringComparer.OrdinalIgnoreCase);
+
+            for (var index = 0; index < orderedModuleKeys.Count; index++)
+            {
+                if (!moduleIdByKey.TryGetValue(orderedModuleKeys[index], out var moduleId))
+                {
+                    continue;
+                }
+
+                db.OrganizationUserModules.Add(new OrganizationUserModuleData
+                {
+                    OrganizationId = group.OrganizationId,
+                    UserId = userId,
+                    ModuleId = moduleId,
+                    SortOrder = index,
+                    CreatedAtUtc = nowUtc,
+                    UpdatedAtUtc = nowUtc,
+                });
+            }
+        }
+
+        if (requestedOrganizationIds.Count > 0)
+        {
+            var existingMemberships = await db.TenantMemberships
+                .Where(x => x.UserId == userId)
+                .ToListAsync(cancellationToken);
+
+            var staleMemberships = existingMemberships
+                .Where(x => !requestedOrganizationIds.Contains(x.TenantId))
+                .ToArray();
+            if (staleMemberships.Length > 0)
+            {
+                db.TenantMemberships.RemoveRange(staleMemberships);
+            }
+
+            var existingMembershipOrganizationIds = existingMemberships
+                .Select(x => x.TenantId)
+                .ToHashSet();
+
+            foreach (var organizationId in requestedOrganizationIds)
+            {
+                if (existingMembershipOrganizationIds.Contains(organizationId))
+                {
+                    continue;
+                }
+
+                db.TenantMemberships.Add(new TenantMembershipData
+                {
+                    TenantId = organizationId,
+                    UserId = userId,
+                    Role = TenantRole.Member.ToString(),
+                    CreatedAtUtc = nowUtc,
+                });
+            }
+        }
+        else
+        {
+            var memberships = await db.TenantMemberships
+                .Where(x => x.UserId == userId)
+                .ToListAsync(cancellationToken);
+            if (memberships.Count > 0)
+            {
+                db.TenantMemberships.RemoveRange(memberships);
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     private static List<string> NormalizeRoles(IReadOnlyList<string> roles) =>
         roles
             .Where(role => !string.IsNullOrWhiteSpace(role))
@@ -200,6 +521,29 @@ public static class AdminUsersEndpointsExtensions
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Order()
             .ToList();
+
+    private static List<string> NormalizeModuleKeys(IReadOnlyList<string> moduleKeys)
+    {
+        var normalized = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var moduleKey in moduleKeys)
+        {
+            if (string.IsNullOrWhiteSpace(moduleKey))
+            {
+                continue;
+            }
+
+            var trimmed = moduleKey.Trim().ToLowerInvariant();
+            if (!seen.Add(trimmed))
+            {
+                continue;
+            }
+
+            normalized.Add(trimmed);
+        }
+
+        return normalized;
+    }
 
     private static IResult BuildIdentityProblem(IdentityResult result)
     {
@@ -216,19 +560,38 @@ public sealed record CreateAdminUserRequest(
     string? DisplayName,
     string Password,
     UserStatus Status,
-    IReadOnlyList<string> Roles);
+    IReadOnlyList<string> Roles,
+    IReadOnlyList<AdminUserOrganizationModulesRequest>? OrganizationModules);
 
 public sealed record UpdateAdminUserRequest(
     string Email,
     string? DisplayName,
     UserStatus Status,
-    IReadOnlyList<string> Roles);
+    IReadOnlyList<string> Roles,
+    IReadOnlyList<AdminUserOrganizationModulesRequest>? OrganizationModules);
 
 public sealed record SetUserStatusRequest(UserStatus Status);
+
+public sealed record AdminUserOrganizationModulesRequest(
+    Guid OrganizationId,
+    IReadOnlyList<string>? OrderedModuleKeys);
+
+public sealed record AdminUserModuleAssignmentResponse(
+    string Key,
+    string Label,
+    string Description,
+    string ShortLabel,
+    int SortOrder);
+
+public sealed record AdminUserOrganizationModulesResponse(
+    Guid OrganizationId,
+    string OrganizationName,
+    IReadOnlyList<AdminUserModuleAssignmentResponse> Modules);
 
 public sealed record AdminUserResponse(
     Guid Id,
     string Email,
     string? DisplayName,
     UserStatus Status,
-    string[] Roles);
+    string[] Roles,
+    AdminUserOrganizationModulesResponse[] OrganizationModules);

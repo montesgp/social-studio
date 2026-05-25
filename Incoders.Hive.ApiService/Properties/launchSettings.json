@@ -10,6 +10,18 @@
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
     },
+    "http-fast": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5336",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "StartupTasks__ApplyMigrations": "false",
+        "StartupTasks__SeedData": "false",
+        "FileLogging__Enabled": "false"
+      }
+    },
     "https": {
       "commandName": "Project",
       "dotnetRunMessages": true,

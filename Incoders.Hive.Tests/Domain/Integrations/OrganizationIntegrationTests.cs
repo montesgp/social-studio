@@ -51,4 +51,84 @@ public sealed class OrganizationIntegrationTests
         Assert.False(integration.IsDefaultAi);
         Assert.Equal("bad credentials", integration.LastError);
     }
+
+    [Fact]
+    public void Configure_EnabledMarksIntegrationConfiguredAndClearsDefaultAi()
+    {
+        var integration = OrganizationIntegration.Create(
+            OrganizationIntegrationId.New(),
+            Guid.NewGuid(),
+            IntegrationProviderId.New(),
+            IntegrationConnectionMode.BringYourOwnKey,
+            IntegrationStatus.Connected,
+            isReadOnly: false,
+            isDefaultAi: true,
+            selectedAiModel: " gpt-4.1-mini ",
+            lastTestedAtUtc: Now,
+            lastError: "old error",
+            nowUtc: Now).Value;
+
+        var result = integration.Configure(
+            IntegrationConnectionMode.BringYourOwnKey,
+            isReadOnly: false,
+            selectedAiModel: " gpt-4.1 ",
+            enabled: true,
+            Now.AddMinutes(1));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(IntegrationStatus.Configured, integration.Status);
+        Assert.False(integration.IsDefaultAi);
+        Assert.Null(integration.LastError);
+        Assert.Equal("gpt-4.1", integration.SelectedAiModel);
+    }
+
+    [Fact]
+    public void Configure_DisabledMarksIntegrationDisabledAndClearsDefaultAi()
+    {
+        var integration = OrganizationIntegration.Create(
+            OrganizationIntegrationId.New(),
+            Guid.NewGuid(),
+            IntegrationProviderId.New(),
+            IntegrationConnectionMode.BringYourOwnKey,
+            IntegrationStatus.Connected,
+            isReadOnly: false,
+            isDefaultAi: true,
+            selectedAiModel: "gpt-4.1-mini",
+            lastTestedAtUtc: null,
+            lastError: null,
+            nowUtc: Now).Value;
+
+        var result = integration.Configure(
+            IntegrationConnectionMode.BringYourOwnKey,
+            isReadOnly: false,
+            selectedAiModel: null,
+            enabled: false,
+            Now.AddMinutes(1));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(IntegrationStatus.Disabled, integration.Status);
+        Assert.False(integration.IsDefaultAi);
+    }
+
+    [Fact]
+    public void SetDefaultAi_RequiresConnectedStatus()
+    {
+        var integration = OrganizationIntegration.Create(
+            OrganizationIntegrationId.New(),
+            Guid.NewGuid(),
+            IntegrationProviderId.New(),
+            IntegrationConnectionMode.BringYourOwnKey,
+            IntegrationStatus.Configured,
+            isReadOnly: false,
+            isDefaultAi: false,
+            selectedAiModel: null,
+            lastTestedAtUtc: null,
+            lastError: null,
+            nowUtc: Now).Value;
+
+        var result = integration.SetDefaultAi("gpt-4.1", Now.AddMinutes(1));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("integrations.default_ai_provider_not_connected", result.Error.Code);
+    }
 }

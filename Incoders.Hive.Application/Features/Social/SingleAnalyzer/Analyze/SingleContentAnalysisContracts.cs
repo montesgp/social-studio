@@ -17,9 +17,7 @@ public sealed record SingleContentAnalysisRequest(
     Guid UserId,
     string Url,
     Guid? ClientId,
-    string? PreferredExtractionProviderKey,
-    string? PreferredAiProviderKey,
-    string? PreferredAiModel);
+    string? PreferredExtractionProviderKey);
 
 public sealed record SingleContentAnalysisResponse(
     Guid Id,
@@ -52,7 +50,10 @@ public sealed record SingleAnalyzerContentSnapshotResponse(
     IReadOnlyDictionary<string, long> Metrics,
     string? Transcript,
     IReadOnlyList<SingleAnalyzerMediaReferenceResponse> MediaReferences,
-    string? RawPayloadReference)
+    string? RawPayloadReference,
+    IReadOnlyList<string> Tags,
+    string? ContentType,
+    DateTimeOffset? PublishedAtUtc)
 {
     public static SingleAnalyzerContentSnapshotResponse FromDomain(SingleAnalyzerContentSnapshot snapshot) =>
         new(
@@ -68,7 +69,10 @@ public sealed record SingleAnalyzerContentSnapshotResponse(
             snapshot.MediaReferences
                 .Select(x => new SingleAnalyzerMediaReferenceResponse(x.Kind, x.Uri, x.MimeType))
                 .ToArray(),
-            snapshot.RawPayloadReference);
+            snapshot.RawPayloadReference,
+            snapshot.Tags,
+            snapshot.ContentType,
+            snapshot.PublishedAtUtc);
 }
 
 public sealed record SingleAnalyzerMediaReferenceResponse(

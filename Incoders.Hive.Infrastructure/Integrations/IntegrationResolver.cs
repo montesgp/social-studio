@@ -108,7 +108,10 @@ public sealed class IntegrationResolver : IIntegrationResolver
             cancellationToken);
 
         var target = aiIntegrations.FirstOrDefault(x => x.IsDefaultAi && x.Status == IntegrationStatus.Connected)
-                     ?? aiIntegrations.FirstOrDefault(x => x.Status == IntegrationStatus.Connected);
+                     ?? aiIntegrations
+                         .Where(x => x.Status == IntegrationStatus.Connected)
+                         .OrderByDescending(x => x.UpdatedAtUtc)
+                         .FirstOrDefault();
 
         if (target is null)
         {

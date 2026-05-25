@@ -10,8 +10,11 @@ import {
   createAdminUser,
   getAdminUsers,
   setAdminUserStatus,
-  updateAdminUser,
+  updateAdminUser
 } from "@/lib/api/admin-users";
+import { getOrganizationModules } from "@/lib/api/organization-modules";
+import { listOrganizations } from "@/lib/api/organizations";
+import { Organization } from "@/lib/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,8 +27,21 @@ import {
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Select } from "@/components/ui/select";
+import { Column, SortableChildTable } from "@/components/ui/sortable-child-table";
 
 const availableRoles = ["sysadmin", "admin"] as const;
+
+interface ModuleOption {
+  key: string;
+  label: string;
+  description: string;
+  shortLabel: string;
+}
+
+interface OrganizationModulesFormState {
+  organizationId: string;
+  orderedModuleKeys: string[];
+}
 
 interface UserFormState {
   email: string;
@@ -33,6 +49,7 @@ interface UserFormState {
   password: string;
   status: UserStatus;
   roles: string[];
+  organizationModules: OrganizationModulesFormState[];
 }
 
 const emptyForm: UserFormState = {
@@ -41,7 +58,41 @@ const emptyForm: UserFormState = {
   password: "",
   status: "Active",
   roles: ["admin"],
+  organizationModules: [],
 };
+
+const moduleColumns: Column<ModuleOption>[] = [
+  {
+    key: "module",
+    label: "Module",
+    render: (module) => <span className="font-medium">{module.label}</span>,
+  },
+  {
+    key: "description",
+    label: "Description",
+    render: (module) => <span className="text-xs text-muted-foreground">{module.description}</span>,
+  },
+];
+
+function normalizeModuleKeys(keys: readonly string[]): string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const rawKey of keys) {
+    if (!rawKey || !rawKey.trim()) {
+      continue;
+    }
+
+    const key = rawKey.trim().toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    normalized.push(key);
+  }
+
+  return normalized;
+}
 
 function toFormState(user: AdminUser): UserFormState {
   return {
@@ -50,6 +101,14 @@ function toFormState(user: AdminUser): UserFormState {
     password: "",
     status: user.status,
     roles: user.roles,
+    organizationModules: user.organizationModules.map((entry) => ({
+      organizationId: entry.organizationId,
+      orderedModuleKeys: normalizeModuleKeys(
+        [...entry.modules]
+          .sort((left, right) => left.sortOrder - right.sortOrder)
+          .map((module) => module.key)
+      ),
+    })),
   };
 }
 
@@ -60,18 +119,95 @@ function roleBadgeVariant(role: string): "default" | "outline" {
 export function UsersTable() {
   const accessToken = useAccessToken();
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [modulesByOrganization, setModulesByOrganization] = useState<Record<string, ModuleOption[]>>({});
+  const [loadingModulesOrganizationId, setLoadingModulesOrganizationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [form, setForm] = useState<UserFormState>(emptyForm);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const isEditing = editingUser !== null;
   const sortedUsers = useMemo(
     () => [...users].sort((a, b) => a.email.localeCompare(b.email)),
     [users]
+  );
+
+  const selectedOrganizationModules = useMemo(
+    () => form.organizationModules.find((entry) => entry.organizationId === selectedOrganizationId) ?? null,
+    [form.organizationModules, selectedOrganizationId]
+  );
+
+  const availableModulesForSelectedOrganization = useMemo(
+    () => modulesByOrganization[selectedOrganizationId] ?? [],
+    [modulesByOrganization, selectedOrganizationId]
+  );
+
+  const selectedOrganizationModuleItems = useMemo(() => {
+    const byKey = new Map(availableModulesForSelectedOrganization.map((module) => [module.key, module]));
+    return (selectedOrganizationModules?.orderedModuleKeys ?? [])
+      .map((key) => byKey.get(key))
+      .filter((module): module is ModuleOption => module !== undefined);
+  }, [availableModulesForSelectedOrganization, selectedOrganizationModules]);
+
+  const organizationNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const organization of organizations) {
+      map.set(organization.id, organization.name);
+    }
+    return map;
+  }, [organizations]);
+
+  const ensureOrganizationModulesLoaded = useCallback(
+    async (organizationId: string) => {
+      if (!accessToken || !organizationId || modulesByOrganization[organizationId]) {
+        return;
+      }
+
+      setLoadingModulesOrganizationId(organizationId);
+      try {
+        const response = await getOrganizationModules(organizationId, accessToken);
+        const assignedModules = [...response.assignedModules]
+          .sort((left, right) => left.sortOrder - right.sortOrder)
+          .map((module) => ({
+            key: module.moduleKey,
+            label: module.displayName,
+            description: module.description,
+            shortLabel: module.shortLabel,
+          }));
+
+        setModulesByOrganization((current) => ({
+          ...current,
+          [organizationId]: assignedModules,
+        }));
+
+        setForm((current) => ({
+          ...current,
+          organizationModules: current.organizationModules.map((entry) =>
+            entry.organizationId !== organizationId
+              ? entry
+              : {
+                  organizationId: entry.organizationId,
+                  orderedModuleKeys: normalizeModuleKeys(entry.orderedModuleKeys).filter((key) =>
+                    assignedModules.some((module) => module.key === key)
+                  ),
+                }
+          ),
+        }));
+      } catch {
+        setModulesByOrganization((current) => ({
+          ...current,
+          [organizationId]: [],
+        }));
+      } finally {
+        setLoadingModulesOrganizationId((current) => (current === organizationId ? null : current));
+      }
+    },
+    [accessToken, modulesByOrganization]
   );
 
   const loadUsers = useCallback(async () => {
@@ -83,8 +219,15 @@ export function UsersTable() {
     try {
       setLoading(true);
       setError(null);
-      const data = await getAdminUsers(accessToken);
-      setUsers(data);
+      const [usersData, organizationsPage] = await Promise.all([
+        getAdminUsers(accessToken),
+        listOrganizations({ includeInactive: true, page: 1, pageSize: 100 }, accessToken),
+      ]);
+
+      const organizationItems = [...organizationsPage.items].sort((a, b) => a.name.localeCompare(b.name));
+      setUsers(usersData);
+      setOrganizations(organizationItems);
+      setModulesByOrganization({});
     } catch (err) {
       const message = (err as { message?: string })?.message ?? "Failed to load users.";
       setError(message);
@@ -97,16 +240,27 @@ export function UsersTable() {
     void loadUsers();
   }, [loadUsers]);
 
+  useEffect(() => {
+    if (!dialogOpen || !selectedOrganizationId) {
+      return;
+    }
+
+    void ensureOrganizationModulesLoaded(selectedOrganizationId);
+  }, [dialogOpen, ensureOrganizationModulesLoaded, selectedOrganizationId]);
+
   function openCreate() {
     setEditingUser(null);
     setForm(emptyForm);
+    setSelectedOrganizationId(organizations[0]?.id ?? "");
     setError(null);
     setDialogOpen(true);
   }
 
   function openEdit(user: AdminUser) {
+    const nextForm = toFormState(user);
     setEditingUser(user);
-    setForm(toFormState(user));
+    setForm(nextForm);
+    setSelectedOrganizationId(nextForm.organizationModules[0]?.organizationId ?? organizations[0]?.id ?? "");
     setError(null);
     setDialogOpen(true);
   }
@@ -120,6 +274,52 @@ export function UsersTable() {
     }));
   }
 
+  function updateOrganizationModules(organizationId: string, orderedModuleKeys: string[]) {
+    setForm((current) => {
+      const availableKeys = new Set((modulesByOrganization[organizationId] ?? []).map((module) => module.key));
+      const nextModules = normalizeModuleKeys(orderedModuleKeys).filter((key) => availableKeys.has(key));
+      const existingIndex = current.organizationModules.findIndex((entry) => entry.organizationId === organizationId);
+      const nextOrganizationModules = [...current.organizationModules];
+
+      if (nextModules.length === 0) {
+        if (existingIndex >= 0) {
+          nextOrganizationModules.splice(existingIndex, 1);
+        }
+      } else if (existingIndex >= 0) {
+        nextOrganizationModules[existingIndex] = {
+          organizationId,
+          orderedModuleKeys: nextModules,
+        };
+      } else {
+        nextOrganizationModules.push({
+          organizationId,
+          orderedModuleKeys: nextModules,
+        });
+      }
+
+      return {
+        ...current,
+        organizationModules: nextOrganizationModules,
+      };
+    });
+  }
+
+  function toggleOrganizationModule(moduleKey: string) {
+    if (!selectedOrganizationId) return;
+
+    const current = selectedOrganizationModules?.orderedModuleKeys ?? [];
+    const next = current.includes(moduleKey)
+      ? current.filter((key) => key !== moduleKey)
+      : [...current, moduleKey];
+
+    updateOrganizationModules(selectedOrganizationId, next);
+  }
+
+  function removeOrganizationMapping() {
+    if (!selectedOrganizationId) return;
+    updateOrganizationModules(selectedOrganizationId, []);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!accessToken || submitting) return;
@@ -127,6 +327,11 @@ export function UsersTable() {
     setSubmitting(true);
     setError(null);
     try {
+      const organizationModules = form.organizationModules.map((entry) => ({
+        organizationId: entry.organizationId,
+        orderedModuleKeys: normalizeModuleKeys(entry.orderedModuleKeys),
+      }));
+
       if (isEditing) {
         const updated = await updateAdminUser(
           editingUser.id,
@@ -135,6 +340,7 @@ export function UsersTable() {
             displayName: form.displayName.trim() || null,
             status: form.status,
             roles: form.roles,
+            organizationModules,
           },
           accessToken
         );
@@ -146,6 +352,7 @@ export function UsersTable() {
           password: form.password,
           status: form.status,
           roles: form.roles,
+          organizationModules,
         };
         const created = await createAdminUser(payload, accessToken);
         setUsers((current) => [...current, created]);
@@ -199,6 +406,7 @@ export function UsersTable() {
               <th className="px-4 py-3 text-left font-medium">Email</th>
               <th className="px-4 py-3 text-left font-medium">Name</th>
               <th className="px-4 py-3 text-left font-medium">Roles</th>
+              <th className="px-4 py-3 text-left font-medium">Org / Modules</th>
               <th className="px-4 py-3 text-left font-medium">Status</th>
               <th className="px-4 py-3 text-right font-medium">Actions</th>
             </tr>
@@ -220,6 +428,11 @@ export function UsersTable() {
                       <span className="text-xs text-muted-foreground">No roles</span>
                     )}
                   </div>
+                </td>
+                <td className="px-4 py-3 text-xs text-muted-foreground">
+                  {user.organizationModules.length > 0
+                    ? `${user.organizationModules.length} org · ${user.organizationModules.reduce((sum, item) => sum + item.modules.length, 0)} modules`
+                    : "No module assignments"}
                 </td>
                 <td className="px-4 py-3">
                   <Badge variant={user.status === "Active" ? "default" : "destructive"}>
@@ -252,11 +465,11 @@ export function UsersTable() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{isEditing ? "Edit User" : "Add User"}</DialogTitle>
             <DialogDescription>
-              Manage platform user access, roles and account status.
+              Manage platform user access, roles and module visibility per organization.
             </DialogDescription>
           </DialogHeader>
 
@@ -332,6 +545,91 @@ export function UsersTable() {
                     {role}
                   </label>
                 ))}
+              </div>
+            </fieldset>
+
+            <fieldset className="space-y-3 rounded-md border border-border p-3">
+              <legend className="px-1 text-sm font-medium">Organization → Modules</legend>
+              <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor="admin-user-modules-organization">
+                  Organization
+                </label>
+                <Select
+                  id="admin-user-modules-organization"
+                  className="w-full"
+                  value={selectedOrganizationId}
+                  onChange={(event) => setSelectedOrganizationId(event.target.value)}
+                  disabled={organizations.length === 0}
+                >
+                  {organizations.length === 0 ? <option value="">No organizations available</option> : null}
+                  {organizations.map((organization) => (
+                    <option key={organization.id} value={organization.id}>
+                      {organization.name}
+                    </option>
+                  ))}
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Only modules assigned to the selected organization are available. Drag to reorder; values persist when saving the user.
+                </p>
+              </div>
+
+              {selectedOrganizationId ? (
+                <>
+                  {loadingModulesOrganizationId === selectedOrganizationId ? (
+                    <p className="text-xs text-muted-foreground">Loading organization modules...</p>
+                  ) : null}
+
+                  <div className="flex flex-wrap gap-3">
+                    {availableModulesForSelectedOrganization.length > 0 ? (
+                      availableModulesForSelectedOrganization.map((module) => (
+                        <label key={module.key} className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={selectedOrganizationModules?.orderedModuleKeys.includes(module.key) ?? false}
+                            onChange={() => toggleOrganizationModule(module.key)}
+                            className="h-4 w-4 rounded border-border"
+                          />
+                          {module.label}
+                        </label>
+                      ))
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        This organization has no modules assigned in Organizations → Modules.
+                      </span>
+                    )}
+                  </div>
+
+                  <SortableChildTable<ModuleOption>
+                    items={selectedOrganizationModuleItems}
+                    getId={(item) => item.key}
+                    columns={moduleColumns}
+                    onReorder={(orderedIds) => updateOrganizationModules(selectedOrganizationId, orderedIds)}
+                    primaryLabel="Primary"
+                    emptyState="No modules selected for this organization."
+                  />
+
+                  {selectedOrganizationModules ? (
+                    <div className="flex justify-end">
+                      <Button type="button" variant="outline" size="sm" onClick={removeOrganizationMapping}>
+                        Clear organization modules
+                      </Button>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">Select an organization to assign modules.</p>
+              )}
+
+              <div className="flex flex-wrap gap-2">
+                {form.organizationModules.length > 0 ? (
+                  form.organizationModules.map((entry) => (
+                    <Badge key={entry.organizationId} variant="outline">
+                      {organizationNameById.get(entry.organizationId) ?? entry.organizationId} · {entry.orderedModuleKeys.length}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-xs text-muted-foreground">No organization mappings configured.</span>
+                )}
               </div>
             </fieldset>
 

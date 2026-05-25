@@ -69,6 +69,15 @@ dotnet run --project Incoders.Hive.ApiService/Incoders.Hive.ApiService.csproj
 
 Default API URL is defined by `launchSettings.json` (currently `http://localhost:5336`).
 
+Fast API-only development profile:
+
+```powershell
+dotnet run --project Incoders.Hive.ApiService/Incoders.Hive.ApiService.csproj --launch-profile http-fast
+```
+
+The `http-fast` profile skips automatic migrations, startup seed data, and local file logging.
+Use the normal `http`/`https` profiles when you need startup data refreshed.
+
 ### Windows Smart App Control / Code Integrity
 
 If local binaries are blocked (for example `0x800711C7`), sign local build outputs:
@@ -104,6 +113,9 @@ Default frontend URL: `http://localhost:3000`
 
 Set `NEXT_PUBLIC_API_BASE_URL` in `apps/web/.env.local` to your API URL.
 
+Development uses `next dev` without Turbopack. Production builds write to `.next-build`
+so `npm run build` / quality gates do not corrupt the active dev server cache in `.next`.
+
 Login route:
 - `http://localhost:3000/login`
 
@@ -111,14 +123,19 @@ Login route:
 
 ## Aspire Local Orchestration
 
-The AppHost now orchestrates:
+The AppHost currently orchestrates:
 - `apiservice`
-- `web` (JavaScript app from `apps/web`, dev script)
 
 Run:
 
 ```powershell
 dotnet run --project Incoders.Hive.AppHost/Incoders.Hive.AppHost.csproj
+```
+
+Fast AppHost profile:
+
+```powershell
+dotnet run --project Incoders.Hive.AppHost/Incoders.Hive.AppHost.csproj --launch-profile http-fast
 ```
 
 ### Visual Studio F5

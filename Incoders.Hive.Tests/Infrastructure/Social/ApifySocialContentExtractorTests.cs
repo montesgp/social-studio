@@ -1,8 +1,10 @@
 using System.Net;
+using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Infrastructure.Social.Providers;
+using Incoders.Hive.Infrastructure.Social.Providers.Apify;
 
 namespace Incoders.Hive.Tests.Infrastructure.Social;
 
@@ -25,7 +27,8 @@ public sealed class ApifySocialContentExtractorTests
                     ["actor_id"] = "legacy/default-actor"
                 },
                 SelectedModel: null),
-            new StaticHttpClientFactory(handler));
+            new StaticHttpClientFactory(handler),
+            [new TikTokApifyScrapeAdapter(), new DefaultApifyScrapeAdapter()]);
 
         var result = await extractor.ExtractAsync(
             new SocialContentRequest(

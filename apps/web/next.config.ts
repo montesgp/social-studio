@@ -6,9 +6,11 @@ if (!rawApiBaseUrl) {
 }
 
 const apiBaseUrl = rawApiBaseUrl.endsWith("/") ? rawApiBaseUrl.slice(0, -1) : rawApiBaseUrl;
+const distDir = process.env.NEXT_DIST_DIR;
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  ...(distDir ? { distDir } : {}),
   async rewrites() {
     return [
       // API proxy
@@ -20,7 +22,9 @@ const nextConfig: NextConfig = {
       // Admin URLs → existing pages
       { source: "/admin/organizations", destination: "/organizations" },
       { source: "/admin/users", destination: "/members" },
-      { source: "/admin/social-networks", destination: "/social-networks" }
+      { source: "/admin/social-networks", destination: "/social-networks" },
+      { source: "/admin/email-templates", destination: "/platform-email-templates" },
+      { source: "/admin/platform-integrations", destination: "/platform-integrations" }
     ];
   }
 };

@@ -6,6 +6,8 @@ using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Infrastructure.Integrations;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Incoders.Hive.Infrastructure.Ai.Providers;
 
@@ -13,13 +15,16 @@ public sealed class OpenAiModelClient : IAiModelClient
 {
     private readonly ResolvedProviderCredential _credential;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<OpenAiModelClient> _logger;
 
     public OpenAiModelClient(
         ResolvedProviderCredential credential,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        ILogger<OpenAiModelClient>? logger = null)
     {
         _credential = credential;
         _httpClientFactory = httpClientFactory;
+        _logger = logger ?? NullLogger<OpenAiModelClient>.Instance;
     }
 
     public async Task<Result<AiCompletionResponse>> CompleteAsync(
@@ -28,12 +33,24 @@ public sealed class OpenAiModelClient : IAiModelClient
     {
         if (!ProviderCredentialReader.TryGet(_credential, "api_key", out var apiKey))
         {
+            _logger.LogWarning(
+                "OpenAI completion cannot start because the API key is missing. OrganizationId={OrganizationId} CapabilityKey={CapabilityKey} PromptVersionKey={PromptVersionKey}",
+                request.OrganizationId,
+                request.CapabilityKey,
+                request.PromptVersionKey);
+
             return Result.Failure<AiCompletionResponse>(IntegrationErrors.ProviderCredentialUnavailable);
         }
 
         var model = request.PreferredModel ?? _credential.SelectedModel;
         if (string.IsNullOrWhiteSpace(model))
         {
+            _logger.LogWarning(
+                "OpenAI completion cannot start because the model is missing. OrganizationId={OrganizationId} CapabilityKey={CapabilityKey} PromptVersionKey={PromptVersionKey}",
+                request.OrganizationId,
+                request.CapabilityKey,
+                request.PromptVersionKey);
+
             return Result.Failure<AiCompletionResponse>(IntegrationErrors.AiModelRequired);
         }
 
@@ -53,6 +70,18 @@ public sealed class OpenAiModelClient : IAiModelClient
             "https://api.openai.com/v1/chat/completions",
             new StringContent(body, Encoding.UTF8, "application/json"),
             cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning(
+                "OpenAI completion failed with external status. OrganizationId={OrganizationId} CapabilityKey={CapabilityKey} PromptVersionKey={PromptVersionKey} Model={Model} StatusCode={StatusCode} ReasonPhrase={ReasonPhrase}",
+                request.OrganizationId,
+                request.CapabilityKey,
+                request.PromptVersionKey,
+                model,
+                (int)response.StatusCode,
+                response.ReasonPhrase);
+        }
 
         return await ProviderHttpResponseMapper.MapAiResponseAsync(response, "openai", model, cancellationToken);
     }

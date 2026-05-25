@@ -48,7 +48,10 @@ public sealed record SocialContentSnapshot(
     string? Transcript,
     IReadOnlyList<SocialMediaReference> MediaReferences,
     string? RawPayloadReference,
-    IReadOnlyList<SocialContentWarning> Warnings);
+    IReadOnlyList<SocialContentWarning> Warnings,
+    IReadOnlyList<string> Tags,
+    string? ContentType,
+    DateTimeOffset? PublishedAtUtc);
 
 public sealed record SocialMediaReference(
     string Kind,

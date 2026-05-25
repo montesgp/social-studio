@@ -159,6 +159,42 @@ export interface SocialNetwork {
   updatedAtUtc: string;
 }
 
+export interface EmailTemplate {
+  key: string;
+  displayName: string;
+  description: string;
+  subject: string;
+  htmlBody: string;
+  textBody: string | null;
+  variables: string[];
+  isConfigured: boolean;
+  updatedAtUtc: string | null;
+}
+
+export interface PlatformIntegrationSummary {
+  key: string;
+  displayName: string;
+  description: string;
+  category: string;
+  enabled: boolean;
+  isConfigured: boolean;
+  updatedAtUtc: string | null;
+}
+
+export interface EmailSmtpConfiguration {
+  key: string;
+  displayName: string;
+  enabled: boolean;
+  host: string;
+  port: number;
+  useSsl: boolean;
+  username: string;
+  fromEmail: string;
+  fromName: string;
+  passwordConfigured: boolean;
+  updatedAtUtc: string | null;
+}
+
 export type ThemeKey = "dark" | "light" | "system";
 
 export interface UserPreference {
@@ -398,6 +434,101 @@ export interface UpsertClientStrategyPayload {
   targetAudience?: string | null;
   postingFrequency?: string | null;
   notes?: string | null;
+}
+
+// ── Single Analyzer backend response types (mirrors SingleContentAnalysisResponse) ──
+
+export type SingleContentAnalysisStatus =
+  | "Requested"
+  | "ResolvingContent"
+  | "ContentResolved"
+  | "ContentResolvedPartial"
+  | "Analyzing"
+  | "Analyzed"
+  | "Failed";
+
+export interface SingleAnalyzerMediaReference {
+  kind: string;
+  uri: string;
+  mimeType: string | null;
+}
+
+export interface SingleAnalyzerContentSnapshot {
+  platformKey: string;
+  canonicalUrl: string;
+  title: string | null;
+  description: string | null;
+  author: string | null;
+  thumbnailUrl: string | null;
+  durationSeconds: number | null;
+  metrics: Record<string, number>;
+  transcript: string | null;
+  mediaReferences: SingleAnalyzerMediaReference[];
+  rawPayloadReference: string | null;
+  tags: string[];
+  contentType: string | null;
+  publishedAtUtc: string | null;
+}
+
+export interface SingleAnalyzerScore {
+  novelty: number;
+  clientFit: number;
+  platformFit: number;
+  hookQuality: number;
+  feasibility: number;
+  expectedEngagement: number;
+}
+
+export interface SingleAnalyzerIdea {
+  title: string;
+  concept: string;
+  rationale: string;
+  score: SingleAnalyzerScore;
+}
+
+export interface SingleAnalyzerAnalysis {
+  summary: string;
+  detectedHooks: string[];
+  likelyAudience: string;
+  narrativeStructure: string;
+  strengths: string[];
+  weaknesses: string[];
+  derivedIdeas: SingleAnalyzerIdea[];
+  clientAdaptationRecommendations: string[];
+  confidence: number;
+  warnings: string[];
+}
+
+export interface SingleAnalyzerWarning {
+  code: string;
+  messageKey: string;
+}
+
+export interface ProviderFailureDiagnostic {
+  providerKey: string;
+  errorCode: string;
+  message: string;
+}
+
+export interface SingleContentAnalysisResponse {
+  id: string;
+  organizationId: string;
+  clientId: string | null;
+  userId: string;
+  sourceUrl: string;
+  normalizedUrl: string;
+  platformKey: string;
+  canonicalUrl: string;
+  status: SingleContentAnalysisStatus;
+  snapshot: SingleAnalyzerContentSnapshot;
+  analysis: SingleAnalyzerAnalysis;
+  warnings: SingleAnalyzerWarning[];
+  diagnostics: ProviderFailureDiagnostic[];
+  aiProviderKey: string;
+  aiModel: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  completedAtUtc: string | null;
 }
 
 export interface MonthlyObjective {

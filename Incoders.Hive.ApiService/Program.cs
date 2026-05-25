@@ -3,21 +3,29 @@ using Incoders.Hive.ApiService.Endpoints.Admin;
 using Incoders.Hive.ApiService.Endpoints.Auth;
 using Incoders.Hive.ApiService.Endpoints.Common;
 using Incoders.Hive.ApiService.Endpoints.Integrations;
+using Incoders.Hive.ApiService.Endpoints.PlatformConfiguration;
 using Incoders.Hive.ApiService.Endpoints.Social;
 using Incoders.Hive.ApiService.Endpoints.SystemSettings;
 using Incoders.Hive.ApiService.Endpoints.Tenants;
 using Incoders.Hive.ApiService.Endpoints.UserPreferences;
+using Incoders.Hive.ApiService.Logging;
 using Incoders.Hive.Application;
 using Incoders.Hive.Infrastructure.DependencyInjection;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Integrations;
+using Incoders.Hive.Infrastructure.PlatformConfiguration;
 using Incoders.Hive.Infrastructure.Social;
 using Incoders.Hive.Infrastructure.Tenancy;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
 
 const string FrontendCorsPolicy = "FrontendCors";
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Logging.AddProvider(new LocalFileLoggerProvider(
+    builder.Configuration.GetSection("FileLogging"),
+    builder.Environment.ContentRootPath));
 
 // Add service defaults & Aspire client integrations.
 builder.AddServiceDefaults();
@@ -59,20 +67,34 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+var clientAssetStorageOptions = app.Services.GetRequiredService<IOptions<ClientAssetStorageOptions>>().Value;
+var clientAssetStorageRootPath = clientAssetStorageOptions.ResolveRootPath(app.Environment.ContentRootPath);
+Directory.CreateDirectory(clientAssetStorageRootPath);
+
+if (app.Configuration.GetValue("StartupTasks:ApplyMigrations", app.Environment.IsDevelopment()))
 {
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<AppIdentityDbContext>();
     dbContext.Database.Migrate();
 }
 
-await app.Services.SeedIntegrationCatalogAsync();
-await app.Services.SeedSocialNetworkCatalogAsync();
-await app.Services.SeedIdentityRolesAsync();
-await app.Services.SeedSysAdminUserAsync();
+if (app.Configuration.GetValue("StartupTasks:SeedData", true))
+{
+    await app.Services.SeedIntegrationCatalogAsync();
+    await app.Services.SeedSocialNetworkCatalogAsync();
+    await app.Services.SeedPlatformSystemModulesAsync();
+    await app.Services.SeedPlatformEmailTemplatesAsync();
+    await app.Services.SeedIdentityRolesAsync();
+    await app.Services.SeedSysAdminUserAsync();
+}
 
 // Configure the HTTP request pipeline.
 app.UseExceptionHandler();
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(clientAssetStorageRootPath),
+    RequestPath = clientAssetStorageOptions.NormalizedPublicBasePath(),
+});
 app.UseRouting();
 app.UseCors(FrontendCorsPolicy);
 
@@ -91,16 +113,19 @@ app.MapAuthEndpoints();
 app.MapAdminUsersEndpoints();
 app.MapMeEndpoints();
 app.MapSystemSettingsEndpoints();
+app.MapPlatformConfigurationEndpoints();
 app.MapTenantsEndpoints();
 app.MapIntegrationsEndpoints();
 app.MapSocialClientsEndpoints();
 app.MapSocialNetworksEndpoints();
 app.MapClientReferentAccountsEndpoints();
+app.MapClientAssetEndpoints();
 app.MapClientBrandManualsEndpoints();
 app.MapClientStrategyEndpoints();
 app.MapMonthlyObjectivesEndpoints();
 app.MapSocialIntegrationsEndpoints();
 app.MapSocialContentWorkflowEndpoints();
+app.MapSingleAnalyzerEndpoints();
 app.MapUserPreferencesEndpoints();
 
 app.MapDefaultEndpoints();

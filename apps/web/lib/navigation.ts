@@ -10,6 +10,8 @@ import {
   ScrollText,
   ShieldCheck,
   CalendarClock,
+  Mail,
+  Plug,
   PlugZap,
   ScanSearch,
   Store,
@@ -33,7 +35,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-export type WorkspaceModuleKey = "social" | "ecommerce";
+export type WorkspaceModuleKey = "hive-social" | "hive-ecommerce";
 
 export interface WorkspaceModule {
   key: WorkspaceModuleKey;
@@ -45,14 +47,14 @@ export interface WorkspaceModule {
 
 export const workspaceModules: WorkspaceModule[] = [
   {
-    key: "social",
+    key: "hive-social",
     label: "Hive Social",
     description: "Content operations",
     shortLabel: "Social",
     icon: Share2
   },
   {
-    key: "ecommerce",
+    key: "hive-ecommerce",
     label: "Hive E-Commerce",
     description: "Commerce operations",
     shortLabel: "Commerce",
@@ -110,10 +112,18 @@ const sharedManagementNavigation: NavGroup[] = [
   }
 ];
 
-export function getWorkspaceNavigation(moduleKey: WorkspaceModuleKey): NavGroup[] {
+export function getWorkspaceNavigation(moduleKey?: WorkspaceModuleKey): NavGroup[] {
+  if (!moduleKey) {
+    return [...workspaceHomeNavigation, ...sharedManagementNavigation];
+  }
+
   return [
     ...workspaceHomeNavigation,
-    ...(moduleKey === "ecommerce" ? ecommerceModuleNavigation : socialModuleNavigation),
+    ...(moduleKey === "hive-ecommerce"
+      ? ecommerceModuleNavigation
+      : moduleKey === "hive-social"
+        ? socialModuleNavigation
+        : []),
     ...sharedManagementNavigation
   ];
 }
@@ -139,6 +149,8 @@ export const adminNavigation: NavGroup[] = [
     label: "System",
     items: [
       { href: "/admin/social-networks", label: "Social Networks", icon: Share2 },
+      { href: "/admin/email-templates", label: "Email Templates", icon: Mail },
+      { href: "/admin/platform-integrations", label: "Platform Integrations", icon: Plug },
       { href: "/admin/app-logs", label: "App Logs", icon: ScrollText, comingSoon: true },
       { href: "/admin/audit-logs", label: "Audit Logs", icon: ShieldCheck, comingSoon: true },
       { href: "/admin/jobs", label: "Scheduled Jobs", icon: CalendarClock, comingSoon: true }

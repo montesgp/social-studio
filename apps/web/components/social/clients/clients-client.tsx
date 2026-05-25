@@ -45,7 +45,7 @@ type ViewMode = "grid" | "table";
 
 export function ClientsClient() {
   const sessionToken = useAccessToken();
-  const { isInitialized: orgInitialized } = useActiveOrg();
+  const { orgId, isInitialized: orgInitialized } = useActiveOrg();
   const toast = useToast();
   const lastErrorToastRef = useRef<{ message: string; at: number } | null>(null);
 
@@ -116,16 +116,23 @@ export function ClientsClient() {
 
   useEffect(() => {
     if (!orgInitialized) return;
+    setPageNumber(1);
+    setDetails(null);
+  }, [orgId, orgInitialized]);
 
-    if (!effectiveToken) {
+  useEffect(() => {
+    if (!orgInitialized) return;
+
+    if (!effectiveToken || !orgId) {
       setLoading(false);
       setPage(null);
+      setDetails(null);
       return;
     }
 
     void loadClients();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageNumber, status, effectiveToken, sessionToken, orgInitialized]);
+  }, [pageNumber, status, effectiveToken, sessionToken, orgInitialized, orgId]);
 
   async function loadClients(nextPage = pageNumber) {
     setLoading(true);
@@ -147,6 +154,10 @@ export function ClientsClient() {
           : data;
 
       setPage(normalized);
+      setDetails((current) => {
+        if (!current) return null;
+        return normalized.items.find((item) => item.id === current.id) ?? null;
+      });
     } catch (err) {
       const message = (err as ApiError).message;
       setError(message);

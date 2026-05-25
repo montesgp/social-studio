@@ -413,6 +413,7 @@ appsettings.Local.json
 
 # Frontend (Next.js / React / TypeScript)
 **/.next/
+**/.next-build/
 **/out/
 **/.turbo/
 **/.vercel/
