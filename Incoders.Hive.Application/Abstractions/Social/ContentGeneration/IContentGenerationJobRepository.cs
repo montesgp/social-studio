@@ -1,0 +1,39 @@
+namespace Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+
+/// <summary>
+/// Port for persisting and querying content generation jobs.
+/// Implemented by EF Infrastructure; not visible to Domain.
+/// </summary>
+public interface IContentGenerationJobRepository
+{
+    Task InsertAsync(ContentGenerationJob job, CancellationToken ct);
+
+    Task<ContentGenerationJob?> GetByIdAsync(Guid id, Guid organizationId, CancellationToken ct);
+
+    Task UpdateStatusAsync(Guid id, string status, string? statusReason, string? errorCode, CancellationToken ct);
+
+    Task UpdateManifestAsync(Guid id, string manifestJson, DateTime completedAt, CancellationToken ct);
+
+    Task<IReadOnlyList<ContentGenerationJob>> ListPendingOrRunningAsync(CancellationToken ct);
+}
+
+/// <summary>
+/// Lightweight application-layer projection of a content generation job.
+/// Not a domain entity — owned by Application and mapped from EF data.
+/// </summary>
+public sealed record ContentGenerationJob(
+    Guid Id,
+    Guid OrganizationId,
+    Guid? ClientId,
+    Guid AnalysisId,
+    IReadOnlyList<string> RequestedFormats,
+    string Status,
+    string? StatusReason,
+    string? ErrorCode,
+    string BrandSnapshotJson,
+    string? ManifestJson,
+    Guid CorrelationId,
+    DateTime CreatedAt,
+    DateTime UpdatedAt,
+    DateTime? StartedAt,
+    DateTime? CompletedAt);

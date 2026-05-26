@@ -6,6 +6,8 @@ using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Infrastructure.Ai;
+using Incoders.Hive.Infrastructure.Packaging;
+using Incoders.Hive.Infrastructure.Rendering;
 using Incoders.Hive.Infrastructure.Social;
 using Incoders.Hive.Infrastructure.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Tenancy;
@@ -54,6 +56,7 @@ public static class DependencyInjection
         services.AddMultiTenancy(configuration);
         services.AddClientAssetStorage(configuration);
         services.AddObservability();
+        services.AddRenderingAndPackaging(configuration);
 
 
         return services;
@@ -129,6 +132,9 @@ public static class DependencyInjection
         services.AddScoped<IIntegrationExecutionAttemptRepository, EfIntegrationExecutionAttemptRepository>();
         services.AddScoped<ISingleContentAnalysisRepository, EfSingleContentAnalysisRepository>();
         services.AddScoped<IClientBrandSnapshotLoader, EfClientBrandSnapshotLoader>();
+        services.AddScoped<IContentGenerationJobRepository, EfContentGenerationJobRepository>();
+        services.AddScoped<IContentGenerationFormatResultRepository, EfContentGenerationFormatResultRepository>();
+        services.AddScoped<IGeneratedPackageRepository, EfGeneratedPackageRepository>();
         // Per-platform Apify scrape adapters (ISocialPlatformScrapeAdapter)
         services.AddScoped<ISocialPlatformScrapeAdapter, TikTokApifyScrapeAdapter>();
         services.AddScoped<ISocialPlatformScrapeAdapter, InstagramApifyScrapeAdapter>();
@@ -211,6 +217,24 @@ public static class DependencyInjection
 
         // Ambient provider call context (scoped — one per HTTP request / background job scope)
         services.AddScoped<ProviderCallContext>();
+
+        return services;
+    }
+
+    private static IServiceCollection AddRenderingAndPackaging(this IServiceCollection services, IConfiguration configuration)
+    {
+        // v1 PNG renderer (SkiaSharp) — no PDF, no external rendering service
+        services.AddScoped<IContentRenderer, LocalSvgContentRenderer>();
+
+        // Null adapters for future providers (v1 not supported)
+        services.AddScoped<IImageGenerationClient, NullImageGenerationClient>();
+        services.AddScoped<IVideoGenerationClient, NullVideoGenerationClient>();
+
+        // Local ephemeral package storage
+        // Root path from config key Storage:GeneratedPackagesPath; defaults to App_Data/generated-packages
+        var rootPath = configuration["Storage:GeneratedPackagesPath"]
+            ?? Path.Combine(AppContext.BaseDirectory, "App_Data", "generated-packages");
+        services.AddSingleton<IGeneratedPackageStorage>(_ => new LocalGeneratedPackageStorage(rootPath));
 
         return services;
     }

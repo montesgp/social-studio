@@ -1,3 +1,4 @@
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Caption;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.ContentIdea;
@@ -6,22 +7,26 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Flyer;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Hook;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.ReelScript;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Packaging;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Composers;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration;
 
 /// <summary>
 /// Application-layer DI registrations for the content generation feature.
-/// Registers all 7 format generators and the orchestrator.
-/// Infrastructure adapters (IAiCompletionGateway, IClientBrandSnapshotLoader) are
-/// registered by the Infrastructure layer; this method only registers Application types.
+/// Registers all 7 format generators, the orchestrator, visual composition service,
+/// per-format visual composers, and the package builder.
+/// Infrastructure adapters (IAiCompletionGateway, IClientBrandSnapshotLoader, IContentRenderer,
+/// IGeneratedPackageStorage) are registered by the Infrastructure layer.
 /// </summary>
 public static class ContentGenerationServiceExtensions
 {
     /// <summary>
     /// Registers all format content generators, the format generator registry,
-    /// and the content package orchestrator.
+    /// the content package orchestrator, visual composers, and the package builder.
     /// </summary>
     public static IServiceCollection AddContentGeneration(this IServiceCollection services)
     {
@@ -50,6 +55,12 @@ public static class ContentGenerationServiceExtensions
 
         // Orchestrator resolves all IFormatContentGenerator registrations via IEnumerable<>
         services.AddScoped<IContentGenerationOrchestrator, ContentPackageOrchestrator>();
+
+        // Visual composition service (Application) + per-format composers
+        services.AddScoped<IVisualCompositionService, VisualCompositionService>();
+
+        // Package builder (BCL ZipArchive — Application layer, no NuGet)
+        services.AddScoped<IGeneratedPackageBuilder, GeneratedPackageBuilder>();
 
         return services;
     }
