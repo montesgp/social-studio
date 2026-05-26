@@ -17,7 +17,7 @@ public interface IContentAnalysisProfile
 
     /// <summary>
     /// The integration provider key used for content extraction (e.g. "apify").
-    /// Extraction resolves this connected provider directly — it does NOT use a routing policy.
+    /// Extraction resolves this connected provider directly.
     /// </summary>
     string ExtractionProviderKey { get; }
 

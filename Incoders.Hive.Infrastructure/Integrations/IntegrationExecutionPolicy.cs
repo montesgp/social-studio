@@ -44,7 +44,7 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
 
         if (enabledCandidates.Length == 0)
         {
-            return Result.Failure<ProviderExecutionResult<TResponse>>(IntegrationErrors.RoutingPolicyNotConfigured);
+            return Result.Failure<ProviderExecutionResult<TResponse>>(IntegrationErrors.ProviderRouteNotConfigured);
         }
 
         foreach (var candidate in enabledCandidates)

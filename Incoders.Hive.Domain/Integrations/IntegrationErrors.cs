@@ -76,26 +76,6 @@ public static class IntegrationErrors
         "integrations.connection_test_failed",
         "integrations.errors.connection_test_failed");
 
-    public static readonly Error RoutingPolicyOrganizationRequired = Error.Validation(
-        "integrations.routing_policy_organization_required",
-        "integrations.errors.routing_policy_organization_required");
-
-    public static readonly Error RoutingPolicyFlowRequired = Error.Validation(
-        "integrations.routing_policy_flow_required",
-        "integrations.errors.routing_policy_flow_required");
-
-    public static readonly Error RoutingPolicyCapabilityRequired = Error.Validation(
-        "integrations.routing_policy_capability_required",
-        "integrations.errors.routing_policy_capability_required");
-
-    public static readonly Error RoutingPolicyRequiresEnabledCandidate = Error.Validation(
-        "integrations.routing_policy_requires_enabled_candidate",
-        "integrations.errors.routing_policy_requires_enabled_candidate");
-
-    public static readonly Error RoutingPolicyDuplicatePriority = Error.Validation(
-        "integrations.routing_policy_duplicate_priority",
-        "integrations.errors.routing_policy_duplicate_priority");
-
     public static readonly Error RoutingCandidateProviderRequired = Error.Validation(
         "integrations.routing_candidate_provider_required",
         "integrations.errors.routing_candidate_provider_required");
@@ -120,9 +100,9 @@ public static class IntegrationErrors
         "integrations.provider_failure_diagnostic_invalid",
         "integrations.errors.provider_failure_diagnostic_invalid");
 
-    public static readonly Error RoutingPolicyNotConfigured = Error.Validation(
-        "integrations.routing_policy_not_configured",
-        "integrations.errors.routing_policy_not_configured");
+    public static readonly Error ProviderRouteNotConfigured = Error.Validation(
+        "integrations.provider_route_not_configured",
+        "integrations.errors.provider_route_not_configured");
 
     public static readonly Error ProviderTimeout = Error.Failure(
         "integrations.provider_timeout",

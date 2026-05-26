@@ -11,10 +11,11 @@ using Microsoft.AspNetCore.Http.HttpResults;
 namespace Incoders.Hive.Tests.Api.Social;
 
 /// <summary>
-/// Unit tests for the single-analyzer endpoint handler logic (TASK 06).
-/// The endpoint is thin: resolve tenant + user → build command → map result.
-/// Tests assert the CAP3-MUST-04 contract (no provider/model on the command)
-/// and the tenant/user guard behavior, using the same handler logic extracted
+/// Unit tests for the single-analyzer endpoint handler logic.
+/// The endpoint is thin: resolve tenant + user → build command → 202 Accepted with the status.
+/// The async/poll contract: POST queues the work and returns immediately with the analysis id/status
+/// (no full result on the request thread). Tests assert the CAP3-MUST-04 contract (no provider/model
+/// on the command) and the tenant/user guard behavior, using the same handler logic extracted
 /// as a pure function.
 /// </summary>
 public sealed class SingleAnalyzerEndpointTests
@@ -27,7 +28,7 @@ public sealed class SingleAnalyzerEndpointTests
     [Fact]
     public async Task Analyze_SendsCommandWithNullProviderKeys_WhenTenantAndUserResolved()
     {
-        var sender = new FakeSender(Result.Success(MakeResponse(OrgId, UserId)));
+        var sender = new FakeSender(Result.Success(MakeStatus(OrgId)));
         var tenant = new FakeTenant(OrgId);
         var user = new FakeUser(UserId);
 
@@ -38,8 +39,10 @@ public sealed class SingleAnalyzerEndpointTests
             tenant: tenant,
             user: user);
 
-        var ok = Assert.IsType<Ok<SingleContentAnalysisResponse>>(result);
-        Assert.NotNull(ok.Value);
+        // POST queues the job → 202 Accepted with the pollable status.
+        var accepted = Assert.IsType<Accepted<SingleAnalyzerStatusResponse>>(result);
+        Assert.NotNull(accepted.Value);
+        Assert.Equal(SingleContentAnalysisStatus.Requested, accepted.Value!.Status);
 
         // CAP3-MUST-04: the command type does not carry preferred AI provider/model at all.
         var cmd = Assert.IsType<AnalyzeSingleContentCommand>(sender.LastCommand);
@@ -53,7 +56,7 @@ public sealed class SingleAnalyzerEndpointTests
     public async Task Analyze_PassesClientId_WhenProvided()
     {
         var clientId = Guid.NewGuid();
-        var sender = new FakeSender(Result.Success(MakeResponse(OrgId, UserId, clientId)));
+        var sender = new FakeSender(Result.Success(MakeStatus(OrgId, clientId)));
         var tenant = new FakeTenant(OrgId);
         var user = new FakeUser(UserId);
 
@@ -68,14 +71,14 @@ public sealed class SingleAnalyzerEndpointTests
     [Fact]
     public async Task Analyze_ReturnsProblem_WhenTenantIdIsNull()
     {
-        var sender = new FakeSender(Result.Success(MakeResponse(OrgId, UserId)));
+        var sender = new FakeSender(Result.Success(MakeStatus(OrgId)));
         var tenant = new FakeTenant(null); // not resolved
         var user = new FakeUser(UserId);
 
         var result = await EndpointHandler.AnalyzeAsync(
             "https://www.tiktok.com/@x/video/1", null, sender, tenant, user);
 
-        Assert.IsNotType<Ok<SingleContentAnalysisResponse>>(result);
+        Assert.IsNotType<Accepted<SingleAnalyzerStatusResponse>>(result);
         Assert.Null(sender.LastCommand); // sender must NOT be called
     }
 
@@ -84,14 +87,14 @@ public sealed class SingleAnalyzerEndpointTests
     [Fact]
     public async Task Analyze_ReturnsProblem_WhenUserIdIsNull()
     {
-        var sender = new FakeSender(Result.Success(MakeResponse(OrgId, UserId)));
+        var sender = new FakeSender(Result.Success(MakeStatus(OrgId)));
         var tenant = new FakeTenant(OrgId);
         var user = new FakeUser(null); // unauthenticated
 
         var result = await EndpointHandler.AnalyzeAsync(
             "https://www.tiktok.com/@x/video/1", null, sender, tenant, user);
 
-        Assert.IsNotType<Ok<SingleContentAnalysisResponse>>(result);
+        Assert.IsNotType<Accepted<SingleAnalyzerStatusResponse>>(result);
         Assert.Null(sender.LastCommand);
     }
 
@@ -101,14 +104,14 @@ public sealed class SingleAnalyzerEndpointTests
     public async Task Analyze_PropagatesProblemDetails_WhenAnalyzerFails()
     {
         var sender = new FakeSender(
-            Result.Failure<SingleContentAnalysisResponse>(SingleAnalyzerErrors.UrlInvalid));
+            Result.Failure<SingleAnalyzerStatusResponse>(SingleAnalyzerErrors.UrlInvalid));
         var tenant = new FakeTenant(OrgId);
         var user = new FakeUser(UserId);
 
         var result = await EndpointHandler.AnalyzeAsync(
             "not-a-url", null, sender, tenant, user);
 
-        Assert.IsNotType<Ok<SingleContentAnalysisResponse>>(result);
+        Assert.IsNotType<Accepted<SingleAnalyzerStatusResponse>>(result);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -163,44 +166,34 @@ public sealed class SingleAnalyzerEndpointTests
                     extensions: new Dictionary<string, object?> { ["code"] = result.Error.Code });
             }
 
-            return TypedResults.Ok(result.Value);
+            return TypedResults.Accepted(
+                $"/api/social/single-analyzer/analyze/{result.Value.Id}", result.Value);
         }
     }
 
-    private static SingleContentAnalysisResponse MakeResponse(
-        Guid orgId, Guid userId, Guid? clientId = null) =>
+    private static SingleAnalyzerStatusResponse MakeStatus(Guid orgId, Guid? clientId = null) =>
         new(
             Id: Guid.NewGuid(),
             OrganizationId: orgId,
             ClientId: clientId,
-            UserId: userId,
             SourceUrl: "https://www.tiktok.com/@brand/video/123",
             NormalizedUrl: "https://www.tiktok.com/@brand/video/123",
             PlatformKey: "tiktok",
-            CanonicalUrl: "https://www.tiktok.com/@brand/video/123",
-            Status: SingleContentAnalysisStatus.Analyzed,
-            Snapshot: new SingleAnalyzerContentSnapshotResponse(
-                "tiktok", "https://www.tiktok.com/@brand/video/123",
-                "Test video", null, "TestAuthor", null, 30,
-                new Dictionary<string, long> { ["views"] = 1000 },
-                null, [], null, [], null, null),
-            Analysis: new SingleAnalyzerAnalysisResponse(
-                "Summary", [], "Audience", "Narrative",
-                [], [], [], [], 0.9, []),
-            Warnings: [],
-            Diagnostics: [],
-            AiProviderKey: "openai",
-            AiModel: "gpt-4o",
+            Status: SingleContentAnalysisStatus.Requested,
+            Snapshot: null,
+            Analysis: null,
+            FailureCode: null,
+            FailureMessageKey: null,
             CreatedAtUtc: DateTime.UtcNow,
             UpdatedAtUtc: DateTime.UtcNow,
-            CompletedAtUtc: DateTime.UtcNow);
+            CompletedAtUtc: null);
 
     internal sealed class FakeSender : ISender
     {
-        private readonly Result<SingleContentAnalysisResponse> _response;
+        private readonly Result<SingleAnalyzerStatusResponse> _response;
         public object? LastCommand { get; private set; }
 
-        public FakeSender(Result<SingleContentAnalysisResponse> response) => _response = response;
+        public FakeSender(Result<SingleAnalyzerStatusResponse> response) => _response = response;
 
         public Task<TResponse> Send<TResponse>(
             IRequest<TResponse> request,

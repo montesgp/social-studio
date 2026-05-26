@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
@@ -7,8 +8,29 @@ namespace Incoders.Hive.Application.Features.Social.SingleAnalyzer.Analyze;
 
 public interface ISingleContentAnalyzer
 {
+    /// <summary>Full synchronous run (kept for internal use and tests).</summary>
     Task<Result<SingleContentAnalysisResponse>> AnalyzeAsync(
         SingleContentAnalysisRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Validates + runs pre-flight + creates the analysis record (status Requested) and returns it.
+    /// The caller then enqueues a background job; the heavy work runs via <see cref="RunQueuedAsync"/>.
+    /// </summary>
+    Task<Result<SingleAnalyzerStatusResponse>> StartAsync(
+        SingleContentAnalysisRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Background: loads the record and runs extraction + AI, persisting status as it goes.</summary>
+    Task RunQueuedAsync(
+        Guid analysisId,
+        Guid organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Reads the current state of an analysis (for polling).</summary>
+    Task<Result<SingleAnalyzerStatusResponse>> GetAsync(
+        Guid analysisId,
+        Guid organizationId,
         CancellationToken cancellationToken = default);
 }
 
@@ -38,6 +60,62 @@ public sealed record SingleContentAnalysisResponse(
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc,
     DateTime? CompletedAtUtc);
+
+/// <summary>
+/// Poll/status view of an analysis. Snapshot/Analysis are null until those stages complete;
+/// FailureCode/MessageKey are set when the analysis fails. Built from the persisted record.
+/// </summary>
+public sealed record SingleAnalyzerStatusResponse(
+    Guid Id,
+    Guid OrganizationId,
+    Guid? ClientId,
+    string SourceUrl,
+    string? NormalizedUrl,
+    string PlatformKey,
+    SingleContentAnalysisStatus Status,
+    SingleAnalyzerContentSnapshotResponse? Snapshot,
+    SingleAnalyzerAnalysisResponse? Analysis,
+    string? FailureCode,
+    string? FailureMessageKey,
+    DateTime CreatedAtUtc,
+    DateTime UpdatedAtUtc,
+    DateTime? CompletedAtUtc)
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public static SingleAnalyzerStatusResponse FromRecord(SingleContentAnalysisRecord record)
+    {
+        SingleAnalyzerContentSnapshotResponse? snapshot = null;
+        if (!string.IsNullOrWhiteSpace(record.ContentSnapshotJson))
+        {
+            snapshot = JsonSerializer.Deserialize<SingleAnalyzerContentSnapshotResponse>(
+                record.ContentSnapshotJson, JsonOptions);
+        }
+
+        SingleAnalyzerAnalysisResponse? analysis = null;
+        if (!string.IsNullOrWhiteSpace(record.AnalysisJson))
+        {
+            analysis = JsonSerializer.Deserialize<SingleAnalyzerAnalysisResponse>(
+                record.AnalysisJson, JsonOptions);
+        }
+
+        return new SingleAnalyzerStatusResponse(
+            record.Id,
+            record.OrganizationId,
+            record.ClientId,
+            record.SourceUrl,
+            record.NormalizedUrl,
+            record.SourcePlatformKey ?? string.Empty,
+            record.Status,
+            snapshot,
+            analysis,
+            record.FailureCode,
+            record.FailureMessageKey,
+            record.CreatedAtUtc,
+            record.UpdatedAtUtc,
+            record.CompletedAtUtc);
+    }
+}
 
 public sealed record SingleAnalyzerContentSnapshotResponse(
     string PlatformKey,

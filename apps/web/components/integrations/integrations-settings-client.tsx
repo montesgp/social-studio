@@ -13,7 +13,6 @@ import {
   Loader2,
   Music2,
   Plus,
-  Route,
   RefreshCcw,
   Settings2,
   Shield,
@@ -31,10 +30,8 @@ import {
   getOrganizationIntegration,
   listIntegrationProviders,
   listOrganizationIntegrations,
-  listOrganizationRoutingPolicies,
   setDefaultAiIntegration,
-  testOrganizationIntegration,
-  upsertOrganizationRoutingPolicy
+  testOrganizationIntegration
 } from "@/lib/api/integrations";
 import { listOrganizations } from "@/lib/api/organizations";
 import {
@@ -45,7 +42,6 @@ import {
   Organization,
   OrganizationIntegration,
   OrganizationIntegrationsOverview,
-  OrganizationRoutingPolicy,
   SocialNetwork
 } from "@/lib/api/types";
 import { listSocialNetworks } from "@/lib/api/social-networks";
@@ -100,20 +96,7 @@ interface ApifyActorMappingDraft {
   actorId: string;
 }
 
-interface RoutingPolicyDraft {
-  capabilityKey: "social-extraction" | "ai-analysis";
-  platformKey: string | null;
-  providerKey: string;
-  selectedModel: string;
-  isEnabled: boolean;
-}
-
-const singleAnalyzerFlowKey = "single-analyzer";
 const apifyActorMappingsCredentialKey = "actor_mappings_json";
-
-function policyDraftKey(capabilityKey: string, platformKey: string | null) {
-  return `${capabilityKey}:${platformKey ?? "global"}`;
-}
 
 function newApifyActorMapping(defaultNetworkKey: string): ApifyActorMappingDraft {
   return {
@@ -216,9 +199,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const [defaultAiProviderKey, setDefaultAiProviderKey] = useState<string>("");
   const [defaultAiModel, setDefaultAiModel] = useState<string>("");
   const [modal, setModal] = useState<ModalState | null>(null);
-  const [routingPolicies, setRoutingPolicies] = useState<OrganizationRoutingPolicy[]>([]);
-  const [routingDrafts, setRoutingDrafts] = useState<Record<string, RoutingPolicyDraft>>({});
-  const [savingRoutingKey, setSavingRoutingKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!orgInitialized) return;
@@ -276,12 +256,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     );
   }, [overview?.integrations]);
 
-  const connectedDataProviders = useMemo(() => {
-    return (overview?.integrations ?? []).filter(
-      (integration) => integration.category === "DataExtraction" && integration.status === "Connected"
-    );
-  }, [overview?.integrations]);
-
   const socialNetworkOptions = useMemo(() => {
     return socialNetworks
       .filter((network) => network.isActive)
@@ -290,13 +264,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
         label: network.displayName
       }));
   }, [socialNetworks]);
-
-  const extractionTargets = useMemo(() => {
-    return socialNetworkOptions.map((network) => ({
-      platformKey: network.value,
-      label: `${network.label} metadata`
-    }));
-  }, [socialNetworkOptions]);
 
   async function bootstrap(accessToken: string) {
     setLoading(true);
@@ -354,15 +321,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     setError(null);
 
     try {
-      const [data, policies, networksPage] = await Promise.all([
+      const [data, networksPage] = await Promise.all([
         listOrganizationIntegrations(organizationId, accessToken),
-        listOrganizationRoutingPolicies(
-          organizationId,
-          {
-            flowKey: singleAnalyzerFlowKey
-          },
-          accessToken
-        ),
         listSocialNetworks({ page: 1, pageSize: 100, includeInactive: false }, accessToken)
       ]);
       const activeNetworks = networksPage.items.filter((network) => network.isActive);
@@ -371,11 +331,9 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       }
 
       setOverview(data);
-      setRoutingPolicies(policies);
       setSocialNetworks(activeNetworks);
       setDefaultAiProviderKey(data.defaultAiProviderKey ?? "");
       setDefaultAiModel(data.defaultAiModel ?? "");
-      setRoutingDrafts(createRoutingDrafts(policies, data.integrations, data.defaultAiProviderKey ?? "", activeNetworks));
     } catch (err) {
       if (requestId !== overviewRequestIdRef.current) {
         return;
@@ -393,8 +351,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     overviewRequestIdRef.current += 1;
     setSelectedOrganizationId(organizationId);
     setOverview(null);
-    setRoutingPolicies([]);
-    setRoutingDrafts({});
     setDefaultAiProviderKey("");
     setDefaultAiModel("");
     setModal(null);
@@ -414,117 +370,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     } finally {
       setManualRefreshing(false);
     }
-  }
-
-  function createRoutingDrafts(
-    policies: OrganizationRoutingPolicy[],
-    integrations: OrganizationIntegration[],
-    defaultAiProvider: string,
-    activeNetworks: SocialNetwork[]
-  ) {
-    const drafts: Record<string, RoutingPolicyDraft> = {};
-    const extractionOptions = integrations.filter(
-      (integration) => integration.category === "DataExtraction" && integration.status === "Connected"
-    );
-    const aiOptions = integrations.filter(
-      (integration) => integration.category === "AiModel" && integration.status === "Connected"
-    );
-
-    for (const network of activeNetworks) {
-      const policy = policies.find(
-        (item) =>
-          item.flowKey === singleAnalyzerFlowKey
-          && item.capabilityKey === "social-extraction"
-          && item.platformKey === network.code
-      );
-      const candidate = policy?.candidates.find((item) => item.isEnabled) ?? policy?.candidates[0];
-
-      drafts[policyDraftKey("social-extraction", network.code)] = {
-        capabilityKey: "social-extraction",
-        platformKey: network.code,
-        providerKey: candidate?.providerKey ?? extractionOptions[0]?.providerKey ?? "",
-        selectedModel: candidate?.selectedModel ?? "",
-        isEnabled: policy?.isEnabled ?? true
-      };
-    }
-
-    const aiPolicy = policies.find(
-      (item) =>
-        item.flowKey === singleAnalyzerFlowKey
-        && item.capabilityKey === "ai-analysis"
-        && item.platformKey === null
-    );
-    const aiCandidate = aiPolicy?.candidates.find((item) => item.isEnabled) ?? aiPolicy?.candidates[0];
-    const resolvedAiProviderKey = aiCandidate?.providerKey ?? defaultAiProvider ?? aiOptions[0]?.providerKey ?? "";
-    drafts[policyDraftKey("ai-analysis", null)] = {
-      capabilityKey: "ai-analysis",
-      platformKey: null,
-      providerKey: resolvedAiProviderKey,
-      selectedModel: aiCandidate?.selectedModel ?? "",
-      isEnabled: aiPolicy?.isEnabled ?? true
-    };
-
-    return drafts;
-  }
-
-  async function saveRoutingDraft(draft: RoutingPolicyDraft) {
-    if (!selectedOrganizationId || !token || !draft.providerKey) {
-      return;
-    }
-
-    const draftKey = policyDraftKey(draft.capabilityKey, draft.platformKey);
-    setSavingRoutingKey(draftKey);
-    setError(null);
-
-    try {
-      await upsertOrganizationRoutingPolicy(
-        selectedOrganizationId,
-        {
-          flowKey: singleAnalyzerFlowKey,
-          capabilityKey: draft.capabilityKey,
-          platformKey: draft.platformKey ?? undefined,
-          isEnabled: draft.isEnabled,
-          candidates: [
-            {
-              providerKey: draft.providerKey,
-              priority: 1,
-              allowManagedFallback: true,
-              maxAttempts: 2,
-              timeoutMs: 15_000,
-              selectedModel: draft.selectedModel || undefined,
-              isEnabled: true
-            }
-          ]
-        },
-        token
-      );
-
-      toast.success("Routing policy updated", `${draft.capabilityKey} policy saved.`);
-      await loadOverview(selectedOrganizationId, token, false);
-    } catch (err) {
-      const message = (err as ApiError).message;
-      setError(message);
-      toast.error("Could not save routing policy", message);
-    } finally {
-      setSavingRoutingKey(null);
-    }
-  }
-
-  function patchRoutingDraft(key: string, patch: Partial<RoutingPolicyDraft>) {
-    setRoutingDrafts((prev) => {
-      const current = prev[key];
-      if (!current) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        [key]: {
-          ...current,
-          ...patch
-        }
-      };
-    });
   }
 
   function addApifyActorMapping() {
@@ -841,124 +686,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                   Save default
                 </Button>
               </form>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Route className="h-4 w-4 text-primary" /> Single Analyzer routing policy
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Define provider routing for social extraction and AI analysis in the single-analyzer workflow.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="text-xs text-muted-foreground">
-                Existing policies loaded: <span className="text-foreground">{routingPolicies.length}</span>
-              </div>
-
-              {extractionTargets.map((target) => {
-                const key = policyDraftKey("social-extraction", target.platformKey);
-                const draft = routingDrafts[key];
-                if (!draft) {
-                  return null;
-                }
-
-                return (
-                  <div key={key} className="grid gap-3 rounded-xl border border-border bg-background/40 p-4 lg:grid-cols-[1fr_220px_auto_auto]">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium">{target.label}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Capability: social-extraction / Platform: {target.platformKey}
-                      </p>
-                    </div>
-                    <Select
-                      value={draft.providerKey}
-                      onChange={(event) => patchRoutingDraft(key, { providerKey: event.target.value })}
-                      disabled={connectedDataProviders.length === 0}
-                    >
-                      {connectedDataProviders.length === 0 ? (
-                        <option value="">No connected data extraction provider</option>
-                      ) : null}
-                      {connectedDataProviders.map((integration) => (
-                        <option key={integration.providerKey} value={integration.providerKey}>
-                          {integration.providerDisplayName}
-                        </option>
-                      ))}
-                    </Select>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={draft.isEnabled}
-                        onChange={(event) => patchRoutingDraft(key, { isEnabled: event.target.checked })}
-                      />
-                      Enabled
-                    </label>
-                    <Button
-                      variant="secondary"
-                      onClick={() => void saveRoutingDraft(draft)}
-                      disabled={!draft.providerKey || savingRoutingKey === key}
-                    >
-                      {savingRoutingKey === key ? "Saving..." : "Save"}
-                    </Button>
-                  </div>
-                );
-              })}
-
-              {(() => {
-                const key = policyDraftKey("ai-analysis", null);
-                const draft = routingDrafts[key];
-                if (!draft) {
-                  return null;
-                }
-
-                return (
-                  <div className="grid gap-3 rounded-xl border border-border bg-background/40 p-4 lg:grid-cols-[1fr_220px_220px_auto_auto]">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium">AI analysis routing</p>
-                      <p className="text-xs text-muted-foreground">
-                        Capability: ai-analysis / Platform: global
-                      </p>
-                    </div>
-                    <Select
-                      value={draft.providerKey}
-                      onChange={(event) => patchRoutingDraft(key, { providerKey: event.target.value })}
-                      disabled={connectedAiIntegrations.length === 0}
-                    >
-                      {connectedAiIntegrations.length === 0 ? (
-                        <option value="">No connected AI provider</option>
-                      ) : null}
-                      {connectedAiIntegrations.map((integration) => (
-                        <option key={integration.providerKey} value={integration.providerKey}>
-                          {integration.providerDisplayName}
-                        </option>
-                      ))}
-                    </Select>
-                    <ModelSelect
-                      models={providers.find((p) => p.key === draft.providerKey)?.availableModels ?? []}
-                      value={draft.selectedModel}
-                      onChange={(v) => patchRoutingDraft(key, { selectedModel: v })}
-                      placeholder="Optional model (e.g. claude-opus-4-1)"
-                    />
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={draft.isEnabled}
-                        onChange={(event) => patchRoutingDraft(key, { isEnabled: event.target.checked })}
-                      />
-                      Enabled
-                    </label>
-                    <Button
-                      variant="secondary"
-                      onClick={() => void saveRoutingDraft(draft)}
-                      disabled={!draft.providerKey || savingRoutingKey === key}
-                    >
-                      {savingRoutingKey === key ? "Saving..." : "Save"}
-                    </Button>
-                  </div>
-                );
-              })()}
             </CardContent>
           </Card>
 

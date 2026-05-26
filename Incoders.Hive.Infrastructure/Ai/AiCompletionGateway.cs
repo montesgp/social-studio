@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Incoders.Hive.Infrastructure.Ai;
 
 /// <summary>
-/// Resolves the AI provider DIRECTLY from the organization's integration config (no routing policy).
+/// Resolves the AI provider directly from the organization's integration config.
 /// The provider key is chosen upstream by IDefaultAiSelector (is_default_ai → last configured).
 /// Routing-per-client for AI is a future concern; for now we use the org's default agent.
 /// </summary>
@@ -78,7 +78,24 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
             return Result.Failure<AiJsonCompletionResponse<TResponse>>(IntegrationErrors.ExternalProviderUnsupported);
         }
 
-        var parsed = await CompleteAndParseAsync<TResponse>(request, client, model, cancellationToken);
+        Result<AiJsonCandidateResponse<TResponse>> parsed;
+        try
+        {
+            parsed = await CompleteAndParseAsync<TResponse>(request, client, model, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            // Never let an exception in the AI/parse path bubble as a silent 500.
+            _logger.LogWarning(
+                ex,
+                "AI completion threw for org {OrganizationId} provider {ProviderKey} model {Model}.",
+                request.OrganizationId,
+                providerKey,
+                model ?? "(provider default)");
+
+            return Result.Failure<AiJsonCompletionResponse<TResponse>>(IntegrationErrors.AiJsonInvalid);
+        }
+
         if (parsed.IsFailure)
         {
             _logger.LogWarning(
@@ -151,9 +168,12 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
     private static Result<TResponse> TryParse<TResponse>(string output)
         where TResponse : notnull
     {
+        // LLMs frequently wrap JSON in markdown fences or add prose. Extract the JSON before parsing.
+        var json = ExtractJson(output);
+
         try
         {
-            var parsed = JsonSerializer.Deserialize<TResponse>(output, JsonOptions);
+            var parsed = JsonSerializer.Deserialize<TResponse>(json, JsonOptions);
             return parsed is null
                 ? Result.Failure<TResponse>(IntegrationErrors.AiJsonInvalid)
                 : Result.Success(parsed);
@@ -162,6 +182,48 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
         {
             return Result.Failure<TResponse>(IntegrationErrors.AiJsonInvalid);
         }
+    }
+
+    /// <summary>
+    /// Pulls the JSON object out of a model response that may be fenced (```json ... ```) or
+    /// surrounded by prose. Falls back to the original text if no object delimiters are found.
+    /// </summary>
+    private static string ExtractJson(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return output;
+        }
+
+        var text = output.Trim();
+
+        // Strip a leading ```json / ``` fence and its closing ```.
+        if (text.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstLineBreak = text.IndexOf('\n');
+            if (firstLineBreak >= 0)
+            {
+                text = text[(firstLineBreak + 1)..];
+            }
+
+            var closingFence = text.LastIndexOf("```", StringComparison.Ordinal);
+            if (closingFence >= 0)
+            {
+                text = text[..closingFence];
+            }
+
+            text = text.Trim();
+        }
+
+        // Trim any remaining prose around the outermost JSON object.
+        var start = text.IndexOf('{');
+        var end = text.LastIndexOf('}');
+        if (start >= 0 && end > start)
+        {
+            text = text.Substring(start, end - start + 1);
+        }
+
+        return text;
     }
 
     private sealed record AiJsonCandidateResponse<TResponse>(TResponse Payload, string? Model)

@@ -36,5 +36,4 @@ public sealed class IntegrationProviderData
 
     public ICollection<IntegrationProviderCapabilityData> Capabilities { get; set; } = new List<IntegrationProviderCapabilityData>();
 
-    public ICollection<OrganizationIntegrationRoutingPolicyItemData> RoutingPolicyItems { get; set; } = new List<OrganizationIntegrationRoutingPolicyItemData>();
 }

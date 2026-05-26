@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:fast": "node ./scripts/dev-fast.mjs",
     "build": "node -e \"process.env.NEXT_DIST_DIR='.next-build'; const result = require('child_process').spawnSync('next', ['build'], { env: process.env, shell: true, stdio: 'inherit' }); process.exit(result.status ?? 1)\"",
     "start": "next start",
     "lint": "next lint"

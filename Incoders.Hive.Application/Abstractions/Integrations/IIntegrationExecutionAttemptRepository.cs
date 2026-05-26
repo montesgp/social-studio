@@ -1,28 +1,4 @@
-using Incoders.Hive.Domain.Common;
-using Incoders.Hive.Domain.Integrations;
-
 namespace Incoders.Hive.Application.Abstractions.Integrations;
-
-public interface IIntegrationRoutingPolicyRepository
-{
-    Task<IReadOnlyList<IntegrationRoutingPolicy>> ListByOrganizationAsync(
-        Guid organizationId,
-        string? flowKey = null,
-        string? capabilityKey = null,
-        string? platformKey = null,
-        CancellationToken cancellationToken = default);
-
-    Task<IntegrationRoutingPolicy?> GetEnabledPolicyAsync(
-        Guid organizationId,
-        string flowKey,
-        string capabilityKey,
-        string? platformKey,
-        CancellationToken cancellationToken = default);
-
-    Task UpsertAsync(
-        IntegrationRoutingPolicy policy,
-        CancellationToken cancellationToken = default);
-}
 
 public interface IIntegrationExecutionAttemptRepository
 {

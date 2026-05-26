@@ -8,4 +8,8 @@ public sealed record AnalyzeSingleContentCommand(
     Guid UserId,
     string Url,
     Guid? ClientId,
-    string? PreferredExtractionProviderKey) : IRequest<Result<SingleContentAnalysisResponse>>;
+    string? PreferredExtractionProviderKey) : IRequest<Result<SingleAnalyzerStatusResponse>>;
+
+public sealed record GetSingleContentAnalysisQuery(
+    Guid AnalysisId,
+    Guid OrganizationId) : IRequest<Result<SingleAnalyzerStatusResponse>>;

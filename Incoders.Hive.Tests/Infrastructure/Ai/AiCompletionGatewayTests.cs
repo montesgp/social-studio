@@ -55,6 +55,28 @@ public sealed class AiCompletionGatewayTests
         Assert.Equal(IntegrationErrors.DefaultAiProviderNotConnected.Code, result.Error.Code);
     }
 
+    [Fact]
+    public async Task CompleteJsonAsync_ParsesFencedJson_WithoutRepair()
+    {
+        var modelClient = new QueueAiModelClient(
+            new AiCompletionResponse("Here is the result:\n```json\n{\"value\":\"fenced\"}\n```", "openai", "gpt-test", []));
+
+        var gateway = new AiCompletionGateway(
+            new StaticIntegrationResolver("openai"),
+            new StaticClientFactory(modelClient));
+
+        var result = await gateway.CompleteJsonAsync<TestPayload>(
+            new AiJsonCompletionRequest(
+                Guid.NewGuid(), null, "ai-analysis", "single-analyzer-v1", "{}",
+                PreferredProviderKey: "openai",
+                PreferredModel: "gpt-test"),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("fenced", result.Value.Payload.Value);
+        Assert.Equal(1, modelClient.Calls); // fenced JSON parsed directly, no repair call needed
+    }
+
     private sealed record TestPayload(string Value);
 
     private sealed class QueueAiModelClient : IAiModelClient

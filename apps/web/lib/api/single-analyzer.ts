@@ -3,10 +3,14 @@
 // Apify is called server-side — no token or Apify domain is reachable from the browser.
 
 import { apiRequest } from "@/lib/api/client";
-import type { SingleContentAnalysisResponse, SingleAnalyzerContentSnapshot, SingleAnalyzerAnalysis } from "@/lib/api/types";
+import type {
+  SingleAnalyzerStatusResponse,
+  SingleAnalyzerContentSnapshot,
+  SingleAnalyzerAnalysis,
+} from "@/lib/api/types";
 import type { SingleAnalyzerResult } from "@/lib/mocks/single-analyzer";
 
-export type { SingleContentAnalysisResponse };
+export type { SingleAnalyzerStatusResponse };
 
 export interface AnalyzeSingleContentPayload {
   url: string;
@@ -14,15 +18,15 @@ export interface AnalyzeSingleContentPayload {
 }
 
 /**
- * Call the backend analyze endpoint (POST /api/social/single-analyzer/analyze).
- * This is ONE-SHOT: scrape + AI analysis + persist happens on the server side.
- * The browser never contacts Apify directly.
+ * Start an analysis (POST /api/social/single-analyzer/analyze).
+ * Returns immediately with status=Requested + the analysis id. The heavy scrape + AI run
+ * happens in the background — poll {@link getSingleContentAnalysis} until Analyzed or Failed.
  */
 export async function analyzeSingleContent(
   payload: AnalyzeSingleContentPayload,
   token?: string
-): Promise<SingleContentAnalysisResponse> {
-  return apiRequest<SingleContentAnalysisResponse>(
+): Promise<SingleAnalyzerStatusResponse> {
+  return apiRequest<SingleAnalyzerStatusResponse>(
     "/api/social/single-analyzer/analyze",
     {
       method: "POST",
@@ -33,15 +37,29 @@ export async function analyzeSingleContent(
 }
 
 /**
- * Map the backend `SingleContentAnalysisResponse` to the UI-local `SingleAnalyzerResult` shape.
- * Keeps the existing component shape stable so the UI requires minimal changes.
+ * Poll the current status/result of an analysis (GET /api/social/single-analyzer/analyze/{id}).
+ */
+export async function getSingleContentAnalysis(
+  id: string,
+  token?: string
+): Promise<SingleAnalyzerStatusResponse> {
+  return apiRequest<SingleAnalyzerStatusResponse>(
+    `/api/social/single-analyzer/analyze/${encodeURIComponent(id)}`,
+    { method: "GET" },
+    token
+  );
+}
+
+/**
+ * Map a completed backend status response to the UI-local `SingleAnalyzerResult` shape.
+ * Must only be called when `response.status === "Analyzed"` — snapshot/analysis are required.
  */
 export function mapBackendResponseToResult(
-  response: SingleContentAnalysisResponse,
+  response: SingleAnalyzerStatusResponse,
   organizationId: string
 ): SingleAnalyzerResult {
-  const snapshot: SingleAnalyzerContentSnapshot = response.snapshot;
-  const analysis: SingleAnalyzerAnalysis = response.analysis;
+  const snapshot: SingleAnalyzerContentSnapshot | null = response.snapshot;
+  const analysis: SingleAnalyzerAnalysis | null = response.analysis;
 
   return {
     id: response.id,
@@ -53,16 +71,17 @@ export function mapBackendResponseToResult(
     searchQuery: "",
     networkSource: response.platformKey,
     thumbnailUrl:
-      snapshot.thumbnailUrl ??
+      snapshot?.thumbnailUrl ??
       `https://picsum.photos/seed/${encodeURIComponent(response.sourceUrl)}/640/360`,
     videoUrl:
-      snapshot.mediaReferences.find((r) => r.kind === "video")?.uri ??
-      snapshot.canonicalUrl,
-    title: snapshot.title ?? "Untitled",
-    author: snapshot.author ?? "Unknown creator",
-    views: snapshot.metrics["views"] ?? 0,
-    likes: snapshot.metrics["likes"] ?? 0,
-    comments: snapshot.metrics["comments"] ?? 0,
+      snapshot?.mediaReferences.find((r) => r.kind === "video")?.uri ??
+      snapshot?.canonicalUrl ??
+      response.sourceUrl,
+    title: snapshot?.title ?? "Untitled",
+    author: snapshot?.author ?? "Unknown creator",
+    views: snapshot?.metrics["views"] ?? 0,
+    likes: snapshot?.metrics["likes"] ?? 0,
+    comments: snapshot?.metrics["comments"] ?? 0,
     strategyMode: "",
     // Combine AI analysis into a single readable block for the existing videoAnalysis field.
     videoAnalysis: analysis
@@ -85,12 +104,12 @@ export function mapBackendResponseToResult(
     scriptDraft: analysis?.derivedIdeas?.[0]?.concept ?? "",
     analyzedAtUtc: response.completedAtUtc ?? response.updatedAtUtc,
     downloadedAtUtc: null,
-    contentType: snapshot.contentType ?? undefined,
-    shares: snapshot.metrics["shares"] ?? 0,
-    saves: snapshot.metrics["saves"] ?? 0,
-    durationSeconds: snapshot.durationSeconds ?? null,
-    publishedAtUtc: snapshot.publishedAtUtc,
-    hashtags: snapshot.tags ?? [],
+    contentType: snapshot?.contentType ?? undefined,
+    shares: snapshot?.metrics["shares"] ?? 0,
+    saves: snapshot?.metrics["saves"] ?? 0,
+    durationSeconds: snapshot?.durationSeconds ?? null,
+    publishedAtUtc: snapshot?.publishedAtUtc ?? null,
+    hashtags: snapshot?.tags ?? [],
     dataSource: "apify",
   };
 }

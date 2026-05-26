@@ -27,8 +27,8 @@ public sealed class AnalyzeSingleContentHandlerTests
             AiPayload = Analysis("The creator opens with a sharp problem statement.")
         };
 
-        var result = await harness.Handler.Handle(
-            new AnalyzeSingleContentCommand(
+        var result = await harness.Analyzer.AnalyzeAsync(
+            new SingleContentAnalysisRequest(
                 organizationId,
                 userId,
                 " HTTPS://WWW.TIKTOK.COM/@brand/video/123#comments ",
@@ -82,8 +82,8 @@ public sealed class AnalyzeSingleContentHandlerTests
             AiPayload = Analysis("A generic social post can still be analyzed.")
         };
 
-        var result = await harness.Handler.Handle(
-            new AnalyzeSingleContentCommand(
+        var result = await harness.Analyzer.AnalyzeAsync(
+            new SingleContentAnalysisRequest(
                 Guid.NewGuid(),
                 Guid.NewGuid(),
                 "https://example.com/posts/abc",
@@ -108,8 +108,8 @@ public sealed class AnalyzeSingleContentHandlerTests
             AiPayload = Analysis("A reel with useful visual hooks.", warnings: ["Transcript was unavailable."])
         };
 
-        var result = await harness.Handler.Handle(
-            new AnalyzeSingleContentCommand(
+        var result = await harness.Analyzer.AnalyzeAsync(
+            new SingleContentAnalysisRequest(
                 Guid.NewGuid(),
                 Guid.NewGuid(),
                 "https://www.instagram.com/reel/abc",
@@ -132,8 +132,8 @@ public sealed class AnalyzeSingleContentHandlerTests
             AiResult = Result.Failure<AiJsonCompletionResponse<SingleAnalyzerAnalysis>>(IntegrationErrors.AiJsonInvalid)
         };
 
-        var result = await harness.Handler.Handle(
-            new AnalyzeSingleContentCommand(
+        var result = await harness.Analyzer.AnalyzeAsync(
+            new SingleContentAnalysisRequest(
                 Guid.NewGuid(),
                 Guid.NewGuid(),
                 "https://youtu.be/abc123",
@@ -153,8 +153,8 @@ public sealed class AnalyzeSingleContentHandlerTests
     {
         var harness = new SingleAnalyzerHarness(Now);
 
-        var result = await harness.Handler.Handle(
-            new AnalyzeSingleContentCommand(
+        var result = await harness.Analyzer.AnalyzeAsync(
+            new SingleContentAnalysisRequest(
                 Guid.NewGuid(),
                 Guid.NewGuid(),
                 "not a url",
@@ -167,6 +167,38 @@ public sealed class AnalyzeSingleContentHandlerTests
         Assert.Null(harness.ContentResolver.LastRequest);
         Assert.Null(harness.AiGateway.LastRequest);
         Assert.Null(harness.Repository.StoredAnalysis);
+    }
+
+    [Fact]
+    public async Task Handler_StartsAnalysisAndEnqueuesBackgroundJobWithoutRunningPipeline()
+    {
+        var organizationId = Guid.NewGuid();
+        var harness = new SingleAnalyzerHarness(Now)
+        {
+            ContentResult = Result.Success(new SocialContentResolution(Snapshot("tiktok", warnings: []), [])),
+            AiPayload = Analysis("queued")
+        };
+
+        var result = await harness.Handler.Handle(
+            new AnalyzeSingleContentCommand(
+                organizationId,
+                Guid.NewGuid(),
+                "https://www.tiktok.com/@brand/video/123",
+                ClientId: null,
+                PreferredExtractionProviderKey: "apify"),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(SingleContentAnalysisStatus.Requested, result.Value.Status);
+        Assert.NotEqual(Guid.Empty, result.Value.Id);
+
+        var job = Assert.Single(harness.Queue.Enqueued);
+        Assert.Equal(result.Value.Id, job.AnalysisId);
+        Assert.Equal(organizationId, job.OrganizationId);
+
+        // The heavy extraction + AI work must run in the background, NOT on the request thread.
+        Assert.Null(harness.ContentResolver.LastRequest);
+        Assert.Null(harness.AiGateway.LastRequest);
     }
 
     private static SocialContentSnapshot Snapshot(
@@ -239,6 +271,7 @@ public sealed class AnalyzeSingleContentHandlerTests
             ContentResolver = new FakeSocialContentResolver(this);
             AiGateway = new FakeAiGateway(this);
 
+            Queue = new FakeQueue();
             Analyzer = new SingleContentAnalyzer(
                 Repository,
                 UnitOfWork,
@@ -247,11 +280,11 @@ public sealed class AnalyzeSingleContentHandlerTests
                 AiGateway,
                 new NullDefaultAiSelector(),
                 new NullProfileProvider());
-            Handler = new AnalyzeSingleContentHandler(Analyzer);
+            Handler = new AnalyzeSingleContentHandler(Analyzer, Queue);
         }
 
         public Result<SocialContentResolution> ContentResult { get; set; } =
-            Result.Failure<SocialContentResolution>(IntegrationErrors.RoutingPolicyNotConfigured);
+            Result.Failure<SocialContentResolution>(IntegrationErrors.ProviderRouteNotConfigured);
 
         public SingleAnalyzerAnalysis AiPayload { get; set; } = Analysis("Default analysis");
 
@@ -267,9 +300,25 @@ public sealed class AnalyzeSingleContentHandlerTests
 
         public FakeAiGateway AiGateway { get; }
 
+        public FakeQueue Queue { get; }
+
         public SingleContentAnalyzer Analyzer { get; }
 
         public AnalyzeSingleContentHandler Handler { get; }
+    }
+
+    private sealed class FakeQueue : ISingleAnalysisJobQueue
+    {
+        public List<SingleAnalysisJob> Enqueued { get; } = [];
+
+        public ValueTask EnqueueAsync(SingleAnalysisJob job, CancellationToken cancellationToken = default)
+        {
+            Enqueued.Add(job);
+            return ValueTask.CompletedTask;
+        }
+
+        public IAsyncEnumerable<SingleAnalysisJob> DequeueAllAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private sealed class FakeSocialContentResolver : ISocialContentResolver

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ScanSearch,
@@ -22,7 +22,12 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { getMockClients, getMockOrganizations } from "@/lib/mocks/content-workflow";
 import { listWorkflowClients } from "@/lib/api/content-workflow";
-import type { Organization, SocialClient, SocialNetwork } from "@/lib/api/types";
+import type {
+  Organization,
+  SingleContentAnalysisStatus,
+  SocialClient,
+  SocialNetwork,
+} from "@/lib/api/types";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { listSocialNetworks } from "@/lib/api/social-networks";
 import { useAccessToken } from "@/components/auth/use-access-token";
@@ -34,8 +39,49 @@ import {
   recordMockAnalysis,
   type SingleAnalyzerResult,
 } from "@/lib/mocks/single-analyzer";
-import { analyzeSingleContent, mapBackendResponseToResult } from "@/lib/api/single-analyzer";
+import {
+  analyzeSingleContent,
+  getSingleContentAnalysis,
+  mapBackendResponseToResult,
+} from "@/lib/api/single-analyzer";
 import { SupportError } from "@/components/support/support-error";
+
+// ── Async/poll constants ───────────────────────────────────────────────────────
+
+const POLL_INTERVAL_MS = 2500;
+const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min hard cap so the overlay can't hang forever
+
+// Ordered stages shown in the progress overlay — mapped to backend statuses.
+const ANALYSIS_STEPS: Array<{
+  key: string;
+  label: string;
+  statuses: SingleContentAnalysisStatus[];
+}> = [
+  { key: "queued", label: "Queued", statuses: ["Requested"] },
+  { key: "fetch", label: "Fetching content", statuses: ["ResolvingContent"] },
+  { key: "ready", label: "Content ready", statuses: ["ContentResolved", "ContentResolvedPartial"] },
+  { key: "ai", label: "AI analysis", statuses: ["Analyzing"] },
+];
+
+function statusToPercent(status: SingleContentAnalysisStatus | null): number {
+  switch (status) {
+    case "Requested": return 8;
+    case "ResolvingContent": return 35;
+    case "ContentResolved":
+    case "ContentResolvedPartial": return 62;
+    case "Analyzing": return 85;
+    case "Analyzed": return 100;
+    case "Failed": return 100;
+    default: return 0;
+  }
+}
+
+function statusToStepIndex(status: SingleContentAnalysisStatus | null): number {
+  if (!status) return 0;
+  if (status === "Analyzed" || status === "Failed") return ANALYSIS_STEPS.length;
+  const idx = ANALYSIS_STEPS.findIndex((s) => s.statuses.includes(status));
+  return idx === -1 ? 0 : idx;
+}
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -126,6 +172,82 @@ function InlineProgress({ value }: { value: number }) {
   );
 }
 
+function AnalysisOverlay({ status }: { status: SingleContentAnalysisStatus | null }) {
+  if (!status) return null;
+  const percent = statusToPercent(status);
+  const currentStep = statusToStepIndex(status);
+  const currentLabel = ANALYSIS_STEPS[Math.min(currentStep, ANALYSIS_STEPS.length - 1)]?.label ?? "Working…";
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Analyzing content"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
+    >
+      <div className="w-full max-w-md rounded-2xl border border-border/50 bg-card p-6 shadow-2xl space-y-5">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-purple-500/10 p-2">
+            <ScanSearch className="h-5 w-5 text-purple-400 animate-pulse" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Analyzing content</h3>
+            <p className="text-xs text-muted-foreground">
+              This usually takes 30–60 seconds. Keep this tab open.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">{currentLabel}</span>
+            <span className="font-medium text-foreground tabular-nums">{percent}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-500 ease-out"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+        </div>
+
+        <ol className="space-y-2">
+          {ANALYSIS_STEPS.map((step, i) => {
+            const state = i < currentStep ? "done" : i === currentStep ? "active" : "pending";
+            return (
+              <li key={step.key} className="flex items-center gap-2.5 text-xs">
+                <span
+                  className={cn(
+                    "flex h-5 w-5 items-center justify-center rounded-full border",
+                    state === "done" && "border-green-500/50 bg-green-500/15 text-green-500",
+                    state === "active" && "border-purple-500/50 bg-purple-500/15 text-purple-400",
+                    state === "pending" && "border-border/50 bg-muted/40 text-muted-foreground/50"
+                  )}
+                >
+                  {state === "done" ? (
+                    <CheckCircle2 className="h-3 w-3" />
+                  ) : state === "active" ? (
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" />
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    state === "pending" ? "text-muted-foreground/50" : "text-foreground/90"
+                  )}
+                >
+                  {step.label}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+    </div>
+  );
+}
+
 function SocialTabletPreview({
   content,
   network,
@@ -202,6 +324,16 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadResult, setDownloadResult] = useState<{ fileName: string; downloadUrl: string } | null>(null);
   const [error, setError] = useState<{ code?: string; message: string } | null>(null);
+  // Async/poll state: drives the staged progress overlay during a backend analysis.
+  const [analysisStatus, setAnalysisStatus] = useState<SingleContentAnalysisStatus | null>(null);
+  const pollCancelRef = useRef(false);
+
+  // Cancel any in-flight polling loop on unmount.
+  useEffect(() => {
+    return () => {
+      pollCancelRef.current = true;
+    };
+  }, []);
 
   // Derived — always in sync with API data
   const networkOptions = socialNetworks.map((n) => ({ value: n.code, label: n.displayName }));
@@ -299,24 +431,38 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     if (!urlInput.trim()) return;
     setIsLoading(true);
     resetVideoState();
+    setAnalysisStatus("Requested");
+    pollCancelRef.current = false;
     try {
-      // ONE-SHOT: the backend performs scrape + AI analysis + persist in a single call.
-      // The browser never contacts Apify directly (CAP5-MUST-01/03).
-      const response = await analyzeSingleContent(
+      // ASYNC/POLL: POST queues the work and returns immediately with the analysis id/status.
+      // We then poll until Analyzed or Failed. The browser never contacts Apify directly
+      // (CAP5-MUST-01/03) and the long extraction + AI run is decoupled from this request,
+      // so a slow client connection never cancels the backend work.
+      const started = await analyzeSingleContent(
         {
           url: urlInput.trim(),
           clientId: selectedClientId || undefined,
         },
         effectiveToken
       );
-      const result = mapBackendResponseToResult(response, selectedOrganizationId);
+      setAnalysisStatus(started.status);
+
+      const final = await pollUntilTerminal(started.id);
+      if (!final) return; // cancelled (component unmounted)
+
+      if (final.status === "Failed") {
+        setError({
+          code: final.failureCode ?? "social.single_analyzer.analysis_failed",
+          message: final.failureMessageKey ?? "Analysis failed. Please try again.",
+        });
+        return;
+      }
+
+      const result = mapBackendResponseToResult(final, selectedOrganizationId);
       setVideoResult(result);
       setPreviewNetworkTab(result.networkSource);
-      // The backend returned a fully analyzed result — mark as analyzed immediately.
-      if (response.status === "Analyzed") {
-        setIsAnalyzed(true);
-        setHistoryItems(listMockSingleHistory(selectedOrganizationId));
-      }
+      setIsAnalyzed(true);
+      setHistoryItems(listMockSingleHistory(selectedOrganizationId));
     } catch (e) {
       const err = e as { message?: string; problem?: Record<string, unknown> };
       const code = typeof err.problem?.code === "string" ? err.problem.code : undefined;
@@ -324,11 +470,30 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         code,
         message:
           err?.message ||
-          "Analysis failed. The URL may be unsupported or the backend took too long (up to 60 s). Try again.",
+          "Analysis failed. The URL may be unsupported or the backend took too long. Try again.",
       });
     } finally {
       setIsLoading(false);
+      setAnalysisStatus(null);
     }
+  }
+
+  async function pollUntilTerminal(id: string) {
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (pollCancelRef.current) return null;
+      await sleep(POLL_INTERVAL_MS);
+      if (pollCancelRef.current) return null;
+      const current = await getSingleContentAnalysis(id, effectiveToken);
+      setAnalysisStatus(current.status);
+      if (current.status === "Analyzed" || current.status === "Failed") {
+        return current;
+      }
+    }
+    // Hard timeout — surface as a generic failed analysis so the overlay can close.
+    throw new Error(
+      "The analysis is taking longer than expected. Please refresh and try again."
+    );
   }
 
   async function findBestMatch() {
@@ -513,6 +678,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         context={{ feature: "single-analyzer", organizationId: selectedOrganizationId }}
         onDismiss={() => setError(null)}
       />
+
+      {/* Screen-blocking overlay shown while the backend analysis is in flight. */}
+      <AnalysisOverlay status={analysisStatus} />
 
       {/* Main 2-col grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

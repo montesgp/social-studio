@@ -15,25 +15,28 @@ public static class SingleAnalyzerEndpointsExtensions
             .WithTags("Social Single Analyzer")
             .RequireAuthorization();
 
+        // Start: validates + pre-flights + queues the work; returns 202 with the analysis id/status.
         group.MapPost("/analyze", SingleAnalyzerEndpointFacade.AnalyzeAsync)
             .WithName("AnalyzeSingleContent")
-            .WithSummary("Run the full scrape + AI analysis pipeline for a single social content URL")
-            .Produces<SingleContentAnalysisResponse>(StatusCodes.Status200OK)
+            .WithSummary("Queue the scrape + AI analysis pipeline for a social content URL")
+            .Produces<SingleAnalyzerStatusResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
-        // TODO (Risk 3): map provider timeout/rate-limit to 502/503/504 when ResultExtensions
-        // gains typed mappings for IntegrationErrors.*Timeout and *RateLimited. For now those
-        // domains errors fall through to 500 (current behavior pinned by endpoint tests).
+
+        // Poll: returns the current status (+ result when Analyzed, failure when Failed).
+        group.MapGet("/analyze/{id:guid}", SingleAnalyzerEndpointFacade.GetAsync)
+            .WithName("GetSingleContentAnalysis")
+            .WithSummary("Get the current status/result of a single-content analysis")
+            .Produces<SingleAnalyzerStatusResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }
 }
 
 /// <summary>
-/// Internal facade that exposes the endpoint handler as a static method.
-/// Split from the registration extension so unit tests can call the handler directly
-/// without standing up a full WebApplication host.
+/// Internal facade exposing the endpoint handlers as static methods so unit tests can call them
+/// directly without standing up a full WebApplication host.
 /// </summary>
 internal static class SingleAnalyzerEndpointFacade
 {
@@ -60,19 +63,36 @@ internal static class SingleAnalyzerEndpointFacade
                 UserId: userId,
                 Url: body.Url,
                 ClientId: body.ClientId,
-                // CAP3-MUST-04: AI provider is never caller-selectable; it is always
-                // resolved from the organization's integration configuration.
+                // CAP3-MUST-04: AI provider is never caller-selectable; resolved from org integrations.
                 PreferredExtractionProviderKey: null),
             cancellationToken);
 
-        return result.Match(response => (IResult)TypedResults.Ok(response));
+        return result.Match(status =>
+            (IResult)TypedResults.Accepted($"/api/social/single-analyzer/analyze/{status.Id}", status));
+    }
+
+    internal static async Task<IResult> GetAsync(
+        Guid id,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+        {
+            return SingleAnalyzerErrors.OrganizationRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new GetSingleContentAnalysisQuery(id, tenantId.Value),
+            cancellationToken);
+
+        return result.Match(status => (IResult)TypedResults.Ok(status));
     }
 }
 
 /// <summary>
 /// Request DTO for the single-content analyze endpoint.
-/// Intentionally omits PreferredAiProviderKey and PreferredAiModel per CAP3-MUST-04.
-/// AI provider selection is always driven by the organization's integration configuration.
+/// Intentionally omits AI provider/model per CAP3-MUST-04 — resolved from org integrations.
 /// </summary>
 public sealed record AnalyzeSingleContentRequest(
     string Url,

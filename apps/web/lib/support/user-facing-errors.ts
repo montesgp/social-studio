@@ -58,6 +58,41 @@ const ERROR_COPY: Record<string, UserFacingError> = {
     message: "The extraction service is rate-limited right now. Please wait a bit and try again.",
     isConfigIssue: false,
   },
+  "social.single_analyzer.extraction_provider_unavailable": {
+    title: "Data extraction service unavailable",
+    message:
+      "We didn't start the analysis because the data extraction service isn't reachable right now. Check it in Settings → Integrations, then try again.",
+    isConfigIssue: true,
+  },
+  "social.single_analyzer.ai_provider_unavailable": {
+    title: "AI service unavailable",
+    message:
+      "We didn't start the analysis because the AI service isn't reachable right now. Check it in Settings → Integrations, then try again.",
+    isConfigIssue: true,
+  },
+  "integrations.ai_json_invalid": {
+    title: "The AI response couldn't be used",
+    message: "The AI returned a response we couldn't read. Please try again in a moment.",
+    isConfigIssue: false,
+  },
+  "social.single_analyzer.not_found": {
+    title: "Analysis not found",
+    message:
+      "We couldn't find this analysis. It may have been removed, or it doesn't belong to your organization.",
+    isConfigIssue: false,
+  },
+  "social.single_analyzer.analysis_failed": {
+    title: "Analysis failed",
+    message:
+      "Something went wrong while analyzing the content. Please try again — if it keeps happening, let support know.",
+    isConfigIssue: false,
+  },
+  "server.unexpected_error": {
+    title: "Something didn't work on our side",
+    message:
+      "We hit an unexpected problem processing your request. Please try again — if it keeps happening, let support know.",
+    isConfigIssue: false,
+  },
   "integrations.default_ai_provider_not_connected": {
     title: "No AI provider is connected",
     message:

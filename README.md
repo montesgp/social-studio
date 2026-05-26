@@ -113,8 +113,20 @@ Default frontend URL: `http://localhost:3000`
 
 Set `NEXT_PUBLIC_API_BASE_URL` in `apps/web/.env.local` to your API URL.
 
-Development uses `next dev` without Turbopack. Production builds write to `.next-build`
-so `npm run build` / quality gates do not corrupt the active dev server cache in `.next`.
+Fast frontend development profile:
+
+```powershell
+cd apps/web
+npm run dev:fast
+```
+
+The `dev:fast` profile runs `next dev --turbopack` and enables polling-based file
+watching, so saved file changes are picked up reliably and are visible after a
+browser refresh.
+
+The default `npm run dev` profile keeps plain `next dev`. Production builds write
+to `.next-build` so `npm run build` / quality gates do not corrupt the active dev
+server cache in `.next`.
 
 Login route:
 - `http://localhost:3000/login`

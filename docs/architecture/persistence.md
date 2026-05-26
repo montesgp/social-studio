@@ -56,6 +56,8 @@
 ## Organization Boundary
 - Product-facing language is Organization; database ownership columns are named `organization_id`.
 - Current C# tenancy abstractions may still use `Tenant` internally, but their relational contract maps to `platform.organizations` and `organization_id`.
+- Organization-scoped users can have only one row in `platform.organization_memberships`; platform sysadmins do not have organization memberships.
+- User module assignments must reference the active membership, so removing a membership cascades stale module assignments.
 - Organization-owned module tables MUST include `organization_id` unless the table is explicitly global/platform-owned.
 - Platform catalogs such as AI providers/models are global/system-owned; organization-specific credentials, availability and preferences are organization-scoped records that reference those catalogs.
 - User-level UI preferences (for example `theme_key`) are stored in `platform.user_preferences` and scoped by `user_id` (not tenant-global).

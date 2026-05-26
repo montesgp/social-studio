@@ -24,6 +24,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
     private readonly IAiCompletionGateway _aiGateway;
     private readonly IDefaultAiSelector _defaultAiSelector;
     private readonly IContentAnalysisProfileProvider _profileProvider;
+    private readonly IContentAnalysisPreflight? _preflight;
     private readonly ILogger<SingleContentAnalyzer> _logger;
 
     public SingleContentAnalyzer(
@@ -34,6 +35,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         IAiCompletionGateway aiGateway,
         IDefaultAiSelector defaultAiSelector,
         IContentAnalysisProfileProvider profileProvider,
+        IContentAnalysisPreflight? preflight = null,
         ILogger<SingleContentAnalyzer>? logger = null)
     {
         _analyses = analyses;
@@ -43,6 +45,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         _aiGateway = aiGateway;
         _defaultAiSelector = defaultAiSelector;
         _profileProvider = profileProvider;
+        _preflight = preflight;
         _logger = logger ?? NullLogger<SingleContentAnalyzer>.Instance;
     }
 
@@ -50,54 +53,194 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         SingleContentAnalysisRequest request,
         CancellationToken cancellationToken = default)
     {
+        var prepared = await PrepareAsync(request, runPreflight: true, cancellationToken);
+        if (prepared.IsFailure)
+        {
+            return Result.Failure<SingleContentAnalysisResponse>(prepared.Error);
+        }
+
+        var analysis = CreateInitialRecord(request, prepared.Value.SourceUrl);
+        await _analyses.AddAsync(analysis, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return await RunCoreAsync(analysis, request, prepared.Value, cancellationToken);
+    }
+
+    public async Task<Result<SingleAnalyzerStatusResponse>> StartAsync(
+        SingleContentAnalysisRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(request, runPreflight: true, cancellationToken);
+        if (prepared.IsFailure)
+        {
+            return Result.Failure<SingleAnalyzerStatusResponse>(prepared.Error);
+        }
+
+        var analysis = CreateInitialRecord(request, prepared.Value.SourceUrl);
+        await _analyses.AddAsync(analysis, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Single Analyzer: queued analysis {AnalysisId} for {Url} (org {OrganizationId}, platform {PlatformKey}).",
+            analysis.Id,
+            request.Url,
+            request.OrganizationId,
+            prepared.Value.PlatformKey);
+
+        return Result.Success(SingleAnalyzerStatusResponse.FromRecord(analysis));
+    }
+
+    public async Task RunQueuedAsync(
+        Guid analysisId,
+        Guid organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        var analysis = await _analyses.GetByIdAsync(analysisId, organizationId, cancellationToken);
+        if (analysis is null)
+        {
+            _logger.LogWarning(
+                "Single Analyzer: queued analysis {AnalysisId} not found for org {OrganizationId}.",
+                analysisId,
+                organizationId);
+            return;
+        }
+
+        var request = new SingleContentAnalysisRequest(
+            analysis.OrganizationId,
+            analysis.UserId,
+            analysis.SourceUrl,
+            analysis.ClientId,
+            PreferredExtractionProviderKey: null);
+
+        // Pre-flight already ran at StartAsync; don't repeat it on the background run.
+        var prepared = await PrepareAsync(request, runPreflight: false, cancellationToken);
+        if (prepared.IsFailure)
+        {
+            _logger.LogWarning(
+                "Single Analyzer: prepare failed for queued analysis {AnalysisId}: {ErrorCode}.",
+                analysisId,
+                prepared.Error.Code);
+            await PersistFailureAsync(analysis, prepared.Error, [], cancellationToken);
+            return;
+        }
+
+        try
+        {
+            await RunCoreAsync(analysis, request, prepared.Value, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogError(ex, "Single Analyzer: queued analysis {AnalysisId} threw.", analysisId);
+            await PersistFailureAsync(analysis, SingleAnalyzerErrors.AnalysisFailed, [], CancellationToken.None);
+        }
+    }
+
+    public async Task<Result<SingleAnalyzerStatusResponse>> GetAsync(
+        Guid analysisId,
+        Guid organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        var analysis = await _analyses.GetByIdAsync(analysisId, organizationId, cancellationToken);
+        return analysis is null
+            ? Result.Failure<SingleAnalyzerStatusResponse>(SingleAnalyzerErrors.NotFound)
+            : Result.Success(SingleAnalyzerStatusResponse.FromRecord(analysis));
+    }
+
+    /// <summary>Validates the request, resolves the module context, and (optionally) runs pre-flight.</summary>
+    private async Task<Result<AnalysisContext>> PrepareAsync(
+        SingleContentAnalysisRequest request,
+        bool runPreflight,
+        CancellationToken cancellationToken)
+    {
         var sourceUrl = SingleAnalyzerSourceUrl.Create(request.Url);
         if (sourceUrl.IsFailure)
         {
-            return Result.Failure<SingleContentAnalysisResponse>(sourceUrl.Error);
+            return Result.Failure<AnalysisContext>(sourceUrl.Error);
         }
 
         var validation = ValidateRequest(request);
         if (validation.IsFailure)
         {
-            return Result.Failure<SingleContentAnalysisResponse>(validation.Error);
+            return Result.Failure<AnalysisContext>(validation.Error);
         }
 
-        // Resolve the module profile — provides capability keys, prompt version, and platform detection.
         var profileResult = _profileProvider.ForFlow(FlowKey);
         var profile = profileResult.IsSuccess ? profileResult.Value : null;
 
-        // Use profile for platform detection if available; otherwise fall back to domain value object.
         var platformKey = profile is not null
             ? profile.DetectPlatform(sourceUrl.Value.OriginalUrl)
             : sourceUrl.Value.PlatformKey;
 
         var aiCapabilityKey = profile?.AiCapabilityKey ?? "ai-analysis";
         var promptVersionKey = profile?.PromptVersionKey ?? "single-analyzer.analysis.v1";
+        var extractionProviderKey = request.PreferredExtractionProviderKey ?? profile?.ExtractionProviderKey ?? "apify";
 
-        var analysis = CreateInitialRecord(request, sourceUrl.Value);
-        await _analyses.AddAsync(analysis, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        // AI provider selection is org-integration-driven (CAP3-MUST-04): is_default_ai → last configured.
+        var selectedAi = await _defaultAiSelector.SelectAsync(request.OrganizationId, cancellationToken);
+        if (selectedAi.IsFailure)
+        {
+            _logger.LogWarning(
+                "Single Analyzer: AI provider selection failed for org {OrganizationId}: {ErrorCode}.",
+                request.OrganizationId,
+                selectedAi.Error.Code);
+            return Result.Failure<AnalysisContext>(selectedAi.Error);
+        }
 
-        analysis = await PersistStatusAsync(
-            analysis,
-            SingleContentAnalysisStatus.ResolvingContent,
-            cancellationToken);
+        // PRE-FLIGHT (hard prerequisite): every external API must be reachable before we start.
+        if (runPreflight && _preflight is not null)
+        {
+            var preflight = await _preflight.EnsureReadyAsync(
+                request.OrganizationId,
+                extractionProviderKey,
+                selectedAi.Value.ProviderKey,
+                cancellationToken);
+
+            if (preflight.IsFailure)
+            {
+                _logger.LogWarning(
+                    "Single Analyzer: pre-flight failed for org {OrganizationId} (extraction={ExtractionProvider}, ai={AiProvider}): {ErrorCode}. Workflow not started.",
+                    request.OrganizationId,
+                    extractionProviderKey,
+                    selectedAi.Value.ProviderKey,
+                    preflight.Error.Code);
+                return Result.Failure<AnalysisContext>(preflight.Error);
+            }
+        }
+
+        return Result.Success(new AnalysisContext(
+            sourceUrl.Value,
+            platformKey,
+            extractionProviderKey,
+            aiCapabilityKey,
+            promptVersionKey,
+            selectedAi.Value.ProviderKey,
+            selectedAi.Value.Model));
+    }
+
+    /// <summary>Runs extraction + AI on an already-created record, persisting status as it goes.</summary>
+    private async Task<Result<SingleContentAnalysisResponse>> RunCoreAsync(
+        SingleContentAnalysisRecord analysis,
+        SingleContentAnalysisRequest request,
+        AnalysisContext ctx,
+        CancellationToken cancellationToken)
+    {
+        analysis = await PersistStatusAsync(analysis, SingleContentAnalysisStatus.ResolvingContent, cancellationToken);
 
         _logger.LogInformation(
             "Single Analyzer: starting analysis {AnalysisId} for {Url} (org {OrganizationId}, platform {PlatformKey}).",
             analysis.Id,
             request.Url,
             request.OrganizationId,
-            platformKey);
+            ctx.PlatformKey);
 
         var content = await _contentResolver.ResolveAsync(
             new SocialContentResolutionRequest(
                 request.OrganizationId,
                 analysis.Id,
                 request.ClientId,
-                sourceUrl.Value.OriginalUrl,
-                platformKey,
-                request.PreferredExtractionProviderKey ?? profile?.ExtractionProviderKey),
+                ctx.SourceUrl.OriginalUrl,
+                ctx.PlatformKey,
+                ctx.ExtractionProviderKey),
             cancellationToken);
 
         if (content.IsFailure)
@@ -125,7 +268,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         {
             Status = contentStatus,
             SourcePlatformKey = snapshot.Value.PlatformKey,
-            NormalizedUrl = sourceUrl.Value.NormalizedUrl,
+            NormalizedUrl = ctx.SourceUrl.NormalizedUrl,
             ContentSnapshotJson = JsonSerializer.Serialize(snapshot.Value, JsonOptions),
             ProviderDiagnosticsJson = JsonSerializer.Serialize(content.Value.Diagnostics, JsonOptions),
             UpdatedAtUtc = _clock.UtcNow
@@ -133,42 +276,23 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         await _analyses.UpdateAsync(analysis, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        analysis = await PersistStatusAsync(
-            analysis,
-            SingleContentAnalysisStatus.Analyzing,
-            cancellationToken);
-
-        // AI provider selection is always org-integration-driven (CAP3-MUST-04):
-        // is_default_ai first, else the last-configured AI integration for the org.
-        var selectedAi = await _defaultAiSelector.SelectAsync(request.OrganizationId, cancellationToken);
-        if (selectedAi.IsFailure)
-        {
-            _logger.LogWarning(
-                "Single Analyzer: AI provider selection failed for analysis {AnalysisId}: {ErrorCode}.",
-                analysis.Id,
-                selectedAi.Error.Code);
-            await PersistFailureAsync(analysis, selectedAi.Error, content.Value.Diagnostics, cancellationToken);
-            return Result.Failure<SingleContentAnalysisResponse>(selectedAi.Error);
-        }
-
-        var aiProviderKey = selectedAi.Value.ProviderKey;
-        var aiModel = selectedAi.Value.Model;
+        analysis = await PersistStatusAsync(analysis, SingleContentAnalysisStatus.Analyzing, cancellationToken);
 
         _logger.LogInformation(
             "Single Analyzer: analysis {AnalysisId} using AI provider {ProviderKey} (model {Model}).",
             analysis.Id,
-            aiProviderKey,
-            aiModel ?? "(provider default)");
+            ctx.AiProviderKey,
+            ctx.AiModel ?? "(provider default)");
 
         var ai = await _aiGateway.CompleteJsonAsync<SingleAnalyzerAnalysis>(
             new AiJsonCompletionRequest(
                 request.OrganizationId,
                 analysis.Id,
-                aiCapabilityKey,
-                promptVersionKey,
-                JsonSerializer.Serialize(CreateAiInput(sourceUrl.Value, content.Value.Snapshot), JsonOptions),
-                aiProviderKey,
-                aiModel),
+                ctx.AiCapabilityKey,
+                ctx.PromptVersionKey,
+                JsonSerializer.Serialize(CreateAiInput(ctx.SourceUrl, content.Value.Snapshot), JsonOptions),
+                ctx.AiProviderKey,
+                ctx.AiModel),
             cancellationToken);
 
         if (ai.IsFailure)
@@ -176,7 +300,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             _logger.LogWarning(
                 "Single Analyzer: AI analysis failed for analysis {AnalysisId} (provider {ProviderKey}): {ErrorCode}.",
                 analysis.Id,
-                aiProviderKey,
+                ctx.AiProviderKey,
                 ai.Error.Code);
             await PersistFailureAsync(analysis, ai.Error, content.Value.Diagnostics, cancellationToken);
             return Result.Failure<SingleContentAnalysisResponse>(ai.Error);
@@ -212,7 +336,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         _logger.LogInformation(
             "Single Analyzer: analysis {AnalysisId} completed successfully (provider {ProviderKey}).",
             analysis.Id,
-            aiProviderKey);
+            ctx.AiProviderKey);
 
         return Result.Success(new SingleContentAnalysisResponse(
             analysis.Id,
@@ -220,7 +344,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             analysis.ClientId,
             analysis.UserId,
             analysis.SourceUrl,
-            analysis.NormalizedUrl ?? sourceUrl.Value.NormalizedUrl,
+            analysis.NormalizedUrl ?? ctx.SourceUrl.NormalizedUrl,
             snapshot.Value.PlatformKey,
             snapshot.Value.CanonicalUrl,
             analysis.Status,
@@ -234,6 +358,15 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             analysis.UpdatedAtUtc,
             analysis.CompletedAtUtc));
     }
+
+    private sealed record AnalysisContext(
+        SingleAnalyzerSourceUrl SourceUrl,
+        string PlatformKey,
+        string ExtractionProviderKey,
+        string AiCapabilityKey,
+        string PromptVersionKey,
+        string AiProviderKey,
+        string? AiModel);
 
     private static Result ValidateRequest(SingleContentAnalysisRequest request)
     {
@@ -343,7 +476,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         SingleAnalyzerSourceUrl sourceUrl,
         SocialContentSnapshot snapshot) =>
         new(
-            "Analyze the social content and return only JSON matching the expected structured output.",
+            "Analyze the social content and respond with ONLY the raw JSON object matching the expected structure. Do not wrap it in markdown code fences and do not add any text before or after the JSON.",
             sourceUrl.PlatformKey,
             sourceUrl.NormalizedUrl,
             snapshot,

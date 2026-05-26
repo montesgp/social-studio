@@ -90,8 +90,10 @@ public static class AdminUsersEndpointsExtensions
             return rolesValidation;
         }
 
+        var roles = NormalizeRoles(body.Roles);
         var organizationModulesValidation = await ValidateOrganizationModulesAsync(
             body.OrganizationModules,
+            roles,
             db,
             cancellationToken);
         if (organizationModulesValidation is not null)
@@ -113,7 +115,6 @@ public static class AdminUsersEndpointsExtensions
             return BuildIdentityProblem(create);
         }
 
-        var roles = NormalizeRoles(body.Roles);
         if (roles.Count > 0)
         {
             var addRoles = await users.AddToRolesAsync(user, roles);
@@ -123,7 +124,7 @@ public static class AdminUsersEndpointsExtensions
             }
         }
 
-        await SaveOrganizationModulesAsync(user.Id, body.OrganizationModules, db, cancellationToken);
+        await SaveOrganizationModulesAsync(user.Id, roles.Contains(IdentityRoles.Sysadmin) ? [] : body.OrganizationModules, db, cancellationToken);
         return TypedResults.Created($"/api/admin/users/{user.Id}", await ToResponseAsync(user, users, db, cancellationToken));
     }
 
@@ -140,8 +141,10 @@ public static class AdminUsersEndpointsExtensions
             return rolesValidation;
         }
 
+        var nextRoles = NormalizeRoles(body.Roles);
         var organizationModulesValidation = await ValidateOrganizationModulesAsync(
             body.OrganizationModules,
+            nextRoles,
             db,
             cancellationToken);
         if (organizationModulesValidation is not null)
@@ -167,7 +170,6 @@ public static class AdminUsersEndpointsExtensions
         }
 
         var currentRoles = await users.GetRolesAsync(user);
-        var nextRoles = NormalizeRoles(body.Roles);
         var remove = currentRoles.Except(nextRoles, StringComparer.OrdinalIgnoreCase).ToArray();
         var add = nextRoles.Except(currentRoles, StringComparer.OrdinalIgnoreCase).ToArray();
 
@@ -189,7 +191,7 @@ public static class AdminUsersEndpointsExtensions
             }
         }
 
-        await SaveOrganizationModulesAsync(user.Id, body.OrganizationModules, db, cancellationToken);
+        await SaveOrganizationModulesAsync(user.Id, nextRoles.Contains(IdentityRoles.Sysadmin) ? [] : body.OrganizationModules, db, cancellationToken);
         return TypedResults.Ok(await ToResponseAsync(user, users, db, cancellationToken));
     }
 
@@ -222,9 +224,28 @@ public static class AdminUsersEndpointsExtensions
     {
         var roles = await users.GetRolesAsync(user);
 
-        var modulesRows = await db.OrganizationUserModules
+        var membershipRows = await db.TenantMemberships
             .AsNoTracking()
             .Where(x => x.UserId == user.Id)
+            .Join(
+                db.Tenants.AsNoTracking(),
+                membership => membership.TenantId,
+                organization => organization.Id,
+                (membership, organization) => new
+                {
+                    OrganizationId = membership.TenantId,
+                    OrganizationName = organization.Name,
+                })
+            .OrderBy(x => x.OrganizationName)
+            .ToListAsync(cancellationToken);
+
+        var membershipOrganizationIds = membershipRows
+            .Select(x => x.OrganizationId)
+            .ToHashSet();
+
+        var modulesRows = await db.OrganizationUserModules
+            .AsNoTracking()
+            .Where(x => x.UserId == user.Id && membershipOrganizationIds.Contains(x.OrganizationId))
             .Join(
                 db.Tenants.AsNoTracking(),
                 assignment => assignment.OrganizationId,
@@ -249,17 +270,24 @@ public static class AdminUsersEndpointsExtensions
             .ThenBy(x => x.Label)
             .ToListAsync(cancellationToken);
 
-        var organizationModules = modulesRows
+        var modulesByOrganization = modulesRows
             .GroupBy(x => new { x.OrganizationId, x.OrganizationName })
-            .Select(group => new AdminUserOrganizationModulesResponse(
-                group.Key.OrganizationId,
-                group.Key.OrganizationName,
-                group.Select(x => new AdminUserModuleAssignmentResponse(
+            .ToDictionary(
+                group => group.Key.OrganizationId,
+                group => group.Select(x => new AdminUserModuleAssignmentResponse(
                     x.ModuleKey,
                     x.Label,
                     x.Description,
                     x.ShortLabel,
-                    x.SortOrder)).ToArray()))
+                    x.SortOrder)).ToArray());
+
+        var organizationModules = membershipRows
+            .Select(membership => new AdminUserOrganizationModulesResponse(
+                membership.OrganizationId,
+                membership.OrganizationName,
+                modulesByOrganization.TryGetValue(membership.OrganizationId, out var modules)
+                    ? modules
+                    : []))
             .ToArray();
 
         return new AdminUserResponse(
@@ -287,10 +315,33 @@ public static class AdminUsersEndpointsExtensions
 
     private static async Task<IResult?> ValidateOrganizationModulesAsync(
         IReadOnlyList<AdminUserOrganizationModulesRequest>? organizationModules,
+        IReadOnlyCollection<string> roles,
         AppIdentityDbContext db,
         CancellationToken cancellationToken)
     {
         var requested = organizationModules ?? [];
+
+        if (roles.Contains(IdentityRoles.Sysadmin) && requested.Count > 0)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["organizationModules"] =
+                [
+                    "Platform sysadmins cannot have organization assignments."
+                ],
+            });
+        }
+
+        if (requested.Count > 1)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["organizationModules"] =
+                [
+                    "A user can be assigned to only one organization."
+                ],
+            });
+        }
 
         var duplicateOrganizations = requested
             .GroupBy(x => x.OrganizationId)
@@ -414,6 +465,10 @@ public static class AdminUsersEndpointsExtensions
         AppIdentityDbContext db,
         CancellationToken cancellationToken)
     {
+        var requested = (organizationModules ?? [])
+            .Take(1)
+            .ToArray();
+
         var existing = await db.OrganizationUserModules
             .Where(x => x.UserId == userId)
             .ToListAsync(cancellationToken);
@@ -425,7 +480,7 @@ public static class AdminUsersEndpointsExtensions
         var nowUtc = DateTime.UtcNow;
         var requestedOrganizationIds = new HashSet<Guid>();
 
-        foreach (var group in organizationModules ?? [])
+        foreach (var group in requested)
         {
             requestedOrganizationIds.Add(group.OrganizationId);
             var orderedModuleKeys = NormalizeModuleKeys(group.OrderedModuleKeys ?? []);

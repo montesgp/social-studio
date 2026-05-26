@@ -288,30 +288,6 @@ export interface OrganizationIntegrationsOverview {
   integrations: OrganizationIntegration[];
 }
 
-export interface OrganizationRoutingPolicyCandidate {
-  providerId: string;
-  providerKey: string;
-  connectionMode: IntegrationConnectionMode;
-  priority: number;
-  allowManagedFallback: boolean;
-  maxAttempts: number;
-  timeoutMs: number;
-  selectedModel: string | null;
-  isEnabled: boolean;
-}
-
-export interface OrganizationRoutingPolicy {
-  id: string;
-  organizationId: string;
-  flowKey: string;
-  capabilityKey: string;
-  platformKey: string | null;
-  isEnabled: boolean;
-  candidates: OrganizationRoutingPolicyCandidate[];
-  createdAtUtc: string;
-  updatedAtUtc: string;
-}
-
 export interface ClientReferentAccount {
   id: string;
   clientId: string;
@@ -534,6 +510,25 @@ export interface SingleContentAnalysisResponse {
   diagnostics: ProviderFailureDiagnostic[];
   aiProviderKey: string;
   aiModel: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  completedAtUtc: string | null;
+}
+
+// Async/poll status view: snapshot/analysis are null until those stages complete.
+// Returned by POST /analyze (202 Accepted, status=Requested) and by GET /analyze/{id} (polling).
+export interface SingleAnalyzerStatusResponse {
+  id: string;
+  organizationId: string;
+  clientId: string | null;
+  sourceUrl: string;
+  normalizedUrl: string | null;
+  platformKey: string;
+  status: SingleContentAnalysisStatus;
+  snapshot: SingleAnalyzerContentSnapshot | null;
+  analysis: SingleAnalyzerAnalysis | null;
+  failureCode: string | null;
+  failureMessageKey: string | null;
   createdAtUtc: string;
   updatedAtUtc: string;
   completedAtUtc: string | null;

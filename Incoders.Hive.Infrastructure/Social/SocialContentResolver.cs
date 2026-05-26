@@ -8,10 +8,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Incoders.Hive.Infrastructure.Social;
 
 /// <summary>
-/// Resolves social content by calling the org's connected extraction provider DIRECTLY.
-/// Extraction does NOT use a routing policy — the provider (e.g. "apify") is resolved from
-/// the organization's encrypted integration config. Routing remains a concern of the AI
-/// analysis step (handled separately), not of extraction.
+/// Resolves social content by calling the org's connected extraction provider directly.
+/// The provider (for example, "apify") is resolved from the organization's encrypted
+/// integration config.
 /// </summary>
 public sealed class SocialContentResolver : ISocialContentResolver
 {

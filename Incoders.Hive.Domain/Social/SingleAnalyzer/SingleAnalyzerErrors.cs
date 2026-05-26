@@ -31,4 +31,21 @@ public static class SingleAnalyzerErrors
     public static readonly Error ScoreInvalid = Error.Validation(
         "social.single_analyzer.score_invalid",
         "social.single_analyzer.errors.score_invalid");
+
+    // Pre-flight: a required provider API must be reachable BEFORE the workflow starts.
+    public static readonly Error ExtractionProviderUnavailable = Error.Failure(
+        "social.single_analyzer.extraction_provider_unavailable",
+        "social.single_analyzer.errors.extraction_provider_unavailable");
+
+    public static readonly Error AiProviderUnavailable = Error.Failure(
+        "social.single_analyzer.ai_provider_unavailable",
+        "social.single_analyzer.errors.ai_provider_unavailable");
+
+    public static readonly Error NotFound = Error.NotFound(
+        "social.single_analyzer.not_found",
+        "social.single_analyzer.errors.not_found");
+
+    public static readonly Error AnalysisFailed = Error.Failure(
+        "social.single_analyzer.analysis_failed",
+        "social.single_analyzer.errors.analysis_failed");
 }

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Incoders.Hive.ApiService.BackgroundServices;
 using Incoders.Hive.ApiService.Endpoints.Admin;
 using Incoders.Hive.ApiService.Endpoints.Auth;
 using Incoders.Hive.ApiService.Endpoints.Common;
@@ -33,6 +34,9 @@ builder.AddServiceDefaults();
 // Add services to the container.
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
+// Backstop: any exception the validation handler doesn't claim is logged and returned as a
+// friendly, code-carrying problem — never a raw 500 to the user.
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -64,6 +68,9 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Consumes queued single-analysis jobs off the request thread (async/poll pipeline).
+builder.Services.AddHostedService<SingleAnalysisBackgroundWorker>();
 
 var app = builder.Build();
 

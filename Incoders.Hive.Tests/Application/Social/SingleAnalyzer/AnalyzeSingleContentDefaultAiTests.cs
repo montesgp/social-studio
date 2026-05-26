@@ -31,8 +31,8 @@ public sealed class AnalyzeSingleContentDefaultAiTests
                 []))
         };
 
-        var result = await harness.Handler.Handle(
-            new AnalyzeSingleContentCommand(
+        var result = await harness.Analyzer.AnalyzeAsync(
+            new SingleContentAnalysisRequest(
                 Guid.NewGuid(), Guid.NewGuid(),
                 "https://www.tiktok.com/@brand/video/123",
                 ClientId: null,
@@ -58,8 +58,8 @@ public sealed class AnalyzeSingleContentDefaultAiTests
                 []))
         };
 
-        var result = await harness.Handler.Handle(
-            new AnalyzeSingleContentCommand(
+        var result = await harness.Analyzer.AnalyzeAsync(
+            new SingleContentAnalysisRequest(
                 Guid.NewGuid(), Guid.NewGuid(),
                 "https://www.tiktok.com/@brand/video/123",
                 ClientId: null,
@@ -84,8 +84,8 @@ public sealed class AnalyzeSingleContentDefaultAiTests
                 []))
         };
 
-        await harness.Handler.Handle(
-            new AnalyzeSingleContentCommand(
+        await harness.Analyzer.AnalyzeAsync(
+            new SingleContentAnalysisRequest(
                 Guid.NewGuid(), Guid.NewGuid(),
                 "https://www.tiktok.com/@brand/video/123",
                 ClientId: null,
@@ -200,11 +200,10 @@ public sealed class AnalyzeSingleContentDefaultAiTests
 
             Analyzer = new SingleContentAnalyzer(
                 Repository, UnitOfWork, Clock, ContentResolver, AiGateway, Selector, provider);
-            Handler = new AnalyzeSingleContentHandler(Analyzer);
         }
 
         public Result<SocialContentResolution> ContentResult { get; set; } =
-            Result.Failure<SocialContentResolution>(IntegrationErrors.RoutingPolicyNotConfigured);
+            Result.Failure<SocialContentResolution>(IntegrationErrors.ProviderRouteNotConfigured);
 
         public Result<DefaultAiSelection> SelectorResult { get; set; } =
             Result.Success(new DefaultAiSelection("openai", "gpt-4o"));
@@ -216,7 +215,6 @@ public sealed class AnalyzeSingleContentDefaultAiTests
         public SpyAiGateway AiGateway { get; }
         public SpyDefaultAiSelector Selector { get; }
         public SingleContentAnalyzer Analyzer { get; }
-        public AnalyzeSingleContentHandler Handler { get; }
 
         public sealed class SimpleRepository : ISingleContentAnalysisRepository
         {

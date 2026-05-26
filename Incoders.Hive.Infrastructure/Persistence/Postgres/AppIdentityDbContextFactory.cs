@@ -1,4 +1,5 @@
 using Incoders.Hive.Infrastructure.Identity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
@@ -8,9 +9,25 @@ public sealed class AppIdentityDbContextFactory : IDesignTimeDbContextFactory<Ap
 {
     public AppIdentityDbContext CreateDbContext(string[] args)
     {
-        var connectionString =
-            Environment.GetEnvironmentVariable("ConnectionStrings__Postgres")
-            ?? "Host=localhost;Port=5432;Database=incoders_hive;Username=postgres;Password=postgres";
+        var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+            ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+            ?? "Development";
+
+        var apiServiceDirectory = FindApiServiceDirectory();
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(apiServiceDirectory)
+            .AddJsonFile("appsettings.json", optional: false)
+            .AddJsonFile($"appsettings.{environment}.json", optional: true)
+            .AddUserSecrets("incoders-hive-apiservice-0b4b0ca9")
+            .AddEnvironmentVariables()
+            .Build();
+
+        var connectionString = configuration.GetConnectionString("Postgres");
+        if (string.IsNullOrWhiteSpace(connectionString) || connectionString == "__SET_IN_USER_SECRETS__")
+        {
+            throw new InvalidOperationException(
+                "Connection string 'Postgres' must be configured in user-secrets or environment variables.");
+        }
 
         var builder = new DbContextOptionsBuilder<AppIdentityDbContext>();
         builder.UseNpgsql(connectionString, options =>
@@ -20,5 +37,23 @@ public sealed class AppIdentityDbContextFactory : IDesignTimeDbContextFactory<Ap
         });
 
         return new AppIdentityDbContext(builder.Options);
+    }
+
+    private static string FindApiServiceDirectory()
+    {
+        var directory = new DirectoryInfo(Directory.GetCurrentDirectory());
+
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, "Incoders.Hive.ApiService");
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("Could not locate the Incoders.Hive.ApiService project directory.");
     }
 }

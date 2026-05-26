@@ -45,10 +45,6 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<IntegrationProviderCapabilityData> IntegrationProviderCapabilities => Set<IntegrationProviderCapabilityData>();
 
-    public DbSet<OrganizationIntegrationRoutingPolicyData> OrganizationIntegrationRoutingPolicies => Set<OrganizationIntegrationRoutingPolicyData>();
-
-    public DbSet<OrganizationIntegrationRoutingPolicyItemData> OrganizationIntegrationRoutingPolicyItems => Set<OrganizationIntegrationRoutingPolicyItemData>();
-
     public DbSet<SocialNetworkData> SocialNetworks => Set<SocialNetworkData>();
 
     public DbSet<ClientReferentAccountData> ClientReferentAccounts => Set<ClientReferentAccountData>();
@@ -103,6 +99,9 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasKey(x => new { x.TenantId, x.UserId });
             entity.Property(x => x.TenantId).HasColumnName("organization_id");
             entity.Property(x => x.Role).HasMaxLength(32).IsRequired();
+            entity.HasIndex(x => x.UserId)
+                .IsUnique()
+                .HasDatabaseName("ix_organization_memberships_user_id_unique");
             entity.HasOne(x => x.Tenant)
                 .WithMany()
                 .HasForeignKey(x => x.TenantId)
@@ -167,6 +166,12 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<TenantMembershipData>()
+                .WithMany()
+                .HasForeignKey(x => new { x.OrganizationId, x.UserId })
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_organization_user_modules_membership");
 
             entity.HasOne(x => x.Module)
                 .WithMany()
@@ -292,56 +297,6 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .WithMany(x => x.Capabilities)
                 .HasForeignKey(x => x.ProviderId)
                 .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        builder.Entity<OrganizationIntegrationRoutingPolicyData>(entity =>
-        {
-            entity.ToTable("organization_integration_routing_policies", PostgresDatabaseNames.PlatformSchema);
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
-            entity.Property(x => x.FlowKey).HasMaxLength(64).IsRequired();
-            entity.Property(x => x.CapabilityKey).HasMaxLength(64).IsRequired();
-            entity.Property(x => x.PlatformKey).HasMaxLength(64);
-            entity.Property(x => x.IsEnabled).IsRequired();
-            entity.HasIndex(x => new { x.OrganizationId, x.FlowKey, x.CapabilityKey })
-                .IsUnique()
-                .HasFilter("platform_key IS NULL")
-                .HasDatabaseName("ix_org_routing_policies_org_flow_capability_global");
-            entity.HasIndex(x => new { x.OrganizationId, x.FlowKey, x.CapabilityKey, x.PlatformKey })
-                .IsUnique()
-                .HasFilter("platform_key IS NOT NULL")
-                .HasDatabaseName("ix_org_routing_policies_org_flow_capability_platform");
-
-            entity.HasOne(x => x.Organization)
-                .WithMany()
-                .HasForeignKey(x => x.OrganizationId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        builder.Entity<OrganizationIntegrationRoutingPolicyItemData>(entity =>
-        {
-            entity.ToTable("organization_integration_routing_policy_items", PostgresDatabaseNames.PlatformSchema);
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.ConnectionMode).HasMaxLength(32).IsRequired();
-            entity.Property(x => x.Priority).IsRequired();
-            entity.Property(x => x.AllowManagedFallback).IsRequired();
-            entity.Property(x => x.MaxAttempts).IsRequired();
-            entity.Property(x => x.TimeoutMs).IsRequired();
-            entity.Property(x => x.SelectedModel).HasMaxLength(200);
-            entity.Property(x => x.IsEnabled).IsRequired();
-            entity.HasIndex(x => new { x.PolicyId, x.Priority })
-                .IsUnique()
-                .HasDatabaseName("ix_org_routing_policy_items_policy_priority");
-
-            entity.HasOne(x => x.Policy)
-                .WithMany(x => x.Items)
-                .HasForeignKey(x => x.PolicyId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(x => x.Provider)
-                .WithMany(x => x.RoutingPolicyItems)
-                .HasForeignKey(x => x.ProviderId)
-                .OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<ClientReferentAccountData>(entity =>

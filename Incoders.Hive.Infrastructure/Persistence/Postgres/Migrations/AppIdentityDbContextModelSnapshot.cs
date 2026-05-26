@@ -745,129 +745,6 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("organization_integrations", "platform");
                 });
 
-            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationIntegrationRoutingPolicyData", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("CapabilityKey")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("capability_key");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at_utc");
-
-                    b.Property<string>("FlowKey")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("flow_key");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_enabled");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("organization_id");
-
-                    b.Property<string>("PlatformKey")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("platform_key");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at_utc");
-
-                    b.HasKey("Id")
-                        .HasName("pk_organization_integration_routing_policies");
-
-                    b.HasIndex("OrganizationId", "FlowKey", "CapabilityKey")
-                        .IsUnique()
-                        .HasDatabaseName("ix_org_routing_policies_org_flow_capability_global")
-                        .HasFilter("platform_key IS NULL");
-
-                    b.HasIndex("OrganizationId", "FlowKey", "CapabilityKey", "PlatformKey")
-                        .IsUnique()
-                        .HasDatabaseName("ix_org_routing_policies_org_flow_capability_platform")
-                        .HasFilter("platform_key IS NOT NULL");
-
-                    b.ToTable("organization_integration_routing_policies", "platform");
-                });
-
-            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationIntegrationRoutingPolicyItemData", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<bool>("AllowManagedFallback")
-                        .HasColumnType("boolean")
-                        .HasColumnName("allow_managed_fallback");
-
-                    b.Property<string>("ConnectionMode")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("connection_mode");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at_utc");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_enabled");
-
-                    b.Property<int>("MaxAttempts")
-                        .HasColumnType("integer")
-                        .HasColumnName("max_attempts");
-
-                    b.Property<Guid>("PolicyId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("policy_id");
-
-                    b.Property<int>("Priority")
-                        .HasColumnType("integer")
-                        .HasColumnName("priority");
-
-                    b.Property<Guid>("ProviderId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("provider_id");
-
-                    b.Property<string>("SelectedModel")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("selected_model");
-
-                    b.Property<int>("TimeoutMs")
-                        .HasColumnType("integer")
-                        .HasColumnName("timeout_ms");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at_utc");
-
-                    b.HasKey("Id")
-                        .HasName("pk_organization_integration_routing_policy_items");
-
-                    b.HasIndex("ProviderId")
-                        .HasDatabaseName("ix_organization_integration_routing_policy_items_provider_id");
-
-                    b.HasIndex("PolicyId", "Priority")
-                        .IsUnique()
-                        .HasDatabaseName("ix_org_routing_policy_items_policy_priority");
-
-                    b.ToTable("organization_integration_routing_policy_items", "platform");
-                });
-
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationModuleData", b =>
                 {
                     b.Property<Guid>("OrganizationId")
@@ -1300,6 +1177,10 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.HasKey("TenantId", "UserId")
                         .HasName("pk_organization_memberships");
 
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_organization_memberships_user_id_unique");
+
                     b.ToTable("organization_memberships", "platform");
                 });
 
@@ -1605,39 +1486,6 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.Navigation("Provider");
                 });
 
-            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationIntegrationRoutingPolicyData", b =>
-                {
-                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", "Organization")
-                        .WithMany()
-                        .HasForeignKey("OrganizationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_organization_integration_routing_policies_organizations_org~");
-
-                    b.Navigation("Organization");
-                });
-
-            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationIntegrationRoutingPolicyItemData", b =>
-                {
-                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationIntegrationRoutingPolicyData", "Policy")
-                        .WithMany("Items")
-                        .HasForeignKey("PolicyId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_organization_integration_routing_policy_items_organization_~");
-
-                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.IntegrationProviderData", "Provider")
-                        .WithMany("RoutingPolicyItems")
-                        .HasForeignKey("ProviderId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_organization_integration_routing_policy_items_integration_p~");
-
-                    b.Navigation("Policy");
-
-                    b.Navigation("Provider");
-                });
-
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationModuleData", b =>
                 {
                     b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SystemModuleData", "Module")
@@ -1681,6 +1529,13 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_organization_user_modules_users_user_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantMembershipData", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_organization_user_modules_membership");
 
                     b.Navigation("Module");
 
@@ -1785,18 +1640,11 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.Navigation("Capabilities");
 
                     b.Navigation("OrganizationIntegrations");
-
-                    b.Navigation("RoutingPolicyItems");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationIntegrationData", b =>
                 {
                     b.Navigation("Credentials");
-                });
-
-            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationIntegrationRoutingPolicyData", b =>
-                {
-                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SingleContentAnalysisData", b =>

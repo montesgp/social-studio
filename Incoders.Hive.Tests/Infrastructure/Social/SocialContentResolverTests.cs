@@ -9,7 +9,7 @@ namespace Incoders.Hive.Tests.Infrastructure.Social;
 public sealed class SocialContentResolverTests
 {
     [Fact]
-    public async Task ResolveAsync_ResolvesExtractionProviderDirectly_WithoutRoutingPolicy()
+    public async Task ResolveAsync_ResolvesExtractionProviderDirectly()
     {
         var warning = new SocialContentWarning("transcript_missing", "social.warnings.transcript_missing");
         var extractor = new StaticExtractor(Snapshot(warnings: [warning]));

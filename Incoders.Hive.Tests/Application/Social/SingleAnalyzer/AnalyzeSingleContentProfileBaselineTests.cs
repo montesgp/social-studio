@@ -36,8 +36,8 @@ public sealed class AnalyzeSingleContentProfileBaselineTests
                 []))
         };
 
-        await harness.Handler.Handle(
-            new AnalyzeSingleContentCommand(
+        await harness.Analyzer.AnalyzeAsync(
+            new SingleContentAnalysisRequest(
                 Guid.NewGuid(),
                 Guid.NewGuid(),
                 "https://www.tiktok.com/@brand/video/123",
@@ -116,11 +116,10 @@ public sealed class AnalyzeSingleContentProfileBaselineTests
             Analyzer = new SingleContentAnalyzer(
                 Repository, UnitOfWork, Clock, ContentResolver, AiGateway,
                 new StaticAiSelector(), _provider);
-            Handler = new AnalyzeSingleContentHandler(Analyzer);
         }
 
         public Result<SocialContentResolution> ContentResult { get; set; } =
-            Result.Failure<SocialContentResolution>(IntegrationErrors.RoutingPolicyNotConfigured);
+            Result.Failure<SocialContentResolution>(IntegrationErrors.ProviderRouteNotConfigured);
 
         public InMemorySingleContentAnalysisRepository Repository { get; }
         public TestUnitOfWork UnitOfWork { get; }
@@ -128,7 +127,6 @@ public sealed class AnalyzeSingleContentProfileBaselineTests
         public FakeSocialContentResolver ContentResolver { get; }
         public FakeAiGateway AiGateway { get; }
         public SingleContentAnalyzer Analyzer { get; }
-        public AnalyzeSingleContentHandler Handler { get; }
 
         // ─── Fakes ───────────────────────────────────────────────────────────
 

@@ -95,13 +95,15 @@ function normalizeModuleKeys(keys: readonly string[]): string[] {
 }
 
 function toFormState(user: AdminUser): UserFormState {
+  const organizationModules = user.organizationModules.slice(0, 1);
+
   return {
     email: user.email,
     displayName: user.displayName ?? "",
     password: "",
     status: user.status,
     roles: user.roles,
-    organizationModules: user.organizationModules.map((entry) => ({
+    organizationModules: organizationModules.map((entry) => ({
       organizationId: entry.organizationId,
       orderedModuleKeys: normalizeModuleKeys(
         [...entry.modules]
@@ -112,8 +114,16 @@ function toFormState(user: AdminUser): UserFormState {
   };
 }
 
-function roleBadgeVariant(role: string): "default" | "outline" {
-  return role === "sysadmin" ? "default" : "outline";
+function roleBadgeClassName(role: string): string {
+  return role === "sysadmin"
+    ? "border border-sky-400/40 bg-sky-500/15 text-sky-200"
+    : "border border-amber-400/40 bg-amber-500/15 text-amber-200";
+}
+
+function statusBadgeClassName(status: UserStatus): string {
+  return status === "Active"
+    ? "border border-emerald-400/40 bg-emerald-500/15 text-emerald-200"
+    : "border border-rose-400/40 bg-rose-500/15 text-rose-200";
 }
 
 function UserOrganizationModulesCell({
@@ -126,6 +136,10 @@ function UserOrganizationModulesCell({
   const organizationModules = organizationId
     ? user.organizationModules.filter((entry) => entry.organizationId === organizationId)
     : user.organizationModules;
+
+  if (organizationModules.length === 0 && user.roles.includes("sysadmin") && !organizationId) {
+    return <span className="font-medium text-sky-200">Platform access</span>;
+  }
 
   if (organizationModules.length === 0) {
     return <span>No module assignments</span>;
@@ -173,6 +187,7 @@ export function UsersTable() {
   const [submitting, setSubmitting] = useState(false);
 
   const isEditing = editingUser !== null;
+  const formIsPlatformAdmin = form.roles.includes("sysadmin");
   const sortedUsers = useMemo(() => [...users].sort((a, b) => a.email.localeCompare(b.email)), [users]);
   const visibleUsers = useMemo(
     () =>
@@ -307,46 +322,57 @@ export function UsersTable() {
     const nextForm = toFormState(user);
     setEditingUser(user);
     setForm(nextForm);
-    setSelectedOrganizationId(nextForm.organizationModules[0]?.organizationId ?? organizations[0]?.id ?? "");
+    setSelectedOrganizationId(nextForm.roles.includes("sysadmin") ? "" : nextForm.organizationModules[0]?.organizationId ?? organizations[0]?.id ?? "");
     setError(null);
     setDialogOpen(true);
   }
 
   function toggleRole(role: string) {
-    setForm((current) => ({
-      ...current,
-      roles: current.roles.includes(role)
+    setForm((current) => {
+      const nextRoles = current.roles.includes(role)
         ? current.roles.filter((item) => item !== role)
-        : [...current.roles, role],
-    }));
+        : [...current.roles, role];
+
+      if (nextRoles.includes("sysadmin")) {
+        setSelectedOrganizationId("");
+      }
+
+      return {
+        ...current,
+        roles: nextRoles,
+        organizationModules: nextRoles.includes("sysadmin") ? [] : current.organizationModules,
+      };
+    });
   }
 
   function updateOrganizationModules(organizationId: string, orderedModuleKeys: string[]) {
     setForm((current) => {
       const availableKeys = new Set((modulesByOrganization[organizationId] ?? []).map((module) => module.key));
       const nextModules = normalizeModuleKeys(orderedModuleKeys).filter((key) => availableKeys.has(key));
-      const existingIndex = current.organizationModules.findIndex((entry) => entry.organizationId === organizationId);
-      const nextOrganizationModules = [...current.organizationModules];
-
-      if (nextModules.length === 0) {
-        if (existingIndex >= 0) {
-          nextOrganizationModules.splice(existingIndex, 1);
-        }
-      } else if (existingIndex >= 0) {
-        nextOrganizationModules[existingIndex] = {
-          organizationId,
-          orderedModuleKeys: nextModules,
-        };
-      } else {
-        nextOrganizationModules.push({
-          organizationId,
-          orderedModuleKeys: nextModules,
-        });
-      }
 
       return {
         ...current,
-        organizationModules: nextOrganizationModules,
+        organizationModules:
+          nextModules.length === 0
+            ? []
+            : [
+                {
+                  organizationId,
+                  orderedModuleKeys: nextModules,
+                },
+              ],
+      };
+    });
+  }
+
+  function selectOrganization(organizationId: string) {
+    setSelectedOrganizationId(organizationId);
+    setForm((current) => {
+      const currentSelection = current.organizationModules.find((entry) => entry.organizationId === organizationId);
+
+      return {
+        ...current,
+        organizationModules: currentSelection ? [currentSelection] : [],
       };
     });
   }
@@ -374,10 +400,12 @@ export function UsersTable() {
     setSubmitting(true);
     setError(null);
     try {
-      const organizationModules = form.organizationModules.map((entry) => ({
-        organizationId: entry.organizationId,
-        orderedModuleKeys: normalizeModuleKeys(entry.orderedModuleKeys),
-      }));
+      const organizationModules = formIsPlatformAdmin
+        ? []
+        : form.organizationModules.map((entry) => ({
+            organizationId: entry.organizationId,
+            orderedModuleKeys: normalizeModuleKeys(entry.orderedModuleKeys),
+          })).slice(0, 1);
 
       if (isEditing) {
         const updated = await updateAdminUser(
@@ -482,7 +510,7 @@ export function UsersTable() {
                   <div className="flex flex-wrap gap-1">
                     {user.roles.length > 0 ? (
                       user.roles.map((role) => (
-                        <Badge key={role} variant={roleBadgeVariant(role)} className="text-xs">
+                        <Badge key={role} variant="outline" className={roleBadgeClassName(role)}>
                           {role}
                         </Badge>
                       ))
@@ -495,7 +523,7 @@ export function UsersTable() {
                   <UserOrganizationModulesCell user={user} organizationId={filterOrganizationId} />
                 </td>
                 <td className="px-4 py-3">
-                  <Badge variant={user.status === "Active" ? "default" : "destructive"}>
+                  <Badge variant="outline" className={statusBadgeClassName(user.status)}>
                     {user.status}
                   </Badge>
                 </td>
@@ -618,8 +646,8 @@ export function UsersTable() {
                   id="admin-user-modules-organization"
                   className="w-full"
                   value={selectedOrganizationId}
-                  onChange={(event) => setSelectedOrganizationId(event.target.value)}
-                  disabled={organizations.length === 0}
+                  onChange={(event) => selectOrganization(event.target.value)}
+                  disabled={organizations.length === 0 || formIsPlatformAdmin}
                 >
                   {organizations.length === 0 ? <option value="">No organizations available</option> : null}
                   {organizations.map((organization) => (
@@ -629,11 +657,13 @@ export function UsersTable() {
                   ))}
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Only modules assigned to the selected organization are available. Drag to reorder; values persist when saving the user.
+                  Platform sysadmins have platform-wide access without an organization assignment.
                 </p>
               </div>
 
-              {selectedOrganizationId ? (
+              {formIsPlatformAdmin ? (
+                <p className="text-xs text-muted-foreground">No organization assignment applies to this role.</p>
+              ) : selectedOrganizationId ? (
                 <>
                   {loadingModulesOrganizationId === selectedOrganizationId ? (
                     <p className="text-xs text-muted-foreground">Loading organization modules...</p>

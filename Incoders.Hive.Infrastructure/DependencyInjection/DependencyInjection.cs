@@ -119,7 +119,6 @@ public static class DependencyInjection
         services.AddScoped<IIntegrationProviderCatalogRepository, EfIntegrationProviderCatalogRepository>();
         services.AddScoped<IOrganizationIntegrationRepository, EfOrganizationIntegrationRepository>();
         services.AddScoped<IOrganizationIntegrationCredentialRepository, EfOrganizationIntegrationCredentialRepository>();
-        services.AddScoped<IIntegrationRoutingPolicyRepository, EfIntegrationRoutingPolicyRepository>();
         services.AddScoped<IIntegrationExecutionAttemptRepository, EfIntegrationExecutionAttemptRepository>();
         services.AddScoped<ISingleContentAnalysisRepository, EfSingleContentAnalysisRepository>();
         // Per-platform Apify scrape adapters (ISocialPlatformScrapeAdapter)
@@ -157,14 +156,18 @@ public static class DependencyInjection
         services.AddScoped<IExternalIntegrationHealthCheck, ApifyIntegrationHealthCheck>();
         services.AddScoped<IExternalIntegrationHealthCheck, ClaudeIntegrationHealthCheck>();
         services.AddScoped<IIntegrationConnectionTester, DefaultIntegrationConnectionTester>();
+        // Pre-flight gate: probes all required provider APIs before the analyzer workflow starts.
+        services.AddScoped<IContentAnalysisPreflight, ContentAnalysisPreflight>();
         services.AddScoped<IIntegrationResolver, IntegrationResolver>();
-        services.AddScoped<IOrganizationIntegrationResolver, OrganizationIntegrationResolver>();
         services.AddScoped<IIntegrationCredentialResolver, IntegrationCredentialResolver>();
         services.AddScoped<IProviderFallbackPolicy, ProviderFallbackPolicy>();
         services.AddScoped<IIntegrationExecutionPolicy, IntegrationExecutionPolicy>();
         services.AddScoped<IExternalProviderClientFactory, ExternalProviderClientFactory>();
         services.AddScoped<IAiCompletionGateway, AiCompletionGateway>();
         services.AddScoped<ISocialContentResolver, SocialContentResolver>();
+        // Background job queue for the async single-analyzer pipeline. Singleton: one in-memory
+        // bounded channel shared by the POST producer and the hosted worker consumer.
+        services.AddSingleton<ISingleAnalysisJobQueue, ChannelSingleAnalysisJobQueue>();
         services.AddScoped<IntegrationCatalogSeeder>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 
