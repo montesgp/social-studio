@@ -1,0 +1,56 @@
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Caption;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.ContentIdea;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.CtaVariation;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Flyer;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Hook;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.ReelScript;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Incoders.Hive.Application.Features.Social.ContentGeneration;
+
+/// <summary>
+/// Application-layer DI registrations for the content generation feature.
+/// Registers all 7 format generators and the orchestrator.
+/// Infrastructure adapters (IAiCompletionGateway, IClientBrandSnapshotLoader) are
+/// registered by the Infrastructure layer; this method only registers Application types.
+/// </summary>
+public static class ContentGenerationServiceExtensions
+{
+    /// <summary>
+    /// Registers all format content generators, the format generator registry,
+    /// and the content package orchestrator.
+    /// </summary>
+    public static IServiceCollection AddContentGeneration(this IServiceCollection services)
+    {
+        // Register each generator under both the concrete type (for typed resolution in tests)
+        // and the IFormatContentGenerator interface (for registry enumeration via DI).
+        services.AddScoped<CarouselGenerator>();
+        services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<CarouselGenerator>());
+
+        services.AddScoped<FlyerGenerator>();
+        services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<FlyerGenerator>());
+
+        services.AddScoped<ReelScriptGenerator>();
+        services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<ReelScriptGenerator>());
+
+        services.AddScoped<ContentIdeaGenerator>();
+        services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<ContentIdeaGenerator>());
+
+        services.AddScoped<CtaVariationGenerator>();
+        services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<CtaVariationGenerator>());
+
+        services.AddScoped<CaptionGenerator>();
+        services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<CaptionGenerator>());
+
+        services.AddScoped<HookGenerator>();
+        services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<HookGenerator>());
+
+        // Orchestrator resolves all IFormatContentGenerator registrations via IEnumerable<>
+        services.AddScoped<IContentGenerationOrchestrator, ContentPackageOrchestrator>();
+
+        return services;
+    }
+}

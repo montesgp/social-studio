@@ -3,6 +3,7 @@ using FluentValidation;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Common;
 using Incoders.Hive.Application.Features.ContentAnalysis;
+using Incoders.Hive.Application.Features.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.SingleAnalyzer.Analyze;
 using Incoders.Hive.Application.Features.Social.SingleAnalyzer.Profile;
 using MediatR;
@@ -34,6 +35,9 @@ public static class DependencyInjection
         // Module-neutral content-analysis profile seam (CAP2)
         services.AddScoped<IContentAnalysisProfile, SocialContentAnalysisProfile>();
         services.AddScoped<IContentAnalysisProfileProvider, ContentAnalysisProfileProvider>();
+
+        // Content generation feature: all 7 format generators + orchestrator
+        services.AddContentGeneration();
 
         return services;
     }
