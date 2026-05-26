@@ -2,6 +2,7 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
@@ -25,6 +26,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
     private readonly IDefaultAiSelector _defaultAiSelector;
     private readonly IContentAnalysisProfileProvider _profileProvider;
     private readonly IContentAnalysisPreflight? _preflight;
+    private readonly ProviderCallContext? _providerCallContext;
     private readonly ILogger<SingleContentAnalyzer> _logger;
 
     public SingleContentAnalyzer(
@@ -36,6 +38,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         IDefaultAiSelector defaultAiSelector,
         IContentAnalysisProfileProvider profileProvider,
         IContentAnalysisPreflight? preflight = null,
+        ProviderCallContext? providerCallContext = null,
         ILogger<SingleContentAnalyzer>? logger = null)
     {
         _analyses = analyses;
@@ -46,6 +49,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         _defaultAiSelector = defaultAiSelector;
         _profileProvider = profileProvider;
         _preflight = preflight;
+        _providerCallContext = providerCallContext;
         _logger = logger ?? NullLogger<SingleContentAnalyzer>.Instance;
     }
 
@@ -363,6 +367,9 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         AnalysisContext ctx,
         CancellationToken cancellationToken)
     {
+        // One correlation ID per analysis run — stitches all ledger rows for this job.
+        var correlationId = Guid.NewGuid();
+
         analysis = await PersistStatusAsync(analysis, SingleContentAnalysisStatus.ResolvingContent, cancellationToken);
 
         _logger.LogInformation(
@@ -372,15 +379,25 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             request.OrganizationId,
             ctx.PlatformKey);
 
-        var content = await _contentResolver.ResolveAsync(
-            new SocialContentResolutionRequest(
-                request.OrganizationId,
-                analysis.Id,
-                request.ClientId,
-                ctx.SourceUrl.OriginalUrl,
-                ctx.PlatformKey,
-                ctx.ExtractionProviderKey),
-            cancellationToken);
+        Result<SocialContentResolution> content;
+        using (_providerCallContext?.Begin(
+                   request.OrganizationId,
+                   request.ClientId,
+                   workflowKey: FlowKey,
+                   pipelineStepKey: "content-resolution",
+                   promptVersion: null,
+                   correlationId))
+        {
+            content = await _contentResolver.ResolveAsync(
+                new SocialContentResolutionRequest(
+                    request.OrganizationId,
+                    analysis.Id,
+                    request.ClientId,
+                    ctx.SourceUrl.OriginalUrl,
+                    ctx.PlatformKey,
+                    ctx.ExtractionProviderKey),
+                cancellationToken);
+        }
 
         if (content.IsFailure)
         {
@@ -423,16 +440,26 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             ctx.AiProviderKey,
             ctx.AiModel ?? "(provider default)");
 
-        var ai = await _aiGateway.CompleteJsonAsync<SingleAnalyzerAnalysis>(
-            new AiJsonCompletionRequest(
-                request.OrganizationId,
-                analysis.Id,
-                ctx.AiCapabilityKey,
-                ctx.PromptVersionKey,
-                JsonSerializer.Serialize(CreateAiInput(ctx.SourceUrl, content.Value.Snapshot), JsonOptions),
-                ctx.AiProviderKey,
-                ctx.AiModel),
-            cancellationToken);
+        Result<AiJsonCompletionResponse<SingleAnalyzerAnalysis>> ai;
+        using (_providerCallContext?.Begin(
+                   request.OrganizationId,
+                   request.ClientId,
+                   workflowKey: FlowKey,
+                   pipelineStepKey: "ai-analysis",
+                   promptVersion: ctx.PromptVersionKey,
+                   correlationId))
+        {
+            ai = await _aiGateway.CompleteJsonAsync<SingleAnalyzerAnalysis>(
+                new AiJsonCompletionRequest(
+                    request.OrganizationId,
+                    analysis.Id,
+                    ctx.AiCapabilityKey,
+                    ctx.PromptVersionKey,
+                    JsonSerializer.Serialize(CreateAiInput(ctx.SourceUrl, content.Value.Snapshot), JsonOptions),
+                    ctx.AiProviderKey,
+                    ctx.AiModel),
+                cancellationToken);
+        }
 
         if (ai.IsFailure)
         {

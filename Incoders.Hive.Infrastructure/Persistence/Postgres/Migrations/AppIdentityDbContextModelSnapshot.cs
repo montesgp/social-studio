@@ -824,6 +824,59 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("organization_user_modules", "platform");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ProviderCostRateData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal?>("CostPer1KInputTokens")
+                        .HasColumnType("numeric(18,8)")
+                        .HasColumnName("cost_per_1k_input_tokens");
+
+                    b.Property<decimal?>("CostPer1KOutputTokens")
+                        .HasColumnType("numeric(18,8)")
+                        .HasColumnName("cost_per_1k_output_tokens");
+
+                    b.Property<decimal?>("CostPerRequest")
+                        .HasColumnType("numeric(18,8)")
+                        .HasColumnName("cost_per_request");
+
+                    b.Property<DateTime>("EffectiveFrom")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("effective_from");
+
+                    b.Property<DateTime?>("EffectiveTo")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("effective_to");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("model");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("ProviderKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("provider_key");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_cost_rates");
+
+                    b.HasIndex("ProviderKey", "Model", "EffectiveFrom")
+                        .IsUnique()
+                        .HasDatabaseName("ix_provider_cost_rates_provider_model_effective_from");
+
+                    b.ToTable("provider_cost_rates", "platform");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SingleContentAnalysisData", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1186,6 +1239,126 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasDatabaseName("ix_organization_memberships_user_id_unique");
 
                     b.ToTable("organization_memberships", "platform");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.UsageEventData", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid?>("ClientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_id");
+
+                    b.Property<DateTime>("CompletedTimestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_timestamp");
+
+                    b.Property<Guid>("CorrelationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("DurationMs")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<decimal?>("EstimatedCostUsd")
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("estimated_cost_usd");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<int?>("InputTokens")
+                        .HasColumnType("integer")
+                        .HasColumnName("input_tokens");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("model");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<int?>("OutputTokens")
+                        .HasColumnType("integer")
+                        .HasColumnName("output_tokens");
+
+                    b.Property<string>("PipelineStepKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("pipeline_step_key");
+
+                    b.Property<string>("PromptVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("prompt_version");
+
+                    b.Property<string>("ProviderKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("provider_key");
+
+                    b.Property<int?>("RequestSizeBytes")
+                        .HasColumnType("integer")
+                        .HasColumnName("request_size_bytes");
+
+                    b.Property<DateTime>("RequestTimestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("request_timestamp");
+
+                    b.Property<int?>("ResponseSizeBytes")
+                        .HasColumnType("integer")
+                        .HasColumnName("response_size_bytes");
+
+                    b.Property<int>("RetryCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("retry_count");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("WorkflowKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("workflow_key");
+
+                    b.HasKey("Id")
+                        .HasName("pk_usage_events");
+
+                    b.HasIndex("CorrelationId")
+                        .HasDatabaseName("ix_usage_events_correlation_id");
+
+                    b.HasIndex("OrganizationId", "RequestTimestamp")
+                        .HasDatabaseName("ix_usage_events_org_timestamp");
+
+                    b.HasIndex("OrganizationId", "ClientId", "RequestTimestamp")
+                        .HasDatabaseName("ix_usage_events_org_client_timestamp");
+
+                    b.HasIndex("ProviderKey", "Model", "RequestTimestamp")
+                        .HasDatabaseName("ix_usage_events_provider_model_timestamp");
+
+                    b.ToTable("usage_events", "platform");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.UserPreferenceData", b =>

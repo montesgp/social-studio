@@ -51,5 +51,6 @@ public sealed record AiJsonCompletionResponse<TResponse>(
     TResponse Payload,
     string ProviderKey,
     string? Model,
-    IReadOnlyList<ProviderFailureDiagnostic> Diagnostics)
+    IReadOnlyList<ProviderFailureDiagnostic> Diagnostics,
+    TokenUsage? TokenUsage = null)
     where TResponse : notnull;

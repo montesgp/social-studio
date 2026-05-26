@@ -2,6 +2,7 @@ using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Integrations;
+using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Infrastructure.Ai;
@@ -12,14 +13,17 @@ using Incoders.Hive.Infrastructure.Caching.InMemory;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Integrations;
 using Incoders.Hive.Infrastructure.Integrations.HealthChecks;
+using Incoders.Hive.Infrastructure.Observability;
 using Incoders.Hive.Infrastructure.PlatformConfiguration;
 using Incoders.Hive.Infrastructure.Persistence;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
+using Incoders.Hive.Infrastructure.Persistence.Postgres.Repositories;
 using Incoders.Hive.Infrastructure.Social.Providers.Apify;
 using Incoders.Hive.Infrastructure.Social.Workflow;
 using Incoders.Hive.Infrastructure.Tenancy;
 using Incoders.Hive.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -49,6 +53,7 @@ public static class DependencyInjection
 
         services.AddMultiTenancy(configuration);
         services.AddClientAssetStorage(configuration);
+        services.AddObservability();
 
 
         return services;
@@ -166,7 +171,18 @@ public static class DependencyInjection
         services.AddScoped<IProviderFallbackPolicy, ProviderFallbackPolicy>();
         services.AddScoped<IIntegrationExecutionPolicy, IntegrationExecutionPolicy>();
         services.AddScoped<IExternalProviderClientFactory, ExternalProviderClientFactory>();
-        services.AddScoped<IAiCompletionGateway, AiCompletionGateway>();
+        // Register the concrete gateway first, then wrap it with the instrumentation decorator.
+        // Manual DI decoration (Scrutor not available): inner is registered under a named key via
+        // keyed services, outer is resolved as IAiCompletionGateway.
+        services.AddScoped<AiCompletionGateway>();
+        services.AddScoped<IAiCompletionGateway>(sp =>
+        {
+            var inner = sp.GetRequiredService<AiCompletionGateway>();
+            var ledger = sp.GetRequiredService<IUsageEventLedger>();
+            var ctx = sp.GetRequiredService<ProviderCallContext>();
+            return new AiCompletionGatewayInstrumentationDecorator(inner, ledger, ctx);
+        });
+
         services.AddScoped<ISocialContentResolver, SocialContentResolver>();
         // Background job queue for the async single-analyzer pipeline. Singleton: one in-memory
         // bounded channel shared by the POST producer and the hosted worker consumer.
@@ -177,6 +193,27 @@ public static class DependencyInjection
         return services;
     }
 
+
+    private static IServiceCollection AddObservability(this IServiceCollection services)
+    {
+        // In-memory cache for cost rate lookups (shared per DI container — effectively singleton).
+        services.AddMemoryCache();
+
+        // Cost rate repository and cached lookup
+        services.AddScoped<IProviderCostRateRepository, EfProviderCostRateRepository>();
+        services.AddScoped<IProviderCostRateLookup, ProviderCostRateLookup>();
+
+        // Usage event storage (insert-only)
+        services.AddScoped<IUsageEventRepository, EfUsageEventRepository>();
+
+        // Safe ledger implementation — wraps all writes in try/catch
+        services.AddScoped<IUsageEventLedger, UsageEventLedger>();
+
+        // Ambient provider call context (scoped — one per HTTP request / background job scope)
+        services.AddScoped<ProviderCallContext>();
+
+        return services;
+    }
 
     private static void TryAddTimeProvider(this IServiceCollection services)
     {

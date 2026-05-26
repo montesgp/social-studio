@@ -59,6 +59,10 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<IntegrationExecutionAttemptData> IntegrationExecutionAttempts => Set<IntegrationExecutionAttemptData>();
 
+    public DbSet<UsageEventData> UsageEvents => Set<UsageEventData>();
+
+    public DbSet<ProviderCostRateData> ProviderCostRates => Set<ProviderCostRateData>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -531,6 +535,60 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .WithMany(x => x.Attempts)
                 .HasForeignKey(x => x.AnalysisId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<UsageEventData>(entity =>
+        {
+            entity.ToTable("usage_events", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id");
+            entity.Property(x => x.WorkflowKey).HasColumnName("workflow_key").HasMaxLength(128).IsRequired();
+            entity.Property(x => x.PipelineStepKey).HasColumnName("pipeline_step_key").HasMaxLength(128).IsRequired();
+            entity.Property(x => x.ProviderKey).HasColumnName("provider_key").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Model).HasColumnName("model").HasMaxLength(128);
+            entity.Property(x => x.PromptVersion).HasColumnName("prompt_version").HasMaxLength(64);
+            entity.Property(x => x.RequestTimestamp).HasColumnName("request_timestamp").IsRequired();
+            entity.Property(x => x.CompletedTimestamp).HasColumnName("completed_timestamp").IsRequired();
+            entity.Property(x => x.DurationMs).HasColumnName("duration_ms").IsRequired();
+            entity.Property(x => x.InputTokens).HasColumnName("input_tokens");
+            entity.Property(x => x.OutputTokens).HasColumnName("output_tokens");
+            entity.Property(x => x.EstimatedCostUsd).HasColumnName("estimated_cost_usd").HasColumnType("numeric(18,6)");
+            entity.Property(x => x.RequestSizeBytes).HasColumnName("request_size_bytes");
+            entity.Property(x => x.ResponseSizeBytes).HasColumnName("response_size_bytes");
+            entity.Property(x => x.RetryCount).HasColumnName("retry_count").IsRequired().HasDefaultValue(0);
+            entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.FailureCode).HasColumnName("failure_code").HasMaxLength(128);
+            entity.Property(x => x.CorrelationId).HasColumnName("correlation_id").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+
+            entity.HasIndex(x => new { x.OrganizationId, x.RequestTimestamp })
+                .HasDatabaseName("ix_usage_events_org_timestamp");
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId, x.RequestTimestamp })
+                .HasDatabaseName("ix_usage_events_org_client_timestamp");
+            entity.HasIndex(x => new { x.ProviderKey, x.Model, x.RequestTimestamp })
+                .HasDatabaseName("ix_usage_events_provider_model_timestamp");
+            entity.HasIndex(x => x.CorrelationId)
+                .HasDatabaseName("ix_usage_events_correlation_id");
+        });
+
+        builder.Entity<ProviderCostRateData>(entity =>
+        {
+            entity.ToTable("provider_cost_rates", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProviderKey).HasColumnName("provider_key").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Model).HasColumnName("model").HasMaxLength(128);
+            entity.Property(x => x.CostPer1KInputTokens).HasColumnName("cost_per_1k_input_tokens").HasColumnType("numeric(18,8)");
+            entity.Property(x => x.CostPer1KOutputTokens).HasColumnName("cost_per_1k_output_tokens").HasColumnType("numeric(18,8)");
+            entity.Property(x => x.CostPerRequest).HasColumnName("cost_per_request").HasColumnType("numeric(18,8)");
+            entity.Property(x => x.EffectiveFrom).HasColumnName("effective_from").IsRequired();
+            entity.Property(x => x.EffectiveTo).HasColumnName("effective_to");
+            entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(500);
+
+            entity.HasIndex(x => new { x.ProviderKey, x.Model, x.EffectiveFrom })
+                .IsUnique()
+                .HasDatabaseName("ix_provider_cost_rates_provider_model_effective_from");
         });
     }
 
