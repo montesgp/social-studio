@@ -1,0 +1,145 @@
+using Incoders.Hive.Domain.Social.ContentGeneration;
+
+namespace Incoders.Hive.Tests.Domain.Social.ContentGeneration;
+
+public sealed class BrandSnapshotTests
+{
+    // --- Frozen copy semantics (immutability) ---
+
+    [Fact]
+    public void BrandSnapshot_IsImmutableRecord()
+    {
+        var snapshot = BuildFullSnapshot();
+
+        // Record types are structurally immutable — all properties are init-only
+        Assert.IsAssignableFrom<BrandSnapshot>(snapshot);
+        Assert.NotNull(snapshot.Brand);
+        Assert.NotNull(snapshot.Strategy);
+        Assert.NotNull(snapshot.MonthlyObjective);
+    }
+
+    // --- Full brand: no inferred fields ---
+
+    [Fact]
+    public void FullBrandSnapshot_HasNoInferredFields()
+    {
+        var snapshot = BuildFullSnapshot();
+
+        Assert.DoesNotContain(snapshot.InferredFields, kv => kv.Value);
+    }
+
+    [Fact]
+    public void FullBrandSnapshot_AllFieldsMarkedNotInferred()
+    {
+        var snapshot = BuildFullSnapshot();
+
+        // Every field we expose should be present and marked false (not inferred)
+        Assert.True(snapshot.InferredFields.ContainsKey("ColorPalette"));
+        Assert.False(snapshot.InferredFields["ColorPalette"]);
+        Assert.True(snapshot.InferredFields.ContainsKey("VoiceAndTone"));
+        Assert.False(snapshot.InferredFields["VoiceAndTone"]);
+    }
+
+    // --- Empty / null brand: all fields inferred ---
+
+    [Fact]
+    public void EmptyBrandSnapshot_AllFieldsAreInferred()
+    {
+        var snapshot = BrandSnapshot.FromBrandData(null, null, null);
+
+        Assert.True(snapshot.InferredFields.All(kv => kv.Value));
+    }
+
+    [Fact]
+    public void EmptyBrandSnapshot_HasNoNullValues_OnlyInferredMarkers()
+    {
+        var snapshot = BrandSnapshot.FromBrandData(null, null, null);
+
+        // Snapshot must not have null collections — it should have defaults
+        Assert.NotNull(snapshot.Brand);
+        Assert.Empty(snapshot.Brand!.ColorPalette);
+    }
+
+    // --- Partial brand: only missing fields inferred ---
+
+    [Fact]
+    public void PartialBrandSnapshot_MissingColorPalette_ColorPaletteIsInferred()
+    {
+        var brandData = new BrandManualSnapshot(
+            ColorPalette: Array.Empty<string>(),   // empty = missing
+            Logos: Array.Empty<string>(),
+            Typography: Array.Empty<string>(),
+            VoiceAndTone: "Professional and friendly",
+            Notes: null);
+
+        var snapshot = BrandSnapshot.FromBrandData(brandData, null, null);
+
+        Assert.True(snapshot.InferredFields["ColorPalette"]);
+        Assert.False(snapshot.InferredFields["VoiceAndTone"]);
+    }
+
+    [Fact]
+    public void PartialBrandSnapshot_WithVoiceOnly_OnlyNonVoiceFieldsAreInferred()
+    {
+        var brandData = new BrandManualSnapshot(
+            ColorPalette: Array.Empty<string>(),
+            Logos: Array.Empty<string>(),
+            Typography: Array.Empty<string>(),
+            VoiceAndTone: "Bold and direct",
+            Notes: null);
+
+        var snapshot = BrandSnapshot.FromBrandData(brandData, null, null);
+
+        // VoiceAndTone is present — should NOT be inferred
+        Assert.False(snapshot.InferredFields["VoiceAndTone"]);
+
+        // ColorPalette is absent — should be inferred
+        Assert.True(snapshot.InferredFields["ColorPalette"]);
+    }
+
+    // --- IsInferred map is read-only ---
+
+    [Fact]
+    public void BrandSnapshot_InferredFields_IsReadOnly()
+    {
+        var snapshot = BuildFullSnapshot();
+
+        Assert.IsAssignableFrom<IReadOnlyDictionary<string, bool>>(snapshot.InferredFields);
+    }
+
+    // --- BrandSnapshot.Empty ---
+
+    [Fact]
+    public void BrandSnapshot_Empty_AllFieldsInferredAndNonNull()
+    {
+        var empty = BrandSnapshot.Empty;
+
+        Assert.NotNull(empty);
+        Assert.True(empty.InferredFields.Any());
+        Assert.True(empty.InferredFields.All(kv => kv.Value));
+    }
+
+    // --- Helpers ---
+
+    private static BrandSnapshot BuildFullSnapshot()
+    {
+        var brand = new BrandManualSnapshot(
+            ColorPalette: new[] { "#FF0000", "#00FF00" },
+            Logos: new[] { "https://cdn.example.com/logo.png" },
+            Typography: new[] { "Inter", "Roboto" },
+            VoiceAndTone: "Friendly and professional",
+            Notes: "Q1 brand guidelines");
+
+        var strategy = new StrategySnapshot(
+            ContentPillars: new[] { "Education", "Entertainment" },
+            ToneKeywords: new[] { "friendly", "bold" },
+            TargetAudience: "Young professionals 25-35",
+            PostingFrequency: "3 posts/week");
+
+        var objective = new MonthlyObjectiveSnapshot(
+            Objectives: "Grow engagement by 20%",
+            Kpis: new[] { "Reach 10k views", "CTR > 5%" });
+
+        return BrandSnapshot.FromBrandData(brand, strategy, objective);
+    }
+}

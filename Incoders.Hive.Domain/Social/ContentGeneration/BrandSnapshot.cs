@@ -1,0 +1,64 @@
+namespace Incoders.Hive.Domain.Social.ContentGeneration;
+
+/// <summary>
+/// Frozen copy of all brand context at content-generation job-start time.
+/// Immutable for the lifetime of the job.
+/// <para>
+/// <see cref="InferredFields"/> maps each field name to true when the value was derived
+/// from inference (absent explicit client input) rather than from persisted brand data.
+/// </para>
+/// </summary>
+public sealed record BrandSnapshot(
+    BrandManualSnapshot? Brand,
+    StrategySnapshot? Strategy,
+    MonthlyObjectiveSnapshot? MonthlyObjective,
+    IReadOnlyDictionary<string, bool> InferredFields)
+{
+    /// <summary>
+    /// Fully-inferred snapshot — used when no brand data exists at all.
+    /// </summary>
+    public static BrandSnapshot Empty => FromBrandData(null, null, null);
+
+    /// <summary>
+    /// Builds a brand snapshot from the supplied (nullable) brand data sources.
+    /// Missing or empty fields are marked <c>IsInferred = true</c> in <see cref="InferredFields"/>.
+    /// This factory is domain-only; actual data loading lives in Application/Infrastructure.
+    /// </summary>
+    public static BrandSnapshot FromBrandData(
+        BrandManualSnapshot? brand,
+        StrategySnapshot? strategy,
+        MonthlyObjectiveSnapshot? monthlyObjective)
+    {
+        var inferred = new Dictionary<string, bool>();
+
+        // Brand manual fields
+        bool hasBrand = brand is not null;
+        inferred["ColorPalette"] = !hasBrand || brand!.ColorPalette.Count == 0;
+        inferred["Logos"] = !hasBrand || brand!.Logos.Count == 0;
+        inferred["Typography"] = !hasBrand || brand!.Typography.Count == 0;
+        inferred["VoiceAndTone"] = !hasBrand || string.IsNullOrWhiteSpace(brand!.VoiceAndTone);
+        inferred["Notes"] = !hasBrand || string.IsNullOrWhiteSpace(brand!.Notes);
+
+        // Strategy fields
+        bool hasStrategy = strategy is not null;
+        inferred["ContentPillars"] = !hasStrategy || strategy!.ContentPillars.Count == 0;
+        inferred["ToneKeywords"] = !hasStrategy || strategy!.ToneKeywords.Count == 0;
+        inferred["TargetAudience"] = !hasStrategy || string.IsNullOrWhiteSpace(strategy!.TargetAudience);
+        inferred["PostingFrequency"] = !hasStrategy || string.IsNullOrWhiteSpace(strategy!.PostingFrequency);
+
+        // Monthly objective
+        bool hasObjective = monthlyObjective is not null;
+        inferred["MonthlyObjectives"] = !hasObjective || string.IsNullOrWhiteSpace(monthlyObjective!.Objectives);
+        inferred["MonthlyKpis"] = !hasObjective || monthlyObjective!.Kpis.Count == 0;
+
+        // Provide a default empty brand if none was supplied so consumers don't see nulls
+        var effectiveBrand = brand ?? new BrandManualSnapshot(
+            ColorPalette: Array.Empty<string>(),
+            Logos: Array.Empty<string>(),
+            Typography: Array.Empty<string>(),
+            VoiceAndTone: null,
+            Notes: null);
+
+        return new BrandSnapshot(effectiveBrand, strategy, monthlyObjective, inferred);
+    }
+}

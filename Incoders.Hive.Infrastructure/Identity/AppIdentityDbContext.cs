@@ -502,6 +502,9 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
             entity.Property(x => x.FailureCode).HasMaxLength(128);
             entity.Property(x => x.FailureMessageKey).HasMaxLength(200);
+            entity.Property(x => x.PatternSetJson)
+                .HasColumnName("pattern_set_json")
+                .HasColumnType("jsonb");
             entity.HasIndex(x => new { x.OrganizationId, x.Status })
                 .HasDatabaseName("ix_single_content_analyses_org_status");
             entity.HasIndex(x => new { x.OrganizationId, x.SourcePlatformKey })

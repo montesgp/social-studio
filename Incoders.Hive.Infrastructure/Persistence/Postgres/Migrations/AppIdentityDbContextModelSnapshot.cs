@@ -870,6 +870,10 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("organization_id");
 
+                    b.Property<string>("PatternSetJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("pattern_set_json");
+
                     b.Property<string>("ProviderDiagnosticsJson")
                         .HasColumnType("text")
                         .HasColumnName("provider_diagnostics_json");
