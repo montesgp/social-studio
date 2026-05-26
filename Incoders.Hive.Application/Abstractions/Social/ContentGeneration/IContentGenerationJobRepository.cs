@@ -10,6 +10,13 @@ public interface IContentGenerationJobRepository
 
     Task<ContentGenerationJob?> GetByIdAsync(Guid id, Guid organizationId, CancellationToken ct);
 
+    /// <summary>
+    /// Loads a job by id without tenant filtering.
+    /// FOR INTERNAL USE ONLY — called by the background worker after dequeuing from the internal channel.
+    /// Never expose this over an HTTP boundary.
+    /// </summary>
+    Task<ContentGenerationJob?> GetByIdInternalAsync(Guid id, CancellationToken ct);
+
     Task UpdateStatusAsync(Guid id, string status, string? statusReason, string? errorCode, CancellationToken ct);
 
     Task UpdateManifestAsync(Guid id, string manifestJson, DateTime completedAt, CancellationToken ct);

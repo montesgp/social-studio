@@ -193,6 +193,9 @@ public static class DependencyInjection
         // Background job queue for the async single-analyzer pipeline. Singleton: one in-memory
         // bounded channel shared by the POST producer and the hosted worker consumer.
         services.AddSingleton<ISingleAnalysisJobQueue, ChannelSingleAnalysisJobQueue>();
+
+        // Background job queue for the async content-generation pipeline.
+        services.AddSingleton<IContentGenerationJobQueue, ChannelContentGenerationJobQueue>();
         services.AddScoped<IntegrationCatalogSeeder>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 

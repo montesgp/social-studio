@@ -29,6 +29,16 @@ public sealed class EfContentGenerationJobRepository : IContentGenerationJobRepo
         return entity is null ? null : Map(entity);
     }
 
+    /// <inheritdoc />
+    public async Task<ContentGenerationJob?> GetByIdInternalAsync(Guid id, CancellationToken ct)
+    {
+        var entity = await _db.ContentGenerationJobs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == id, ct);
+
+        return entity is null ? null : Map(entity);
+    }
+
     public async Task UpdateStatusAsync(Guid id, string status, string? statusReason, string? errorCode, CancellationToken ct)
     {
         var entity = await _db.ContentGenerationJobs.FindAsync(new object[] { id }, ct);
