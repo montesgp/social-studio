@@ -66,11 +66,15 @@ public sealed record SingleAnalyzerSourceUrl(
             "instagram.com" or "instagr.am" => "instagram",
             "youtube.com" or "youtu.be" or "youtube-nocookie.com" => "youtube",
             "x.com" or "twitter.com" => "x",
+            "facebook.com" or "fb.com" or "fb.watch" or "m.facebook.com" => "facebook",
+            "linkedin.com" or "lnkd.in" => "linkedin",
             _ when normalizedHost.EndsWith(".tiktok.com", StringComparison.Ordinal) => "tiktok",
             _ when normalizedHost.EndsWith(".instagram.com", StringComparison.Ordinal) => "instagram",
             _ when normalizedHost.EndsWith(".youtube.com", StringComparison.Ordinal) => "youtube",
             _ when normalizedHost.EndsWith(".x.com", StringComparison.Ordinal) => "x",
             _ when normalizedHost.EndsWith(".twitter.com", StringComparison.Ordinal) => "x",
+            _ when normalizedHost.EndsWith(".facebook.com", StringComparison.Ordinal) => "facebook",
+            _ when normalizedHost.EndsWith(".linkedin.com", StringComparison.Ordinal) => "linkedin",
             _ => "unknown"
         };
     }

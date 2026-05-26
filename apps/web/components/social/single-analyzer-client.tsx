@@ -13,6 +13,8 @@ import {
   Megaphone,
   CheckCircle2,
   ChevronRight,
+  Sparkles,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
@@ -82,6 +84,48 @@ function statusToStepIndex(status: SingleContentAnalysisStatus | null): number {
   if (status === "Analyzed" || status === "Failed") return ANALYSIS_STEPS.length;
   const idx = ANALYSIS_STEPS.findIndex((s) => s.statuses.includes(status));
   return idx === -1 ? 0 : idx;
+}
+
+// ── URL → social platform detector ────────────────────────────────────────────
+// Mirrors Domain.SingleAnalyzerSourceUrl.DetectPlatform so we can show the user the detected
+// network BEFORE submitting. The backend is still the source of truth — this is UX-only.
+type DetectedPlatform =
+  | "tiktok"
+  | "instagram"
+  | "youtube"
+  | "x"
+  | "facebook"
+  | "linkedin"
+  | "unknown";
+
+const PLATFORM_LABELS: Record<DetectedPlatform, string> = {
+  tiktok: "TikTok",
+  instagram: "Instagram",
+  youtube: "YouTube",
+  x: "X / Twitter",
+  facebook: "Facebook",
+  linkedin: "LinkedIn",
+  unknown: "Unknown",
+};
+
+function detectPlatformFromUrl(raw: string): DetectedPlatform | null {
+  const url = raw.trim();
+  if (!url) return null;
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (host.startsWith("www.")) host = host.slice(4);
+
+  if (host === "tiktok.com" || host === "vm.tiktok.com" || host === "m.tiktok.com" || host.endsWith(".tiktok.com")) return "tiktok";
+  if (host === "instagram.com" || host === "instagr.am" || host.endsWith(".instagram.com")) return "instagram";
+  if (host === "youtube.com" || host === "youtu.be" || host === "youtube-nocookie.com" || host.endsWith(".youtube.com")) return "youtube";
+  if (host === "x.com" || host === "twitter.com" || host.endsWith(".x.com") || host.endsWith(".twitter.com")) return "x";
+  if (host === "facebook.com" || host === "fb.com" || host === "fb.watch" || host === "m.facebook.com" || host.endsWith(".facebook.com")) return "facebook";
+  if (host === "linkedin.com" || host === "lnkd.in" || host.endsWith(".linkedin.com")) return "linkedin";
+  return "unknown";
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -336,12 +380,46 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [analysisStatus, setAnalysisStatus] = useState<SingleContentAnalysisStatus | null>(null);
   const pollCancelRef = useRef(false);
 
+  // UX state for the new agregados.
+  const [isVideoAnalysisCollapsed, setIsVideoAnalysisCollapsed] = useState(false);
+  const [bulkGenerating, setBulkGenerating] = useState(false);
+  const [bulkComplete, setBulkComplete] = useState(false);
+
+  // Live-detected network from the URL the user is typing (frontend hint; backend is authoritative).
+  const detectedPlatform = useMemo(() => detectPlatformFromUrl(urlInput), [urlInput]);
+
+  // True when the URL currently typed is the SAME we just analyzed — blocks accidental re-runs
+  // that would burn extraction tokens for no gain. Reactivates as soon as the URL changes.
+  const isCurrentUrlAlreadyAnalyzed = useMemo(
+    () =>
+      isAnalyzed &&
+      !!videoResult &&
+      videoResult.inputUrl.trim() === urlInput.trim() &&
+      urlInput.trim().length > 0,
+    [isAnalyzed, videoResult, urlInput]
+  );
+
   // Cancel any in-flight polling loop on unmount.
   useEffect(() => {
     return () => {
       pollCancelRef.current = true;
     };
   }, []);
+
+  // Guard against losing an analysis when the user closes / refreshes the tab.
+  // Only active while there's an analyzed result on screen and no error banner (errors imply
+  // the user already saw the failure and may want to navigate away).
+  useEffect(() => {
+    if (!videoResult || !isAnalyzed) return;
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Modern browsers ignore the message and show their own; setting returnValue is required
+      // to trigger the confirmation dialog at all.
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [videoResult, isAnalyzed]);
 
   // Derived — always in sync with API data
   const networkOptions = socialNetworks.map((n) => ({ value: n.code, label: n.displayName }));
@@ -678,6 +756,43 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setGeneratingConversion(null);
   }
 
+  /**
+   * Bulk generation: produce script + carousel + flyer for EVERY connected network at once.
+   * Placeholder for the future content-generation API that will return a package.zip with all
+   * artifacts. Today this populates the local previews using the same mock builders.
+   */
+  async function handleConvertAll() {
+    if (!videoResult || bulkGenerating) return;
+    setBulkGenerating(true);
+    setBulkComplete(false);
+    const networks = networkOptions.map((n) => n.value);
+    const formats = ["script", "carousel", "flyer"] as const;
+
+    for (const fmt of formats) {
+      for (const net of networks) {
+        setGeneratingConversion(`${net}-${fmt}`);
+        // Brief stagger so the UI shows progress instead of finishing instantly.
+        await sleep(180);
+        if (fmt === "script") {
+          setGeneratedScripts((prev) => ({ ...prev, [net]: buildScriptContent(net) }));
+        } else if (fmt === "carousel") {
+          setGeneratedCarousels((prev) => ({ ...prev, [net]: buildCarouselContent(net) }));
+        } else {
+          setGeneratedFlyers((prev) => ({ ...prev, [net]: buildFlyerContent(net) }));
+        }
+      }
+    }
+    setGeneratingConversion(null);
+    setBulkGenerating(false);
+    setBulkComplete(true);
+  }
+
+  // Reset the "Convert to all" completion flag whenever the video changes — generated content
+  // from a previous video should not appear "ready" for a new one.
+  useEffect(() => {
+    setBulkComplete(false);
+  }, [videoResult?.id]);
+
   async function handleDownload() {
     if (!videoResult) return;
     setIsDownloading(true);
@@ -762,26 +877,62 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                 <div className="space-y-1.5">
                   <div className="flex gap-2">
                     <Input
-                      placeholder="Paste a TikTok video URL…"
+                      placeholder="Paste a URL from TikTok, Instagram, YouTube, X, Facebook…"
                       value={urlInput}
                       onChange={(e) => setUrlInput(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && void loadVideoByUrl()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !isCurrentUrlAlreadyAnalyzed) void loadVideoByUrl();
+                      }}
                       className="h-8 text-xs"
                     />
                     <Button
                       size="sm"
                       onClick={() => void loadVideoByUrl()}
-                      disabled={isLoading || !urlInput.trim()}
+                      disabled={isLoading || !urlInput.trim() || isCurrentUrlAlreadyAnalyzed}
                       className="h-8 px-3 text-xs"
+                      title={
+                        isCurrentUrlAlreadyAnalyzed
+                          ? "This URL is already analyzed. Change the URL to enable Analyze."
+                          : undefined
+                      }
                     >
-                      {isLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : "Analyze"}
+                      {isLoading ? (
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                      ) : isCurrentUrlAlreadyAnalyzed ? (
+                        <span className="flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Analyzed
+                        </span>
+                      ) : (
+                        "Analyze"
+                      )}
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground/70">
-                    {isLoading
-                      ? "Analyzing… fetching and processing the video can take up to 60 seconds."
-                      : "Paste a URL to scrape and analyze the video in one step."}
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground/70 flex-1">
+                      {isLoading
+                        ? "Analyzing… fetching and processing the video can take up to 60 seconds."
+                        : isCurrentUrlAlreadyAnalyzed
+                        ? "This URL has been analyzed. Paste a different URL to run a new analysis."
+                        : "Paste a URL to scrape and analyze the video in one step."}
+                    </p>
+                    {detectedPlatform && (
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-xs shrink-0 capitalize",
+                          detectedPlatform === "unknown" && "border-amber-500/40 text-amber-500"
+                        )}
+                        title={
+                          detectedPlatform === "unknown"
+                            ? "Unsupported domain — the backend will try a generic extractor; results may vary."
+                            : `Detected: ${PLATFORM_LABELS[detectedPlatform]}`
+                        }
+                      >
+                        {PLATFORM_LABELS[detectedPlatform]}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -927,20 +1078,38 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
             </Card>
           )}
 
-          {/* Analysis detail */}
+          {/* Analysis detail — collapsible. */}
           {isAnalyzed && videoResult?.videoAnalysis && (
             <Card className="border-border/40 bg-background/60">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <ChevronRight className="h-4 w-4 text-purple-400" />
-                  Video Analysis
-                </CardTitle>
+                <button
+                  type="button"
+                  onClick={() => setIsVideoAnalysisCollapsed((v) => !v)}
+                  className="w-full flex items-center justify-between gap-2 text-left"
+                  aria-expanded={!isVideoAnalysisCollapsed}
+                  aria-controls="video-analysis-body"
+                >
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <ChevronRight
+                      className={cn(
+                        "h-4 w-4 text-purple-400 transition-transform",
+                        !isVideoAnalysisCollapsed && "rotate-90"
+                      )}
+                    />
+                    Video Analysis
+                  </CardTitle>
+                  <span className="text-xs text-muted-foreground/60">
+                    {isVideoAnalysisCollapsed ? "Show" : "Hide"}
+                  </span>
+                </button>
               </CardHeader>
-              <CardContent className="pt-0">
-                <pre className="whitespace-pre-wrap text-xs text-muted-foreground font-mono leading-relaxed">
-                  {videoResult.videoAnalysis}
-                </pre>
-              </CardContent>
+              {!isVideoAnalysisCollapsed && (
+                <CardContent id="video-analysis-body" className="pt-0">
+                  <pre className="whitespace-pre-wrap text-xs text-muted-foreground font-mono leading-relaxed">
+                    {videoResult.videoAnalysis}
+                  </pre>
+                </CardContent>
+              )}
             </Card>
           )}
 
@@ -1029,6 +1198,59 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                           ? `Content will be generated for ${selectedClient.name}.`
                           : "Pick a client to orient the generated content toward their brand."}
                       </p>
+                    </div>
+
+                    {/* Bulk generation — placeholder for the future "package.zip" content API.
+                        Today it populates all formats × all networks using the mock builders;
+                        when the real API ships, this button POSTs and downloads the package. */}
+                    <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3 space-y-2">
+                      <div className="flex items-start gap-2">
+                        <Sparkles className="h-4 w-4 text-purple-400 mt-0.5 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-foreground">Convert to all formats</p>
+                          <p className="text-xs text-muted-foreground/70">
+                            Generate script, carousel and flyer for every connected network in one shot. A
+                            downloadable <code className="text-[10px]">package.zip</code> will be available
+                            once the content-generation API is wired.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 h-8 text-xs"
+                          onClick={() => void handleConvertAll()}
+                          disabled={bulkGenerating || networkOptions.length === 0}
+                        >
+                          {bulkGenerating ? (
+                            <span className="flex items-center gap-2">
+                              <RefreshCw className="h-3 w-3 animate-spin" />
+                              Generating all formats…
+                            </span>
+                          ) : bulkComplete ? (
+                            <span className="flex items-center gap-2">
+                              <CheckCircle2 className="h-3 w-3 text-green-500" />
+                              All formats generated
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-2">
+                              <Sparkles className="h-3 w-3" />
+                              Convert to all formats
+                            </span>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          disabled
+                          title="Package download will be enabled once the content-generation API is integrated."
+                        >
+                          <Package className="h-3 w-3" />
+                          package.zip
+                        </Button>
+                      </div>
                     </div>
 
                     {/* Format mode selector */}
