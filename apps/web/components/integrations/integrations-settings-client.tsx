@@ -994,7 +994,7 @@ function StatusBadge({ status }: { status: IntegrationStatus }) {
   }
 
   if (status === "Failed") {
-    return <Badge className="bg-destructive/20 text-destructive">Failed</Badge>;
+    return <Badge variant="destructive">Failed</Badge>;
   }
 
   if (status === "Disabled") {

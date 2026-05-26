@@ -437,7 +437,7 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
         <div className="rounded-md border bg-card p-3 space-y-2 max-h-80 overflow-y-auto">
           <div className="flex items-center justify-between">
             <span className="font-medium text-sm">{active.title}</span>
-            <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+            <Badge variant="success" className="text-xs">
               Active
             </Badge>
           </div>

@@ -80,7 +80,7 @@ import {
   SocialClient,
   SocialNetwork
 } from "@/lib/api/types";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -145,17 +145,24 @@ const bulkActionOptions: Array<{ value: ContentWorkflowActionType; label: string
   { value: "build_carousel", label: "Build carousel", icon: WandSparkles }
 ];
 
-const strategyColors: Record<string, string> = {
-  educational: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-  informative: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
-  entertainment: "bg-amber-500/15 text-amber-300 border-amber-500/30"
-};
-
 const USE_MOCK_WORKFLOW_DATA = true;
 
 type PreviewNetworkTab = "instagram" | "tiktok" | "youtube";
 type CandidateViewMode = "grid" | "video";
 type RightPanelTab = "conversion" | "preview" | "package";
+
+function strategyBadgeVariant(strategy: string): BadgeVariant {
+  switch (strategy) {
+    case "educational":
+      return "info";
+    case "informative":
+      return "accent";
+    case "entertainment":
+      return "warning";
+    default:
+      return "muted";
+  }
+}
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -1188,14 +1195,12 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                                 In package
                               </Badge>
                             )}
-                            <span
-                              className={cn(
-                                "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-widest",
-                                strategyColors[result.strategyMode] ?? "bg-muted text-muted-foreground border-border"
-                              )}
+                            <Badge
+                              variant={strategyBadgeVariant(result.strategyMode)}
+                              className="text-[10px] uppercase tracking-widest"
                             >
                               {result.strategyMode}
-                            </span>
+                            </Badge>
                             {(() => {
                               const NetIcon = getSocialNetworkIcon(result.networkSource);
                               const networkLabel = availableNetworks.find((n) => n.code === result.networkSource)?.displayName ?? result.networkSource;
@@ -1579,14 +1584,12 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                               <Badge variant="muted" className="text-[10px]">
                                 {item.networkSource}
                               </Badge>
-                              <span
-                                className={cn(
-                                  "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-widest",
-                                  strategyColors[item.strategyMode] ?? "bg-muted text-muted-foreground border-border"
-                                )}
+                              <Badge
+                                variant={strategyBadgeVariant(item.strategyMode)}
+                                className="text-[10px] uppercase tracking-widest"
                               >
                                 {item.strategyMode}
-                              </span>
+                              </Badge>
                               <Badge variant="muted" className="text-[10px]">
                                 {item.mutationFormat}
                               </Badge>

@@ -15,7 +15,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -85,17 +85,24 @@ function statusToStepIndex(status: SingleContentAnalysisStatus | null): number {
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const strategyColors: Record<string, string> = {
-  educational: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-  informative: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
-  entertainment: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-};
-
 const strategyOptions = [
   { value: "educational", label: "Educational" },
   { value: "informative", label: "Informative" },
   { value: "entertainment", label: "Entertainment" },
 ];
+
+function strategyBadgeVariant(strategy: string): BadgeVariant {
+  switch (strategy) {
+    case "educational":
+      return "info";
+    case "informative":
+      return "accent";
+    case "entertainment":
+      return "warning";
+    default:
+      return "muted";
+  }
+}
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -787,7 +794,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                 </div>
                 {videoResult.strategyMode && (
                   <div className="absolute top-2 left-2">
-                    <Badge className={cn("text-xs capitalize border", strategyColors[videoResult.strategyMode] ?? "")}>
+                    <Badge variant={strategyBadgeVariant(videoResult.strategyMode)} className="text-xs capitalize">
                       {videoResult.strategyMode}
                     </Badge>
                   </div>
@@ -807,7 +814,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       </Badge>
                     )}
                     {videoResult.dataSource === "apify" && (
-                      <Badge variant="outline" className="text-xs border-purple-500/30 text-purple-400">
+                      <Badge variant="accent" className="text-xs">
                         Live data
                       </Badge>
                     )}
@@ -1082,12 +1089,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     </p>
                   </div>
                   {item.strategyMode && (
-                    <Badge className={cn("text-xs capitalize shrink-0 border", strategyColors[item.strategyMode] ?? "")}>
+                    <Badge variant={strategyBadgeVariant(item.strategyMode)} className="text-xs capitalize shrink-0">
                       {item.strategyMode}
                     </Badge>
                   )}
                   {item.downloadedAtUtc && (
-                    <Badge variant="outline" className="text-xs shrink-0 border-green-500/30 text-green-600 dark:text-green-300">
+                    <Badge variant="success" className="text-xs shrink-0">
                       Downloaded
                     </Badge>
                   )}

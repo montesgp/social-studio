@@ -15,7 +15,7 @@ import {
 import { getOrganizationModules } from "@/lib/api/organization-modules";
 import { listOrganizations } from "@/lib/api/organizations";
 import { Organization } from "@/lib/api/types";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -114,16 +114,12 @@ function toFormState(user: AdminUser): UserFormState {
   };
 }
 
-function roleBadgeClassName(role: string): string {
-  return role === "sysadmin"
-    ? "border border-sky-400/40 bg-sky-500/15 text-sky-200"
-    : "border border-amber-400/40 bg-amber-500/15 text-amber-200";
+function roleBadgeVariant(role: string): BadgeVariant {
+  return role === "sysadmin" ? "info" : "warning";
 }
 
-function statusBadgeClassName(status: UserStatus): string {
-  return status === "Active"
-    ? "border border-emerald-400/40 bg-emerald-500/15 text-emerald-200"
-    : "border border-rose-400/40 bg-rose-500/15 text-rose-200";
+function statusBadgeVariant(status: UserStatus): BadgeVariant {
+  return status === "Active" ? "success" : "destructive";
 }
 
 function UserOrganizationModulesCell({
@@ -510,7 +506,7 @@ export function UsersTable() {
                   <div className="flex flex-wrap gap-1">
                     {user.roles.length > 0 ? (
                       user.roles.map((role) => (
-                        <Badge key={role} variant="outline" className={roleBadgeClassName(role)}>
+                        <Badge key={role} variant={roleBadgeVariant(role)}>
                           {role}
                         </Badge>
                       ))
@@ -523,7 +519,7 @@ export function UsersTable() {
                   <UserOrganizationModulesCell user={user} organizationId={filterOrganizationId} />
                 </td>
                 <td className="px-4 py-3">
-                  <Badge variant="outline" className={statusBadgeClassName(user.status)}>
+                  <Badge variant={statusBadgeVariant(user.status)}>
                     {user.status}
                   </Badge>
                 </td>
