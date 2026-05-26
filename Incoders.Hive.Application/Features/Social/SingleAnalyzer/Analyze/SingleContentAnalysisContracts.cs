@@ -27,6 +27,16 @@ public interface ISingleContentAnalyzer
         Guid organizationId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Background: re-runs ONLY the AI stage using the already-persisted content snapshot.
+    /// Skips extraction entirely — no Apify call, no extra tokens — assuming the snapshot we
+    /// already obtained is still correct. Used when the previous run failed at the AI stage.
+    /// </summary>
+    Task RetryAiOnlyAsync(
+        Guid analysisId,
+        Guid organizationId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Reads the current state of an analysis (for polling).</summary>
     Task<Result<SingleAnalyzerStatusResponse>> GetAsync(
         Guid analysisId,

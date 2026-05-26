@@ -13,3 +13,11 @@ public sealed record AnalyzeSingleContentCommand(
 public sealed record GetSingleContentAnalysisQuery(
     Guid AnalysisId,
     Guid OrganizationId) : IRequest<Result<SingleAnalyzerStatusResponse>>;
+
+/// <summary>
+/// Re-runs ONLY the AI stage of a previously-failed analysis, reusing the persisted snapshot.
+/// No extraction call → no extra Apify cost, no extra tokens against the scrape provider.
+/// </summary>
+public sealed record RetryAiAnalysisCommand(
+    Guid AnalysisId,
+    Guid OrganizationId) : IRequest<Result<SingleAnalyzerStatusResponse>>;

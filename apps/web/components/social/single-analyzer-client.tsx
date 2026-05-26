@@ -43,6 +43,7 @@ import {
   analyzeSingleContent,
   getSingleContentAnalysis,
   mapBackendResponseToResult,
+  retrySingleContentAnalysisAi,
 } from "@/lib/api/single-analyzer";
 import { SupportError } from "@/components/support/support-error";
 
@@ -458,6 +459,16 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       if (!final) return; // cancelled (component unmounted)
 
       if (final.status === "Failed") {
+        // Partial success path: if the extraction stage completed (snapshot present), hydrate the
+        // video card with that metadata even though the AI stage failed. The workflow nodes are
+        // isolated — losing AI analysis must NOT discard real data we already obtained from Apify.
+        // The error banner explains what failed; the right panel stays in empty-state because
+        // there's no analysis to drive the generation tabs.
+        if (final.snapshot) {
+          const partial = mapBackendResponseToResult(final, selectedOrganizationId);
+          setVideoResult(partial);
+          setPreviewNetworkTab(partial.networkSource);
+        }
         setError({
           code: final.failureCode ?? "social.single_analyzer.analysis_failed",
           message: final.failureMessageKey ?? "Analysis failed. Please try again.",
@@ -478,6 +489,47 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         message:
           err?.message ||
           "Analysis failed. The URL may be unsupported or the backend took too long. Try again.",
+      });
+    } finally {
+      setIsLoading(false);
+      setAnalysisStatus(null);
+    }
+  }
+
+  async function retryAiAnalysis(id: string) {
+    setIsLoading(true);
+    setError(null);
+    setAnalysisStatus("Analyzing");
+    pollCancelRef.current = false;
+    try {
+      // POST retry-ai: re-runs ONLY the AI stage on the backend using the persisted snapshot.
+      // No Apify call, no extra extraction tokens.
+      const started = await retrySingleContentAnalysisAi(id, effectiveToken);
+      setAnalysisStatus(started.status);
+
+      const final = await pollUntilTerminal(id);
+      if (!final) return; // cancelled (component unmounted)
+
+      if (final.status === "Failed") {
+        // Snapshot is still on screen from the previous run; just refresh the error banner.
+        setError({
+          code: final.failureCode ?? "social.single_analyzer.analysis_failed",
+          message: final.failureMessageKey ?? "Analysis failed. Please try again.",
+        });
+        return;
+      }
+
+      const result = mapBackendResponseToResult(final, selectedOrganizationId);
+      setVideoResult(result);
+      setPreviewNetworkTab(result.networkSource);
+      setIsAnalyzed(true);
+      setHistoryItems(listMockSingleHistory(selectedOrganizationId));
+    } catch (e) {
+      const err = e as { message?: string; problem?: Record<string, unknown> };
+      const code = typeof err.problem?.code === "string" ? err.problem.code : undefined;
+      setError({
+        code,
+        message: err?.message || "Retry failed. Please try again.",
       });
     } finally {
       setIsLoading(false);
@@ -837,7 +889,19 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     ))}
                   </div>
                 )}
-                {!isAnalyzed ? (
+                {error && videoResult ? (
+                  // Partial success: extraction worked, AI failed. Retry ONLY the AI stage using
+                  // the persisted snapshot — no Apify call, no extra extraction tokens.
+                  <Button
+                    variant="outline"
+                    className="w-full h-8 text-xs mt-1"
+                    onClick={() => void retryAiAnalysis(videoResult.id)}
+                    disabled={isLoading}
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Retry AI analysis
+                  </Button>
+                ) : !isAnalyzed ? (
                   <Button
                     className="w-full h-8 text-xs mt-1"
                     onClick={() => void runAnalysis()}

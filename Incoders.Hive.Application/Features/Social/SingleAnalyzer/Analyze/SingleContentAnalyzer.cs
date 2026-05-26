@@ -135,6 +135,145 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         }
     }
 
+    public async Task RetryAiOnlyAsync(
+        Guid analysisId,
+        Guid organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        var analysis = await _analyses.GetByIdAsync(analysisId, organizationId, cancellationToken);
+        if (analysis is null)
+        {
+            _logger.LogWarning(
+                "Single Analyzer retry-AI: analysis {AnalysisId} not found for org {OrganizationId}.",
+                analysisId,
+                organizationId);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(analysis.ContentSnapshotJson))
+        {
+            _logger.LogWarning(
+                "Single Analyzer retry-AI: analysis {AnalysisId} has no persisted snapshot; cannot retry AI without re-scraping.",
+                analysisId);
+            await PersistFailureAsync(analysis, SingleAnalyzerErrors.AnalysisFailed, [], cancellationToken);
+            return;
+        }
+
+        var selectedAi = await _defaultAiSelector.SelectAsync(organizationId, cancellationToken);
+        if (selectedAi.IsFailure)
+        {
+            _logger.LogWarning(
+                "Single Analyzer retry-AI: AI provider selection failed for org {OrganizationId}: {ErrorCode}.",
+                organizationId,
+                selectedAi.Error.Code);
+            await PersistFailureAsync(analysis, selectedAi.Error, [], cancellationToken);
+            return;
+        }
+
+        var profileResult = _profileProvider.ForFlow(FlowKey);
+        var profile = profileResult.IsSuccess ? profileResult.Value : null;
+        var aiCapabilityKey = profile?.AiCapabilityKey ?? "ai-analysis";
+        var promptVersionKey = profile?.PromptVersionKey ?? "single-analyzer.analysis.v1";
+
+        analysis = await PersistStatusAsync(analysis, SingleContentAnalysisStatus.Analyzing, cancellationToken);
+
+        _logger.LogInformation(
+            "Single Analyzer retry-AI: analysis {AnalysisId} re-running AI provider {ProviderKey} (model {Model}) with persisted snapshot — NO extraction call.",
+            analysis.Id,
+            selectedAi.Value.ProviderKey,
+            selectedAi.Value.Model ?? "(provider default)");
+
+        // Embed the persisted snapshot JSON as-is into the AI input. No extraction call.
+        JsonElement snapshotElement;
+        try
+        {
+            // Non-null verified by the IsNullOrWhiteSpace guard above; ! tells the compiler.
+            using var doc = JsonDocument.Parse(analysis.ContentSnapshotJson!);
+            snapshotElement = doc.RootElement.Clone();
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Single Analyzer retry-AI: persisted snapshot for {AnalysisId} is not valid JSON.",
+                analysis.Id);
+            await PersistFailureAsync(analysis, SingleAnalyzerErrors.AnalysisFailed, [], cancellationToken);
+            return;
+        }
+
+        var inputObj = new Dictionary<string, object?>
+        {
+            ["instruction"] = "Analyze the social content and respond with ONLY the raw JSON object matching the expected structure. Do not wrap it in markdown code fences and do not add any text before or after the JSON.",
+            ["detectedPlatformKey"] = analysis.SourcePlatformKey ?? string.Empty,
+            ["normalizedUrl"] = analysis.NormalizedUrl ?? analysis.SourceUrl,
+            ["snapshot"] = snapshotElement,
+            ["expectedOutput"] = new SingleAnalyzerExpectedOutput(
+                "summary, detectedHooks, likelyAudience, narrativeStructure, strengths, weaknesses, derivedIdeas, clientAdaptationRecommendations, confidence, warnings",
+                "derivedIdeas[].score dimensions are integers from 1 to 5: novelty, clientFit, platformFit, hookQuality, feasibility, expectedEngagement",
+                "confidence is a number from 0 to 1")
+        };
+
+        var inputJson = JsonSerializer.Serialize(inputObj, JsonOptions);
+
+        Result<AiJsonCompletionResponse<SingleAnalyzerAnalysis>> ai;
+        try
+        {
+            ai = await _aiGateway.CompleteJsonAsync<SingleAnalyzerAnalysis>(
+                new AiJsonCompletionRequest(
+                    organizationId,
+                    analysis.Id,
+                    aiCapabilityKey,
+                    promptVersionKey,
+                    inputJson,
+                    selectedAi.Value.ProviderKey,
+                    selectedAi.Value.Model),
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogError(ex, "Single Analyzer retry-AI: analysis {AnalysisId} threw.", analysis.Id);
+            await PersistFailureAsync(analysis, SingleAnalyzerErrors.AnalysisFailed, [], CancellationToken.None);
+            return;
+        }
+
+        if (ai.IsFailure)
+        {
+            _logger.LogWarning(
+                "Single Analyzer retry-AI: AI analysis failed for {AnalysisId} (provider {ProviderKey}): {ErrorCode}.",
+                analysis.Id,
+                selectedAi.Value.ProviderKey,
+                ai.Error.Code);
+            await PersistFailureAsync(analysis, ai.Error, [], cancellationToken);
+            return;
+        }
+
+        var aiValidation = ai.Value.Payload.Validate();
+        if (aiValidation.IsFailure)
+        {
+            await PersistFailureAsync(analysis, aiValidation.Error, [], cancellationToken);
+            return;
+        }
+
+        var completedAt = _clock.UtcNow;
+        analysis = analysis with
+        {
+            Status = SingleContentAnalysisStatus.Analyzed,
+            AnalysisJson = JsonSerializer.Serialize(ai.Value.Payload, JsonOptions),
+            FailureCode = null,
+            FailureMessageKey = null,
+            UpdatedAtUtc = completedAt,
+            CompletedAtUtc = completedAt
+        };
+
+        await _analyses.UpdateAsync(analysis, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Single Analyzer retry-AI: analysis {AnalysisId} completed successfully (provider {ProviderKey}).",
+            analysis.Id,
+            selectedAi.Value.ProviderKey);
+    }
+
     public async Task<Result<SingleAnalyzerStatusResponse>> GetAsync(
         Guid analysisId,
         Guid organizationId,

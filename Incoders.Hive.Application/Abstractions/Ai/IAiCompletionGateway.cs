@@ -24,7 +24,11 @@ public sealed record AiCompletionRequest(
     string PromptVersionKey,
     string Input,
     string? PreferredProviderKey,
-    string? PreferredModel);
+    string? PreferredModel,
+    // Optional JSON Schema string describing the EXACT structure the model must return.
+    // Used by providers that support structured output (Claude tool use, OpenAI json_schema).
+    // When null, the provider falls back to a permissive schema and relies on the prompt.
+    string? OutputJsonSchema = null);
 
 public sealed record AiCompletionResponse(
     string Output,

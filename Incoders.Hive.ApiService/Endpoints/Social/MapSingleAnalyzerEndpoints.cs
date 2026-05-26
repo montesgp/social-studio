@@ -30,6 +30,13 @@ public static class SingleAnalyzerEndpointsExtensions
             .Produces<SingleAnalyzerStatusResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // Retry-AI: re-runs only the AI stage using the persisted snapshot. NO extraction call.
+        group.MapPost("/analyze/{id:guid}/retry-ai", SingleAnalyzerEndpointFacade.RetryAiAsync)
+            .WithName("RetryAiOnAnalysis")
+            .WithSummary("Re-run only the AI stage of an existing analysis (reusing the persisted snapshot)")
+            .Produces<SingleAnalyzerStatusResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return app;
     }
 }
@@ -87,6 +94,25 @@ internal static class SingleAnalyzerEndpointFacade
             cancellationToken);
 
         return result.Match(status => (IResult)TypedResults.Ok(status));
+    }
+
+    internal static async Task<IResult> RetryAiAsync(
+        Guid id,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+        {
+            return SingleAnalyzerErrors.OrganizationRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new RetryAiAnalysisCommand(id, tenantId.Value),
+            cancellationToken);
+
+        return result.Match(status =>
+            (IResult)TypedResults.Accepted($"/api/social/single-analyzer/analyze/{status.Id}", status));
     }
 }
 

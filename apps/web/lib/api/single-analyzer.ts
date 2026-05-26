@@ -51,6 +51,22 @@ export async function getSingleContentAnalysis(
 }
 
 /**
+ * Re-run ONLY the AI stage of an existing analysis. Reuses the persisted snapshot from the
+ * previous run — does NOT hit the extraction provider (no extra Apify tokens). The returned
+ * status has Status="Analyzing"; poll {@link getSingleContentAnalysis} to wait for terminal.
+ */
+export async function retrySingleContentAnalysisAi(
+  id: string,
+  token?: string
+): Promise<SingleAnalyzerStatusResponse> {
+  return apiRequest<SingleAnalyzerStatusResponse>(
+    `/api/social/single-analyzer/analyze/${encodeURIComponent(id)}/retry-ai`,
+    { method: "POST" },
+    token
+  );
+}
+
+/**
  * Map a completed backend status response to the UI-local `SingleAnalyzerResult` shape.
  * Must only be called when `response.status === "Analyzed"` — snapshot/analysis are required.
  */

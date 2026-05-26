@@ -26,6 +26,13 @@ internal static class ProviderHttpResponseMapper
             []));
     }
 
+    /// <summary>
+    /// Maps a successful provider HTTP response when the payload has already been read.
+    /// Lets the caller log the body once (for diagnostics) without reading the content twice.
+    /// </summary>
+    public static Result<AiCompletionResponse> MapAiSuccess(string payload, string providerKey, string model) =>
+        Result.Success(new AiCompletionResponse(ExtractText(payload), providerKey, model, []));
+
     private static Error MapStatus(HttpResponseMessage response) =>
         (int)response.StatusCode switch
         {
@@ -52,10 +59,26 @@ internal static class ProviderHttpResponseMapper
 
         if (root.TryGetProperty("content", out var claudeContent)
             && claudeContent.ValueKind == JsonValueKind.Array
-            && claudeContent.GetArrayLength() > 0
-            && claudeContent[0].TryGetProperty("text", out var text))
+            && claudeContent.GetArrayLength() > 0)
         {
-            return text.GetString() ?? string.Empty;
+            // Tool Use response (Claude 4.x JSON-mode): find the tool_use block and return its
+            // `input` serialized as JSON. The downstream parser deserializes it into TResponse.
+            foreach (var block in claudeContent.EnumerateArray())
+            {
+                if (block.TryGetProperty("type", out var blockType)
+                    && blockType.ValueKind == JsonValueKind.String
+                    && string.Equals(blockType.GetString(), "tool_use", StringComparison.Ordinal)
+                    && block.TryGetProperty("input", out var input))
+                {
+                    return input.GetRawText();
+                }
+            }
+
+            // Fallback: text block (legacy / non-tool-use responses).
+            if (claudeContent[0].TryGetProperty("text", out var text))
+            {
+                return text.GetString() ?? string.Empty;
+            }
         }
 
         if (root.TryGetProperty("candidates", out var candidates)

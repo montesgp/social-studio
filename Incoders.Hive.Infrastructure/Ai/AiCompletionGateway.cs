@@ -1,4 +1,8 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Schema;
+using System.Text.Json.Serialization.Metadata;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Common;
@@ -122,6 +126,8 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
         CancellationToken cancellationToken)
         where TResponse : notnull
     {
+        var outputSchema = GetCachedJsonSchema(typeof(TResponse));
+
         var completion = await client.CompleteAsync(
             new AiCompletionRequest(
                 request.OrganizationId,
@@ -129,7 +135,8 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
                 request.PromptVersionKey,
                 request.InputJson,
                 request.PreferredProviderKey,
-                model),
+                model,
+                OutputJsonSchema: outputSchema),
             cancellationToken);
 
         if (completion.IsFailure)
@@ -143,6 +150,10 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
             return Result.Success(new AiJsonCandidateResponse<TResponse>(parsed.Value, completion.Value.Model));
         }
 
+        // First parse failed — log a bounded preview of the raw output so we can diagnose what
+        // the model actually returned (truncation, prose, schema mismatch) instead of guessing.
+        LogOutputPreview("first attempt", request, model, completion.Value.Output);
+
         // One JSON-repair retry against the same provider before giving up.
         var repair = await client.CompleteAsync(
             new AiCompletionRequest(
@@ -151,7 +162,8 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
                 $"{request.PromptVersionKey}:json-repair",
                 $"Return only valid JSON for this schema. Invalid output: {completion.Value.Output}",
                 request.PreferredProviderKey,
-                model),
+                model,
+                OutputJsonSchema: outputSchema),
             cancellationToken);
 
         if (repair.IsFailure)
@@ -160,9 +172,90 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
         }
 
         parsed = TryParse<TResponse>(repair.Value.Output);
-        return parsed.IsSuccess
-            ? Result.Success(new AiJsonCandidateResponse<TResponse>(parsed.Value, repair.Value.Model))
-            : Result.Failure<AiJsonCandidateResponse<TResponse>>(IntegrationErrors.AiJsonInvalid);
+        if (parsed.IsSuccess)
+        {
+            return Result.Success(new AiJsonCandidateResponse<TResponse>(parsed.Value, repair.Value.Model));
+        }
+
+        LogOutputPreview("json-repair retry", request, model, repair.Value.Output);
+        return Result.Failure<AiJsonCandidateResponse<TResponse>>(IntegrationErrors.AiJsonInvalid);
+    }
+
+    // JSON schemas are stable per TResponse — generating one is non-trivial so we cache forever.
+    private static readonly ConcurrentDictionary<Type, string> SchemaCache = new();
+
+    // JsonSchemaExporter REQUIRES a JsonSerializerOptions instance with a TypeInfoResolver set,
+    // and the instance must NOT already be marked read-only by prior use. Sharing `JsonOptions`
+    // (used elsewhere for serialize/deserialize) fails with InvalidOperationException because:
+    //   1. `new(JsonSerializerDefaults.Web)` does not assign a TypeInfoResolver, AND
+    //   2. once used, options become read-only and can no longer accept a resolver.
+    // So we maintain a dedicated, never-shared options instance for schema export only.
+    private static readonly JsonSerializerOptions SchemaExportOptions = new(JsonSerializerDefaults.Web)
+    {
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+    };
+
+    // TreatNullObliviousAsNonNullable=true tells the exporter to treat reference types whose
+    // nullability annotations are absent (or oblivious) as NON-NULL. Without this, the exporter
+    // emits `"type": ["object", "null"]` (a union) at the root, which Claude's tool-use API
+    // rejects with: tools.0.custom.input_schema.type: Input should be 'object'.
+    private static readonly JsonSchemaExporterOptions ExporterOptions = new()
+    {
+        TreatNullObliviousAsNonNullable = true
+    };
+
+    private static string GetCachedJsonSchema(Type type) =>
+        SchemaCache.GetOrAdd(type, t =>
+        {
+            // .NET 9+ native: JsonSchemaExporter generates a JSON Schema node directly from a CLR
+            // type using web defaults (camelCase). The output is exactly what the model honors.
+            var node = JsonSchemaExporter.GetJsonSchemaAsNode(SchemaExportOptions, t, ExporterOptions);
+            // Defensive: even with TreatNullObliviousAsNonNullable, the exporter may emit type
+            // unions in nested properties for genuinely-nullable members. Claude tool-use accepts
+            // unions on inner properties, but we normalize the ROOT to a plain "object" string to
+            // guarantee compatibility — that's the only place where Claude is strict.
+            NormalizeRootTypeForToolUse(node);
+            return node.ToJsonString();
+        });
+
+    private static void NormalizeRootTypeForToolUse(JsonNode? schema)
+    {
+        if (schema is not JsonObject root) return;
+
+        if (root["type"] is JsonArray typeArray)
+        {
+            // Pick the first non-"null" entry; default to "object" if somehow absent.
+            string? picked = null;
+            foreach (var entry in typeArray)
+            {
+                if (entry is JsonValue v && v.TryGetValue<string>(out var s) && s != "null")
+                {
+                    picked = s;
+                    break;
+                }
+            }
+            root["type"] = picked ?? "object";
+        }
+        else if (root["type"] is null)
+        {
+            // Some schemas (e.g. ref-only) lack an explicit type at root — Claude needs one.
+            root["type"] = "object";
+        }
+    }
+
+    private void LogOutputPreview(string stage, AiJsonCompletionRequest request, string? model, string? output)
+    {
+        const int MaxPreviewChars = 800;
+        var safe = output ?? string.Empty;
+        var preview = safe.Length <= MaxPreviewChars ? safe : safe[..MaxPreviewChars] + "…(truncated)";
+        _logger.LogWarning(
+            "AI JSON parse failed at {Stage} for org {OrganizationId} provider {ProviderKey} model {Model}. Output length={Length}. Preview: {Preview}",
+            stage,
+            request.OrganizationId,
+            request.PreferredProviderKey,
+            model ?? "(provider default)",
+            safe.Length,
+            preview);
     }
 
     private static Result<TResponse> TryParse<TResponse>(string output)

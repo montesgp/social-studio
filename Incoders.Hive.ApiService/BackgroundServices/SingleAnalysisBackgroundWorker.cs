@@ -46,20 +46,49 @@ internal sealed class SingleAnalysisBackgroundWorker : BackgroundService
 
     private async ValueTask ProcessAsync(SingleAnalysisJob job, CancellationToken cancellationToken)
     {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        _logger.LogInformation(
+            "Single Analyzer worker: PROCESSING job {AnalysisId} (org {OrganizationId}) kind={Kind}.",
+            job.AnalysisId,
+            job.OrganizationId,
+            job.Kind);
+
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var analyzer = scope.ServiceProvider.GetRequiredService<ISingleContentAnalyzer>();
-            await analyzer.RunQueuedAsync(job.AnalysisId, job.OrganizationId, cancellationToken);
+            switch (job.Kind)
+            {
+                case SingleAnalysisJobKind.RetryAi:
+                    await analyzer.RetryAiOnlyAsync(job.AnalysisId, job.OrganizationId, cancellationToken);
+                    break;
+                case SingleAnalysisJobKind.Full:
+                default:
+                    await analyzer.RunQueuedAsync(job.AnalysisId, job.OrganizationId, cancellationToken);
+                    break;
+            }
+            stopwatch.Stop();
+            _logger.LogInformation(
+                "Single Analyzer worker: FINISHED job {AnalysisId} (org {OrganizationId}) kind={Kind} in {ElapsedMs} ms.",
+                job.AnalysisId,
+                job.OrganizationId,
+                job.Kind,
+                stopwatch.ElapsedMilliseconds);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
+            stopwatch.Stop();
             // RunQueuedAsync persists Failed on its own errors; this guards the worker loop itself.
             _logger.LogError(
                 ex,
-                "Single Analyzer background job failed for analysis {AnalysisId} (org {OrganizationId}).",
+                "Single Analyzer worker: UNHANDLED EXCEPTION on job {AnalysisId} (org {OrganizationId}) after {ElapsedMs} ms. ExceptionType={ExceptionType} Message={Message} InnerType={InnerType} InnerMessage={InnerMessage}",
                 job.AnalysisId,
-                job.OrganizationId);
+                job.OrganizationId,
+                stopwatch.ElapsedMilliseconds,
+                ex.GetType().FullName,
+                ex.Message,
+                ex.InnerException?.GetType().FullName,
+                ex.InnerException?.Message);
         }
     }
 }
