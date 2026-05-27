@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Sparkles,
   Package,
+  XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
@@ -29,6 +30,7 @@ import type {
   SingleContentAnalysisStatus,
   SocialClient,
   SocialNetwork,
+  ContentFormatKey,
 } from "@/lib/api/types";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { listSocialNetworks } from "@/lib/api/social-networks";
@@ -36,7 +38,6 @@ import { useAccessToken } from "@/components/auth/use-access-token";
 import {
   getMockVideoBySearch,
   analyzeMockVideo,
-  generateMockSingleDownload,
   listMockSingleHistory,
   recordMockAnalysis,
   type SingleAnalyzerResult,
@@ -47,6 +48,15 @@ import {
   mapBackendResponseToResult,
   retrySingleContentAnalysisAi,
 } from "@/lib/api/single-analyzer";
+import {
+  requestPackage,
+  getPackageDownloadUrl,
+  ALL_FORMAT_KEYS,
+  FORMAT_LABELS,
+} from "@/lib/api/content-generation";
+import { useContentGenerationJob } from "@/lib/hooks/use-content-generation-job";
+import { InferredFieldsDisclosure } from "@/components/social/single-analyzer/inferred-fields-disclosure";
+import { PartialCompletionBanner } from "@/components/social/single-analyzer/partial-completion-banner";
 import { SupportError } from "@/components/support/support-error";
 
 // ── Async/poll constants ───────────────────────────────────────────────────────
@@ -380,13 +390,62 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [analysisStatus, setAnalysisStatus] = useState<SingleContentAnalysisStatus | null>(null);
   const pollCancelRef = useRef(false);
 
+  // Content-generation package job state.
+  const [packageJobId, setPackageJobId] = useState<string | null>(null);
+  const [packageJobError, setPackageJobError] = useState<{ message: string } | null>(null);
+  const [isRequestingPackage, setIsRequestingPackage] = useState(false);
+
   // UX state for the new agregados.
   const [isVideoAnalysisCollapsed, setIsVideoAnalysisCollapsed] = useState(false);
-  const [bulkGenerating, setBulkGenerating] = useState(false);
-  const [bulkComplete, setBulkComplete] = useState(false);
 
   // Live-detected network from the URL the user is typing (frontend hint; backend is authoritative).
   const detectedPlatform = useMemo(() => detectPlatformFromUrl(urlInput), [urlInput]);
+
+  // Package generation polling — active while packageJobId is set and no terminal state reached.
+  const packageJob = useContentGenerationJob(packageJobId, {
+    token: effectiveToken,
+    enabled: packageJobId !== null,
+  });
+
+  // Package job derived UI state.
+  const packageGenerationIsRunning =
+    isRequestingPackage ||
+    packageJob.isLoading ||
+    packageJob.isPolling ||
+    packageJob.status === "Queued" ||
+    packageJob.status === "Running";
+  const packageGenerationIsCompleted = packageJob.status === "Completed";
+  const packageGenerationIsPartial = packageJob.status === "PartialSuccess";
+  const packageGenerationIsFailed = packageJob.status === "Failed";
+  const packageDownloadAvailable =
+    (packageGenerationIsCompleted || packageGenerationIsPartial) && packageJobId !== null;
+
+  const packageSucceededFormats = useMemo(
+    () =>
+      (Object.entries(packageJob.perFormatStatus)
+        .filter(([, st]) => st === "Rendered" || st === "Succeeded")
+        .map(([fmt]) => fmt) as ContentFormatKey[]),
+    [packageJob.perFormatStatus]
+  );
+  const packageFailedFormats = useMemo(
+    () =>
+      (Object.entries(packageJob.perFormatStatus)
+        .filter(([, st]) => st === "Failed")
+        .map(([fmt]) => fmt) as ContentFormatKey[]),
+    [packageJob.perFormatStatus]
+  );
+
+  const handlePackageDownload = useCallback(() => {
+    if (!packageJobId) return;
+    const { url, filename } = getPackageDownloadUrl(packageJobId);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, [packageJobId]);
 
   // True when the URL currently typed is the SAME we just analyzed — blocks accidental re-runs
   // that would burn extraction tokens for no gain. Reactivates as soon as the URL changes.
@@ -511,6 +570,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setGeneratedCarousels({});
     setGeneratedFlyers({});
     setError(null);
+    setPackageJobId(null);
+    setPackageJobError(null);
   }
 
   async function loadVideoByUrl() {
@@ -757,40 +818,33 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }
 
   /**
-   * Bulk generation: produce script + carousel + flyer for EVERY connected network at once.
-   * Placeholder for the future content-generation API that will return a package.zip with all
-   * artifacts. Today this populates the local previews using the same mock builders.
+   * Start a real backend content-generation package job for all 7 formats.
+   * Replaces the previous mock-based bulk generation.
    */
   async function handleConvertAll() {
-    if (!videoResult || bulkGenerating) return;
-    setBulkGenerating(true);
-    setBulkComplete(false);
-    const networks = networkOptions.map((n) => n.value);
-    const formats = ["script", "carousel", "flyer"] as const;
-
-    for (const fmt of formats) {
-      for (const net of networks) {
-        setGeneratingConversion(`${net}-${fmt}`);
-        // Brief stagger so the UI shows progress instead of finishing instantly.
-        await sleep(180);
-        if (fmt === "script") {
-          setGeneratedScripts((prev) => ({ ...prev, [net]: buildScriptContent(net) }));
-        } else if (fmt === "carousel") {
-          setGeneratedCarousels((prev) => ({ ...prev, [net]: buildCarouselContent(net) }));
-        } else {
-          setGeneratedFlyers((prev) => ({ ...prev, [net]: buildFlyerContent(net) }));
-        }
-      }
+    if (!videoResult || isRequestingPackage) return;
+    setIsRequestingPackage(true);
+    setPackageJobId(null);
+    setPackageJobError(null);
+    try {
+      const response = await requestPackage(
+        videoResult.id,
+        { requestedFormats: ALL_FORMAT_KEYS as ContentFormatKey[] },
+        { token: effectiveToken }
+      );
+      setPackageJobId(response.jobId);
+    } catch (e) {
+      const err = e as { message?: string };
+      setPackageJobError({ message: err?.message ?? "Failed to start content generation." });
+    } finally {
+      setIsRequestingPackage(false);
     }
-    setGeneratingConversion(null);
-    setBulkGenerating(false);
-    setBulkComplete(true);
   }
 
-  // Reset the "Convert to all" completion flag whenever the video changes — generated content
-  // from a previous video should not appear "ready" for a new one.
+  // Reset package job state when the analysis changes — a new analysis needs a fresh job.
   useEffect(() => {
-    setBulkComplete(false);
+    setPackageJobId(null);
+    setPackageJobError(null);
   }, [videoResult?.id]);
 
   async function handleDownload() {
@@ -804,7 +858,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     }, 80);
     await sleep(2500);
     clearInterval(interval);
-    const result = generateMockSingleDownload(selectedOrganizationId, videoResult.id, "all");
+    // Video + analysis download: still a local simulation (no backend endpoint for this yet).
+    const titleSlug = videoResult.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+    const result = { fileName: `${titleSlug}-analysis.zip`, downloadUrl: `/mock-downloads/single/${titleSlug}-all.zip` };
     setDownloadProgress(100);
     await sleep(200);
     setDownloadResult(result);
@@ -1203,54 +1259,110 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     {/* Bulk generation — placeholder for the future "package.zip" content API.
                         Today it populates all formats × all networks using the mock builders;
                         when the real API ships, this button POSTs and downloads the package. */}
-                    <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3 space-y-2">
-                      <div className="flex items-start gap-2">
-                        <Sparkles className="h-4 w-4 text-purple-400 mt-0.5 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-foreground">Convert to all formats</p>
-                          <p className="text-xs text-muted-foreground/70">
-                            Generate script, carousel and flyer for every connected network in one shot. A
-                            downloadable <code className="text-[10px]">package.zip</code> will be available
-                            once the content-generation API is wired.
-                          </p>
+                    <div className="space-y-2">
+                      <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <Sparkles className="h-4 w-4 text-purple-400 mt-0.5 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-foreground">Convert to all formats</p>
+                            <p className="text-xs text-muted-foreground/70">
+                              Generate every supported format (carousel, flyer, reel-script, content idea,
+                              CTA, caption, hook). Download the <code className="text-[10px]">package.zip</code> when ready.
+                            </p>
+                          </div>
                         </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 h-8 text-xs"
+                            onClick={() => void handleConvertAll()}
+                            disabled={packageGenerationIsRunning || networkOptions.length === 0}
+                          >
+                            {packageGenerationIsRunning ? (
+                              <span className="flex items-center gap-2">
+                                <RefreshCw className="h-3 w-3 animate-spin" />
+                                Generating all formats…
+                              </span>
+                            ) : packageGenerationIsCompleted ? (
+                              <span className="flex items-center gap-2">
+                                <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                All formats generated
+                              </span>
+                            ) : packageGenerationIsPartial ? (
+                              <span className="flex items-center gap-2">
+                                <CheckCircle2 className="h-3 w-3 text-amber-500" />
+                                Partial — retry?
+                              </span>
+                            ) : packageGenerationIsFailed ? (
+                              <span className="flex items-center gap-2">
+                                <XCircle className="h-3 w-3 text-red-500" />
+                                Retry generation
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-2">
+                                <Sparkles className="h-3 w-3" />
+                                Convert to all formats
+                              </span>
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            disabled={!packageDownloadAvailable}
+                            onClick={handlePackageDownload}
+                            title={packageDownloadAvailable ? "Download the generated package" : "Generate a package first"}
+                          >
+                            <Package className="h-3 w-3" />
+                            package.zip
+                          </Button>
+                        </div>
+                        {Object.keys(packageJob.perFormatStatus).length > 0 && (packageGenerationIsRunning || packageGenerationIsPartial || packageGenerationIsCompleted) && (
+                          <div className="flex flex-wrap gap-1 pt-1">
+                            {(Object.entries(packageJob.perFormatStatus) as [ContentFormatKey, string][]).map(([fmt, st]) => (
+                              <span
+                                key={fmt}
+                                className={cn(
+                                  "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border",
+                                  st === "Rendered" || st === "Succeeded"
+                                    ? "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20"
+                                    : st === "Failed"
+                                    ? "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20"
+                                    : "bg-muted/40 text-muted-foreground border-border/30"
+                                )}
+                              >
+                                {FORMAT_LABELS[fmt]} · {st.toLowerCase()}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1 h-8 text-xs"
-                          onClick={() => void handleConvertAll()}
-                          disabled={bulkGenerating || networkOptions.length === 0}
-                        >
-                          {bulkGenerating ? (
-                            <span className="flex items-center gap-2">
-                              <RefreshCw className="h-3 w-3 animate-spin" />
-                              Generating all formats…
-                            </span>
-                          ) : bulkComplete ? (
-                            <span className="flex items-center gap-2">
-                              <CheckCircle2 className="h-3 w-3 text-green-500" />
-                              All formats generated
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-2">
-                              <Sparkles className="h-3 w-3" />
-                              Convert to all formats
-                            </span>
-                          )}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 text-xs"
-                          disabled
-                          title="Package download will be enabled once the content-generation API is integrated."
-                        >
-                          <Package className="h-3 w-3" />
-                          package.zip
-                        </Button>
-                      </div>
+
+                      {packageJobError && (
+                        <div className="rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-2">
+                          <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          <span>{packageJobError.message}</span>
+                        </div>
+                      )}
+
+                      {packageGenerationIsFailed && !packageJobError && (
+                        <div className="rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-2">
+                          <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          <span>Generation failed. You can retry above.</span>
+                        </div>
+                      )}
+
+                      {packageGenerationIsPartial && (
+                        <PartialCompletionBanner
+                          succeededFormats={packageSucceededFormats}
+                          failedFormats={packageFailedFormats}
+                        />
+                      )}
+
+                      {packageJob.manifest && packageJob.manifest.inferredFields.length > 0 && (packageGenerationIsCompleted || packageGenerationIsPartial) && (
+                        <InferredFieldsDisclosure fields={packageJob.manifest.inferredFields} />
+                      )}
                     </div>
 
                     {/* Format mode selector */}

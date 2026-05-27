@@ -550,3 +550,60 @@ export interface UpsertMonthlyObjectivePayload {
   objectives: string;
   kpis?: string[];
 }
+
+// ── Content Generation types (single-analyzer package pipeline) ──────────────
+
+export type ContentFormatKey =
+  | "carousel"
+  | "flyer"
+  | "reel-script"
+  | "content-idea"
+  | "cta-variation"
+  | "caption"
+  | "hook";
+
+export interface GeneratePackageRequest {
+  requestedFormats: ContentFormatKey[];
+}
+
+export interface GeneratePackageResponse {
+  jobId: string;
+  statusUrl: string;
+}
+
+/** Status values returned by the backend for the overall job. */
+export type ContentGenerationJobStatus =
+  | "Queued"
+  | "Running"
+  | "Completed"
+  | "PartialSuccess"
+  | "Failed";
+
+/** Manifest metadata for a single rendered format asset. */
+export interface FormatAssetMetadata {
+  formatKey: ContentFormatKey;
+  mime: string;
+  filename: string;
+  sizeBytes: number;
+  contentHash: string;
+}
+
+/** Deserialized from ManifestJson on completed/partial jobs. */
+export interface GeneratedPackageManifest {
+  formats: Partial<Record<ContentFormatKey, FormatAssetMetadata>>;
+  inferredFields: string[];
+  warnings: string[];
+  totalSizeBytes: number;
+}
+
+/**
+ * Response from GET /api/social/content-generation-jobs/{jobId}/status.
+ * perFormatStatus is a flat dict: formatKey → status string (e.g. "Rendered", "Failed").
+ * manifest is populated (parsed from ManifestJson) when status is Completed or PartialSuccess.
+ */
+export interface ContentGenerationJobStatusResponse {
+  jobId: string;
+  status: ContentGenerationJobStatus;
+  perFormatStatus: Partial<Record<ContentFormatKey, string>>;
+  manifest: GeneratedPackageManifest | null;
+}
