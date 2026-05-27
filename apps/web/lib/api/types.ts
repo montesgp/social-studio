@@ -629,12 +629,17 @@ export interface FormatAssetMetadata {
   contentHash: string;
 }
 
-/** Deserialized from ManifestJson on completed/partial jobs. */
+/**
+ * Deserialized from ManifestJson on completed/partial jobs. Every field here is optional because
+ * the background worker currently persists a reduced manifest (overallStatus + per-format status
+ * only) and the full manifest with inferred fields / warnings / size lives on the orchestrator
+ * result that did NOT make it to the persisted JSON. Consumers must defensive-default these.
+ */
 export interface GeneratedPackageManifest {
-  formats: Partial<Record<ContentFormatKey, FormatAssetMetadata>>;
-  inferredFields: string[];
-  warnings: string[];
-  totalSizeBytes: number;
+  formats?: Partial<Record<ContentFormatKey, FormatAssetMetadata>>;
+  inferredFields?: string[];
+  warnings?: string[];
+  totalSizeBytes?: number;
 }
 
 /**

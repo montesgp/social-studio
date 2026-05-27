@@ -1462,9 +1462,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                         />
                       )}
 
-                      {packageJob.manifest && packageJob.manifest.inferredFields.length > 0 && (packageGenerationIsCompleted || packageGenerationIsPartial) && (
-                        <InferredFieldsDisclosure fields={packageJob.manifest.inferredFields} />
-                      )}
+                      {(packageGenerationIsCompleted || packageGenerationIsPartial) &&
+                        (packageJob.manifest?.inferredFields?.length ?? 0) > 0 && (
+                          <InferredFieldsDisclosure fields={packageJob.manifest!.inferredFields!} />
+                        )}
                     </div>
 
                     {/* Format mode selector */}
