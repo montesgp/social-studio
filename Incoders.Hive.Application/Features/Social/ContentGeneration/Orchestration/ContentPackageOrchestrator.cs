@@ -93,7 +93,7 @@ public sealed class ContentPackageOrchestrator : IContentGenerationOrchestrator
 
         var overallStatus = AggregateStatus(perFormatResults.Values);
 
-        return new OrchestratorResult(overallStatus, perFormatResults);
+        return new OrchestratorResult(overallStatus, perFormatResults, brandSnapshot);
     }
 
     private static OrchestratorStatus AggregateStatus(

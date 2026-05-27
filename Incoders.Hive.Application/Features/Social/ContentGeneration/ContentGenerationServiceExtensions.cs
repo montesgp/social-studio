@@ -8,6 +8,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Hook;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.ReelScript;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Packaging;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Composers;
@@ -61,6 +62,10 @@ public static class ContentGenerationServiceExtensions
 
         // Package builder (BCL ZipArchive — Application layer, no NuGet)
         services.AddScoped<IGeneratedPackageBuilder, GeneratedPackageBuilder>();
+
+        // End-to-end pipeline used by the background worker: load analysis → orchestrate →
+        // compose + render → build + store + persist.
+        services.AddScoped<ContentGenerationJobProcessor>();
 
         return services;
     }

@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Domain.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
@@ -25,8 +26,10 @@ public sealed record OrchestratorRequest(
 
 /// <summary>
 /// Result from the content package orchestrator.
-/// Contains the aggregated status and per-format results.
+/// Carries the frozen brand snapshot too so the caller can reuse it for downstream
+/// composition + rendering without making a second round-trip to the brand loader.
 /// </summary>
 public sealed record OrchestratorResult(
     OrchestratorStatus OverallStatus,
-    IReadOnlyDictionary<string, FormatGenerationResult<object>> PerFormatResults);
+    IReadOnlyDictionary<string, FormatGenerationResult<object>> PerFormatResults,
+    BrandSnapshot Brand);
