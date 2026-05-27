@@ -33,11 +33,25 @@ internal sealed class ContentGenerationBackgroundWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // On every startup: mark orphaned running jobs as failed
-        using (var scope = _scopeFactory.CreateScope())
+        // Startup orphan cleanup is best-effort. If it fails (e.g. tables not yet migrated
+        // when running in fast-startup mode), log and continue — never crash the host, since
+        // BackgroundServiceExceptionBehavior=StopHost would take down every endpoint.
+        try
         {
+            using var scope = _scopeFactory.CreateScope();
             var jobRepo = scope.ServiceProvider.GetRequiredService<IContentGenerationJobRepository>();
             await MarkOrphanedJobsAsync(jobRepo, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "ContentGeneration worker: startup orphan cleanup failed (continuing). " +
+                "If this is a missing-table error, apply migrations (run without HIVE_FAST_STARTUP once).");
         }
 
         var options = new ParallelOptions

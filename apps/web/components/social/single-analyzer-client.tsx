@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Sparkles,
   Package,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ import { listWorkflowClients } from "@/lib/api/content-workflow";
 import type {
   Organization,
   SingleContentAnalysisStatus,
+  SingleContentAnalysisHistoryItem,
   SocialClient,
   SocialNetwork,
   ContentFormatKey,
@@ -38,13 +40,13 @@ import { useAccessToken } from "@/components/auth/use-access-token";
 import {
   getMockVideoBySearch,
   analyzeMockVideo,
-  listMockSingleHistory,
-  recordMockAnalysis,
   type SingleAnalyzerResult,
 } from "@/lib/mocks/single-analyzer";
 import {
   analyzeSingleContent,
+  deleteSingleContentAnalysis,
   getSingleContentAnalysis,
+  listSingleContentAnalyses,
   mapBackendResponseToResult,
   retrySingleContentAnalysisAi,
 } from "@/lib/api/single-analyzer";
@@ -381,7 +383,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [rightPanelTab, setRightPanelTab] = useState<"conversion" | "preview">("conversion");
   const [previewNetworkTab, setPreviewNetworkTab] = useState("");
   const [mutationMode, setMutationMode] = useState<"script" | "carousel" | "flyer">("script");
-  const [historyItems, setHistoryItems] = useState<SingleAnalyzerResult[]>([]);
+  const [historyItems, setHistoryItems] = useState<SingleContentAnalysisHistoryItem[]>([]);
+  const [deletingHistoryId, setDeletingHistoryId] = useState<string | null>(null);
+  // When loading from history, we want the new analysis's existing content-generation job to
+  // re-attach to the convert panel. The packageJobId-reset effect runs AFTER setVideoResult,
+  // so we pre-stage the jobId here and the effect reads it as it runs.
+  const pendingPackageJobIdRef = useRef<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadResult, setDownloadResult] = useState<{ fileName: string; downloadUrl: string } | null>(null);
@@ -550,11 +557,20 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     if (orgs.length > 0) setSelectedOrganizationId(orgs[0].id);
   }, []);
 
-  useEffect(() => {
-    if (selectedOrganizationId) {
-      setHistoryItems(listMockSingleHistory(selectedOrganizationId));
+  const loadHistory = useCallback(async () => {
+    if (!effectiveToken) return;
+    try {
+      const result = await listSingleContentAnalyses(1, 20, effectiveToken);
+      setHistoryItems(result.items);
+    } catch {
+      // Silent: keep the previous list rather than wipe the grid on a transient blip. A failure
+      // banner here would be noisy for a peripheral panel that doesn't block the main flow.
     }
-  }, [selectedOrganizationId]);
+  }, [effectiveToken]);
+
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory, selectedOrganizationId]);
 
   useEffect(() => {
     if (!isPlatformAdmin && activeOrgId) {
@@ -619,7 +635,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setVideoResult(result);
       setPreviewNetworkTab(result.networkSource);
       setIsAnalyzed(true);
-      setHistoryItems(listMockSingleHistory(selectedOrganizationId));
+      void loadHistory();
     } catch (e) {
       const err = e as { message?: string; problem?: Record<string, unknown> };
       const code = typeof err.problem?.code === "string" ? err.problem.code : undefined;
@@ -662,7 +678,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setVideoResult(result);
       setPreviewNetworkTab(result.networkSource);
       setIsAnalyzed(true);
-      setHistoryItems(listMockSingleHistory(selectedOrganizationId));
+      void loadHistory();
     } catch (e) {
       const err = e as { message?: string; problem?: Record<string, unknown> };
       const code = typeof err.problem?.code === "string" ? err.problem.code : undefined;
@@ -728,17 +744,15 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     }, 80);
     await sleep(duration);
     clearInterval(interval);
-    // Register the loaded video so the analysis builds on real (scraped) data
-    // instead of falling back to generic mock defaults.
-    recordMockAnalysis(videoResult);
+    // Mock-only fallback path (no backend in this flow). Backend-driven runs persist on the server
+    // and the history grid reloads from listSingleContentAnalyses — the in-memory mock buffer is
+    // no longer the source of truth.
     const analyzed = analyzeMockVideo(selectedOrganizationId, videoResult.id);
-    recordMockAnalysis(analyzed);
     setAnalyzingProgress(100);
     await sleep(300);
     setVideoResult(analyzed);
     setIsAnalyzing(false);
     setIsAnalyzed(true);
-    setHistoryItems(listMockSingleHistory(selectedOrganizationId));
   }
 
   function buildScriptContent(network: string) {
@@ -841,11 +855,99 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     }
   }
 
-  // Reset package job state when the analysis changes — a new analysis needs a fresh job.
+  // Reset package job state when the analysis changes. If we're loading from history and the
+  // user picked a row that already has a content-generation job, the click handler stashes that
+  // jobId in pendingPackageJobIdRef so the convert panel reattaches instead of "starting fresh".
   useEffect(() => {
-    setPackageJobId(null);
+    setPackageJobId(pendingPackageJobIdRef.current);
+    pendingPackageJobIdRef.current = null;
     setPackageJobError(null);
   }, [videoResult?.id]);
+
+  /**
+   * Click on a row of the history grid → fetch the full analysis from the backend and hydrate
+   * the UI exactly as it would have looked when the analysis just completed (snapshot + analysis +
+   * convert-panel state). No tokens are burned — we only read what's already persisted.
+   *
+   * If the analysis already had a content-generation job, that job's id is staged so the convert
+   * panel re-attaches to it (showing Completed/Failed/etc. with download if a package exists).
+   */
+  const handleLoadFromHistory = useCallback(
+    async (item: SingleContentAnalysisHistoryItem) => {
+      if (!effectiveToken || isLoading) return;
+      setIsLoading(true);
+      resetVideoState();
+      setError(null);
+      pendingPackageJobIdRef.current = item.latestContentGeneration?.jobId ?? null;
+      try {
+        const current = await getSingleContentAnalysis(item.id, effectiveToken);
+        if (current.snapshot) {
+          const result = mapBackendResponseToResult(current, selectedOrganizationId);
+          setVideoResult(result);
+          setPreviewNetworkTab(result.networkSource);
+        }
+        if (current.status === "Analyzed") {
+          setIsAnalyzed(true);
+        } else if (current.status === "Failed") {
+          setError({
+            code: current.failureCode ?? "social.single_analyzer.analysis_failed",
+            message:
+              current.failureMessageKey ??
+              "This analysis failed previously. Retry the AI step to resume without re-scraping.",
+          });
+        }
+        // For non-terminal statuses (Requested / ResolvingContent / Analyzing) we leave the
+        // overlay off — the user can paste the URL again or just observe state changes via reload.
+      } catch (e) {
+        const err = e as { message?: string };
+        setError({
+          message: err?.message ?? "Failed to load this saved analysis. Please try again.",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [effectiveToken, isLoading, selectedOrganizationId]
+  );
+
+  const handleDeleteFromHistory = useCallback(
+    async (item: SingleContentAnalysisHistoryItem) => {
+      if (!effectiveToken) return;
+      if (
+        !window.confirm(
+          "Delete this analysis? The scrape, AI analysis, any generated content and downloadable packages will be permanently removed."
+        )
+      ) {
+        return;
+      }
+      setDeletingHistoryId(item.id);
+      try {
+        await deleteSingleContentAnalysis(item.id, effectiveToken);
+        setHistoryItems((prev) => prev.filter((row) => row.id !== item.id));
+        // Clear the main panel when the user just nuked the analysis they had loaded.
+        if (videoResult?.id === item.id) {
+          resetVideoState();
+        }
+      } catch (e) {
+        const err = e as { message?: string };
+        setError({ message: err?.message ?? "Failed to delete this analysis." });
+      } finally {
+        setDeletingHistoryId(null);
+      }
+    },
+    [effectiveToken, videoResult?.id]
+  );
+
+  const handleHistoryDownload = useCallback((jobId: string) => {
+    const { url, filename } = getPackageDownloadUrl(jobId);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, []);
 
   async function handleDownload() {
     if (!videoResult) return;
@@ -1459,49 +1561,167 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         </div>
       </div>
 
-      {/* History */}
+      {/* History — saved analyses owned by the current user. Click to reload everything as if
+          the run just finished (snapshot + analysis + any existing content-generation job). */}
       {historyItems.length > 0 && (
         <Card className="border-border/40 bg-background/60">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
               <Clock className="h-4 w-4" />
-              Recent Analyses
+              Saved Analyses
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="divide-y divide-border/30">
-              {historyItems.slice(0, 5).map((item) => (
-                <div key={item.id} className="flex items-center gap-3 py-2.5">
-                  <img
-                    src={item.thumbnailUrl}
-                    alt={item.title}
-                    className="w-12 h-8 rounded object-cover shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-foreground/90 truncate">{item.title}</p>
-                    <p className="text-xs text-muted-foreground/60 capitalize">
-                      {item.networkSource} · {formatDate(item.analyzedAtUtc)}
-                    </p>
-                    <p className="text-xs text-muted-foreground/50">
-                      {item.clientName ? `Client: ${item.clientName}` : "No client context"}
-                    </p>
-                  </div>
-                  {item.strategyMode && (
-                    <Badge variant={strategyBadgeVariant(item.strategyMode)} className="text-xs capitalize shrink-0">
-                      {item.strategyMode}
-                    </Badge>
-                  )}
-                  {item.downloadedAtUtc && (
-                    <Badge variant="success" className="text-xs shrink-0">
-                      Downloaded
-                    </Badge>
-                  )}
-                </div>
+              {historyItems.map((item) => (
+                <SavedAnalysisRow
+                  key={item.id}
+                  item={item}
+                  isActive={videoResult?.id === item.id}
+                  isDeleting={deletingHistoryId === item.id}
+                  onOpen={() => void handleLoadFromHistory(item)}
+                  onDownload={() =>
+                    item.latestContentGeneration?.jobId &&
+                    handleHistoryDownload(item.latestContentGeneration.jobId)
+                  }
+                  onDelete={() => void handleDeleteFromHistory(item)}
+                />
               ))}
             </div>
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+// ── History row ────────────────────────────────────────────────────────────────
+
+function statusBadgeVariant(status: SingleContentAnalysisStatus): BadgeVariant {
+  switch (status) {
+    case "Analyzed":
+      return "success";
+    case "ContentResolved":
+    case "ContentResolvedPartial":
+      return "info";
+    case "Failed":
+      return "destructive";
+    case "Requested":
+    case "ResolvingContent":
+    case "Analyzing":
+      return "warning";
+    default:
+      return "muted";
+  }
+}
+
+function statusLabel(status: SingleContentAnalysisStatus): string {
+  switch (status) {
+    case "Requested":
+      return "Queued";
+    case "ResolvingContent":
+      return "Scraping";
+    case "ContentResolved":
+      return "Scraped";
+    case "ContentResolvedPartial":
+      return "Scraped (partial)";
+    case "Analyzing":
+      return "Analyzing";
+    case "Analyzed":
+      return "Analyzed";
+    case "Failed":
+      return "Failed";
+    default:
+      return status;
+  }
+}
+
+function generationBadge(status: string): { label: string; variant: BadgeVariant } {
+  switch (status) {
+    case "Completed":
+      return { label: "Generated", variant: "success" };
+    case "Partial":
+      return { label: "Partial", variant: "warning" };
+    case "Failed":
+      return { label: "Generation failed", variant: "destructive" };
+    case "Running":
+      return { label: "Generating…", variant: "info" };
+    case "Pending":
+      return { label: "Queued", variant: "muted" };
+    default:
+      return { label: status, variant: "muted" };
+  }
+}
+
+interface SavedAnalysisRowProps {
+  item: SingleContentAnalysisHistoryItem;
+  isActive: boolean;
+  isDeleting: boolean;
+  onOpen: () => void;
+  onDownload: () => void;
+  onDelete: () => void;
+}
+
+function SavedAnalysisRow({ item, isActive, isDeleting, onOpen, onDownload, onDelete }: SavedAnalysisRowProps) {
+  const gen = item.latestContentGeneration;
+  const canDownload = gen?.hasPackage === true && gen.status === "Completed";
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 py-2.5 px-1 -mx-1 rounded-md transition-colors",
+        isActive && "bg-muted/40"
+      )}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex-1 min-w-0 text-left hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+        title="Open this saved analysis"
+      >
+        <p className="text-xs font-medium text-foreground/90 truncate">
+          {item.normalizedUrl ?? item.sourceUrl}
+        </p>
+        <p className="text-xs text-muted-foreground/60 capitalize">
+          {item.sourcePlatformKey ?? "unknown"} · {formatDate(item.createdAtUtc)}
+        </p>
+      </button>
+
+      <Badge variant={statusBadgeVariant(item.status)} className="text-xs shrink-0">
+        {statusLabel(item.status)}
+      </Badge>
+
+      {gen && (() => {
+        const b = generationBadge(gen.status);
+        return (
+          <Badge variant={b.variant} className="text-xs shrink-0">
+            {b.label}
+          </Badge>
+        );
+      })()}
+
+      {canDownload && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2"
+          onClick={onDownload}
+          title="Re-download the generated package"
+        >
+          <Download className="h-3.5 w-3.5" />
+        </Button>
+      )}
+
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2 text-muted-foreground hover:text-destructive"
+        onClick={onDelete}
+        disabled={isDeleting}
+        title="Delete this analysis (hard delete)"
+      >
+        {isDeleting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+      </Button>
     </div>
   );
 }

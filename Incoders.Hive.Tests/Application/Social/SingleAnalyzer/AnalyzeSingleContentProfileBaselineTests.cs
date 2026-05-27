@@ -182,6 +182,14 @@ public sealed class AnalyzeSingleContentProfileBaselineTests
 
             public Task UpdateAsync(SingleContentAnalysisRecord analysis, CancellationToken cancellationToken = default)
             { StoredAnalysis = analysis; StatusUpdates.Add(analysis.Status); return Task.CompletedTask; }
+
+            public Task<SingleContentAnalysisHistoryPage> ListByUserAsync(
+                Guid organizationId, Guid userId, int page, int pageSize, CancellationToken cancellationToken = default) =>
+                Task.FromResult(new SingleContentAnalysisHistoryPage([], 0, page, pageSize));
+
+            public Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(
+                Guid analysisId, Guid organizationId, Guid userId, CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<string>?>(null);
         }
 
         public sealed class TestUnitOfWork : IUnitOfWork

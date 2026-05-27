@@ -515,6 +515,47 @@ export interface SingleContentAnalysisResponse {
   completedAtUtc: string | null;
 }
 
+// Status string for the latest content-generation job linked to an analysis.
+// Mirrors the backend ContentGenerationJob.Status values (free-form strings rather than enum on
+// the wire, to allow forward-compatible additions without breaking the contract).
+export type ContentGenerationJobStatusLabel =
+  | "Pending"
+  | "Running"
+  | "Completed"
+  | "Partial"
+  | "Failed"
+  | string;
+
+// Summary embedded in each saved-analysis row so the grid can render the right action.
+// `hasPackage` true → the package ZIP can be re-downloaded without rerunning the pipeline.
+export interface ContentGenerationSummary {
+  jobId: string;
+  status: ContentGenerationJobStatusLabel;
+  hasPackage: boolean;
+  completedAt: string | null;
+}
+
+export interface SingleContentAnalysisHistoryItem {
+  id: string;
+  clientId: string | null;
+  sourceUrl: string;
+  normalizedUrl: string | null;
+  sourcePlatformKey: string | null;
+  status: SingleContentAnalysisStatus;
+  failureCode: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  completedAtUtc: string | null;
+  latestContentGeneration: ContentGenerationSummary | null;
+}
+
+export interface SingleContentAnalysisHistoryResponse {
+  items: SingleContentAnalysisHistoryItem[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
 // Async/poll status view: snapshot/analysis are null until those stages complete.
 // Returned by POST /analyze (202 Accepted, status=Requested) and by GET /analyze/{id} (polling).
 export interface SingleAnalyzerStatusResponse {

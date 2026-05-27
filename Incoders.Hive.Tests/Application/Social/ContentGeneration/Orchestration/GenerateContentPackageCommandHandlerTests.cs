@@ -199,6 +199,14 @@ file sealed class FakeAnalysisRepository : ISingleContentAnalysisRepository
     public Task AddAsync(SingleContentAnalysisRecord analysis, CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task UpdateStatusAsync(Guid analysisId, Guid organizationId, SingleContentAnalysisStatus status, DateTime updatedAtUtc, CancellationToken cancellationToken = default, string? failureCode = null, string? failureMessageKey = null) => Task.CompletedTask;
     public Task UpdateAsync(SingleContentAnalysisRecord analysis, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<SingleContentAnalysisHistoryPage> ListByUserAsync(
+        Guid organizationId, Guid userId, int page, int pageSize, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new SingleContentAnalysisHistoryPage([], 0, page, pageSize));
+
+    public Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(
+        Guid analysisId, Guid organizationId, Guid userId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<string>?>(null);
 }
 
 file sealed class FakeContentGenerationJobRepository : IContentGenerationJobRepository
