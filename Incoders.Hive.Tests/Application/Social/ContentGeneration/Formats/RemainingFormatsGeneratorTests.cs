@@ -287,7 +287,9 @@ public sealed class RemainingFormatsGeneratorTests
             new BrandManualSnapshot(["#FFF"], ["logo.png"], ["Roboto"], "professional", null),
             new StrategySnapshot(["education"], ["warm"], "SMBs", "3x/week"),
             null),
-        CorrelationId: CorrelationId);
+        CorrelationId: CorrelationId,
+        AiProviderKey: "claude",
+        AiModel: "claude-sonnet-4-6");
 
     private static ProviderCallContext BeginContext(string stepKey)
     {

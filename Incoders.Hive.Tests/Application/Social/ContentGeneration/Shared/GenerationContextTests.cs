@@ -27,7 +27,9 @@ public sealed class GenerationContextTests
             AnalysisId: AnalysisId,
             Analysis: analysis,
             BrandSnapshot: brand,
-            CorrelationId: CorrelationId);
+            CorrelationId: CorrelationId,
+            AiProviderKey: "claude",
+            AiModel: "claude-sonnet-4-6");
 
         Assert.Equal(OrgId, ctx.OrganizationId);
         Assert.Equal(ClientId, ctx.ClientId);
@@ -46,7 +48,9 @@ public sealed class GenerationContextTests
             AnalysisId: AnalysisId,
             Analysis: BuildAnalysis(),
             BrandSnapshot: BrandSnapshot.Empty,
-            CorrelationId: CorrelationId);
+            CorrelationId: CorrelationId,
+            AiProviderKey: "claude",
+            AiModel: "claude-sonnet-4-6");
 
         Assert.Null(ctx.ClientId);
     }

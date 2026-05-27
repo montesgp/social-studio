@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Caption;
@@ -76,6 +77,7 @@ public sealed class ContentGenerationDiResolutionTests
         // Minimal stubs for required dependencies
         services.AddScoped<IAiCompletionGateway, StubAiCompletionGateway>();
         services.AddScoped<IClientBrandSnapshotLoader, StubBrandSnapshotLoader>();
+        services.AddScoped<IDefaultAiSelector, StubDefaultAiSelector>();
         services.AddScoped<ProviderCallContext>();
 
         // The method under test
@@ -101,4 +103,12 @@ file sealed class StubBrandSnapshotLoader : IClientBrandSnapshotLoader
     public Task<Incoders.Hive.Domain.Social.ContentGeneration.BrandSnapshot> LoadAsync(
         Guid organizationId, Guid clientId, CancellationToken ct = default) =>
         Task.FromResult(Incoders.Hive.Domain.Social.ContentGeneration.BrandSnapshot.Empty);
+}
+
+file sealed class StubDefaultAiSelector : IDefaultAiSelector
+{
+    public Task<Incoders.Hive.Domain.Common.Result<DefaultAiSelection>> SelectAsync(
+        Guid organizationId, CancellationToken ct = default) =>
+        Task.FromResult(Incoders.Hive.Domain.Common.Result.Success(
+            new DefaultAiSelection("claude", "claude-sonnet-4-6")));
 }

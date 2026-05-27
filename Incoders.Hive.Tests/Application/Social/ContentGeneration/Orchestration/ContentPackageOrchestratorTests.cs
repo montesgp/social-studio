@@ -1,3 +1,4 @@
+using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
@@ -32,7 +33,7 @@ public sealed class ContentPackageOrchestratorTests
             new FakeGenerator("flyer", FormatGenerationStatus.Succeeded),
         };
         var brandLoader = new SucceedingBrandLoader();
-        var orchestrator = new ContentPackageOrchestrator(generators, brandLoader, new ProviderCallContext());
+        var orchestrator = new ContentPackageOrchestrator(generators, brandLoader, new SucceedingAiSelector(), new ProviderCallContext());
 
         var request = new OrchestratorRequest(
             OrgId, ClientId, AnalysisId, BuildAnalysis(),
@@ -62,7 +63,7 @@ public sealed class ContentPackageOrchestratorTests
             new FakeGenerator("hook", FormatGenerationStatus.Succeeded),
         };
         var brandLoader = new SucceedingBrandLoader();
-        var orchestrator = new ContentPackageOrchestrator(generators, brandLoader, new ProviderCallContext());
+        var orchestrator = new ContentPackageOrchestrator(generators, brandLoader, new SucceedingAiSelector(), new ProviderCallContext());
 
         var request = new OrchestratorRequest(
             OrgId, ClientId, AnalysisId, BuildAnalysis(),
@@ -89,7 +90,7 @@ public sealed class ContentPackageOrchestratorTests
             new FakeGenerator("flyer", FormatGenerationStatus.Failed),
         };
         var brandLoader = new SucceedingBrandLoader();
-        var orchestrator = new ContentPackageOrchestrator(generators, brandLoader, new ProviderCallContext());
+        var orchestrator = new ContentPackageOrchestrator(generators, brandLoader, new SucceedingAiSelector(), new ProviderCallContext());
 
         var request = new OrchestratorRequest(
             OrgId, ClientId, AnalysisId, BuildAnalysis(),
@@ -116,7 +117,7 @@ public sealed class ContentPackageOrchestratorTests
             new FakeGenerator("flyer", FormatGenerationStatus.Failed),
         };
         var brandLoader = new SucceedingBrandLoader();
-        var orchestrator = new ContentPackageOrchestrator(generators, brandLoader, new ProviderCallContext());
+        var orchestrator = new ContentPackageOrchestrator(generators, brandLoader, new SucceedingAiSelector(), new ProviderCallContext());
 
         var request = new OrchestratorRequest(
             OrgId, ClientId, AnalysisId, BuildAnalysis(),
@@ -177,4 +178,10 @@ file sealed class SucceedingBrandLoader : IClientBrandSnapshotLoader
 {
     public Task<BrandSnapshot> LoadAsync(Guid organizationId, Guid clientId, CancellationToken ct = default) =>
         Task.FromResult(BrandSnapshot.Empty);
+}
+
+file sealed class SucceedingAiSelector : IDefaultAiSelector
+{
+    public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
+        Task.FromResult(Result.Success(new DefaultAiSelection("claude", "claude-sonnet-4-6")));
 }

@@ -101,8 +101,8 @@ public abstract class FormatContentGeneratorBase<TPayload> : IFormatContentGener
                     "content-generation",
                     PromptVersion,
                     promptJson,
-                    null,
-                    null),
+                    ctx.AiProviderKey,
+                    ctx.AiModel),
                 cancellationToken);
         }
 

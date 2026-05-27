@@ -155,7 +155,9 @@ public sealed class CarouselGeneratorTests
                 TargetAudience: "SMB owners",
                 PostingFrequency: "3x/week"),
             monthlyObjective: null),
-        CorrelationId: CorrelationId);
+        CorrelationId: CorrelationId,
+        AiProviderKey: "claude",
+        AiModel: "claude-sonnet-4-6");
 
     private static ProviderCallContext BeginContext(Guid orgId, Guid? clientId, Guid correlationId)
     {
