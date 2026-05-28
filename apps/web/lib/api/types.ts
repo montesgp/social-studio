@@ -343,6 +343,61 @@ export interface PagedClientReferentAccounts {
   totalCount: number;
 }
 
+export interface ClientCompetitorAccount {
+  id: string;
+  clientId: string;
+  organizationId: string;
+  socialNetworkId: string;
+  socialNetworkCode: string;
+  socialNetworkDisplayName: string;
+  socialNetworkIconKey: string;
+  profileUrl: string;
+  handle: string | null;
+  label: string | null;
+  notes: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface CreateClientCompetitorAccountPayload {
+  socialNetworkId: string;
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+}
+
+export interface UpdateClientCompetitorAccountPayload {
+  socialNetworkId?: string;
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+}
+
+export interface SyncClientCompetitorAccountPayload {
+  id?: string;
+  socialNetworkId: string;
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+  isActive: boolean;
+}
+
+export interface ListClientCompetitorAccountsQuery {
+  includeInactive?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PagedClientCompetitorAccounts {
+  items: ClientCompetitorAccount[];
+  totalCount: number;
+}
+
 export interface ColorEntry {
   name: string;
   hex: string;
