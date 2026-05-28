@@ -5,11 +5,17 @@ import {
   listClientReferentAccounts,
   syncClientReferentAccounts,
 } from "@/lib/api/client-referent-accounts";
+import {
+  listClientCompetitorAccounts,
+  syncClientCompetitorAccounts,
+} from "@/lib/api/client-competitor-accounts";
 import { createSocialClient, updateSocialClient } from "@/lib/api/social-clients";
 import {
   ApiError,
+  ClientCompetitorAccount,
   ClientReferentAccount,
   SocialClient,
+  SyncClientCompetitorAccountPayload,
   SyncClientReferentAccountPayload,
 } from "@/lib/api/types";
 
@@ -32,11 +38,14 @@ interface UseClientFormReturn {
   fieldErrors: ClientFormFieldErrors;
   referentAccounts: ClientReferentAccount[];
   referentAccountsLoading: boolean;
+  competitorAccounts: ClientCompetitorAccount[];
+  competitorAccountsLoading: boolean;
   submitting: boolean;
   setName: (value: string) => void;
   setDescription: (value: string) => void;
   setSectorOrNiche: (value: string | null) => void;
   setReferentAccounts: (value: ClientReferentAccount[]) => void;
+  setCompetitorAccounts: (value: ClientCompetitorAccount[]) => void;
   openCreate: () => void;
   openEdit: (item: SocialClient) => void;
   closeForm: () => void;
@@ -70,6 +79,18 @@ function toReferentAccountPayload(account: ClientReferentAccount): SyncClientRef
   };
 }
 
+function toCompetitorAccountPayload(account: ClientCompetitorAccount): SyncClientCompetitorAccountPayload {
+  return {
+    id: isDraftId(account.id) ? undefined : account.id,
+    socialNetworkId: account.socialNetworkId,
+    profileUrl: account.profileUrl.trim(),
+    handle: account.handle?.trim() || undefined,
+    label: account.label?.trim() || undefined,
+    notes: account.notes?.trim() || undefined,
+    isActive: account.isActive,
+  };
+}
+
 export function useClientForm({
   effectiveToken,
   onSuccess,
@@ -84,6 +105,8 @@ export function useClientForm({
   const [fieldErrors, setFieldErrors] = useState<ClientFormFieldErrors>({});
   const [referentAccounts, setReferentAccountsState] = useState<ClientReferentAccount[]>([]);
   const [referentAccountsLoading, setReferentAccountsLoading] = useState(false);
+  const [competitorAccounts, setCompetitorAccountsState] = useState<ClientCompetitorAccount[]>([]);
+  const [competitorAccountsLoading, setCompetitorAccountsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   function clearFieldError(field: keyof ClientFormFieldErrors) {
@@ -115,6 +138,10 @@ export function useClientForm({
     clearFieldError("referentAccounts");
   }
 
+  function setCompetitorAccounts(value: ClientCompetitorAccount[]) {
+    setCompetitorAccountsState(value);
+  }
+
   function openCreate() {
     setMode("create");
     setSelected(null);
@@ -123,6 +150,7 @@ export function useClientForm({
     setSectorOrNiche(null);
     setFieldErrors({});
     setReferentAccountsState([]);
+    setCompetitorAccountsState([]);
     setFormOpen(true);
   }
 
@@ -134,8 +162,10 @@ export function useClientForm({
     setSectorOrNiche(item.sectorOrNiche ?? null);
     setFieldErrors({});
     setReferentAccountsState([]);
+    setCompetitorAccountsState([]);
     setFormOpen(true);
     void loadReferentAccounts(item.id);
+    void loadCompetitorAccounts(item.id);
   }
 
   function closeForm() {
@@ -157,6 +187,23 @@ export function useClientForm({
       onError(message);
     } finally {
       setReferentAccountsLoading(false);
+    }
+  }
+
+  async function loadCompetitorAccounts(clientId: string) {
+    setCompetitorAccountsLoading(true);
+    try {
+      const result = await listClientCompetitorAccounts(
+        clientId,
+        { includeInactive: true, page: 1, pageSize: 200 },
+        effectiveToken || undefined,
+      );
+      setCompetitorAccountsState([...result.items].sort((a, b) => a.sortOrder - b.sortOrder));
+    } catch (err) {
+      const message = (err as ApiError).message ?? "Failed to load competitor accounts.";
+      onError(message);
+    } finally {
+      setCompetitorAccountsLoading(false);
     }
   }
 
@@ -227,12 +274,20 @@ export function useClientForm({
             : null;
 
       if (saved && mode === "edit") {
-        const synced = await syncClientReferentAccounts(
-          saved.id,
-          referentAccounts.map(toReferentAccountPayload),
-          effectiveToken || undefined,
-        );
-        setReferentAccountsState([...synced].sort((a, b) => a.sortOrder - b.sortOrder));
+        const [syncedReferent, syncedCompetitor] = await Promise.all([
+          syncClientReferentAccounts(
+            saved.id,
+            referentAccounts.map(toReferentAccountPayload),
+            effectiveToken || undefined,
+          ),
+          syncClientCompetitorAccounts(
+            saved.id,
+            competitorAccounts.map(toCompetitorAccountPayload),
+            effectiveToken || undefined,
+          ),
+        ]);
+        setReferentAccountsState([...syncedReferent].sort((a, b) => a.sortOrder - b.sortOrder));
+        setCompetitorAccountsState([...syncedCompetitor].sort((a, b) => a.sortOrder - b.sortOrder));
       }
 
       setFormOpen(false);
@@ -241,6 +296,7 @@ export function useClientForm({
       setSectorOrNiche(null);
       setFieldErrors({});
       setReferentAccountsState([]);
+      setCompetitorAccountsState([]);
 
       if (saved) {
         onSuccess(saved, mode);
@@ -265,11 +321,14 @@ export function useClientForm({
     fieldErrors,
     referentAccounts,
     referentAccountsLoading,
+    competitorAccounts,
+    competitorAccountsLoading,
     submitting,
     setName: updateName,
     setDescription: updateDescription,
     setSectorOrNiche: updateSectorOrNiche,
     setReferentAccounts,
+    setCompetitorAccounts,
     openCreate,
     openEdit,
     closeForm,

@@ -4,12 +4,14 @@ import { FormEvent, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ClientReferentAccountsSection } from "@/components/social/clients/client-referent-accounts-section";
+import { ClientCompetitorAccountsSection } from "@/components/social/clients/client-competitor-accounts-section";
 import { ClientBrandManualSection } from "@/components/social/clients/client-brand-manual-section";
 import { ClientStrategySection } from "@/components/social/clients/client-strategy-section";
 import { MonthlyObjectivesSection } from "@/components/social/clients/monthly-objectives-section";
 import type { ClientFormFieldErrors } from "@/components/social/clients/use-client-form";
-import type { ClientReferentAccount } from "@/lib/api/types";
+import type { ClientCompetitorAccount, ClientReferentAccount } from "@/lib/api/types";
 
 interface ClientFormPanelProps {
   mode: "create" | "edit";
@@ -20,11 +22,14 @@ interface ClientFormPanelProps {
   fieldErrors: ClientFormFieldErrors;
   referentAccounts: ClientReferentAccount[];
   referentAccountsLoading: boolean;
+  competitorAccounts: ClientCompetitorAccount[];
+  competitorAccountsLoading: boolean;
   submitting: boolean;
   onNameChange: (value: string) => void;
   onDescriptionChange: (value: string) => void;
   onSectorOrNicheChange: (value: string | null) => void;
   onReferentAccountsChange: (value: ClientReferentAccount[]) => void;
+  onCompetitorAccountsChange: (value: ClientCompetitorAccount[]) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onCancel: () => void;
   token: string;
@@ -75,11 +80,14 @@ export function ClientFormPanel({
   fieldErrors,
   referentAccounts,
   referentAccountsLoading,
+  competitorAccounts,
+  competitorAccountsLoading,
   submitting,
   onNameChange,
   onDescriptionChange,
   onSectorOrNicheChange,
   onReferentAccountsChange,
+  onCompetitorAccountsChange,
   onSubmit,
   onCancel,
   token,
@@ -167,17 +175,34 @@ export function ClientFormPanel({
             <MonthlyObjectivesSection clientId={clientId} token={token} />
           </CollapsibleSection>
 
-          <CollapsibleSection title="Referent Accounts">
-            <ClientReferentAccountsSection
-              clientId={clientId}
-              accounts={referentAccounts}
-              loading={referentAccountsLoading}
-              deferPersistence
-              onAccountsChange={onReferentAccountsChange}
-            />
-            {fieldErrors.referentAccounts ? (
-              <p className="pt-2 text-xs text-destructive">{fieldErrors.referentAccounts}</p>
-            ) : null}
+          <CollapsibleSection title="Associated Accounts">
+            <Tabs defaultValue="referent">
+              <TabsList>
+                <TabsTrigger value="referent">Referent Accounts</TabsTrigger>
+                <TabsTrigger value="competitor">Competitor Accounts</TabsTrigger>
+              </TabsList>
+              <TabsContent value="referent">
+                <ClientReferentAccountsSection
+                  clientId={clientId}
+                  accounts={referentAccounts}
+                  loading={referentAccountsLoading}
+                  deferPersistence
+                  onAccountsChange={onReferentAccountsChange}
+                />
+                {fieldErrors.referentAccounts ? (
+                  <p className="pt-2 text-xs text-destructive">{fieldErrors.referentAccounts}</p>
+                ) : null}
+              </TabsContent>
+              <TabsContent value="competitor">
+                <ClientCompetitorAccountsSection
+                  clientId={clientId}
+                  accounts={competitorAccounts}
+                  loading={competitorAccountsLoading}
+                  deferPersistence
+                  onAccountsChange={onCompetitorAccountsChange}
+                />
+              </TabsContent>
+            </Tabs>
           </CollapsibleSection>
         </>
       )}
@@ -186,7 +211,10 @@ export function ClientFormPanel({
         <Button type="button" variant="secondary" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" disabled={submitting || referentAccountsLoading}>
+        <Button
+          type="submit"
+          disabled={submitting || referentAccountsLoading || competitorAccountsLoading}
+        >
           {submitting ? "Saving..." : mode === "create" ? "Create" : "Save client"}
         </Button>
       </div>
