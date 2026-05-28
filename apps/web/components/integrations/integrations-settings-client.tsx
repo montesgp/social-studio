@@ -93,7 +93,6 @@ interface ModalState {
 interface ApifyActorMappingDraft {
   id: string;
   networkKey: string;
-  variantKey: string;
   actorId: string;
 }
 
@@ -103,7 +102,6 @@ function newApifyActorMapping(defaultNetworkKey: string): ApifyActorMappingDraft
   return {
     id: crypto.randomUUID(),
     networkKey: defaultNetworkKey,
-    variantKey: "default",
     actorId: ""
   };
 }
@@ -125,7 +123,6 @@ function parseApifyActorMappings(value: string | undefined): ApifyActorMappingDr
         return {
           id: crypto.randomUUID(),
           networkKey,
-          variantKey: item.variantKey?.trim() || "default",
           actorId: item.actorId?.trim() || ""
         };
       })
@@ -140,7 +137,7 @@ function serializeApifyActorMappings(mappings: ApifyActorMappingDraft[]) {
     mappings
       .map((item) => ({
         networkKey: item.networkKey,
-        variantKey: item.variantKey.trim() || "default",
+        variantKey: "default",
         actorId: item.actorId.trim()
       }))
       .filter((item) => item.actorId.length > 0)
@@ -766,7 +763,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       ) : null}
 
       <Dialog open={modal !== null} onOpenChange={(open) => !open && setModal(null)}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{modal?.integration.providerDisplayName} integration</DialogTitle>
             <DialogDescription>
@@ -825,7 +822,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
               {modal.mode !== "SystemDefault"
                 ? modal.integration.credentialFields
-                  .filter((field) => field.key !== apifyActorMappingsCredentialKey)
+                  .filter((field) => field.key !== apifyActorMappingsCredentialKey && field.key !== "actor_id")
                   .map((field) => {
                     const isConfigured = modal.integration.configuredCredentialKeys.includes(field.key);
                     return (
@@ -885,7 +882,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                     <div>
                       <p className="text-sm font-medium">Actor routing</p>
                       <p className="text-xs text-muted-foreground">
-                        Map Apify actors by active social network and generator variant.
+                        Map Apify actors by active social network.
                       </p>
                     </div>
                     <Button
@@ -905,7 +902,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                     </p>
                   ) : modal.apifyActorMappings.length === 0 ? (
                     <p className="text-xs text-muted-foreground">
-                      No actor routes configured yet. The default actor ID remains available as a fallback.
+                      No actor routes configured yet.
                     </p>
                   ) : (
                     <div className="space-y-2">
@@ -913,7 +910,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                         const isKnownNetwork = socialNetworkOptions.some((option) => option.value === mapping.networkKey);
 
                         return (
-                          <div key={mapping.id} className="grid gap-2 rounded-lg border border-border/70 p-2 md:grid-cols-[140px_1fr_1fr_auto]">
+                          <div key={mapping.id} className="grid gap-2 rounded-lg border border-border/70 p-2 md:grid-cols-[1fr_1fr_auto]">
                             <Select
                               value={mapping.networkKey}
                               onChange={(event) =>
@@ -931,13 +928,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                                 </option>
                               ))}
                             </Select>
-                            <Input
-                              value={mapping.variantKey}
-                              onChange={(event) =>
-                                patchApifyActorMapping(mapping.id, { variantKey: event.target.value })
-                              }
-                              placeholder="Variant key, e.g. single-video"
-                            />
                             <Input
                               value={mapping.actorId}
                               onChange={(event) =>
