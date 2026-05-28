@@ -57,7 +57,18 @@ public static class ContentGenerationServiceExtensions
         // Orchestrator resolves all IFormatContentGenerator registrations via IEnumerable<>
         services.AddScoped<IContentGenerationOrchestrator, ContentPackageOrchestrator>();
 
-        // Visual composition service (Application) + per-format composers
+        // Per-format visual composers — VisualCompositionService picks them up via
+        // IEnumerable<IFormatVisualComposer>. Without these explicit registrations the service
+        // resolves with an empty collection and every Compose call throws
+        // "No visual composer registered for format key 'X'" at runtime.
+        services.AddScoped<IFormatVisualComposer, CarouselVisualComposer>();
+        services.AddScoped<IFormatVisualComposer, FlyerVisualComposer>();
+        services.AddScoped<IFormatVisualComposer, HookVisualComposer>();
+        services.AddScoped<IFormatVisualComposer, CaptionVisualComposer>();
+        services.AddScoped<IFormatVisualComposer, CtaVariationVisualComposer>();
+        services.AddScoped<IFormatVisualComposer, ReelScriptVisualComposer>();
+        services.AddScoped<IFormatVisualComposer, ContentIdeaVisualComposer>();
+
         services.AddScoped<IVisualCompositionService, VisualCompositionService>();
 
         // Package builder (BCL ZipArchive — Application layer, no NuGet)
