@@ -1038,8 +1038,8 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
             </div>
 
             {/* Typography */}
-            <div className="space-y-3 rounded-md border border-border/70 bg-muted/10 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
                 <label className="text-xs font-medium">Typography</label>
                 <Button
                   type="button"
@@ -1069,11 +1069,7 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                     />
                   ))}
                 </div>
-              ) : (
-                <p className="rounded-md border border-dashed border-border/80 px-3 py-4 text-sm text-muted-foreground">
-                  No fonts selected yet.
-                </p>
-              )}
+              ) : null}
 
               {fontPickerOpen ? (
                 <div className="space-y-3 rounded-md border border-border bg-background p-3 shadow-sm">
