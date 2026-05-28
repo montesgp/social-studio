@@ -315,10 +315,21 @@ export interface CreateClientReferentAccountPayload {
 }
 
 export interface UpdateClientReferentAccountPayload {
+  socialNetworkId?: string;
   profileUrl: string;
   handle?: string;
   label?: string;
   notes?: string;
+}
+
+export interface SyncClientReferentAccountPayload {
+  id?: string;
+  socialNetworkId: string;
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+  isActive: boolean;
 }
 
 export interface ListClientReferentAccountsQuery {
@@ -617,6 +628,7 @@ export type ContentGenerationJobStatus =
   | "Queued"
   | "Running"
   | "Completed"
+  | "Partial"
   | "PartialSuccess"
   | "Failed";
 
@@ -645,7 +657,7 @@ export interface GeneratedPackageManifest {
 /**
  * Response from GET /api/social/content-generation-jobs/{jobId}/status.
  * perFormatStatus is a flat dict: formatKey → status string (e.g. "Rendered", "Failed").
- * manifest is populated (parsed from ManifestJson) when status is Completed or PartialSuccess.
+ * manifest is populated (parsed from ManifestJson) when status is Completed or Partial.
  */
 export interface ContentGenerationJobStatusResponse {
   jobId: string;

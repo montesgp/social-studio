@@ -3,6 +3,7 @@ using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ClientReferentAccounts;
 using Incoders.Hive.Domain.Social.Clients;
+using Incoders.Hive.Domain.Social.Networks;
 using MediatR;
 
 namespace Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Update;
@@ -41,13 +42,29 @@ public sealed class UpdateClientReferentAccountHandler
             return Result.Failure<ClientReferentAccountResponse>(ClientReferentAccountErrors.NotFound);
         }
 
-        // Re-check uniqueness only if profileUrl actually changes
+        var newNetworkId = request.SocialNetworkId.HasValue
+            ? new SocialNetworkId(request.SocialNetworkId.Value)
+            : account.SocialNetworkId;
+
+        var network = await _networks.GetByIdAsync(newNetworkId, cancellationToken);
+        if (network is null)
+        {
+            return Result.Failure<ClientReferentAccountResponse>(ClientReferentAccountErrors.NotFound);
+        }
+
+        if (!network.IsActive)
+        {
+            return Result.Failure<ClientReferentAccountResponse>(ClientReferentAccountErrors.SocialNetworkInactive);
+        }
+
+        // Re-check uniqueness only if profileUrl or network actually changes
         var newProfileUrl = request.ProfileUrl?.Trim() ?? string.Empty;
-        if (!string.Equals(newProfileUrl, account.ProfileUrl, StringComparison.Ordinal))
+        if (!string.Equals(newProfileUrl, account.ProfileUrl, StringComparison.Ordinal) ||
+            newNetworkId != account.SocialNetworkId)
         {
             var exists = await _accounts.ExistsByProfileUrlAsync(
                 account.ClientId,
-                account.SocialNetworkId,
+                newNetworkId,
                 newProfileUrl,
                 id,
                 cancellationToken);
@@ -58,7 +75,7 @@ public sealed class UpdateClientReferentAccountHandler
             }
         }
 
-        var updated = account.Update(newProfileUrl, request.Handle, request.Label, request.Notes, _clock.UtcNow);
+        var updated = account.Update(newNetworkId, newProfileUrl, request.Handle, request.Label, request.Notes, _clock.UtcNow);
         if (updated.IsFailure)
         {
             return Result.Failure<ClientReferentAccountResponse>(updated.Error);
@@ -66,12 +83,6 @@ public sealed class UpdateClientReferentAccountHandler
 
         _accounts.Update(account);
         await _accounts.SaveChangesAsync(cancellationToken);
-
-        var network = await _networks.GetByIdAsync(account.SocialNetworkId, cancellationToken);
-        if (network is null)
-        {
-            return Result.Failure<ClientReferentAccountResponse>(ClientReferentAccountErrors.NotFound);
-        }
 
         return Result.Success(ClientReferentAccountResponse.FromDomain(account, network));
     }

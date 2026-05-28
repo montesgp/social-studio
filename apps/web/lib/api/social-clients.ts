@@ -12,6 +12,7 @@ export interface SocialClientsQuery {
 export interface SocialClientPayload {
   name: string;
   description?: string | null;
+  sectorOrNiche?: string | null;
 }
 
 export async function listSocialClients(query: SocialClientsQuery, token?: string) {

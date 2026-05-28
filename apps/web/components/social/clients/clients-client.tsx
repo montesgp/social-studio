@@ -87,10 +87,14 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
     name,
     description,
     sectorOrNiche,
+    fieldErrors,
+    referentAccounts,
+    referentAccountsLoading,
     submitting,
     setName,
     setDescription,
     setSectorOrNiche,
+    setReferentAccounts,
     openCreate,
     openEdit,
     closeForm,
@@ -323,10 +327,14 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
                   name={name}
                   description={description}
                   sectorOrNiche={sectorOrNiche}
+                  fieldErrors={fieldErrors}
+                  referentAccounts={referentAccounts}
+                  referentAccountsLoading={referentAccountsLoading}
                   submitting={submitting}
                   onNameChange={setName}
                   onDescriptionChange={setDescription}
                   onSectorOrNicheChange={setSectorOrNiche}
+                  onReferentAccountsChange={setReferentAccounts}
                   onSubmit={onSubmit}
                   onCancel={() => {
                     closeForm();
@@ -739,9 +747,15 @@ function Notice({ tone, message, onDismiss }: { tone: "error" | "success"; messa
       )}
     >
       <span>{tone === "error" ? `Error: ${message}` : message}</span>
-      <button type="button" onClick={onDismiss} className="opacity-70 hover:opacity-100">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onDismiss}
+        className="h-7 px-2 opacity-70 hover:opacity-100"
+      >
         <X className="h-4 w-4" />
-      </button>
+      </Button>
     </div>
   );
 }

@@ -12,6 +12,10 @@ Content research retrieves candidate high-performing content by client, niche, r
 - Sysadmin client list views MUST show the organization each client belongs to.
 - Single-content analysis workflows MAY run without a selected client; in that case generated mutations MUST preserve the source video's original positioning without client-specific orientation.
 - When a single-content analysis workflow offers client selection, selectable clients MUST be active and scoped to the resolved organization.
+- Client edit forms MUST keep unsaved child collection changes in frontend state until the user saves the client.
+- Referent accounts edited in the client form MUST be synchronized as a complete ordered list on client save, not persisted on each row add/edit/reorder action.
+- Client form validation failures MUST keep the form/dialog open and mark the invalid field inline without discarding entered data.
+- Brand manual typography entry uses MUST offer a common-font picker while still allowing custom font family values.
 
 ## Single-Content Analysis Pipeline
 

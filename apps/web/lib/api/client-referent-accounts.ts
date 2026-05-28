@@ -5,6 +5,7 @@ import type {
   UpdateClientReferentAccountPayload,
   ListClientReferentAccountsQuery,
   PagedClientReferentAccounts,
+  SyncClientReferentAccountPayload,
 } from "@/lib/api/types";
 
 const base = (clientId: string) => `/api/social/clients/${clientId}/referent-accounts`;
@@ -91,6 +92,18 @@ export async function reorderClientReferentAccounts(
   await apiRequest<void>(
     `${base(clientId)}/reorder`,
     { method: "POST", body: JSON.stringify({ orderedIds }) },
+    token,
+  );
+}
+
+export async function syncClientReferentAccounts(
+  clientId: string,
+  items: SyncClientReferentAccountPayload[],
+  token?: string,
+): Promise<ClientReferentAccount[]> {
+  return apiRequest<ClientReferentAccount[]>(
+    base(clientId),
+    { method: "PUT", body: JSON.stringify({ items }) },
     token,
   );
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "@/components/auth/sign-out-button";
@@ -14,10 +14,11 @@ import { adminNavigation, getWorkspaceNavigation, workspaceModules } from "@/lib
 import type { NavGroup, WorkspaceModule, WorkspaceModuleKey } from "@/lib/navigation";
 import { getWorkspaceModules } from "@/lib/api/me";
 import { ThemeKey } from "@/lib/api/types";
-import { HttpLoader } from "@/components/ui/http-loader";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Button } from "@/components/ui/button";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
+import { BlockingLoader } from "@/components/ui/blocking-loader";
+import { subscribe as subscribeHttpLoading, getSnapshot as getHttpLoadingSnapshot } from "@/lib/loading/http-loading-store";
 
 function NavGroupSection({
   group,
@@ -148,6 +149,10 @@ export function AppShell({
   const [activeModuleKey, setActiveModuleKey] = useState<WorkspaceModuleKey>("hive-social");
   const [availableModules, setAvailableModules] = useState<WorkspaceModule[]>([]);
   const [modulesLoaded, setModulesLoaded] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(true);
+  const [routeSawHttpPending, setRouteSawHttpPending] = useState(false);
+  const routeLoadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isHttpLoading = useSyncExternalStore(subscribeHttpLoading, getHttpLoadingSnapshot, () => false);
   const isAdminArea = pathname.startsWith("/admin");
   const activeArea = isAdminArea ? "admin" : "workspace";
   const moduleOptions = useMemo(
@@ -157,6 +162,8 @@ export function AppShell({
   const activeModule = moduleOptions.find((module) => module.key === activeModuleKey) ?? moduleOptions[0] ?? null;
   const navGroups = isAdminArea ? adminNavigation : getWorkspaceNavigation(activeModule?.key);
   const layoutId = `sidebar-active-${activeArea}`;
+  const waitingForInitialShellData =
+    !accessToken || !modulesLoaded || (!isPlatformAdmin && !isOrgInitialized);
 
   useEffect(() => {
     if (!accessToken) {
@@ -204,6 +211,46 @@ export function AppShell({
     };
   }, [accessToken, isOrgInitialized, isPlatformAdmin, orgId]);
 
+  useEffect(() => {
+    if (routeLoadingTimeoutRef.current) {
+      clearTimeout(routeLoadingTimeoutRef.current);
+      routeLoadingTimeoutRef.current = null;
+    }
+
+    setRouteLoading(true);
+    setRouteSawHttpPending(false);
+
+    routeLoadingTimeoutRef.current = setTimeout(() => {
+      setRouteLoading(false);
+      routeLoadingTimeoutRef.current = null;
+    }, 350);
+
+    return () => {
+      if (routeLoadingTimeoutRef.current) {
+        clearTimeout(routeLoadingTimeoutRef.current);
+        routeLoadingTimeoutRef.current = null;
+      }
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!routeLoading) return;
+    if (isHttpLoading) {
+      setRouteSawHttpPending(true);
+      return;
+    }
+
+    if (routeSawHttpPending && !isHttpLoading) {
+      setRouteLoading(false);
+    }
+  }, [routeLoading, routeSawHttpPending, isHttpLoading]);
+
+  useEffect(() => {
+    if (waitingForInitialShellData) {
+      setRouteLoading(true);
+    }
+  }, [waitingForInitialShellData]);
+
   function changeModule(moduleKey: WorkspaceModuleKey) {
     setActiveModuleKey(moduleKey);
     if (!isAdminArea) {
@@ -213,8 +260,17 @@ export function AppShell({
 
   return (
     <ThemeProvider initialThemeKey={initialThemeKey}>
-      <HttpLoader />
       <ProgressBar />
+      <BlockingLoader
+        visible={waitingForInitialShellData || routeLoading}
+        title={waitingForInitialShellData ? "Preparing workspace" : "Loading tool"}
+        description={
+          waitingForInitialShellData
+            ? "Loading modules, permissions and menu context..."
+            : "Fetching data required to render this view..."
+        }
+        mode={waitingForInitialShellData ? "progress" : "spinner"}
+      />
       <div className="min-h-screen bg-background">
         <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[220px_1fr]">
           <aside className="border-r border-border bg-card/50 p-3">

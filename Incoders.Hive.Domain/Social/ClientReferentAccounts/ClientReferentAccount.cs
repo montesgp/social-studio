@@ -147,9 +147,10 @@ public sealed class ClientReferentAccount : Entity<ClientReferentAccountId>
     }
 
     /// <summary>
-    /// Updates all editable fields. ClientId, OrganizationId, SocialNetworkId are immutable.
+    /// Updates all editable fields. ClientId and OrganizationId are immutable.
     /// </summary>
     public Result<ClientReferentAccount> Update(
+        SocialNetworkId socialNetworkId,
         string profileUrl,
         string? handle,
         string? label,
@@ -180,6 +181,7 @@ public sealed class ClientReferentAccount : Entity<ClientReferentAccountId>
             return Result.Failure<ClientReferentAccount>(notesValidation.Error);
         }
 
+        SocialNetworkId = socialNetworkId;
         ProfileUrl = urlValidation.Value;
         Handle = handleValidation.Value;
         Label = labelValidation.Value;
@@ -187,6 +189,16 @@ public sealed class ClientReferentAccount : Entity<ClientReferentAccountId>
         UpdatedAtUtc = nowUtc;
 
         return Result.Success(this);
+    }
+
+    public Result<ClientReferentAccount> Update(
+        string profileUrl,
+        string? handle,
+        string? label,
+        string? notes,
+        DateTime nowUtc)
+    {
+        return Update(SocialNetworkId, profileUrl, handle, label, notes, nowUtc);
     }
 
     /// <summary>

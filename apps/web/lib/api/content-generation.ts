@@ -1,6 +1,7 @@
 // API client for the content-generation pipeline (single-analyzer package generation).
 
 import { apiRequest } from "@/lib/api/client";
+import { ACTIVE_ORG_STORAGE_KEY } from "@/lib/auth/session";
 import type {
   ContentFormatKey,
   ContentGenerationJobStatusResponse,
@@ -48,6 +49,21 @@ interface RawJobStatusResponse {
   status: ContentGenerationJobStatus;
   perFormatStatus: Record<string, string>;
   manifestJson: string | null;
+}
+
+function parseContentDispositionFilename(contentDisposition: string | null): string | null {
+  if (!contentDisposition) return null;
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const fallbackMatch = /filename="?([^\";]+)"?/i.exec(contentDisposition);
+  return fallbackMatch?.[1] ?? null;
 }
 
 function parseManifest(manifestJson: string | null): GeneratedPackageManifest | null {
@@ -124,4 +140,54 @@ export function getPackageDownloadUrl(
     url: `${base}/api/social/content-generation-jobs/${encodeURIComponent(jobId)}/package`,
     filename: `content-package-${jobId}.zip`,
   };
+}
+
+/**
+ * GET /api/social/content-generation-jobs/{jobId}/package
+ * Downloads the generated ZIP using auth + tenant headers.
+ */
+export async function downloadPackageFile(
+  jobId: string,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<{ blob: Blob; filename: string }> {
+  const base = typeof window !== "undefined" ? "/hive-api" : "";
+  const headers = new Headers();
+
+  if (opts?.token) {
+    headers.set("Authorization", `Bearer ${opts.token}`);
+  }
+
+  if (typeof window !== "undefined") {
+    const orgId = window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+    if (orgId) {
+      headers.set("X-Tenant-Id", orgId);
+    }
+  }
+
+  const response = await fetch(
+    `${base}/api/social/content-generation-jobs/${encodeURIComponent(jobId)}/package`,
+    {
+      method: "GET",
+      headers,
+      signal: opts?.signal,
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    let message = `Failed to download package (HTTP ${response.status})`;
+    try {
+      const problem = (await response.json()) as { detail?: string; title?: string };
+      message = problem.detail ?? problem.title ?? message;
+    } catch {
+      // ignore: keep default HTTP message
+    }
+    throw new Error(message);
+  }
+
+  const filename =
+    parseContentDispositionFilename(response.headers.get("Content-Disposition")) ??
+    `content-package-${jobId}.zip`;
+  const blob = await response.blob();
+  return { blob, filename };
 }

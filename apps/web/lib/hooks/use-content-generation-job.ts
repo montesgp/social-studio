@@ -13,6 +13,7 @@ const DEFAULT_INTERVAL_MS = 2500;
 /** Terminal statuses where polling should stop. */
 const TERMINAL_STATUSES = new Set<ContentGenerationJobStatus>([
   "Completed",
+  "Partial",
   "PartialSuccess",
   "Failed",
 ]);
@@ -70,7 +71,7 @@ export interface UseContentGenerationJobResult {
  *
  * - Starts polling immediately when `jobId` is non-null and `enabled !== false`.
  * - Polls every `intervalMs` (default 2500ms).
- * - Stops automatically on Completed | PartialSuccess | Failed.
+ * - Stops automatically on Completed | Partial | Failed.
  * - Cancels in-flight requests on unmount or jobId change (AbortController).
  * - Safe under React Strict Mode double-mount (abort + re-fetch on second mount).
  */
