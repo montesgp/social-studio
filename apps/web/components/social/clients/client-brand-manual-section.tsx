@@ -1037,51 +1037,6 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
               ))}
             </div>
 
-            {/* Backgrounds */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium">Background Templates</label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setFBg([...fBg, { name: "", url: "", useCase: null }])
-                  }
-                >
-                  <Plus className="h-3 w-3" /> Add Background
-                </Button>
-              </div>
-              {fBg.map((b, i) => (
-                <ImageAssetRow
-                  key={i}
-                  name={b.name}
-                  url={b.url}
-                  extra={b.useCase}
-                  extraPlaceholder="Use Case"
-                  assetLabel={`Background ${b.name || i + 1}`}
-                  showValidationErrors={showValidationErrors}
-                  onChangeName={(v) => {
-                    const copy = [...fBg];
-                    copy[i] = { ...copy[i], name: v };
-                    setFBg(copy);
-                  }}
-                  onChangeUrl={(v) => {
-                    const copy = [...fBg];
-                    copy[i] = { ...copy[i], url: v };
-                    setFBg(copy);
-                  }}
-                  onChangeExtra={(v) => {
-                    const copy = [...fBg];
-                    copy[i] = { ...copy[i], useCase: v };
-                    setFBg(copy);
-                  }}
-                  onUpload={handleImageUpload}
-                  onRemove={() => setFBg(fBg.filter((_, idx) => idx !== i))}
-                />
-              ))}
-            </div>
-
             {/* Typography */}
             <div className="space-y-3 rounded-md border border-border/70 bg-muted/10 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1204,6 +1159,51 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                   Remove empty font entries before saving.
                 </p>
               ) : null}
+            </div>
+
+            {/* Backgrounds */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium">Background Templates</label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setFBg([...fBg, { name: "", url: "", useCase: null }])
+                  }
+                >
+                  <Plus className="h-3 w-3" /> Add Background
+                </Button>
+              </div>
+              {fBg.map((b, i) => (
+                <ImageAssetRow
+                  key={i}
+                  name={b.name}
+                  url={b.url}
+                  extra={b.useCase}
+                  extraPlaceholder="Use Case"
+                  assetLabel={`Background ${b.name || i + 1}`}
+                  showValidationErrors={showValidationErrors}
+                  onChangeName={(v) => {
+                    const copy = [...fBg];
+                    copy[i] = { ...copy[i], name: v };
+                    setFBg(copy);
+                  }}
+                  onChangeUrl={(v) => {
+                    const copy = [...fBg];
+                    copy[i] = { ...copy[i], url: v };
+                    setFBg(copy);
+                  }}
+                  onChangeExtra={(v) => {
+                    const copy = [...fBg];
+                    copy[i] = { ...copy[i], useCase: v };
+                    setFBg(copy);
+                  }}
+                  onUpload={handleImageUpload}
+                  onRemove={() => setFBg(fBg.filter((_, idx) => idx !== i))}
+                />
+              ))}
             </div>
 
             {/* Voice and Tone */}
