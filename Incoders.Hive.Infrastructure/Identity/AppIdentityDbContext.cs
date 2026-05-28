@@ -49,6 +49,8 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<ClientReferentAccountData> ClientReferentAccounts => Set<ClientReferentAccountData>();
 
+    public DbSet<ClientCompetitorAccountData> ClientCompetitorAccounts => Set<ClientCompetitorAccountData>();
+
     public DbSet<ClientBrandManualData> ClientBrandManuals => Set<ClientBrandManualData>();
 
     public DbSet<ClientStrategyData> ClientStrategies => Set<ClientStrategyData>();
@@ -360,6 +362,55 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
             entity.HasIndex(x => x.SocialNetworkId)
                 .HasDatabaseName("ix_client_referent_accounts_social_network_id");
+        });
+
+        builder.Entity<ClientCompetitorAccountData>(entity =>
+        {
+            entity.ToTable("client_competitor_accounts", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.SocialNetworkId).HasColumnName("social_network_id").IsRequired();
+            entity.Property(x => x.ProfileUrl).HasColumnName("profile_url").HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.Handle).HasColumnName("handle").HasMaxLength(100);
+            entity.Property(x => x.Label).HasColumnName("label").HasMaxLength(80);
+            entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(500);
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<SocialNetworkData>()
+                .WithMany()
+                .HasForeignKey(x => x.SocialNetworkId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ClientId, x.SocialNetworkId, x.ProfileUrl })
+                .IsUnique()
+                .HasDatabaseName("ix_client_competitor_accounts_client_network_url");
+
+            entity.HasIndex(x => x.ClientId)
+                .HasDatabaseName("ix_client_competitor_accounts_client_id");
+
+            entity.HasIndex(x => new { x.ClientId, x.SortOrder })
+                .HasDatabaseName("ix_client_competitor_accounts_client_sort_order");
+
+            entity.HasIndex(x => x.OrganizationId)
+                .HasDatabaseName("ix_client_competitor_accounts_organization_id");
+
+            entity.HasIndex(x => x.SocialNetworkId)
+                .HasDatabaseName("ix_client_competitor_accounts_social_network_id");
         });
 
         builder.Entity<ClientBrandManualData>(entity =>

@@ -119,6 +119,7 @@ public static class DependencyInjection
         services.AddScoped<ISocialClientRepository, EfSocialClientRepository>();
         services.AddScoped<ISocialNetworkRepository, EfSocialNetworkRepository>();
         services.AddScoped<IClientReferentAccountRepository, EfClientReferentAccountRepository>();
+        services.AddScoped<IClientCompetitorAccountRepository, EfClientCompetitorAccountRepository>();
         services.AddScoped<IClientBrandManualRepository, EfClientBrandManualRepository>();
         services.AddScoped<IClientStrategyRepository, EfClientStrategyRepository>();
         services.AddScoped<IMonthlyObjectiveRepository, EfMonthlyObjectiveRepository>();
