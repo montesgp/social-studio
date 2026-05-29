@@ -1,13 +1,13 @@
 using Incoders.Hive.Domain.Common;
 
-namespace Incoders.Hive.Domain.Social.MonthlyObjectives;
+namespace Incoders.Hive.Domain.Social.ClientMonthlyObjectives;
 
 /// <summary>
 /// Aggregate root representing the monthly content objectives for a client.
 /// Sibling aggregate to Client — owns its own repository, keyed by (ClientId, Year, Month).
 /// Uniqueness on (ClientId, Year, Month) is enforced at DB and pre-checked in the handler.
 /// </summary>
-public sealed class MonthlyObjective : Entity<MonthlyObjectiveId>
+public sealed class ClientMonthlyObjective : Entity<ClientMonthlyObjectiveId>
 {
     public const int YearMin = 1;
     public const int YearMax = 9999;
@@ -16,8 +16,8 @@ public sealed class MonthlyObjective : Entity<MonthlyObjectiveId>
     public const int ObjectivesMaxLength = 3000;
     public const int KpisMaxCount = 20;
 
-    private MonthlyObjective(
-        MonthlyObjectiveId id,
+    private ClientMonthlyObjective(
+        ClientMonthlyObjectiveId id,
         Guid clientId,
         Guid organizationId,
         int year,
@@ -39,7 +39,7 @@ public sealed class MonthlyObjective : Entity<MonthlyObjectiveId>
     }
 
     // Parameterless constructor for EF Core
-    private MonthlyObjective() : base(default) { }
+    private ClientMonthlyObjective() : base(default) { }
 
     public Guid ClientId { get; private set; }
 
@@ -58,10 +58,10 @@ public sealed class MonthlyObjective : Entity<MonthlyObjectiveId>
     public DateTime UpdatedAtUtc { get; private set; }
 
     /// <summary>
-    /// Factory for creating a new MonthlyObjective. Validates all fields.
+    /// Factory for creating a new ClientMonthlyObjective. Validates all fields.
     /// </summary>
-    public static Result<MonthlyObjective> Create(
-        MonthlyObjectiveId id,
+    public static Result<ClientMonthlyObjective> Create(
+        ClientMonthlyObjectiveId id,
         Guid clientId,
         Guid organizationId,
         int year,
@@ -72,29 +72,29 @@ public sealed class MonthlyObjective : Entity<MonthlyObjectiveId>
     {
         if (year < YearMin || year > YearMax)
         {
-            return Result.Failure<MonthlyObjective>(MonthlyObjectiveErrors.InvalidYear);
+            return Result.Failure<ClientMonthlyObjective>(ClientMonthlyObjectiveErrors.InvalidYear);
         }
 
         if (month < MonthMin || month > MonthMax)
         {
-            return Result.Failure<MonthlyObjective>(MonthlyObjectiveErrors.InvalidMonth);
+            return Result.Failure<ClientMonthlyObjective>(ClientMonthlyObjectiveErrors.InvalidMonth);
         }
 
         var objectivesResult = ValidateObjectives(objectives);
         if (objectivesResult.IsFailure)
         {
-            return Result.Failure<MonthlyObjective>(objectivesResult.Error);
+            return Result.Failure<ClientMonthlyObjective>(objectivesResult.Error);
         }
 
         var kpiList = kpis ?? Array.Empty<string>();
 
         if (kpiList.Count > KpisMaxCount)
         {
-            return Result.Failure<MonthlyObjective>(MonthlyObjectiveErrors.Validation(
+            return Result.Failure<ClientMonthlyObjective>(ClientMonthlyObjectiveErrors.Validation(
                 $"KPIs must not exceed {KpisMaxCount} items."));
         }
 
-        return Result.Success(new MonthlyObjective(
+        return Result.Success(new ClientMonthlyObjective(
             id,
             clientId,
             organizationId,
@@ -109,8 +109,8 @@ public sealed class MonthlyObjective : Entity<MonthlyObjectiveId>
     /// <summary>
     /// Re-hydration factory used by EF mapping. Bypasses validation — data is trusted from persistence.
     /// </summary>
-    public static MonthlyObjective Restore(
-        MonthlyObjectiveId id,
+    public static ClientMonthlyObjective Restore(
+        ClientMonthlyObjectiveId id,
         Guid clientId,
         Guid organizationId,
         int year,
@@ -120,7 +120,7 @@ public sealed class MonthlyObjective : Entity<MonthlyObjectiveId>
         DateTime createdAtUtc,
         DateTime updatedAtUtc)
     {
-        return new MonthlyObjective(
+        return new ClientMonthlyObjective(
             id,
             clientId,
             organizationId,
@@ -136,7 +136,7 @@ public sealed class MonthlyObjective : Entity<MonthlyObjectiveId>
     /// Updates the objectives text and KPIs. Year, Month, ClientId, OrganizationId are immutable.
     /// Resolution 6: KPI list ref replaced with new List instance for EF ValueComparer.
     /// </summary>
-    public Result<MonthlyObjective> Update(
+    public Result<ClientMonthlyObjective> Update(
         string objectives,
         IReadOnlyList<string>? kpis,
         DateTime nowUtc)
@@ -144,14 +144,14 @@ public sealed class MonthlyObjective : Entity<MonthlyObjectiveId>
         var objectivesResult = ValidateObjectives(objectives);
         if (objectivesResult.IsFailure)
         {
-            return Result.Failure<MonthlyObjective>(objectivesResult.Error);
+            return Result.Failure<ClientMonthlyObjective>(objectivesResult.Error);
         }
 
         var kpiList = kpis is null ? new List<string>() : new List<string>(kpis);
 
         if (kpiList.Count > KpisMaxCount)
         {
-            return Result.Failure<MonthlyObjective>(MonthlyObjectiveErrors.Validation(
+            return Result.Failure<ClientMonthlyObjective>(ClientMonthlyObjectiveErrors.Validation(
                 $"KPIs must not exceed {KpisMaxCount} items."));
         }
 
@@ -166,14 +166,14 @@ public sealed class MonthlyObjective : Entity<MonthlyObjectiveId>
     {
         if (string.IsNullOrWhiteSpace(objectives))
         {
-            return Result.Failure<string>(MonthlyObjectiveErrors.BriefRequired);
+            return Result.Failure<string>(ClientMonthlyObjectiveErrors.BriefRequired);
         }
 
         var trimmed = objectives.Trim();
 
         if (trimmed.Length > ObjectivesMaxLength)
         {
-            return Result.Failure<string>(MonthlyObjectiveErrors.Validation(
+            return Result.Failure<string>(ClientMonthlyObjectiveErrors.Validation(
                 $"Objectives must not exceed {ObjectivesMaxLength} characters."));
         }
 

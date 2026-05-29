@@ -55,7 +55,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<ClientStrategyData> ClientStrategies => Set<ClientStrategyData>();
 
-    public DbSet<MonthlyObjectiveData> MonthlyObjectives => Set<MonthlyObjectiveData>();
+    public DbSet<ClientMonthlyObjectiveData> ClientMonthlyObjectives => Set<ClientMonthlyObjectiveData>();
 
     public DbSet<SingleContentAnalysisData> SingleContentAnalyses => Set<SingleContentAnalysisData>();
 
@@ -496,9 +496,9 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .HasDatabaseName("ix_client_strategies_organization_id");
         });
 
-        builder.Entity<MonthlyObjectiveData>(entity =>
+        builder.Entity<ClientMonthlyObjectiveData>(entity =>
         {
-            entity.ToTable("monthly_objectives", PostgresDatabaseNames.SocialSchema);
+            entity.ToTable("client_monthly_objectives", PostgresDatabaseNames.SocialSchema);
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Id).HasColumnName("id");
             entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
@@ -510,7 +510,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
 
             // jsonb column for KPIs list
-            ConfigureJsonbCollection<MonthlyObjectiveData, string>(entity, x => x.Kpis, "kpis");
+            ConfigureJsonbCollection<ClientMonthlyObjectiveData, string>(entity, x => x.Kpis, "kpis");
 
             // FK: client_id → social.clients(id) ON DELETE CASCADE
             entity.HasOne<SocialClientData>()
@@ -527,13 +527,13 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             // UNIQUE: one objective per (client, year, month)
             entity.HasIndex(x => new { x.ClientId, x.Year, x.Month })
                 .IsUnique()
-                .HasDatabaseName("ix_monthly_objectives_client_year_month");
+                .HasDatabaseName("ix_client_monthly_objectives_client_year_month");
 
             entity.HasIndex(x => x.ClientId)
-                .HasDatabaseName("ix_monthly_objectives_client_id");
+                .HasDatabaseName("ix_client_monthly_objectives_client_id");
 
             entity.HasIndex(x => x.OrganizationId)
-                .HasDatabaseName("ix_monthly_objectives_organization_id");
+                .HasDatabaseName("ix_client_monthly_objectives_organization_id");
         });
 
         builder.Entity<SocialNetworkData>(entity =>

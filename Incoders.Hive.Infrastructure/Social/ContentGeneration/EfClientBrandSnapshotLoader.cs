@@ -9,7 +9,7 @@ namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
 /// <summary>
 /// EF Core adapter for <see cref="IClientBrandSnapshotLoader"/>.
 /// Loads <see cref="ClientBrandManualData"/>, <see cref="ClientStrategyData"/>,
-/// and the most recent <see cref="MonthlyObjectiveData"/> for the client at job-start time.
+/// and the most recent <see cref="ClientMonthlyObjectiveData"/> for the client at job-start time.
 /// Returns a fully-inferred <see cref="BrandSnapshot"/> when any source is absent.
 /// </summary>
 public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
@@ -42,7 +42,7 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
 
         // Load most recent monthly objective (current year/month first, then latest by year desc, month desc)
         var now = DateTime.UtcNow;
-        var objectiveRow = await _dbContext.MonthlyObjectives
+        var objectiveRow = await _dbContext.ClientMonthlyObjectives
             .AsNoTracking()
             .Where(x => x.ClientId == clientId && x.OrganizationId == organizationId)
             .OrderByDescending(x => x.Year)
@@ -67,9 +67,9 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
                 TargetAudience: strategyRow.TargetAudience,
                 PostingFrequency: strategyRow.PostingFrequency);
 
-        MonthlyObjectiveSnapshot? objectiveSnapshot = objectiveRow is null
+        ClientMonthlyObjectiveSnapshot? objectiveSnapshot = objectiveRow is null
             ? null
-            : new MonthlyObjectiveSnapshot(
+            : new ClientMonthlyObjectiveSnapshot(
                 Objectives: objectiveRow.Objectives,
                 Kpis: objectiveRow.Kpis.ToArray());
 

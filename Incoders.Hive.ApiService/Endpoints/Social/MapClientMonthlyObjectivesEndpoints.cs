@@ -1,9 +1,9 @@
 using Incoders.Hive.ApiService.Endpoints.Common;
 using Incoders.Hive.Application.Abstractions.Tenancy;
-using Incoders.Hive.Application.Features.Social.MonthlyObjectives.GetByClientAndMonth;
-using Incoders.Hive.Application.Features.Social.MonthlyObjectives.ListByClient;
-using Incoders.Hive.Application.Features.Social.MonthlyObjectives.Upsert;
-using Incoders.Hive.Domain.Social.MonthlyObjectives;
+using Incoders.Hive.Application.Features.Social.ClientMonthlyObjectives.GetByClientAndMonth;
+using Incoders.Hive.Application.Features.Social.ClientMonthlyObjectives.ListByClient;
+using Incoders.Hive.Application.Features.Social.ClientMonthlyObjectives.Upsert;
+using Incoders.Hive.Domain.Social.ClientMonthlyObjectives;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -12,29 +12,29 @@ using Microsoft.AspNetCore.Routing;
 
 namespace Incoders.Hive.ApiService.Endpoints.Social;
 
-public static class MonthlyObjectivesEndpointsExtensions
+public static class ClientMonthlyObjectivesEndpointsExtensions
 {
-    public static IEndpointRouteBuilder MapMonthlyObjectivesEndpoints(this IEndpointRouteBuilder app)
+    public static IEndpointRouteBuilder MapClientMonthlyObjectivesEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/social/clients/{clientId:guid}/objectives")
-            .WithTags("Social MonthlyObjectives")
+            .WithTags("Social ClientMonthlyObjectives")
             .RequireAuthorization();
 
         group.MapGet("/", ListAsync)
-            .WithName("ListMonthlyObjectives")
+            .WithName("ListClientMonthlyObjectives")
             .WithSummary("List all monthly objectives for a client, ordered Year desc, Month desc")
-            .Produces<MonthlyObjectivesListResponse>(StatusCodes.Status200OK);
+            .Produces<ClientMonthlyObjectivesListResponse>(StatusCodes.Status200OK);
 
         group.MapGet("/{year:int}/{month:int}", GetAsync)
-            .WithName("GetMonthlyObjective")
+            .WithName("GetClientMonthlyObjective")
             .WithSummary("Get the monthly objective for a specific year/month")
-            .Produces<MonthlyObjectiveResponse>(StatusCodes.Status200OK)
+            .Produces<ClientMonthlyObjectiveResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPut("/{year:int}/{month:int}", UpsertAsync)
-            .WithName("UpsertMonthlyObjective")
+            .WithName("UpsertClientMonthlyObjective")
             .WithSummary("Create or update the monthly objective for a specific year/month (PUT idempotent)")
-            .Produces<MonthlyObjectiveResponse>(StatusCodes.Status200OK)
+            .Produces<ClientMonthlyObjectiveResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
@@ -49,11 +49,11 @@ public static class MonthlyObjectivesEndpointsExtensions
     {
         if (currentTenant.TenantId is not { } organizationId)
         {
-            return MonthlyObjectiveErrors.NotFound.ToProblem();
+            return ClientMonthlyObjectiveErrors.NotFound.ToProblem();
         }
 
         var result = await sender.Send(
-            new ListMonthlyObjectivesQuery(clientId, organizationId.Value),
+            new ListClientMonthlyObjectivesQuery(clientId, organizationId.Value),
             cancellationToken);
 
         return result.Match(r => (IResult)TypedResults.Ok(r));
@@ -69,11 +69,11 @@ public static class MonthlyObjectivesEndpointsExtensions
     {
         if (currentTenant.TenantId is not { } organizationId)
         {
-            return MonthlyObjectiveErrors.NotFound.ToProblem();
+            return ClientMonthlyObjectiveErrors.NotFound.ToProblem();
         }
 
         var result = await sender.Send(
-            new GetMonthlyObjectiveQuery(clientId, organizationId.Value, year, month),
+            new GetClientMonthlyObjectiveQuery(clientId, organizationId.Value, year, month),
             cancellationToken);
 
         return result.Match(r => (IResult)TypedResults.Ok(r));
@@ -83,18 +83,18 @@ public static class MonthlyObjectivesEndpointsExtensions
         Guid clientId,
         int year,
         int month,
-        [FromBody] UpsertMonthlyObjectiveRequest body,
+        [FromBody] UpsertClientMonthlyObjectiveRequest body,
         ICurrentTenant currentTenant,
         ISender sender,
         CancellationToken cancellationToken)
     {
         if (currentTenant.TenantId is not { } organizationId)
         {
-            return MonthlyObjectiveErrors.NotFound.ToProblem();
+            return ClientMonthlyObjectiveErrors.NotFound.ToProblem();
         }
 
         var result = await sender.Send(
-            new UpsertMonthlyObjectiveCommand(
+            new UpsertClientMonthlyObjectiveCommand(
                 clientId,
                 organizationId.Value,
                 year,
@@ -123,6 +123,6 @@ public static class MonthlyObjectivesEndpointsExtensions
     }
 }
 
-public sealed record UpsertMonthlyObjectiveRequest(
+public sealed record UpsertClientMonthlyObjectiveRequest(
     string Objectives,
     IReadOnlyList<string>? Kpis);

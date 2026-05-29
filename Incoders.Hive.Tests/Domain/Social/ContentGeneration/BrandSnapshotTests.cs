@@ -136,7 +136,7 @@ public sealed class BrandSnapshotTests
             TargetAudience: "Young professionals 25-35",
             PostingFrequency: "3 posts/week");
 
-        var objective = new MonthlyObjectiveSnapshot(
+        var objective = new ClientMonthlyObjectiveSnapshot(
             Objectives: "Grow engagement by 20%",
             Kpis: new[] { "Reach 10k views", "CTR > 5%" });
 

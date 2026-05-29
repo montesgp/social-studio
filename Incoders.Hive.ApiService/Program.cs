@@ -134,7 +134,7 @@ app.MapClientCompetitorAccountsEndpoints();
 app.MapClientAssetEndpoints();
 app.MapClientBrandManualsEndpoints();
 app.MapClientStrategyEndpoints();
-app.MapMonthlyObjectivesEndpoints();
+app.MapClientMonthlyObjectivesEndpoints();
 app.MapSocialIntegrationsEndpoints();
 app.MapSocialContentWorkflowEndpoints();
 app.MapSingleAnalyzerEndpoints();

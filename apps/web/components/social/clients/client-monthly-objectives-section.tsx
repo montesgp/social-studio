@@ -2,12 +2,12 @@
 
 import { KeyboardEvent, useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { getMonthlyObjective, upsertMonthlyObjective } from "@/lib/api/monthly-objectives";
-import type { UpsertMonthlyObjectivePayload } from "@/lib/api/types";
+import { getClientMonthlyObjective, upsertClientMonthlyObjective } from "@/lib/api/client-monthly-objectives";
+import type { UpsertClientMonthlyObjectivePayload } from "@/lib/api/types";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 
-interface MonthlyObjectivesSectionProps {
+interface ClientMonthlyObjectivesSectionProps {
   clientId: string;
   token: string;
 }
@@ -96,7 +96,7 @@ function KpiTagInput({
   );
 }
 
-export function MonthlyObjectivesSection({ clientId, token }: MonthlyObjectivesSectionProps) {
+export function ClientMonthlyObjectivesSection({ clientId, token }: ClientMonthlyObjectivesSectionProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -114,7 +114,7 @@ export function MonthlyObjectivesSection({ clientId, token }: MonthlyObjectivesS
     setLoading(true);
     setError(null);
     setSuccess(false);
-    getMonthlyObjective(clientId, year, month, token)
+    getClientMonthlyObjective(clientId, year, month, token)
       .then((obj) => {
         if (obj) {
           setObjectives(obj.objectives ?? "");
@@ -139,11 +139,11 @@ export function MonthlyObjectivesSection({ clientId, token }: MonthlyObjectivesS
     setError(null);
     setSuccess(false);
     try {
-      const payload: UpsertMonthlyObjectivePayload = {
+      const payload: UpsertClientMonthlyObjectivePayload = {
         objectives: objectives.trim(),
         kpis: kpis.length > 0 ? kpis : undefined,
       };
-      await upsertMonthlyObjective(clientId, year, month, payload, token);
+      await upsertClientMonthlyObjective(clientId, year, month, payload, token);
       setSuccess(true);
     } catch (err) {
       const message = (err as { message?: string })?.message ?? "Failed to save objective.";

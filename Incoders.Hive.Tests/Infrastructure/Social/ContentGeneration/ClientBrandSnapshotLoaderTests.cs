@@ -69,7 +69,7 @@ public sealed class ClientBrandSnapshotLoaderTests : IDisposable
             UpdatedAtUtc = DateTime.UtcNow,
         });
 
-        _dbContext.MonthlyObjectives.Add(new MonthlyObjectiveData
+        _dbContext.ClientMonthlyObjectives.Add(new ClientMonthlyObjectiveData
         {
             Id = Guid.NewGuid(),
             ClientId = clientId,

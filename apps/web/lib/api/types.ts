@@ -641,7 +641,7 @@ export interface SingleAnalyzerStatusResponse {
   completedAtUtc: string | null;
 }
 
-export interface MonthlyObjective {
+export interface ClientMonthlyObjective {
   id: string;
   clientId: string;
   organizationId: string;
@@ -653,7 +653,7 @@ export interface MonthlyObjective {
   updatedAtUtc: string;
 }
 
-export interface UpsertMonthlyObjectivePayload {
+export interface UpsertClientMonthlyObjectivePayload {
   objectives: string;
   kpis?: string[];
 }

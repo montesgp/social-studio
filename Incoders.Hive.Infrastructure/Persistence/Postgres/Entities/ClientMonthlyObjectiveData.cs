@@ -1,11 +1,11 @@
 namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 
 /// <summary>
-/// EF Core persistence entity for social.monthly_objectives.
+/// EF Core persistence entity for social.client_monthly_objectives.
 /// No annotations — all configuration done via fluent API in AppIdentityDbContext.
 /// No navigation properties — sibling aggregate pattern.
 /// </summary>
-public sealed class MonthlyObjectiveData
+public sealed class ClientMonthlyObjectiveData
 {
     public Guid Id { get; set; }
 

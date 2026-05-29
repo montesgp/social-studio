@@ -1,28 +1,28 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social;
-using Incoders.Hive.Application.Features.Social.MonthlyObjectives.GetByClientAndMonth;
+using Incoders.Hive.Application.Features.Social.ClientMonthlyObjectives.GetByClientAndMonth;
 using Incoders.Hive.Domain.Common;
-using Incoders.Hive.Domain.Social.MonthlyObjectives;
+using Incoders.Hive.Domain.Social.ClientMonthlyObjectives;
 using MediatR;
 
-namespace Incoders.Hive.Application.Features.Social.MonthlyObjectives.Upsert;
+namespace Incoders.Hive.Application.Features.Social.ClientMonthlyObjectives.Upsert;
 
-public sealed class UpsertMonthlyObjectiveCommandHandler
-    : IRequestHandler<UpsertMonthlyObjectiveCommand, Result<MonthlyObjectiveResponse>>
+public sealed class UpsertClientMonthlyObjectiveCommandHandler
+    : IRequestHandler<UpsertClientMonthlyObjectiveCommand, Result<ClientMonthlyObjectiveResponse>>
 {
-    private readonly IMonthlyObjectiveRepository _objectives;
+    private readonly IClientMonthlyObjectiveRepository _objectives;
     private readonly IClock _clock;
 
-    public UpsertMonthlyObjectiveCommandHandler(
-        IMonthlyObjectiveRepository objectives,
+    public UpsertClientMonthlyObjectiveCommandHandler(
+        IClientMonthlyObjectiveRepository objectives,
         IClock clock)
     {
         _objectives = objectives;
         _clock = clock;
     }
 
-    public async Task<Result<MonthlyObjectiveResponse>> Handle(
-        UpsertMonthlyObjectiveCommand request,
+    public async Task<Result<ClientMonthlyObjectiveResponse>> Handle(
+        UpsertClientMonthlyObjectiveCommand request,
         CancellationToken cancellationToken)
     {
         var existing = await _objectives.GetByClientAndMonthAsync(
@@ -31,8 +31,8 @@ public sealed class UpsertMonthlyObjectiveCommandHandler
         if (existing is null)
         {
             // CREATE path
-            var createResult = MonthlyObjective.Create(
-                MonthlyObjectiveId.New(),
+            var createResult = ClientMonthlyObjective.Create(
+                ClientMonthlyObjectiveId.New(),
                 request.ClientId,
                 request.OrganizationId,
                 request.Year,
@@ -43,13 +43,13 @@ public sealed class UpsertMonthlyObjectiveCommandHandler
 
             if (createResult.IsFailure)
             {
-                return Result.Failure<MonthlyObjectiveResponse>(createResult.Error);
+                return Result.Failure<ClientMonthlyObjectiveResponse>(createResult.Error);
             }
 
             _objectives.Add(createResult.Value);
             await _objectives.SaveChangesAsync(cancellationToken);
 
-            return Result.Success(MonthlyObjectiveResponse.FromDomain(createResult.Value));
+            return Result.Success(ClientMonthlyObjectiveResponse.FromDomain(createResult.Value));
         }
 
         // UPDATE path
@@ -57,12 +57,12 @@ public sealed class UpsertMonthlyObjectiveCommandHandler
 
         if (updateResult.IsFailure)
         {
-            return Result.Failure<MonthlyObjectiveResponse>(updateResult.Error);
+            return Result.Failure<ClientMonthlyObjectiveResponse>(updateResult.Error);
         }
 
         _objectives.Update(existing);
         await _objectives.SaveChangesAsync(cancellationToken);
 
-        return Result.Success(MonthlyObjectiveResponse.FromDomain(existing));
+        return Result.Success(ClientMonthlyObjectiveResponse.FromDomain(existing));
     }
 }

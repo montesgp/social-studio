@@ -1,8 +1,8 @@
-using Incoders.Hive.Domain.Social.MonthlyObjectives;
+using Incoders.Hive.Domain.Social.ClientMonthlyObjectives;
 
-namespace Incoders.Hive.Application.Features.Social.MonthlyObjectives.GetByClientAndMonth;
+namespace Incoders.Hive.Application.Features.Social.ClientMonthlyObjectives.GetByClientAndMonth;
 
-public sealed record MonthlyObjectiveResponse(
+public sealed record ClientMonthlyObjectiveResponse(
     Guid Id,
     Guid ClientId,
     Guid OrganizationId,
@@ -13,7 +13,7 @@ public sealed record MonthlyObjectiveResponse(
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc)
 {
-    public static MonthlyObjectiveResponse FromDomain(MonthlyObjective objective) =>
+    public static ClientMonthlyObjectiveResponse FromDomain(ClientMonthlyObjective objective) =>
         new(
             objective.Id.Value,
             objective.ClientId,

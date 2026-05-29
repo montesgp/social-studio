@@ -1,10 +1,10 @@
-using Incoders.Hive.Domain.Social.MonthlyObjectives;
+using Incoders.Hive.Domain.Social.ClientMonthlyObjectives;
 
 namespace Incoders.Hive.Application.Abstractions.Social;
 
-public interface IMonthlyObjectiveRepository
+public interface IClientMonthlyObjectiveRepository
 {
-    Task<MonthlyObjective?> GetByClientAndMonthAsync(
+    Task<ClientMonthlyObjective?> GetByClientAndMonthAsync(
         Guid clientId,
         Guid organizationId,
         int year,
@@ -14,14 +14,14 @@ public interface IMonthlyObjectiveRepository
     /// <summary>
     /// Returns all objectives for a client ordered by Year descending, Month descending.
     /// </summary>
-    Task<IReadOnlyList<MonthlyObjective>> ListByClientAsync(
+    Task<IReadOnlyList<ClientMonthlyObjective>> ListByClientAsync(
         Guid clientId,
         Guid organizationId,
         CancellationToken ct);
 
-    void Add(MonthlyObjective objective);
+    void Add(ClientMonthlyObjective objective);
 
-    void Update(MonthlyObjective objective);
+    void Update(ClientMonthlyObjective objective);
 
     Task SaveChangesAsync(CancellationToken ct);
 }

@@ -1,28 +1,28 @@
 using Incoders.Hive.Application.Abstractions.Social;
-using Incoders.Hive.Domain.Social.MonthlyObjectives;
+using Incoders.Hive.Domain.Social.ClientMonthlyObjectives;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace Incoders.Hive.Infrastructure.Persistence.Postgres;
 
-public sealed class EfMonthlyObjectiveRepository : IMonthlyObjectiveRepository
+public sealed class EfClientMonthlyObjectiveRepository : IClientMonthlyObjectiveRepository
 {
     private readonly AppIdentityDbContext _dbContext;
 
-    public EfMonthlyObjectiveRepository(AppIdentityDbContext dbContext)
+    public EfClientMonthlyObjectiveRepository(AppIdentityDbContext dbContext)
     {
         _dbContext = dbContext;
     }
 
-    public async Task<MonthlyObjective?> GetByClientAndMonthAsync(
+    public async Task<ClientMonthlyObjective?> GetByClientAndMonthAsync(
         Guid clientId,
         Guid organizationId,
         int year,
         int month,
         CancellationToken ct)
     {
-        var row = await _dbContext.MonthlyObjectives
+        var row = await _dbContext.ClientMonthlyObjectives
             .AsNoTracking()
             .FirstOrDefaultAsync(x =>
                 x.ClientId == clientId &&
@@ -34,12 +34,12 @@ public sealed class EfMonthlyObjectiveRepository : IMonthlyObjectiveRepository
         return row is null ? null : ToDomain(row);
     }
 
-    public async Task<IReadOnlyList<MonthlyObjective>> ListByClientAsync(
+    public async Task<IReadOnlyList<ClientMonthlyObjective>> ListByClientAsync(
         Guid clientId,
         Guid organizationId,
         CancellationToken ct)
     {
-        var rows = await _dbContext.MonthlyObjectives
+        var rows = await _dbContext.ClientMonthlyObjectives
             .AsNoTracking()
             .Where(x => x.ClientId == clientId && x.OrganizationId == organizationId)
             .OrderByDescending(x => x.Year)
@@ -49,19 +49,19 @@ public sealed class EfMonthlyObjectiveRepository : IMonthlyObjectiveRepository
         return rows.Select(ToDomain).ToList();
     }
 
-    public void Add(MonthlyObjective objective)
+    public void Add(ClientMonthlyObjective objective)
     {
-        var existing = _dbContext.MonthlyObjectives.Local.FirstOrDefault(x => x.Id == objective.Id.Value);
+        var existing = _dbContext.ClientMonthlyObjectives.Local.FirstOrDefault(x => x.Id == objective.Id.Value);
         if (existing is null)
         {
-            _dbContext.MonthlyObjectives.Add(ToData(objective));
+            _dbContext.ClientMonthlyObjectives.Add(ToData(objective));
         }
     }
 
-    public void Update(MonthlyObjective objective)
+    public void Update(ClientMonthlyObjective objective)
     {
-        var entity = _dbContext.MonthlyObjectives.Local.FirstOrDefault(x => x.Id == objective.Id.Value)
-                     ?? _dbContext.MonthlyObjectives.First(x => x.Id == objective.Id.Value);
+        var entity = _dbContext.ClientMonthlyObjectives.Local.FirstOrDefault(x => x.Id == objective.Id.Value)
+                     ?? _dbContext.ClientMonthlyObjectives.First(x => x.Id == objective.Id.Value);
 
         // Only mutable fields — ClientId, OrganizationId, Year, Month are immutable
         // Resolution 6: replace collection ref with new List instance for ValueComparer detection
@@ -75,9 +75,9 @@ public sealed class EfMonthlyObjectiveRepository : IMonthlyObjectiveRepository
         await _dbContext.SaveChangesAsync(ct);
     }
 
-    private static MonthlyObjective ToDomain(MonthlyObjectiveData d) =>
-        MonthlyObjective.Restore(
-            new MonthlyObjectiveId(d.Id),
+    private static ClientMonthlyObjective ToDomain(ClientMonthlyObjectiveData d) =>
+        ClientMonthlyObjective.Restore(
+            new ClientMonthlyObjectiveId(d.Id),
             d.ClientId,
             d.OrganizationId,
             d.Year,
@@ -87,7 +87,7 @@ public sealed class EfMonthlyObjectiveRepository : IMonthlyObjectiveRepository
             d.CreatedAtUtc,
             d.UpdatedAtUtc);
 
-    private static MonthlyObjectiveData ToData(MonthlyObjective o) => new()
+    private static ClientMonthlyObjectiveData ToData(ClientMonthlyObjective o) => new()
     {
         Id = o.Id.Value,
         ClientId = o.ClientId,

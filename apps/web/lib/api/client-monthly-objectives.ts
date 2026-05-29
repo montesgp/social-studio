@@ -1,5 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
-import type { MonthlyObjective, UpsertMonthlyObjectivePayload } from "@/lib/api/types";
+import type { ClientMonthlyObjective, UpsertClientMonthlyObjectivePayload } from "@/lib/api/types";
 
 const base = (clientId: string) => `/api/social/clients/${clientId}/objectives`;
 
@@ -7,14 +7,14 @@ function is404(err: unknown): boolean {
   return (err as { problem?: { status?: number } })?.problem?.status === 404;
 }
 
-export async function getMonthlyObjective(
+export async function getClientMonthlyObjective(
   clientId: string,
   year: number,
   month: number,
   token?: string,
-): Promise<MonthlyObjective | null> {
+): Promise<ClientMonthlyObjective | null> {
   try {
-    return await apiRequest<MonthlyObjective>(
+    return await apiRequest<ClientMonthlyObjective>(
       `${base(clientId)}/${year}/${month}`,
       undefined,
       token,
@@ -25,22 +25,22 @@ export async function getMonthlyObjective(
   }
 }
 
-export async function listMonthlyObjectives(
+export async function listClientMonthlyObjectives(
   clientId: string,
   token?: string,
-): Promise<MonthlyObjective[]> {
-  const result = await apiRequest<MonthlyObjective[]>(base(clientId), undefined, token);
+): Promise<ClientMonthlyObjective[]> {
+  const result = await apiRequest<ClientMonthlyObjective[]>(base(clientId), undefined, token);
   return result;
 }
 
-export async function upsertMonthlyObjective(
+export async function upsertClientMonthlyObjective(
   clientId: string,
   year: number,
   month: number,
-  payload: UpsertMonthlyObjectivePayload,
+  payload: UpsertClientMonthlyObjectivePayload,
   token?: string,
-): Promise<MonthlyObjective> {
-  return apiRequest<MonthlyObjective>(
+): Promise<ClientMonthlyObjective> {
+  return apiRequest<ClientMonthlyObjective>(
     `${base(clientId)}/${year}/${month}`,
     { method: "PUT", body: JSON.stringify(payload) },
     token,

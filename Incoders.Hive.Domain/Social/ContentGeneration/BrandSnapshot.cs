@@ -11,7 +11,7 @@ namespace Incoders.Hive.Domain.Social.ContentGeneration;
 public sealed record BrandSnapshot(
     BrandManualSnapshot? Brand,
     StrategySnapshot? Strategy,
-    MonthlyObjectiveSnapshot? MonthlyObjective,
+    ClientMonthlyObjectiveSnapshot? MonthlyObjective,
     IReadOnlyDictionary<string, bool> InferredFields)
 {
     /// <summary>
@@ -27,7 +27,7 @@ public sealed record BrandSnapshot(
     public static BrandSnapshot FromBrandData(
         BrandManualSnapshot? brand,
         StrategySnapshot? strategy,
-        MonthlyObjectiveSnapshot? monthlyObjective)
+        ClientMonthlyObjectiveSnapshot? monthlyObjective)
     {
         var inferred = new Dictionary<string, bool>();
 
