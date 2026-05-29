@@ -128,6 +128,21 @@ public sealed class ContentGenerationJobProcessor
             return;
         }
 
+        if (job.ClientId is { } jobClientId
+            && analysisRecord.ClientId is { } analysisClientId
+            && jobClientId != analysisClientId)
+        {
+            await _jobs.UpdateStatusAsync(job.Id, "Failed", "client_mismatch", "client-mismatch", ct);
+            return;
+        }
+
+        var effectiveClientId = job.ClientId ?? analysisRecord.ClientId;
+        if (effectiveClientId is null || effectiveClientId == Guid.Empty)
+        {
+            await _jobs.UpdateStatusAsync(job.Id, "Failed", "client_required", "client-required", ct);
+            return;
+        }
+
         // 2. Load existing checkpoints — formats with a stored OutputJson skip the AI stage.
         var existingResults = await _formatResults.ListByJobAsync(job.Id, ct);
         var existingByFormat = existingResults.ToDictionary(r => r.FormatKey, StringComparer.OrdinalIgnoreCase);
@@ -158,7 +173,7 @@ public sealed class ContentGenerationJobProcessor
             var orchResult = await _orchestrator.RunAsync(
                 new OrchestratorRequest(
                     OrganizationId: job.OrganizationId,
-                    ClientId: job.ClientId,
+                    ClientId: effectiveClientId,
                     AnalysisId: job.AnalysisId,
                     Analysis: analysis,
                     RequestedFormats: formatsNeedingAi,
@@ -176,7 +191,7 @@ public sealed class ContentGenerationJobProcessor
         }
         else
         {
-            brand = await _brandLoader.LoadAsync(job.OrganizationId, job.ClientId ?? Guid.Empty, ct);
+            brand = await _brandLoader.LoadAsync(job.OrganizationId, effectiveClientId.Value, ct);
         }
 
         // 4. Compose + render every format that has a usable payload (fresh OR cached). Persist

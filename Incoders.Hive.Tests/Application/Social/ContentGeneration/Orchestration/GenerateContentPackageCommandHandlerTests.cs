@@ -46,12 +46,84 @@ public sealed class GenerateContentPackageCommandHandlerTests
         Assert.Single(jobRepo.Inserted);
         Assert.Equal("Queued", jobRepo.Inserted[0].Status);
         Assert.Equal(OrgId, jobRepo.Inserted[0].OrganizationId);
+        Assert.Equal(ClientId, jobRepo.Inserted[0].ClientId);
         Assert.Equal(AnalysisId, jobRepo.Inserted[0].AnalysisId);
         Assert.Equal(2, jobRepo.Inserted[0].RequestedFormats.Count);
 
         // Job must have been enqueued
         Assert.Single(queue.Enqueued);
         Assert.Equal(result.Value.JobId, queue.Enqueued[0]);
+    }
+
+    [Fact]
+    public async Task Handle_ClientIdMissingInCommand_UsesAnalysisClient()
+    {
+        var analysis = MakeAnalysisRecord(OrgId);
+        var analysisRepo = new FakeAnalysisRepository(analysis);
+        var jobRepo = new FakeContentGenerationJobRepository();
+        var queue = new FakeContentGenerationJobQueue();
+        var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue);
+
+        var command = new GenerateContentPackageCommand(
+            OrganizationId: OrgId,
+            ClientId: null,
+            AnalysisId: AnalysisId,
+            RequestedFormats: ["carousel"],
+            CorrelationId: null);
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(jobRepo.Inserted);
+        Assert.Equal(ClientId, jobRepo.Inserted[0].ClientId);
+    }
+
+    [Fact]
+    public async Task Handle_NoClientOnCommandOrAnalysis_ReturnsValidationError()
+    {
+        var analysis = MakeAnalysisRecordWithoutClient(OrgId);
+        var analysisRepo = new FakeAnalysisRepository(analysis);
+        var jobRepo = new FakeContentGenerationJobRepository();
+        var queue = new FakeContentGenerationJobQueue();
+        var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue);
+
+        var command = new GenerateContentPackageCommand(
+            OrganizationId: OrgId,
+            ClientId: null,
+            AnalysisId: AnalysisId,
+            RequestedFormats: ["carousel"],
+            CorrelationId: null);
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("content-gen.client-required", result.Error.Code);
+        Assert.Empty(jobRepo.Inserted);
+        Assert.Empty(queue.Enqueued);
+    }
+
+    [Fact]
+    public async Task Handle_CommandClientDiffersFromAnalysisClient_ReturnsValidationError()
+    {
+        var analysis = MakeAnalysisRecord(OrgId);
+        var analysisRepo = new FakeAnalysisRepository(analysis);
+        var jobRepo = new FakeContentGenerationJobRepository();
+        var queue = new FakeContentGenerationJobQueue();
+        var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue);
+
+        var command = new GenerateContentPackageCommand(
+            OrganizationId: OrgId,
+            ClientId: Guid.NewGuid(),
+            AnalysisId: AnalysisId,
+            RequestedFormats: ["carousel"],
+            CorrelationId: null);
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("content-gen.client-mismatch", result.Error.Code);
+        Assert.Empty(jobRepo.Inserted);
+        Assert.Empty(queue.Enqueued);
     }
 
     // ─── Cross-tenant: analysis belongs to a different org ──────────────────
@@ -160,10 +232,16 @@ public sealed class GenerateContentPackageCommandHandlerTests
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private static SingleContentAnalysisRecord MakeAnalysisRecord(Guid orgId) =>
+        MakeAnalysisRecordCore(orgId, ClientId);
+
+    private static SingleContentAnalysisRecord MakeAnalysisRecordWithoutClient(Guid orgId) =>
+        MakeAnalysisRecordCore(orgId, null);
+
+    private static SingleContentAnalysisRecord MakeAnalysisRecordCore(Guid orgId, Guid? clientId) =>
         new(
             Id: AnalysisId,
             OrganizationId: orgId,
-            ClientId: ClientId,
+            ClientId: clientId,
             UserId: Guid.NewGuid(),
             SourceUrl: "https://tiktok.com/@brand/video/1",
             NormalizedUrl: "https://tiktok.com/@brand/video/1",

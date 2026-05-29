@@ -70,10 +70,19 @@ public abstract class FormatContentGeneratorBase<TPayload> : IFormatContentGener
         tracker.TrackIfInferred("ColorPalette", "brand.ColorPalette");
         tracker.TrackIfInferred("VoiceAndTone", "brand.VoiceAndTone");
         tracker.TrackIfInferred("Logos", "brand.Logos");
+        tracker.TrackIfInferred("BackgroundTemplates", "brand.BackgroundTemplates");
         tracker.TrackIfInferred("Typography", "brand.Typography");
         tracker.TrackIfInferred("ContentPillars", "brand.ContentPillars");
         tracker.TrackIfInferred("ToneKeywords", "brand.ToneKeywords");
         tracker.TrackIfInferred("TargetAudience", "brand.TargetAudience");
+        tracker.TrackIfInferred("PostingFrequency", "brand.PostingFrequency");
+        tracker.TrackIfInferred("MonthlyObjectives", "brand.MonthlyObjectives");
+        tracker.TrackIfInferred("MonthlyKpis", "brand.MonthlyKpis");
+        tracker.TrackIfInferred("ClientName", "brand.ClientName");
+        tracker.TrackIfInferred("ClientDescription", "brand.ClientDescription");
+        tracker.TrackIfInferred("ClientSectorOrNiche", "brand.ClientSectorOrNiche");
+        tracker.TrackIfInferred("ReferentAccounts", "brand.ReferentAccounts");
+        tracker.TrackIfInferred("CompetitorAccounts", "brand.CompetitorAccounts");
     }
 
     /// <inheritdoc />

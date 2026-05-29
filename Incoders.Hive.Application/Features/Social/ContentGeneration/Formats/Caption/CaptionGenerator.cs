@@ -24,21 +24,19 @@ public sealed class CaptionGenerator : FormatContentGeneratorBase<CaptionContent
     {
         var input = new
         {
-            instruction = "Generate branded social media captions. Respond with ONLY raw JSON.",
+            instruction = "Generate branded social media captions. " +
+                          GenerationPromptContext.BrandConstraint + " " +
+                          "Respect the primary derived idea, the client's voice, audience, objectives, and KPIs. " +
+                          "Respond with ONLY raw JSON.",
             format = "caption",
-            analysis = new { summary = ctx.Analysis.Summary, hooks = ctx.Analysis.DetectedHooks, audience = ctx.Analysis.LikelyAudience },
-            brand = new
-            {
-                voice = ctx.BrandSnapshot.Brand?.VoiceAndTone,
-                tone = ctx.BrandSnapshot.Strategy?.ToneKeywords,
-                audience = ctx.BrandSnapshot.Strategy?.TargetAudience
-            },
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {
-                primaryCaption = "string — main caption",
-                alternates = "array of string — alternate versions",
-                hashtags = "array of string — relevant hashtags",
-                mentions = "array of string|null — optional account mentions"
+                primaryCaption = "string - main caption",
+                alternates = "array of string - alternate versions",
+                hashtags = "array of string - relevant hashtags",
+                mentions = "array of string|null - optional account mentions"
             }
         };
         return JsonSerializer.Serialize(input, JsonOptions);

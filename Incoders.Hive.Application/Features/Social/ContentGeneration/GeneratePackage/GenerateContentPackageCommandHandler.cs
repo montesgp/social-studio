@@ -80,6 +80,21 @@ public sealed class GenerateContentPackageCommandHandler
                 ContentGenerationErrors.AnalysisNotFound);
         }
 
+        if (analysis.ClientId is { } analysisClientId
+            && command.ClientId is { } requestedClientId
+            && analysisClientId != requestedClientId)
+        {
+            return Result.Failure<GenerateContentPackageResponse>(
+                ContentGenerationErrors.ClientMismatch);
+        }
+
+        var effectiveClientId = command.ClientId ?? analysis.ClientId;
+        if (effectiveClientId is null || effectiveClientId == Guid.Empty)
+        {
+            return Result.Failure<GenerateContentPackageResponse>(
+                ContentGenerationErrors.ClientRequired);
+        }
+
         // Create and persist the job
         var jobId = Guid.NewGuid();
         var correlationId = command.CorrelationId ?? Guid.NewGuid();
@@ -87,7 +102,7 @@ public sealed class GenerateContentPackageCommandHandler
         var job = new ContentGenerationJob(
             Id: jobId,
             OrganizationId: command.OrganizationId,
-            ClientId: command.ClientId,
+            ClientId: effectiveClientId,
             AnalysisId: command.AnalysisId,
             RequestedFormats: command.RequestedFormats,
             Status: "Queued",
@@ -122,6 +137,12 @@ public static class ContentGenerationErrors
 
     public static readonly Error JobNotFound =
         Error.NotFound("content-gen.job-not-found", "The specified job was not found.");
+
+    public static readonly Error ClientRequired =
+        Error.Validation("content-gen.client-required", "A client is required to generate branded content.");
+
+    public static readonly Error ClientMismatch =
+        Error.Validation("content-gen.client-mismatch", "The requested client does not match the analysis client.");
 
     public static readonly Error PackageNotReady =
         Error.NotFound("content-gen.package-not-ready", "The package is not yet available for download.");

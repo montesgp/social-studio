@@ -29,45 +29,22 @@ public sealed class CarouselGenerator : FormatContentGeneratorBase<CarouselConte
     /// <inheritdoc />
     protected override string BuildPromptJson(GenerationContext ctx)
     {
-        var brand = ctx.BrandSnapshot;
-        var analysis = ctx.Analysis;
-
         var input = new
         {
             instruction = "Generate a branded carousel post with a cover slide, content slides, and a CTA. " +
+                          GenerationPromptContext.BrandConstraint + " " +
+                          "Respect the primary derived idea and adapt it to the client context. " +
+                          "Image prompt hints must reference the client's explicit palette, typography, logos, and visual notes when available. " +
                           "Respond with ONLY the raw JSON matching the expected structure.",
             format = "carousel",
-            analysis = new
-            {
-                summary = analysis.Summary,
-                audience = analysis.LikelyAudience,
-                hooks = analysis.DetectedHooks,
-                strengths = analysis.Strengths,
-                adaptationRecommendations = analysis.ClientAdaptationRecommendations,
-                patterns = analysis.Patterns is not null
-                    ? (object)new
-                    {
-                        communication = analysis.Patterns.CommunicationPatterns.Select(p => p.Name),
-                        emotional = analysis.Patterns.EmotionalPatterns.Select(p => p.Name),
-                        conversion = analysis.Patterns.ConversionPatterns.Select(p => p.Name)
-                    }
-                    : null
-            },
-            brand = new
-            {
-                colors = brand.Brand?.ColorPalette,
-                voice = brand.Brand?.VoiceAndTone,
-                typography = brand.Brand?.Typography,
-                pillars = brand.Strategy?.ContentPillars,
-                toneKeywords = brand.Strategy?.ToneKeywords,
-                targetAudience = brand.Strategy?.TargetAudience
-            },
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {
-                coverTitle = "string — engaging cover headline",
+                coverTitle = "string - engaging cover headline",
                 slides = "array of {title: string, body: string, imagePromptHint: string|null}",
-                ctaText = "string — call to action text",
-                ctaLink = "string|null — optional URL for the CTA"
+                ctaText = "string - call to action text",
+                ctaLink = "string|null - optional URL for the CTA"
             }
         };
 

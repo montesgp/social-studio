@@ -35,7 +35,15 @@ public sealed class RemainingFormatsGeneratorTests
     [Fact]
     public async Task FlyerGenerator_Success_ReturnsSucceededWithFlyerContent()
     {
-        var flyer = new FlyerContent("Big Title", "Subtitle", "Body text", ["Feature 1", "Feature 2"], "Contact us", "grid");
+        var flyer = new FlyerContent(
+            "Big Title",
+            "Subtitle",
+            "Body text",
+            ["Feature 1", "Feature 2"],
+            "Contact us",
+            "Branded product background",
+            "@client",
+            "grid");
         var gateway = new SucceedingGateway<FlyerContent>(flyer);
         var ctx = BuildContext();
         var providerCtx = BeginContext("format:flyer");
@@ -45,7 +53,7 @@ public sealed class RemainingFormatsGeneratorTests
 
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
         Assert.Equal(flyer.Title, result.Payload!.Title);
-        Assert.Equal("flyer.v1", result.PromptVersion);
+        Assert.Equal("flyer.v2", result.PromptVersion);
     }
 
     [Fact]
@@ -84,7 +92,7 @@ public sealed class RemainingFormatsGeneratorTests
 
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
         Assert.Equal(reelScript.Hook, result.Payload!.Hook);
-        Assert.Equal("reel-script.v1", result.PromptVersion);
+        Assert.Equal("reel-script.v2", result.PromptVersion);
     }
 
     [Fact]
@@ -123,7 +131,7 @@ public sealed class RemainingFormatsGeneratorTests
 
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
         Assert.Equal(idea.IdeaTitle, result.Payload!.IdeaTitle);
-        Assert.Equal("content-idea.v1", result.PromptVersion);
+        Assert.Equal("content-idea.v2", result.PromptVersion);
     }
 
     [Fact]
@@ -161,7 +169,7 @@ public sealed class RemainingFormatsGeneratorTests
 
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
         Assert.Equal(2, result.Payload!.Variations.Count);
-        Assert.Equal("cta-variation.v1", result.PromptVersion);
+        Assert.Equal("cta-variation.v2", result.PromptVersion);
     }
 
     [Fact]
@@ -199,7 +207,7 @@ public sealed class RemainingFormatsGeneratorTests
 
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
         Assert.Equal(caption.PrimaryCaption, result.Payload!.PrimaryCaption);
-        Assert.Equal("caption.v1", result.PromptVersion);
+        Assert.Equal("caption.v2", result.PromptVersion);
     }
 
     [Fact]
@@ -237,7 +245,7 @@ public sealed class RemainingFormatsGeneratorTests
 
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
         Assert.Equal(hook.PrimaryHook, result.Payload!.PrimaryHook);
-        Assert.Equal("hook.v1", result.PromptVersion);
+        Assert.Equal("hook.v2", result.PromptVersion);
     }
 
     [Fact]
@@ -261,7 +269,7 @@ public sealed class RemainingFormatsGeneratorTests
     // ================================================================
 
     private static FlyerContent BuildFlyer() =>
-        new("Title", "Sub", "Body", [], "CTA", null);
+        new("Title", "Sub", "Body", [], "CTA", "Branded background", "@client", null);
 
     private static ReelScriptContent BuildReelScript() =>
         new("Hook", [new ReelScriptScene("0:00", "vo", "on-screen")], "Follow", null);
@@ -284,7 +292,13 @@ public sealed class RemainingFormatsGeneratorTests
         AnalysisId: AnalysisId,
         Analysis: BuildAnalysis(),
         BrandSnapshot: BrandSnapshot.FromBrandData(
-            new BrandManualSnapshot(["#FFF"], ["logo.png"], ["Roboto"], "professional", null),
+            new BrandManualSnapshot(
+                ["#FFF"],
+                ["logo.png"],
+                [],
+                ["Roboto"],
+                "professional",
+                null),
             new StrategySnapshot(["education"], ["warm"], "SMBs", "3x/week"),
             null),
         CorrelationId: CorrelationId,

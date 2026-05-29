@@ -37,7 +37,7 @@ public sealed class CarouselGeneratorTests
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
         Assert.NotNull(result.Payload);
         Assert.Equal(carousel.CoverTitle, result.Payload.CoverTitle);
-        Assert.Equal("carousel.v1", result.PromptVersion);
+        Assert.Equal("carousel.v2", result.PromptVersion);
         Assert.Empty(result.InferredFields);
     }
 
@@ -55,6 +55,13 @@ public sealed class CarouselGeneratorTests
             brand: new BrandManualSnapshot(
                 ColorPalette: Array.Empty<string>(),  // empty → inferred
                 Logos: ["logo.png"],
+                BackgroundTemplates:
+                [
+                    new BrandBackgroundTemplateSnapshot(
+                        "Story",
+                        "/storage/client-assets/org/client/story.png",
+                        "story")
+                ],
                 Typography: ["Roboto"],
                 VoiceAndTone: "professional",
                 Notes: null),
@@ -68,6 +75,65 @@ public sealed class CarouselGeneratorTests
 
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
         Assert.Contains("brand.ColorPalette", result.InferredFields);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_FullClientContext_PromptIncludesBrandStrategyObjectivesAndAccounts()
+    {
+        var carousel = BuildValidCarousel();
+        var gateway = new SucceedingGateway<CarouselContent>(carousel);
+        var brand = BrandSnapshot.FromBrandData(
+            brand: new BrandManualSnapshot(
+                ColorPalette: ["#123456", "#654321"],
+                Logos: ["https://cdn.example.com/logo.png"],
+                BackgroundTemplates:
+                [
+                    new BrandBackgroundTemplateSnapshot(
+                        "Story",
+                        "/storage/client-assets/org/client/story.png",
+                        "story")
+                ],
+                Typography: ["Inter"],
+                VoiceAndTone: "direct and useful",
+                Notes: "Use clean product-led layouts."),
+            strategy: new StrategySnapshot(
+                ContentPillars: ["education", "product proof"],
+                ToneKeywords: ["clear", "expert"],
+                TargetAudience: "B2B founders",
+                PostingFrequency: "4x/week"),
+            monthlyObjective: new ClientMonthlyObjectiveSnapshot(
+                Objectives: "Grow demo requests by 25%.",
+                Kpis: ["MQL", "demo requests"]),
+            client: new ClientProfileSnapshot(
+                Name: "Northwind Labs",
+                Description: "AI operations platform",
+                SectorOrNiche: "B2B SaaS"),
+            referentAccounts:
+            [
+                new ClientAccountSnapshot("linkedin", "LinkedIn", "https://linkedin.com/company/referent", "@referent", "Referent", "Editorial benchmark")
+            ],
+            competitorAccounts:
+            [
+                new ClientAccountSnapshot("linkedin", "LinkedIn", "https://linkedin.com/company/competitor", "@competitor", "Competitor", "Avoid similar claims")
+            ]);
+        var ctx = BuildContext(brand);
+        var providerCallContext = BeginContext(OrgId, ClientId, CorrelationId);
+
+        var generator = new CarouselGenerator(gateway, providerCallContext);
+        await generator.GenerateAsync(ctx, CancellationToken.None);
+
+        Assert.NotNull(gateway.LastRequest);
+        var prompt = gateway.LastRequest!.InputJson;
+        Assert.Contains("Northwind Labs", prompt);
+        Assert.Contains("#123456", prompt);
+        Assert.Contains("backgroundTemplates", prompt);
+        Assert.Contains("/storage/client-assets/org/client/story.png", prompt);
+        Assert.Contains("Inter", prompt);
+        Assert.Contains("Grow demo requests by 25%.", prompt);
+        Assert.Contains("MQL", prompt);
+        Assert.Contains("@referent", prompt);
+        Assert.Contains("@competitor", prompt);
+        Assert.Contains("Educational Series", prompt);
     }
 
     // -------------------------------------------------------------------
@@ -146,6 +212,13 @@ public sealed class CarouselGeneratorTests
             brand: new BrandManualSnapshot(
                 ColorPalette: ["#FFF", "#000"],
                 Logos: ["logo.png"],
+                BackgroundTemplates:
+                [
+                    new BrandBackgroundTemplateSnapshot(
+                        "Story",
+                        "/storage/client-assets/org/client/story.png",
+                        "story")
+                ],
                 Typography: ["Roboto"],
                 VoiceAndTone: "professional",
                 Notes: null),
@@ -154,7 +227,21 @@ public sealed class CarouselGeneratorTests
                 ToneKeywords: ["warm", "expert"],
                 TargetAudience: "SMB owners",
                 PostingFrequency: "3x/week"),
-            monthlyObjective: null),
+            monthlyObjective: new ClientMonthlyObjectiveSnapshot(
+                Objectives: "Increase qualified leads.",
+                Kpis: ["qualified leads"]),
+            client: new ClientProfileSnapshot(
+                Name: "Acme",
+                Description: "B2B services",
+                SectorOrNiche: "SMB operations"),
+            referentAccounts:
+            [
+                new ClientAccountSnapshot("linkedin", "LinkedIn", "https://linkedin.com/company/referent", "@referent", "Referent", "Benchmark")
+            ],
+            competitorAccounts:
+            [
+                new ClientAccountSnapshot("linkedin", "LinkedIn", "https://linkedin.com/company/competitor", "@competitor", "Competitor", "Avoid claims")
+            ]),
         CorrelationId: CorrelationId,
         AiProviderKey: "claude",
         AiModel: "claude-sonnet-4-6");
@@ -162,7 +249,7 @@ public sealed class CarouselGeneratorTests
     private static ProviderCallContext BeginContext(Guid orgId, Guid? clientId, Guid correlationId)
     {
         var ctx = new ProviderCallContext();
-        ctx.Begin(orgId, clientId, "content-generation", "format:carousel", "carousel.v1", correlationId);
+        ctx.Begin(orgId, clientId, "content-generation", "format:carousel", "carousel.v2", correlationId);
         return ctx;
     }
 
@@ -193,11 +280,13 @@ file sealed class SucceedingGateway<TResponse> : IAiCompletionGateway
 {
     private readonly TResponse _payload;
     public SucceedingGateway(TResponse payload) => _payload = payload;
+    public AiJsonCompletionRequest? LastRequest { get; private set; }
 
     public Task<Result<AiJsonCompletionResponse<T>>> CompleteJsonAsync<T>(
         AiJsonCompletionRequest request, CancellationToken ct)
         where T : notnull
     {
+        LastRequest = request;
         var response = new AiJsonCompletionResponse<T>(
             (T)(object)_payload,
             "claude",

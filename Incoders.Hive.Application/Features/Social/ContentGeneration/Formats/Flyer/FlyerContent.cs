@@ -7,4 +7,6 @@ public sealed record FlyerContent(
     string? Body,
     IReadOnlyList<string> Callouts,
     string CtaText,
+    string? BackgroundPrompt,
+    string? SignatureText,
     string? LayoutHint);

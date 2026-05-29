@@ -2,14 +2,15 @@ using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Incoders.Hive.Infrastructure.Identity;
+using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
 
 /// <summary>
 /// EF Core adapter for <see cref="IClientBrandSnapshotLoader"/>.
-/// Loads <see cref="ClientBrandManualData"/>, <see cref="ClientStrategyData"/>,
-/// and the most recent <see cref="ClientMonthlyObjectiveData"/> for the client at job-start time.
+/// Loads the client profile, active brand manual, strategy, latest monthly objective,
+/// and active referent/competitor accounts for the client at job-start time.
 /// Returns a fully-inferred <see cref="BrandSnapshot"/> when any source is absent.
 /// </summary>
 public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
@@ -26,6 +27,12 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
         Guid clientId,
         CancellationToken cancellationToken = default)
     {
+        var clientRow = await _dbContext.SocialClients
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.Id == clientId && x.OrganizationId == organizationId,
+                cancellationToken);
+
         // Load active brand manual
         var brandRow = await _dbContext.ClientBrandManuals
             .AsNoTracking()
@@ -40,21 +47,53 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
                 x => x.ClientId == clientId && x.OrganizationId == organizationId,
                 cancellationToken);
 
-        // Load most recent monthly objective (current year/month first, then latest by year desc, month desc)
+        // Load current monthly objective first, then latest by year desc, month desc.
         var now = DateTime.UtcNow;
         var objectiveRow = await _dbContext.ClientMonthlyObjectives
             .AsNoTracking()
             .Where(x => x.ClientId == clientId && x.OrganizationId == organizationId)
-            .OrderByDescending(x => x.Year)
+            .OrderByDescending(x => x.Year == now.Year && x.Month == now.Month)
+            .ThenByDescending(x => x.Year)
             .ThenByDescending(x => x.Month)
             .FirstOrDefaultAsync(cancellationToken);
 
+        var networkRows = await _dbContext.SocialNetworks
+            .AsNoTracking()
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
+
+        var referentRows = await _dbContext.ClientReferentAccounts
+            .AsNoTracking()
+            .Where(x => x.ClientId == clientId && x.OrganizationId == organizationId && x.IsActive)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
+        var competitorRows = await _dbContext.ClientCompetitorAccounts
+            .AsNoTracking()
+            .Where(x => x.ClientId == clientId && x.OrganizationId == organizationId && x.IsActive)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
         // Map to domain snapshots
+        ClientProfileSnapshot? clientSnapshot = clientRow is null
+            ? null
+            : new ClientProfileSnapshot(
+                Name: clientRow.Name,
+                Description: clientRow.Description,
+                SectorOrNiche: clientRow.SectorOrNiche);
+
         BrandManualSnapshot? brandSnapshot = brandRow is null
             ? null
             : new BrandManualSnapshot(
                 ColorPalette: brandRow.ColorPalette.Select(c => c.Hex).ToArray(),
                 Logos: brandRow.Logos.Select(l => l.Url).ToArray(),
+                BackgroundTemplates: brandRow.BackgroundTemplates
+                    .Select(background => new BrandBackgroundTemplateSnapshot(
+                        background.Name,
+                        background.Url,
+                        background.UseCase))
+                    .ToArray(),
                 Typography: brandRow.Typography.Select(t => t.FontFamily).ToArray(),
                 VoiceAndTone: brandRow.VoiceAndTone,
                 Notes: brandRow.Notes);
@@ -73,6 +112,38 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
                 Objectives: objectiveRow.Objectives,
                 Kpis: objectiveRow.Kpis.ToArray());
 
-        return BrandSnapshot.FromBrandData(brandSnapshot, strategySnapshot, objectiveSnapshot);
+        var referentSnapshots = referentRows
+            .Select(row => ToAccountSnapshot(row.SocialNetworkId, row.ProfileUrl, row.Handle, row.Label, row.Notes, networkRows))
+            .ToArray();
+
+        var competitorSnapshots = competitorRows
+            .Select(row => ToAccountSnapshot(row.SocialNetworkId, row.ProfileUrl, row.Handle, row.Label, row.Notes, networkRows))
+            .ToArray();
+
+        return BrandSnapshot.FromBrandData(
+            brandSnapshot,
+            strategySnapshot,
+            objectiveSnapshot,
+            clientSnapshot,
+            referentSnapshots,
+            competitorSnapshots);
+    }
+
+    private static ClientAccountSnapshot ToAccountSnapshot(
+        Guid socialNetworkId,
+        string profileUrl,
+        string? handle,
+        string? label,
+        string? notes,
+        IReadOnlyDictionary<Guid, SocialNetworkData> networks)
+    {
+        var hasNetwork = networks.TryGetValue(socialNetworkId, out var network);
+        return new ClientAccountSnapshot(
+            NetworkCode: hasNetwork ? network!.Code : socialNetworkId.ToString("N"),
+            NetworkName: hasNetwork ? network!.DisplayName : socialNetworkId.ToString("N"),
+            ProfileUrl: profileUrl,
+            Handle: handle,
+            Label: label,
+            Notes: notes);
     }
 }

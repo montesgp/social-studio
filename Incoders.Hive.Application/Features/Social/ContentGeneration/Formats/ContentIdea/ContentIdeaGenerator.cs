@@ -24,22 +24,20 @@ public sealed class ContentIdeaGenerator : FormatContentGeneratorBase<ContentIde
     {
         var input = new
         {
-            instruction = "Generate a branded content idea. Respond with ONLY raw JSON.",
+            instruction = "Generate a branded content idea. " +
+                          GenerationPromptContext.BrandConstraint + " " +
+                          "Use the analyzed source idea as the base; do not drift away from it. " +
+                          "Respond with ONLY raw JSON.",
             format = "content-idea",
-            analysis = new
-            {
-                summary = ctx.Analysis.Summary,
-                derivedIdeas = ctx.Analysis.DerivedIdeas.Select(i => i.Title),
-                audience = ctx.Analysis.LikelyAudience
-            },
-            brand = new { pillars = ctx.BrandSnapshot.Strategy?.ContentPillars, audience = ctx.BrandSnapshot.Strategy?.TargetAudience },
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {
                 ideaTitle = "string",
-                angle = "string — unique angle or framing",
+                angle = "string - unique angle or framing",
                 platforms = "array of string platform names",
-                rationale = "string — why this idea works",
-                brandFitScore = "number 1-5 — how well it fits brand strategy"
+                rationale = "string - why this idea works",
+                brandFitScore = "number 1-5 - how well it fits brand strategy"
             }
         };
         return JsonSerializer.Serialize(input, JsonOptions);

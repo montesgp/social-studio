@@ -29,7 +29,12 @@ internal static class CompositionDefaults
     /// </summary>
     internal static CompositionPalette ResolvePalette(BrandSnapshot brand, InferenceAccumulator inferred)
     {
-        var hasPalette = brand.Brand?.ColorPalette.Count >= 5;
+        var colors = brand.Brand?.ColorPalette
+            .Where(color => !string.IsNullOrWhiteSpace(color))
+            .Select(color => color.Trim())
+            .ToArray() ?? [];
+
+        var hasPalette = colors.Length > 0;
         inferred.Track("brand.ColorPalette", !hasPalette);
 
         if (!hasPalette)
@@ -37,13 +42,12 @@ internal static class CompositionDefaults
             return Palette;
         }
 
-        var colors = brand.Brand!.ColorPalette;
         return new CompositionPalette(
-            Primary: colors[0],
-            Secondary: colors[1],
-            Accent: colors[2],
-            Text: colors[3],
-            Background: colors[4]);
+            Primary: Pick(colors, 0, Palette.Primary),
+            Secondary: Pick(colors, 1, Palette.Secondary),
+            Accent: Pick(colors, 2, Palette.Accent),
+            Text: Pick(colors, 3, Palette.Text),
+            Background: Pick(colors, 4, Palette.Background));
     }
 
     /// <summary>
@@ -63,4 +67,7 @@ internal static class CompositionDefaults
         var fontFamily = brand.Brand!.Typography[0];
         return new CompositionTypography(fontFamily, 28, fontFamily, 16);
     }
+
+    private static string Pick(IReadOnlyList<string> values, int index, string fallback) =>
+        index < values.Count ? values[index] : fallback;
 }

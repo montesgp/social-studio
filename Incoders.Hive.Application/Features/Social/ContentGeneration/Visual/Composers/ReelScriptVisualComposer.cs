@@ -1,3 +1,4 @@
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.ReelScript;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Composers;
@@ -8,8 +9,12 @@ internal sealed class ReelScriptVisualComposer : IFormatVisualComposer
 
     public VisualCompositionSpec Compose(object generatedPayload, BrandSnapshot brand, InferenceAccumulator inferred)
     {
+        var payload = PayloadReader.As<ReelScriptContent>(generatedPayload);
         var palette = CompositionDefaults.ResolvePalette(brand, inferred);
         var typography = CompositionDefaults.ResolveTypography(brand, inferred);
+        var scenes = payload is null
+            ? string.Empty
+            : string.Join(" ", payload.Scenes.Select(scene => $"{scene.Timestamp}: {scene.Voiceover} ({scene.OnScreenText})"));
 
         return new VisualCompositionSpec(
             FormatKey: FormatKey,
@@ -22,7 +27,9 @@ internal sealed class ReelScriptVisualComposer : IFormatVisualComposer
             },
             CopySlots: new Dictionary<string, string>
             {
-                ["script"] = "Reel script content"
+                ["script"] = payload is null
+                    ? "Reel script content"
+                    : $"{payload.Hook} {scenes} CTA: {payload.CtaText}"
             },
             Dimensions: CompositionDefaults.StandardDimensions);
     }

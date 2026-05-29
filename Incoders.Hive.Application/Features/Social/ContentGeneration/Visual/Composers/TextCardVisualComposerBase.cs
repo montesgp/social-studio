@@ -4,7 +4,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Com
 
 /// <summary>
 /// Shared base for text-only format composers (hook, caption, cta-variation).
-/// Produces a single "text-card" asset slot so the renderer can generate a styled PNG text card.
+/// Produces a single text-card asset slot so the renderer can generate a styled PNG text card.
 /// </summary>
 internal abstract class TextCardVisualComposerBase : IFormatVisualComposer
 {
@@ -26,10 +26,13 @@ internal abstract class TextCardVisualComposerBase : IFormatVisualComposer
             {
                 [SlotKey] = new AssetSlotSpec(null, null)
             },
-            CopySlots: new Dictionary<string, string>
-            {
-                ["text"] = "Generated text content"
-            },
+            CopySlots: BuildCopySlots(generatedPayload),
             Dimensions: CompositionDefaults.StandardDimensions);
     }
+
+    protected virtual IReadOnlyDictionary<string, string> BuildCopySlots(object generatedPayload) =>
+        new Dictionary<string, string>
+        {
+            ["text"] = "Generated text content"
+        };
 }

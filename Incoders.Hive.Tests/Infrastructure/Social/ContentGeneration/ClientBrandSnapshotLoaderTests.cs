@@ -47,7 +47,10 @@ public sealed class ClientBrandSnapshotLoaderTests : IDisposable
             Title = "Brand 2026",
             ColorPalette = new() { new("Primary", "#FF0000", null) },
             Logos = new(),
-            BackgroundTemplates = new(),
+            BackgroundTemplates = new()
+            {
+                new("Story", "/storage/client-assets/org/client/story.png", "story")
+            },
             Typography = new(),
             VoiceAndTone = "Friendly and professional",
             Notes = null,
@@ -90,6 +93,10 @@ public sealed class ClientBrandSnapshotLoaderTests : IDisposable
         // Fields with actual data must NOT be inferred
         Assert.False(snapshot.InferredFields["ColorPalette"]);
         Assert.False(snapshot.InferredFields["VoiceAndTone"]);
+        Assert.False(snapshot.InferredFields["BackgroundTemplates"]);
+        Assert.Equal(
+            "/storage/client-assets/org/client/story.png",
+            snapshot.Brand!.BackgroundTemplates.Single().Url);
         Assert.False(snapshot.InferredFields["ContentPillars"]);
         Assert.False(snapshot.InferredFields["TargetAudience"]);
         Assert.False(snapshot.InferredFields["MonthlyObjectives"]);

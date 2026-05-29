@@ -1,6 +1,11 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.ContentGeneration;
+using Incoders.Hive.Infrastructure.Social;
 using Incoders.Hive.Infrastructure.Rendering;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using SkiaSharp;
 
 namespace Incoders.Hive.Tests.Infrastructure.Rendering;
 
@@ -82,6 +87,73 @@ public sealed class LocalSvgContentRendererTests
         Assert.Equal("hook.png", result.Value.Filename);
     }
 
+    [Fact]
+    public async Task RenderAsync_FlyerSpec_MatchesStoryDimensions()
+    {
+        var renderer = new LocalSvgContentRenderer();
+        var spec = BuildFlyerSpec();
+
+        var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        using var bitmap = SKBitmap.Decode(result.Value.GetBytes());
+        Assert.NotNull(bitmap);
+        Assert.Equal(1080, bitmap.Width);
+        Assert.Equal(1920, bitmap.Height);
+    }
+
+    [Fact]
+    public async Task RenderAsync_FlyerSpecWithoutTemplate_ProducesNonWhiteBackground()
+    {
+        var renderer = new LocalSvgContentRenderer();
+        var spec = BuildFlyerSpec();
+
+        var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        using var bitmap = SKBitmap.Decode(result.Value.GetBytes());
+        Assert.NotNull(bitmap);
+        var sample = bitmap.GetPixel(40, 40);
+        Assert.False(sample.Red == 255 && sample.Green == 255 && sample.Blue == 255);
+    }
+
+    [Fact]
+    public async Task RenderAsync_FlyerSpecWithLocalBackgroundTemplate_UsesTemplateImage()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "incoders-hive-renderer-tests", Guid.NewGuid().ToString("N"));
+        var templateDirectory = Path.Combine(root, "org", "client");
+        Directory.CreateDirectory(templateDirectory);
+        var templatePath = Path.Combine(templateDirectory, "story.png");
+        WriteSolidPng(templatePath, SKColors.LimeGreen);
+
+        try
+        {
+            var renderer = new LocalSvgContentRenderer(
+                Options.Create(new ClientAssetStorageOptions
+                {
+                    RootPath = root,
+                    PublicBasePath = "/storage/client-assets"
+                }),
+                new TestHostEnvironment());
+            var spec = BuildFlyerSpec(backgroundUrl: "/storage/client-assets/org/client/story.png");
+
+            var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+            Assert.True(result.IsSuccess);
+            using var bitmap = SKBitmap.Decode(result.Value.GetBytes());
+            Assert.NotNull(bitmap);
+            var sample = bitmap.GetPixel(40, 40);
+            Assert.True(sample.Green > sample.Red && sample.Green > sample.Blue);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     // -------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------
@@ -118,4 +190,43 @@ public sealed class LocalSvgContentRendererTests
                 ["text"] = "This is the hook text content"
             },
             Dimensions: new CompositionDimensions(1080, 1080, 96));
+
+    private static VisualCompositionSpec BuildFlyerSpec(string? backgroundUrl = null) =>
+        new VisualCompositionSpec(
+            FormatKey: "flyer",
+            LayoutType: "story-flyer",
+            Palette: new CompositionPalette("#111827", "#374151", "#2563EB", "#111827", "#F8FAFC"),
+            Typography: new CompositionTypography("Arial", 28, "Arial", 16),
+            AssetSlots: new Dictionary<string, AssetSlotSpec>
+            {
+                ["background"] = new AssetSlotSpec(backgroundUrl, "Modern branded product background"),
+                ["logo"] = new AssetSlotSpec(null, "Brand logo")
+            },
+            CopySlots: new Dictionary<string, string>
+            {
+                ["headline"] = "A specific idea turned into a story flyer",
+                ["subtitle"] = "Use the selected analysis insight",
+                ["body"] = "This copy should be visible in the exported package.",
+                ["callouts"] = "Client objective | Brand manual | Monthly KPI",
+                ["cta"] = "Book a call",
+                ["signature"] = "@client"
+            },
+            Dimensions: new CompositionDimensions(1080, 1920, 96));
+
+    private static void WriteSolidPng(string path, SKColor color)
+    {
+        using var surface = SKSurface.Create(new SKImageInfo(64, 64));
+        surface.Canvas.Clear(color);
+        using var image = surface.Snapshot();
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        File.WriteAllBytes(path, data.ToArray());
+    }
+
+    private sealed class TestHostEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = "Test";
+        public string ApplicationName { get; set; } = "Incoders.Hive.Tests";
+        public string ContentRootPath { get; set; } = Directory.GetCurrentDirectory();
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
 }

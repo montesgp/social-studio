@@ -1,3 +1,4 @@
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.ContentIdea;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Composers;
@@ -8,6 +9,7 @@ internal sealed class ContentIdeaVisualComposer : IFormatVisualComposer
 
     public VisualCompositionSpec Compose(object generatedPayload, BrandSnapshot brand, InferenceAccumulator inferred)
     {
+        var payload = PayloadReader.As<ContentIdeaContent>(generatedPayload);
         var palette = CompositionDefaults.ResolvePalette(brand, inferred);
         var typography = CompositionDefaults.ResolveTypography(brand, inferred);
 
@@ -22,7 +24,9 @@ internal sealed class ContentIdeaVisualComposer : IFormatVisualComposer
             },
             CopySlots: new Dictionary<string, string>
             {
-                ["idea"] = "Content idea summary"
+                ["idea"] = payload is null
+                    ? "Content idea summary"
+                    : $"{payload.IdeaTitle}: {payload.Angle}. {payload.Rationale}"
             },
             Dimensions: CompositionDefaults.StandardDimensions);
     }

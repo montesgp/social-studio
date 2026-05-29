@@ -24,18 +24,27 @@ public sealed class FlyerGenerator : FormatContentGeneratorBase<FlyerContent>
     {
         var input = new
         {
-            instruction = "Generate branded flyer content. Respond with ONLY raw JSON.",
+            instruction = "Generate branded flyer content. " +
+                          GenerationPromptContext.BrandConstraint + " " +
+                          "Respect the primary derived idea and make layout/copy decisions from the client context. " +
+                          "The flyer is a single 9:16 story image. If the active brand manual includes " +
+                          "backgroundTemplates, use them as the visual base and write copy that fits over that template. " +
+                          "If it has no background template, resolve a concise backgroundPrompt for a branded AI-created background. " +
+                          "Apply any manual notes such as required signatures or handles in signatureText. " +
+                          "Respond with ONLY raw JSON.",
             format = "flyer",
-            analysis = new { summary = ctx.Analysis.Summary, audience = ctx.Analysis.LikelyAudience },
-            brand = new { voice = ctx.BrandSnapshot.Brand?.VoiceAndTone, colors = ctx.BrandSnapshot.Brand?.ColorPalette },
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {
-                title = "string — main headline",
+                title = "string - main headline",
                 subtitle = "string|null",
                 body = "string|null",
                 callouts = "array of string bullet points",
                 ctaText = "string",
-                layoutHint = "string|null — layout suggestion e.g. grid, hero, split"
+                backgroundPrompt = "string|null - visual background direction when no brand template exists",
+                signatureText = "string|null - required footer/signature/handle from brand manual when applicable",
+                layoutHint = "string|null - layout suggestion e.g. grid, hero, split"
             }
         };
         return JsonSerializer.Serialize(input, JsonOptions);

@@ -7,11 +7,11 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 /// </summary>
 public static class ContentGenerationPromptVersions
 {
-    public const string Carousel = "carousel.v1";
-    public const string Flyer = "flyer.v1";
-    public const string ReelScript = "reel-script.v1";
-    public const string ContentIdea = "content-idea.v1";
-    public const string CtaVariation = "cta-variation.v1";
-    public const string Caption = "caption.v1";
-    public const string Hook = "hook.v1";
+    public const string Carousel = "carousel.v2";
+    public const string Flyer = "flyer.v2";
+    public const string ReelScript = "reel-script.v2";
+    public const string ContentIdea = "content-idea.v2";
+    public const string CtaVariation = "cta-variation.v2";
+    public const string Caption = "caption.v2";
+    public const string Hook = "hook.v2";
 }

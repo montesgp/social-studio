@@ -19,6 +19,7 @@ namespace Incoders.Hive.Tests.ApiService.BackgroundServices;
 public sealed class ContentGenerationBackgroundWorkerTests
 {
     private static readonly Guid OrgId = Guid.NewGuid();
+    private static readonly Guid ClientId = Guid.NewGuid();
 
     [Fact]
     public async Task Process_AllFormatsSucceed_BuildsPackage_StoresIt_AndMarksCompleted()
@@ -163,7 +164,7 @@ public sealed class ContentGenerationBackgroundWorkerTests
         new(
             Id: id,
             OrganizationId: orgId,
-            ClientId: null,
+            ClientId: ClientId,
             AnalysisId: analysisId,
             RequestedFormats: formats ?? ["carousel"],
             Status: status,
@@ -196,7 +197,7 @@ public sealed class ContentGenerationBackgroundWorkerTests
         return new SingleContentAnalysisRecord(
             Id: id,
             OrganizationId: orgId,
-            ClientId: null,
+            ClientId: ClientId,
             UserId: Guid.NewGuid(),
             SourceUrl: "https://example.com/x",
             NormalizedUrl: "https://example.com/x",

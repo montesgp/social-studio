@@ -24,10 +24,13 @@ public sealed class CtaVariationGenerator : FormatContentGeneratorBase<CtaVariat
     {
         var input = new
         {
-            instruction = "Generate branded CTA variations. Respond with ONLY raw JSON.",
+            instruction = "Generate branded CTA variations. " +
+                          GenerationPromptContext.BrandConstraint + " " +
+                          "Tie each CTA to the client's objectives and KPIs when present. " +
+                          "Respond with ONLY raw JSON.",
             format = "cta-variation",
-            analysis = new { strengths = ctx.Analysis.Strengths, adaptationRecs = ctx.Analysis.ClientAdaptationRecommendations },
-            brand = new { voice = ctx.BrandSnapshot.Brand?.VoiceAndTone, tone = ctx.BrandSnapshot.Strategy?.ToneKeywords },
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {
                 variations = "array of {text: string, tone: string, intent: string}"

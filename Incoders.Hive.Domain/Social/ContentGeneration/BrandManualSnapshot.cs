@@ -7,6 +7,7 @@ namespace Incoders.Hive.Domain.Social.ContentGeneration;
 public sealed record BrandManualSnapshot(
     IReadOnlyList<string> ColorPalette,
     IReadOnlyList<string> Logos,
+    IReadOnlyList<BrandBackgroundTemplateSnapshot> BackgroundTemplates,
     IReadOnlyList<string> Typography,
     string? VoiceAndTone,
     string? Notes);

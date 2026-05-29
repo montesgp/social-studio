@@ -68,6 +68,7 @@ public sealed class BrandSnapshotTests
         var brandData = new BrandManualSnapshot(
             ColorPalette: Array.Empty<string>(),   // empty = missing
             Logos: Array.Empty<string>(),
+            BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
             Typography: Array.Empty<string>(),
             VoiceAndTone: "Professional and friendly",
             Notes: null);
@@ -84,6 +85,7 @@ public sealed class BrandSnapshotTests
         var brandData = new BrandManualSnapshot(
             ColorPalette: Array.Empty<string>(),
             Logos: Array.Empty<string>(),
+            BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
             Typography: Array.Empty<string>(),
             VoiceAndTone: "Bold and direct",
             Notes: null);
@@ -126,6 +128,13 @@ public sealed class BrandSnapshotTests
         var brand = new BrandManualSnapshot(
             ColorPalette: new[] { "#FF0000", "#00FF00" },
             Logos: new[] { "https://cdn.example.com/logo.png" },
+            BackgroundTemplates:
+            [
+                new BrandBackgroundTemplateSnapshot(
+                    "Story",
+                    "/storage/client-assets/org/client/brand/story.png",
+                    "story")
+            ],
             Typography: new[] { "Inter", "Roboto" },
             VoiceAndTone: "Friendly and professional",
             Notes: "Q1 brand guidelines");
@@ -140,6 +149,21 @@ public sealed class BrandSnapshotTests
             Objectives: "Grow engagement by 20%",
             Kpis: new[] { "Reach 10k views", "CTR > 5%" });
 
-        return BrandSnapshot.FromBrandData(brand, strategy, objective);
+        return BrandSnapshot.FromBrandData(
+            brand,
+            strategy,
+            objective,
+            client: new ClientProfileSnapshot(
+                Name: "Northwind Labs",
+                Description: "AI operations platform",
+                SectorOrNiche: "B2B SaaS"),
+            referentAccounts:
+            [
+                new ClientAccountSnapshot("linkedin", "LinkedIn", "https://linkedin.com/company/referent", "@referent", "Referent", "Benchmark")
+            ],
+            competitorAccounts:
+            [
+                new ClientAccountSnapshot("linkedin", "LinkedIn", "https://linkedin.com/company/competitor", "@competitor", "Competitor", "Avoid similar claims")
+            ]);
     }
 }

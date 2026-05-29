@@ -24,19 +24,16 @@ public sealed class ReelScriptGenerator : FormatContentGeneratorBase<ReelScriptC
     {
         var input = new
         {
-            instruction = "Generate a branded reel/TikTok script. Respond with ONLY raw JSON.",
+            instruction = "Generate a branded reel/TikTok script. " +
+                          GenerationPromptContext.BrandConstraint + " " +
+                          "Respect the primary derived idea and the client's strategy/objectives. " +
+                          "Respond with ONLY raw JSON.",
             format = "reel-script",
-            analysis = new
-            {
-                summary = ctx.Analysis.Summary,
-                hooks = ctx.Analysis.DetectedHooks,
-                audience = ctx.Analysis.LikelyAudience,
-                narrativeStructure = ctx.Analysis.NarrativeStructure
-            },
-            brand = new { voice = ctx.BrandSnapshot.Brand?.VoiceAndTone, tone = ctx.BrandSnapshot.Strategy?.ToneKeywords },
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {
-                hook = "string — opening hook line",
+                hook = "string - opening hook line",
                 scenes = "array of {timestamp: string, voiceover: string, onScreenText: string}",
                 ctaText = "string",
                 suggestedMusicMood = "string|null"

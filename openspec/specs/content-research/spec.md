@@ -10,7 +10,13 @@ Content research retrieves candidate high-performing content by client, niche, r
 - Client lookup/list operations MUST NOT return clients from another organization.
 - Sysadmins MAY list clients across organizations and filter the list by organization.
 - Sysadmin client list views MUST show the organization each client belongs to.
-- Single-content analysis workflows MAY run without a selected client; in that case generated mutations MUST preserve the source video's original positioning without client-specific orientation.
+- Single-content analysis workflows MAY run without a selected client for analysis-only use cases.
+- Single-content package generation MUST resolve a client from either the analysis record or the generation request before invoking AI format generation.
+- Single-content package generation MUST reject a generation request when the requested client differs from the analysis client.
+- Single-content package generation prompts MUST include the resolved client's profile, active brand manual, strategy, current/latest monthly objective and KPIs, active referent accounts, and active competitor accounts.
+- Generated visual package assets MUST use explicit client brand palette and typography when present, falling back only for missing brand fields.
+- Generated flyer package assets MUST be a single 9:16 story PNG. If the active brand manual has a background template, the flyer MUST use that template; otherwise the system MUST create a branded background from the generated flyer direction and client context.
+- Generated flyer package assets MUST apply active brand manual notes that affect visuals, including required signatures or handles.
 - When a single-content analysis workflow offers client selection, selectable clients MUST be active and scoped to the resolved organization.
 - Client edit forms MUST keep unsaved child collection changes in frontend state until the user saves the client.
 - Referent accounts edited in the client form MUST be synchronized as a complete ordered list on client save, not persisted on each row add/edit/reorder action.
@@ -73,8 +79,9 @@ Content extraction uses per-platform Apify adapters. Supported platforms:
 - A CM can create a client for the resolved organization.
 - A CM can list clients for the resolved organization.
 - A client id from another organization returns not found.
-- A CM can run single-content analysis with no client selected and receive neutral mutations based on the original video.
-- A CM can choose an active client in the resolved organization before generating single-content mutations.
+- A CM can run single-content analysis with no client selected for analysis-only review.
+- A CM must choose an active client before generating a single-content package when the analysis does not already have a client.
+- Generated single-content packages use the resolved client's brand, strategy, objectives/KPIs, and account context.
 - A CM can paste a TikTok or Instagram URL; the backend scrapes and analyzes it in one call; no Apify request is visible in the browser.
 - When no AI integration is configured, the endpoint returns 422 with `code: "AI.NoProviderConfigured"`.
 - Tenant isolation: the organizationId is always sourced from the authenticated principal, never from the request body.

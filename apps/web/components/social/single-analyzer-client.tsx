@@ -194,7 +194,7 @@ function packageProgressState(
   if (status === "Completed") {
     return {
       percent: 100,
-      label: "All formats generated",
+      label: "Requested formats generated",
       currentStep: PACKAGE_STEPS.length,
       completedFormats: total,
     };
@@ -617,6 +617,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   // Content-generation package job state.
   const [packageJobId, setPackageJobId] = useState<string | null>(null);
+  const [packageRequestedFormats, setPackageRequestedFormats] = useState<ContentFormatKey[]>(
+    ALL_FORMAT_KEYS
+  );
   const [packageJobError, setPackageJobError] = useState<{ message: string } | null>(null);
   const [isRequestingPackage, setIsRequestingPackage] = useState(false);
 
@@ -643,6 +646,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     packageUiStatus === "Queued" ||
     packageUiStatus === "Running";
   const packageGenerationIsCompleted = packageUiStatus === "Completed";
+  const packageGenerationIsAllFormatJob =
+    packageRequestedFormats.length === ALL_FORMAT_KEYS.length &&
+    ALL_FORMAT_KEYS.every((format) => packageRequestedFormats.includes(format));
+  const allFormatsGenerationIsCompleted =
+    packageGenerationIsCompleted && packageGenerationIsAllFormatJob;
   const packageGenerationIsPartial =
     packageUiStatus === "Partial" || packageUiStatus === "PartialSuccess";
   const packageGenerationIsFailed = packageUiStatus === "Failed";
@@ -766,6 +774,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     () => clients.find((client) => client.id === selectedClientId) ?? null,
     [clients, selectedClientId]
   );
+  const generationClientId = selectedClientId || videoResult?.clientId || "";
+  const packageGenerationClientMissing = !generationClientId;
+  const packageGenerationClientMismatch = Boolean(
+    videoResult?.clientId && selectedClientId && selectedClientId !== videoResult.clientId
+  );
 
   const loadNetworks = useCallback(async () => {
     if (!effectiveToken) return;
@@ -872,6 +885,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setGeneratedFlyers({});
     setError(null);
     setPackageJobId(null);
+    setPackageRequestedFormats(ALL_FORMAT_KEYS);
     setPackageJobError(null);
   }
 
@@ -918,6 +932,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
       const result = mapBackendResponseToResult(final, selectedOrganizationId);
       setVideoResult(result);
+      setSelectedClientId(final.clientId ?? "");
       setPreviewNetworkTab(result.networkSource);
       setIsAnalyzed(true);
       void loadHistory({ silent: true });
@@ -961,6 +976,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
       const result = mapBackendResponseToResult(final, selectedOrganizationId);
       setVideoResult(result);
+      setSelectedClientId(final.clientId ?? "");
       setPreviewNetworkTab(result.networkSource);
       setIsAnalyzed(true);
       void loadHistory({ silent: true });
@@ -1041,6 +1057,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }
 
   function buildScriptContent(network: string) {
+    if (network.length >= 0) return buildBackendGenerationNotice("reel-script", network);
     if (!videoResult) return "";
     const clientLine = selectedClient
       ? `Client orientation: adapt this mutation for ${selectedClient.name}.`
@@ -1057,6 +1074,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }
 
   function buildCarouselContent(network: string) {
+    if (network.length >= 0) return buildBackendGenerationNotice("carousel", network);
     if (!videoResult) return "";
     const clientLine = selectedClient
       ? `[ Client Orientation ] ${selectedClient.name}`
@@ -1081,6 +1099,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }
 
   function buildFlyerContent(network: string) {
+    if (network.length >= 0) return buildBackendGenerationNotice("flyer", network);
     if (!videoResult) return "";
     const clientLine = selectedClient
       ? `CLIENT: ${selectedClient.name}`
@@ -1099,21 +1118,62 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     ].join("\n");
   }
 
+  function buildBackendGenerationNotice(formatKey: ContentFormatKey, network: string) {
+    const label = FORMAT_LABELS[formatKey];
+    const networkLabel = networkOptions.find((n) => n.value === network)?.label ?? network;
+    const clientLabel = selectedClient?.name ?? "the selected client";
+    return [
+      `${label} generation started for ${clientLabel}.`,
+      `Target network: ${networkLabel}.`,
+      "The backend package pipeline is using the analysis idea plus the client's brand manual, strategy, objectives, KPIs, and account context.",
+      "Track progress above and download package.zip when ready.",
+    ].join("\n");
+  }
+
+  function formatForMutationMode(): ContentFormatKey {
+    if (mutationMode === "script") return "reel-script";
+    if (mutationMode === "carousel") return "carousel";
+    return "flyer";
+  }
+
   async function handleGenerate(network: string) {
+    if (!videoResult) return;
     if (mutationMode === "script" && generatedScripts[network]) return;
     if (mutationMode === "carousel" && generatedCarousels[network]) return;
     if (mutationMode === "flyer" && generatedFlyers[network]) return;
     const key = `${network}-${mutationMode}`;
     setGeneratingConversion(key);
-    await sleep(mutationMode === "carousel" ? 1100 : mutationMode === "flyer" ? 800 : 900);
-    if (mutationMode === "script") {
-      setGeneratedScripts((prev) => ({ ...prev, [network]: buildScriptContent(network) }));
-    } else if (mutationMode === "carousel") {
-      setGeneratedCarousels((prev) => ({ ...prev, [network]: buildCarouselContent(network) }));
-    } else {
-      setGeneratedFlyers((prev) => ({ ...prev, [network]: buildFlyerContent(network) }));
+    const formatKey = formatForMutationMode();
+    setPackageJobError(null);
+    try {
+      const response = await requestPackage(
+        videoResult.id,
+        {
+          clientId: selectedClientId || videoResult.clientId || null,
+          requestedFormats: [formatKey],
+        },
+        { token: effectiveToken }
+      );
+      setPackageRequestedFormats([formatKey]);
+      setPackageJobId(response.jobId);
+      const notice = mutationMode === "script"
+        ? buildScriptContent(network)
+        : mutationMode === "carousel"
+        ? buildCarouselContent(network)
+        : buildFlyerContent(network);
+      if (mutationMode === "script") {
+        setGeneratedScripts((prev) => ({ ...prev, [network]: notice }));
+      } else if (mutationMode === "carousel") {
+        setGeneratedCarousels((prev) => ({ ...prev, [network]: notice }));
+      } else {
+        setGeneratedFlyers((prev) => ({ ...prev, [network]: notice }));
+      }
+    } catch (e) {
+      const err = e as { message?: string };
+      setPackageJobError({ message: err?.message ?? "Failed to start content generation." });
+    } finally {
+      setGeneratingConversion(null);
     }
-    setGeneratingConversion(null);
   }
 
   /**
@@ -1121,16 +1181,21 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
    * Replaces the previous mock-based bulk generation.
    */
   async function handleConvertAll() {
-    if (!videoResult || isRequestingPackage || packageGenerationIsCompleted) return;
+    if (!videoResult || isRequestingPackage || allFormatsGenerationIsCompleted) return;
     setIsRequestingPackage(true);
     setPackageJobId(null);
     setPackageJobError(null);
+    setPackageRequestedFormats(ALL_FORMAT_KEYS);
     try {
       const response = await requestPackage(
         videoResult.id,
-        { requestedFormats: ALL_FORMAT_KEYS as ContentFormatKey[] },
+        {
+          clientId: selectedClientId || videoResult.clientId || null,
+          requestedFormats: ALL_FORMAT_KEYS as ContentFormatKey[],
+        },
         { token: effectiveToken }
       );
+      setPackageRequestedFormats(ALL_FORMAT_KEYS);
       setPackageJobId(response.jobId);
     } catch (e) {
       const err = e as { message?: string };
@@ -1146,6 +1211,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   useEffect(() => {
     setPackageJobId(pendingPackageJobIdRef.current);
     pendingPackageJobIdRef.current = null;
+    setPackageRequestedFormats(ALL_FORMAT_KEYS);
     setPackageJobError(null);
   }, [videoResult?.id]);
 
@@ -1253,6 +1319,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         if (current.snapshot) {
           const result = mapBackendResponseToResult(current, selectedOrganizationId);
           setVideoResult(result);
+          setSelectedClientId(current.clientId ?? "");
           setPreviewNetworkTab(result.networkSource);
         }
         if (current.status === "Analyzed") {
@@ -1405,7 +1472,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         visible={packageGenerationIsRunning}
         status={packageUiStatus}
         perFormatStatus={packageJob.perFormatStatus}
-        totalFormats={ALL_FORMAT_KEYS.length}
+        totalFormats={packageRequestedFormats.length}
       />
 
       {/* Main 2-col grid */}
@@ -1738,7 +1805,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                         onChange={(e) => setSelectedClientId(e.target.value)}
                         disabled={clientsLoading}
                       >
-                        <option value="">No client - neutral generation</option>
+                        <option value="">Select a client</option>
                         {clients.map((client) => (
                           <option key={client.id} value={client.id}>
                             {client.name}
@@ -1748,7 +1815,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       <p className="text-xs text-muted-foreground/70">
                         {selectedClient
                           ? `Content will be generated for ${selectedClient.name}.`
-                          : "Pick a client to orient the generated content toward their brand."}
+                          : "Pick a client before generating branded content."}
                       </p>
                     </div>
 
@@ -1773,12 +1840,18 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             onClick={() => void handleConvertAll()}
                             disabled={
                               packageGenerationIsRunning ||
-                              packageGenerationIsCompleted ||
+                              allFormatsGenerationIsCompleted ||
+                              packageGenerationClientMissing ||
+                              packageGenerationClientMismatch ||
                               networkOptions.length === 0
                             }
                             title={
-                              packageGenerationIsCompleted
+                              allFormatsGenerationIsCompleted
                                 ? "This analysis already finished all formats."
+                                : packageGenerationClientMissing
+                                ? "Pick a client before generating branded content."
+                                : packageGenerationClientMismatch
+                                ? "The selected client must match the analysis client."
                                 : undefined
                             }
                           >
@@ -1787,7 +1860,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 <RefreshCw className="h-3 w-3 animate-spin" />
                                 Generating all formats…
                               </span>
-                            ) : packageGenerationIsCompleted ? (
+                            ) : allFormatsGenerationIsCompleted ? (
                               <span className="flex items-center gap-2">
                                 <CheckCircle2 className="h-3 w-3 text-green-500" />
                                 All formats generated
@@ -1915,7 +1988,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             variant="outline"
                             className="w-full h-8 text-xs"
                             onClick={() => void handleGenerate(previewNetworkTab)}
-                            disabled={generatingConversion !== null}
+                            disabled={
+                              generatingConversion !== null ||
+                              packageGenerationIsRunning ||
+                              packageGenerationClientMissing ||
+                              packageGenerationClientMismatch
+                            }
                           >
                             {generatingConversion === `${previewNetworkTab}-${mutationMode}` ? (
                               <span className="flex items-center gap-2">

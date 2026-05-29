@@ -1,3 +1,4 @@
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Flyer;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
@@ -60,12 +61,23 @@ public sealed class VisualCompositionServiceTests
     {
         var service = CreateService();
         var brand = BuildFullBrand();
-        var payload = new { headline = "Grand Opening" };
+        var payload = new FlyerContent(
+            "Grand Opening",
+            "This week only",
+            "A flyer based on the selected idea.",
+            ["Brand-safe", "Story-ready"],
+            "Book now",
+            "Product-led branded background",
+            "@client",
+            null);
 
         var spec = await service.ComposeAsync("flyer", payload, brand, CancellationToken.None);
 
         Assert.Equal("flyer", spec.FormatKey);
-        Assert.NotNull(spec.LayoutType);
+        Assert.Equal(1080, spec.Dimensions.Width);
+        Assert.Equal(1920, spec.Dimensions.Height);
+        Assert.Equal("/storage/client-assets/org/client/story.png", spec.AssetSlots["background"].ImageUrl);
+        Assert.Equal("@client", spec.CopySlots["signature"]);
     }
 
     // -------------------------------------------------------------------
@@ -126,6 +138,13 @@ public sealed class VisualCompositionServiceTests
         brand: new BrandManualSnapshot(
             ColorPalette: ["#FF5733", "#C70039", "#FFC300", "#000000", "#FFFFFF"],
             Logos: ["logo.png"],
+            BackgroundTemplates:
+            [
+                new BrandBackgroundTemplateSnapshot(
+                    "Story template",
+                    "/storage/client-assets/org/client/story.png",
+                    "story")
+            ],
             Typography: ["Roboto"],
             VoiceAndTone: "professional",
             Notes: null),

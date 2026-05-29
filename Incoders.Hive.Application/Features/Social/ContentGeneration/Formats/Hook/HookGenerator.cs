@@ -22,25 +22,21 @@ public sealed class HookGenerator : FormatContentGeneratorBase<HookContent>
 
     protected override string BuildPromptJson(GenerationContext ctx)
     {
-        var analysis = ctx.Analysis;
         var input = new
         {
-            instruction = "Generate branded hooks leveraging the communication patterns. Respond with ONLY raw JSON.",
+            instruction = "Generate branded hooks leveraging the communication patterns. " +
+                          GenerationPromptContext.BrandConstraint + " " +
+                          "Respect the primary derived idea and client strategy. " +
+                          "Respond with ONLY raw JSON.",
             format = "hook",
-            analysis = new
-            {
-                summary = analysis.Summary,
-                hooks = analysis.DetectedHooks,
-                audience = analysis.LikelyAudience,
-                communicationPatterns = analysis.Patterns?.CommunicationPatterns.Select(p => p.Name)
-            },
-            brand = new { voice = ctx.BrandSnapshot.Brand?.VoiceAndTone, tone = ctx.BrandSnapshot.Strategy?.ToneKeywords },
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {
-                primaryHook = "string — best hook",
-                alternates = "array of string — alternative hooks",
-                tone = "string — tone description",
-                pattern = "string — which communication pattern from PatternSet this leverages"
+                primaryHook = "string - best hook",
+                alternates = "array of string - alternative hooks",
+                tone = "string - tone description",
+                pattern = "string - which communication pattern from PatternSet this leverages"
             }
         };
         return JsonSerializer.Serialize(input, JsonOptions);

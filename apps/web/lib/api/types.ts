@@ -670,6 +670,7 @@ export type ContentFormatKey =
   | "hook";
 
 export interface GeneratePackageRequest {
+  clientId?: string | null;
   requestedFormats: ContentFormatKey[];
 }
 

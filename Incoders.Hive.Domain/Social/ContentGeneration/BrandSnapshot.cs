@@ -9,9 +9,12 @@ namespace Incoders.Hive.Domain.Social.ContentGeneration;
 /// </para>
 /// </summary>
 public sealed record BrandSnapshot(
+    ClientProfileSnapshot? Client,
     BrandManualSnapshot? Brand,
     StrategySnapshot? Strategy,
     ClientMonthlyObjectiveSnapshot? MonthlyObjective,
+    IReadOnlyList<ClientAccountSnapshot> ReferentAccounts,
+    IReadOnlyList<ClientAccountSnapshot> CompetitorAccounts,
     IReadOnlyDictionary<string, bool> InferredFields)
 {
     /// <summary>
@@ -27,14 +30,24 @@ public sealed record BrandSnapshot(
     public static BrandSnapshot FromBrandData(
         BrandManualSnapshot? brand,
         StrategySnapshot? strategy,
-        ClientMonthlyObjectiveSnapshot? monthlyObjective)
+        ClientMonthlyObjectiveSnapshot? monthlyObjective,
+        ClientProfileSnapshot? client = null,
+        IReadOnlyList<ClientAccountSnapshot>? referentAccounts = null,
+        IReadOnlyList<ClientAccountSnapshot>? competitorAccounts = null)
     {
         var inferred = new Dictionary<string, bool>();
+
+        // Client profile fields
+        bool hasClient = client is not null;
+        inferred["ClientName"] = !hasClient || string.IsNullOrWhiteSpace(client!.Name);
+        inferred["ClientDescription"] = !hasClient || string.IsNullOrWhiteSpace(client!.Description);
+        inferred["ClientSectorOrNiche"] = !hasClient || string.IsNullOrWhiteSpace(client!.SectorOrNiche);
 
         // Brand manual fields
         bool hasBrand = brand is not null;
         inferred["ColorPalette"] = !hasBrand || brand!.ColorPalette.Count == 0;
         inferred["Logos"] = !hasBrand || brand!.Logos.Count == 0;
+        inferred["BackgroundTemplates"] = !hasBrand || brand!.BackgroundTemplates.Count == 0;
         inferred["Typography"] = !hasBrand || brand!.Typography.Count == 0;
         inferred["VoiceAndTone"] = !hasBrand || string.IsNullOrWhiteSpace(brand!.VoiceAndTone);
         inferred["Notes"] = !hasBrand || string.IsNullOrWhiteSpace(brand!.Notes);
@@ -51,14 +64,27 @@ public sealed record BrandSnapshot(
         inferred["MonthlyObjectives"] = !hasObjective || string.IsNullOrWhiteSpace(monthlyObjective!.Objectives);
         inferred["MonthlyKpis"] = !hasObjective || monthlyObjective!.Kpis.Count == 0;
 
+        var effectiveReferentAccounts = referentAccounts ?? Array.Empty<ClientAccountSnapshot>();
+        var effectiveCompetitorAccounts = competitorAccounts ?? Array.Empty<ClientAccountSnapshot>();
+        inferred["ReferentAccounts"] = effectiveReferentAccounts.Count == 0;
+        inferred["CompetitorAccounts"] = effectiveCompetitorAccounts.Count == 0;
+
         // Provide a default empty brand if none was supplied so consumers don't see nulls
         var effectiveBrand = brand ?? new BrandManualSnapshot(
             ColorPalette: Array.Empty<string>(),
             Logos: Array.Empty<string>(),
+            BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
             Typography: Array.Empty<string>(),
             VoiceAndTone: null,
             Notes: null);
 
-        return new BrandSnapshot(effectiveBrand, strategy, monthlyObjective, inferred);
+        return new BrandSnapshot(
+            client,
+            effectiveBrand,
+            strategy,
+            monthlyObjective,
+            effectiveReferentAccounts,
+            effectiveCompetitorAccounts,
+            inferred);
     }
 }
