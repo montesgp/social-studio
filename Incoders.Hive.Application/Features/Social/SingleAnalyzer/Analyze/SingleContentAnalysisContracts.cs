@@ -3,6 +3,7 @@ using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
+using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Application.Features.Social.SingleAnalyzer.Analyze;
 
@@ -168,6 +169,10 @@ public sealed record SingleAnalyzerMediaReferenceResponse(
     string Uri,
     string? MimeType);
 
+/// <summary>
+/// Response DTO for the analysis portion of a completed single-content analysis.
+/// <see cref="Patterns"/> is nullable — null for existing analyses produced before prompt v2.
+/// </summary>
 public sealed record SingleAnalyzerAnalysisResponse(
     string Summary,
     IReadOnlyList<string> DetectedHooks,
@@ -178,7 +183,8 @@ public sealed record SingleAnalyzerAnalysisResponse(
     IReadOnlyList<SingleAnalyzerIdeaResponse> DerivedIdeas,
     IReadOnlyList<string> ClientAdaptationRecommendations,
     double Confidence,
-    IReadOnlyList<string> Warnings)
+    IReadOnlyList<string> Warnings,
+    PatternSet? Patterns = null)
 {
     public static SingleAnalyzerAnalysisResponse FromDomain(SingleAnalyzerAnalysis analysis) =>
         new(
@@ -191,7 +197,8 @@ public sealed record SingleAnalyzerAnalysisResponse(
             analysis.DerivedIdeas.Select(SingleAnalyzerIdeaResponse.FromDomain).ToArray(),
             analysis.ClientAdaptationRecommendations,
             analysis.Confidence,
-            analysis.Warnings);
+            analysis.Warnings,
+            analysis.Patterns);
 }
 
 public sealed record SingleAnalyzerIdeaResponse(

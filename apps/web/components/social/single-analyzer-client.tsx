@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import {
   ScanSearch,
   Search,
@@ -15,11 +16,15 @@ import {
   ChevronRight,
   Sparkles,
   Package,
+  Trash2,
+  XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
+import { BlockingLoader } from "@/components/ui/blocking-loader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { getMockClients, getMockOrganizations } from "@/lib/mocks/content-workflow";
@@ -27,8 +32,11 @@ import { listWorkflowClients } from "@/lib/api/content-workflow";
 import type {
   Organization,
   SingleContentAnalysisStatus,
+  SingleContentAnalysisHistoryItem,
   SocialClient,
   SocialNetwork,
+  ContentFormatKey,
+  ContentGenerationJobStatus,
 } from "@/lib/api/types";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { listSocialNetworks } from "@/lib/api/social-networks";
@@ -36,17 +44,25 @@ import { useAccessToken } from "@/components/auth/use-access-token";
 import {
   getMockVideoBySearch,
   analyzeMockVideo,
-  generateMockSingleDownload,
-  listMockSingleHistory,
-  recordMockAnalysis,
   type SingleAnalyzerResult,
 } from "@/lib/mocks/single-analyzer";
 import {
   analyzeSingleContent,
+  deleteSingleContentAnalysis,
   getSingleContentAnalysis,
+  listSingleContentAnalyses,
   mapBackendResponseToResult,
   retrySingleContentAnalysisAi,
 } from "@/lib/api/single-analyzer";
+import {
+  requestPackage,
+  downloadPackageFile,
+  ALL_FORMAT_KEYS,
+  FORMAT_LABELS,
+} from "@/lib/api/content-generation";
+import { useContentGenerationJob } from "@/lib/hooks/use-content-generation-job";
+import { InferredFieldsDisclosure } from "@/components/social/single-analyzer/inferred-fields-disclosure";
+import { PartialCompletionBanner } from "@/components/social/single-analyzer/partial-completion-banner";
 import { SupportError } from "@/components/support/support-error";
 
 // ── Async/poll constants ───────────────────────────────────────────────────────
@@ -84,6 +100,121 @@ function statusToStepIndex(status: SingleContentAnalysisStatus | null): number {
   if (status === "Analyzed" || status === "Failed") return ANALYSIS_STEPS.length;
   const idx = ANALYSIS_STEPS.findIndex((s) => s.statuses.includes(status));
   return idx === -1 ? 0 : idx;
+}
+
+const PACKAGE_STEPS = [
+  { key: "queued", label: "Queued" },
+  { key: "prepare", label: "Preparing context" },
+  { key: "ai", label: "Generating formats" },
+  { key: "render", label: "Rendering assets" },
+  { key: "zip", label: "Building package.zip" },
+] as const;
+
+function isAiCheckpointStatus(status: string): boolean {
+  return (
+    status === "AiSucceeded" ||
+    status === "AiFailed" ||
+    status === "Rendered" ||
+    status === "RenderFailed" ||
+    status === "Succeeded" ||
+    status === "Failed"
+  );
+}
+
+function isRenderCheckpointStatus(status: string): boolean {
+  return (
+    status === "Rendered" ||
+    status === "RenderFailed" ||
+    status === "Succeeded" ||
+    status === "Failed"
+  );
+}
+
+function packageProgressState(
+  status: ContentGenerationJobStatus | null,
+  perFormatStatus: Partial<Record<ContentFormatKey, string>>,
+  totalFormats: number
+): { percent: number; label: string; currentStep: number; completedFormats: number } {
+  const total = Math.max(totalFormats, 1);
+  const statuses = Object.values(perFormatStatus);
+  const aiDone = statuses.filter(isAiCheckpointStatus).length;
+  const renderDone = statuses.filter(isRenderCheckpointStatus).length;
+
+  if (!status) {
+    return {
+      percent: 12,
+      label: "Initializing generation request",
+      currentStep: 1,
+      completedFormats: 0,
+    };
+  }
+
+  if (status === "Queued") {
+    return { percent: 8, label: "Queued", currentStep: 0, completedFormats: 0 };
+  }
+
+  if (status === "Running") {
+    if (aiDone === 0 && renderDone === 0) {
+      return {
+        percent: 18,
+        label: "Preparing analysis context",
+        currentStep: 1,
+        completedFormats: 0,
+      };
+    }
+
+    if (renderDone === 0) {
+      const percent = Math.round(22 + (Math.min(aiDone, total) / total) * 36);
+      return {
+        percent,
+        label: `Generating formats with AI (${Math.min(aiDone, total)}/${total})`,
+        currentStep: 2,
+        completedFormats: 0,
+      };
+    }
+
+    if (renderDone < total) {
+      const percent = Math.round(60 + (renderDone / total) * 30);
+      return {
+        percent,
+        label: `Rendering assets (${renderDone}/${total})`,
+        currentStep: 3,
+        completedFormats: renderDone,
+      };
+    }
+
+    return {
+      percent: 95,
+      label: "Building package.zip",
+      currentStep: 4,
+      completedFormats: total,
+    };
+  }
+
+  if (status === "Completed") {
+    return {
+      percent: 100,
+      label: "All formats generated",
+      currentStep: PACKAGE_STEPS.length,
+      completedFormats: total,
+    };
+  }
+
+  if (status === "Partial" || status === "PartialSuccess") {
+    return {
+      percent: 100,
+      label: "Completed with partial results",
+      currentStep: PACKAGE_STEPS.length,
+      completedFormats: Math.min(renderDone, total),
+    };
+  }
+
+  return {
+    percent: 100,
+    label: "Generation failed",
+    currentStep: Math.min(4, PACKAGE_STEPS.length - 1),
+    completedFormats: Math.min(renderDone, total),
+  };
 }
 
 // ── URL → social platform detector ────────────────────────────────────────────
@@ -300,6 +431,97 @@ function AnalysisOverlay({ status }: { status: SingleContentAnalysisStatus | nul
   );
 }
 
+function PackageGenerationOverlay({
+  visible,
+  status,
+  perFormatStatus,
+  totalFormats,
+}: {
+  visible: boolean;
+  status: ContentGenerationJobStatus | null;
+  perFormatStatus: Partial<Record<ContentFormatKey, string>>;
+  totalFormats: number;
+}) {
+  if (!visible) return null;
+
+  const state = packageProgressState(status, perFormatStatus, totalFormats);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Generating content package"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm"
+    >
+      <div className="w-full max-w-md rounded-2xl border border-border/50 bg-card p-6 shadow-2xl space-y-5">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-primary/10 p-2">
+            <Package className="h-5 w-5 text-primary animate-pulse" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Generating content package</h3>
+            <p className="text-xs text-muted-foreground">
+              Keep this screen open while all formats are processed.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">{state.label}</span>
+            <span className="font-medium text-foreground tabular-nums">{state.percent}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-primary transition-all duration-500 ease-out"
+              style={{ width: `${Math.min(100, Math.max(0, state.percent))}%` }}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground/80">
+            Rendered formats: {state.completedFormats}/{Math.max(totalFormats, 1)}
+          </p>
+        </div>
+
+        <ol className="space-y-2">
+          {PACKAGE_STEPS.map((step, i) => {
+            const markerState =
+              i < state.currentStep ? "done" : i === state.currentStep ? "active" : "pending";
+
+            return (
+              <li key={step.key} className="flex items-center gap-2.5 text-xs">
+                <span
+                  className={cn(
+                    "flex h-5 w-5 items-center justify-center rounded-full border",
+                    markerState === "done" && "border-green-500/50 bg-green-500/15 text-green-500",
+                    markerState === "active" && "border-primary/50 bg-primary/15 text-primary",
+                    markerState === "pending" &&
+                      "border-border/50 bg-muted/40 text-muted-foreground/50"
+                  )}
+                >
+                  {markerState === "done" ? (
+                    <CheckCircle2 className="h-3 w-3" />
+                  ) : markerState === "active" ? (
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" />
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    markerState === "pending" ? "text-muted-foreground/50" : "text-foreground/90"
+                  )}
+                >
+                  {step.label}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+    </div>
+  );
+}
+
 function SocialTabletPreview({
   content,
   network,
@@ -343,6 +565,7 @@ interface SingleAnalyzerClientProps {
 }
 
 export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientProps) {
+  const router = useRouter();
   const { orgId: activeOrgId } = useActiveOrg();
   const token = useAccessToken();
   const effectiveToken = token ?? undefined;
@@ -371,22 +594,103 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [rightPanelTab, setRightPanelTab] = useState<"conversion" | "preview">("conversion");
   const [previewNetworkTab, setPreviewNetworkTab] = useState("");
   const [mutationMode, setMutationMode] = useState<"script" | "carousel" | "flyer">("script");
-  const [historyItems, setHistoryItems] = useState<SingleAnalyzerResult[]>([]);
+  const [historyItems, setHistoryItems] = useState<SingleContentAnalysisHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [deletingHistoryId, setDeletingHistoryId] = useState<string | null>(null);
+  // When loading from history, we want the new analysis's existing content-generation job to
+  // re-attach to the convert panel. The packageJobId-reset effect runs AFTER setVideoResult,
+  // so we pre-stage the jobId here and the effect reads it as it runs.
+  const pendingPackageJobIdRef = useRef<string | null>(null);
+  const [pendingNavigationHref, setPendingNavigationHref] = useState<string | null>(null);
+  const [isAbandonDialogOpen, setIsAbandonDialogOpen] = useState(false);
+  const allowNavigationRef = useRef(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isDownloadingPackage, setIsDownloadingPackage] = useState(false);
+  const [isHydratingHistory, setIsHydratingHistory] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadResult, setDownloadResult] = useState<{ fileName: string; downloadUrl: string } | null>(null);
   const [error, setError] = useState<{ code?: string; message: string } | null>(null);
   // Async/poll state: drives the staged progress overlay during a backend analysis.
   const [analysisStatus, setAnalysisStatus] = useState<SingleContentAnalysisStatus | null>(null);
   const pollCancelRef = useRef(false);
+  const lastHistoryRefreshKeyRef = useRef<string | null>(null);
+
+  // Content-generation package job state.
+  const [packageJobId, setPackageJobId] = useState<string | null>(null);
+  const [packageJobError, setPackageJobError] = useState<{ message: string } | null>(null);
+  const [isRequestingPackage, setIsRequestingPackage] = useState(false);
 
   // UX state for the new agregados.
   const [isVideoAnalysisCollapsed, setIsVideoAnalysisCollapsed] = useState(false);
-  const [bulkGenerating, setBulkGenerating] = useState(false);
-  const [bulkComplete, setBulkComplete] = useState(false);
 
   // Live-detected network from the URL the user is typing (frontend hint; backend is authoritative).
   const detectedPlatform = useMemo(() => detectPlatformFromUrl(urlInput), [urlInput]);
+
+  // Package generation polling — active while packageJobId is set and no terminal state reached.
+  const packageJob = useContentGenerationJob(packageJobId, {
+    token: effectiveToken,
+    enabled: packageJobId !== null,
+  });
+
+  const packageUiStatus: ContentGenerationJobStatus | null =
+    packageJob.status ?? (isRequestingPackage ? "Queued" : null);
+
+  // Package job derived UI state.
+  const packageGenerationIsRunning =
+    isRequestingPackage ||
+    packageJob.isLoading ||
+    packageJob.isPolling ||
+    packageUiStatus === "Queued" ||
+    packageUiStatus === "Running";
+  const packageGenerationIsCompleted = packageUiStatus === "Completed";
+  const packageGenerationIsPartial =
+    packageUiStatus === "Partial" || packageUiStatus === "PartialSuccess";
+  const packageGenerationIsFailed = packageUiStatus === "Failed";
+  const packageDownloadAvailable =
+    (packageGenerationIsCompleted || packageGenerationIsPartial) && packageJobId !== null;
+  const hasUnsavedWork = Boolean(videoResult && isAnalyzed);
+  const initialToolLoading =
+    networksLoading ||
+    historyLoading ||
+    (selectedOrganizationId.length > 0 && clientsLoading && clients.length === 0);
+
+  const packageSucceededFormats = useMemo(
+    () =>
+      (Object.entries(packageJob.perFormatStatus)
+        .filter(([, st]) => st === "Rendered" || st === "Succeeded")
+        .map(([fmt]) => fmt) as ContentFormatKey[]),
+    [packageJob.perFormatStatus]
+  );
+  const packageFailedFormats = useMemo(
+    () =>
+      (Object.entries(packageJob.perFormatStatus)
+        .filter(([, st]) => st === "Failed")
+        .map(([fmt]) => fmt) as ContentFormatKey[]),
+    [packageJob.perFormatStatus]
+  );
+
+  const handlePackageDownload = useCallback(async () => {
+    if (!packageJobId || isDownloadingPackage) return;
+    setIsDownloadingPackage(true);
+    setPackageJobError(null);
+    try {
+      const { blob, filename } = await downloadPackageFile(packageJobId, { token: effectiveToken });
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (e) {
+      const err = e as { message?: string };
+      setPackageJobError({ message: err?.message ?? "Failed to download package.zip." });
+    } finally {
+      setIsDownloadingPackage(false);
+    }
+  }, [packageJobId, isDownloadingPackage, effectiveToken]);
 
   // True when the URL currently typed is the SAME we just analyzed — blocks accidental re-runs
   // that would burn extraction tokens for no gain. Reactivates as soon as the URL changes.
@@ -406,11 +710,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     };
   }, []);
 
-  // Guard against losing an analysis when the user closes / refreshes the tab.
-  // Only active while there's an analyzed result on screen and no error banner (errors imply
-  // the user already saw the failure and may want to navigate away).
+  // Guard against closing/reloading while there is work on screen.
   useEffect(() => {
-    if (!videoResult || !isAnalyzed) return;
+    if (!hasUnsavedWork && !packageGenerationIsRunning) return;
     const handler = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       // Modern browsers ignore the message and show their own; setting returnValue is required
@@ -419,7 +721,44 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [videoResult, isAnalyzed]);
+  }, [hasUnsavedWork, packageGenerationIsRunning]);
+
+  // Themed in-app abandonment guard for navigation clicks (sidebar/menu links).
+  useEffect(() => {
+    if (!hasUnsavedWork || packageGenerationIsRunning) return;
+
+    const handleDocumentNavigation = (event: MouseEvent) => {
+      if (allowNavigationRef.current) return;
+      if (event.defaultPrevented) return;
+      if (event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+      const target = event.target as HTMLElement | null;
+      const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      if (anchor.target && anchor.target !== "_self") return;
+      if (anchor.hasAttribute("download")) return;
+
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+
+      const currentUrl = new URL(window.location.href);
+      const nextUrl = new URL(href, currentUrl.href);
+      if (nextUrl.origin !== currentUrl.origin) return;
+
+      const currentRoute = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+      const nextRoute = `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
+      if (nextRoute === currentRoute) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingNavigationHref(nextRoute);
+      setIsAbandonDialogOpen(true);
+    };
+
+    document.addEventListener("click", handleDocumentNavigation, true);
+    return () => document.removeEventListener("click", handleDocumentNavigation, true);
+  }, [hasUnsavedWork, packageGenerationIsRunning]);
 
   // Derived — always in sync with API data
   const networkOptions = socialNetworks.map((n) => ({ value: n.code, label: n.displayName }));
@@ -491,11 +830,32 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     if (orgs.length > 0) setSelectedOrganizationId(orgs[0].id);
   }, []);
 
-  useEffect(() => {
-    if (selectedOrganizationId) {
-      setHistoryItems(listMockSingleHistory(selectedOrganizationId));
+  const loadHistory = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!effectiveToken) {
+      setHistoryLoading(false);
+      return;
     }
-  }, [selectedOrganizationId]);
+
+    if (!opts?.silent) {
+      setHistoryLoading(true);
+    }
+
+    try {
+      const result = await listSingleContentAnalyses(1, 20, effectiveToken);
+      setHistoryItems(result.items);
+    } catch {
+      // Silent: keep the previous list rather than wipe the grid on a transient blip. A failure
+      // banner here would be noisy for a peripheral panel that doesn't block the main flow.
+    } finally {
+      if (!opts?.silent) {
+        setHistoryLoading(false);
+      }
+    }
+  }, [effectiveToken]);
+
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory, selectedOrganizationId]);
 
   useEffect(() => {
     if (!isPlatformAdmin && activeOrgId) {
@@ -511,6 +871,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setGeneratedCarousels({});
     setGeneratedFlyers({});
     setError(null);
+    setPackageJobId(null);
+    setPackageJobError(null);
   }
 
   async function loadVideoByUrl() {
@@ -558,7 +920,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setVideoResult(result);
       setPreviewNetworkTab(result.networkSource);
       setIsAnalyzed(true);
-      setHistoryItems(listMockSingleHistory(selectedOrganizationId));
+      void loadHistory({ silent: true });
     } catch (e) {
       const err = e as { message?: string; problem?: Record<string, unknown> };
       const code = typeof err.problem?.code === "string" ? err.problem.code : undefined;
@@ -601,7 +963,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setVideoResult(result);
       setPreviewNetworkTab(result.networkSource);
       setIsAnalyzed(true);
-      setHistoryItems(listMockSingleHistory(selectedOrganizationId));
+      void loadHistory({ silent: true });
     } catch (e) {
       const err = e as { message?: string; problem?: Record<string, unknown> };
       const code = typeof err.problem?.code === "string" ? err.problem.code : undefined;
@@ -667,17 +1029,15 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     }, 80);
     await sleep(duration);
     clearInterval(interval);
-    // Register the loaded video so the analysis builds on real (scraped) data
-    // instead of falling back to generic mock defaults.
-    recordMockAnalysis(videoResult);
+    // Mock-only fallback path (no backend in this flow). Backend-driven runs persist on the server
+    // and the history grid reloads from listSingleContentAnalyses — the in-memory mock buffer is
+    // no longer the source of truth.
     const analyzed = analyzeMockVideo(selectedOrganizationId, videoResult.id);
-    recordMockAnalysis(analyzed);
     setAnalyzingProgress(100);
     await sleep(300);
     setVideoResult(analyzed);
     setIsAnalyzing(false);
     setIsAnalyzed(true);
-    setHistoryItems(listMockSingleHistory(selectedOrganizationId));
   }
 
   function buildScriptContent(network: string) {
@@ -757,41 +1117,216 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }
 
   /**
-   * Bulk generation: produce script + carousel + flyer for EVERY connected network at once.
-   * Placeholder for the future content-generation API that will return a package.zip with all
-   * artifacts. Today this populates the local previews using the same mock builders.
+   * Start a real backend content-generation package job for all 7 formats.
+   * Replaces the previous mock-based bulk generation.
    */
   async function handleConvertAll() {
-    if (!videoResult || bulkGenerating) return;
-    setBulkGenerating(true);
-    setBulkComplete(false);
-    const networks = networkOptions.map((n) => n.value);
-    const formats = ["script", "carousel", "flyer"] as const;
-
-    for (const fmt of formats) {
-      for (const net of networks) {
-        setGeneratingConversion(`${net}-${fmt}`);
-        // Brief stagger so the UI shows progress instead of finishing instantly.
-        await sleep(180);
-        if (fmt === "script") {
-          setGeneratedScripts((prev) => ({ ...prev, [net]: buildScriptContent(net) }));
-        } else if (fmt === "carousel") {
-          setGeneratedCarousels((prev) => ({ ...prev, [net]: buildCarouselContent(net) }));
-        } else {
-          setGeneratedFlyers((prev) => ({ ...prev, [net]: buildFlyerContent(net) }));
-        }
-      }
+    if (!videoResult || isRequestingPackage || packageGenerationIsCompleted) return;
+    setIsRequestingPackage(true);
+    setPackageJobId(null);
+    setPackageJobError(null);
+    try {
+      const response = await requestPackage(
+        videoResult.id,
+        { requestedFormats: ALL_FORMAT_KEYS as ContentFormatKey[] },
+        { token: effectiveToken }
+      );
+      setPackageJobId(response.jobId);
+    } catch (e) {
+      const err = e as { message?: string };
+      setPackageJobError({ message: err?.message ?? "Failed to start content generation." });
+    } finally {
+      setIsRequestingPackage(false);
     }
-    setGeneratingConversion(null);
-    setBulkGenerating(false);
-    setBulkComplete(true);
   }
 
-  // Reset the "Convert to all" completion flag whenever the video changes — generated content
-  // from a previous video should not appear "ready" for a new one.
+  // Reset package job state when the analysis changes. If we're loading from history and the
+  // user picked a row that already has a content-generation job, the click handler stashes that
+  // jobId in pendingPackageJobIdRef so the convert panel reattaches instead of "starting fresh".
   useEffect(() => {
-    setBulkComplete(false);
+    setPackageJobId(pendingPackageJobIdRef.current);
+    pendingPackageJobIdRef.current = null;
+    setPackageJobError(null);
   }, [videoResult?.id]);
+
+  // Keep the "Saved Analyses" row aligned with live package-job polling for the loaded analysis.
+  useEffect(() => {
+    if (!videoResult?.id || !packageJobId || !packageUiStatus) return;
+
+    const isTerminal =
+      packageUiStatus === "Completed" ||
+      packageUiStatus === "Partial" ||
+      packageUiStatus === "PartialSuccess" ||
+      packageUiStatus === "Failed";
+    const hasPackage =
+      packageUiStatus === "Completed" ||
+      packageUiStatus === "Partial" ||
+      packageUiStatus === "PartialSuccess";
+
+    setHistoryItems((prev) =>
+      prev.map((row) => {
+        if (row.id !== videoResult.id) return row;
+
+        const previous = row.latestContentGeneration;
+        const completedAt = isTerminal
+          ? previous?.completedAt ?? new Date().toISOString()
+          : previous?.completedAt ?? null;
+
+        if (
+          previous &&
+          previous.jobId === packageJobId &&
+          previous.status === packageUiStatus &&
+          previous.hasPackage === hasPackage &&
+          previous.completedAt === completedAt
+        ) {
+          return row;
+        }
+
+        return {
+          ...row,
+          latestContentGeneration: {
+            jobId: packageJobId,
+            status: packageUiStatus,
+            hasPackage,
+            completedAt,
+          },
+        };
+      })
+    );
+  }, [videoResult?.id, packageJobId, packageUiStatus]);
+
+  // On terminal transition, refetch once to keep row metadata (timestamps/package flags) exact.
+  useEffect(() => {
+    if (!packageJobId || !packageUiStatus) return;
+    const isTerminal =
+      packageUiStatus === "Completed" ||
+      packageUiStatus === "Partial" ||
+      packageUiStatus === "PartialSuccess" ||
+      packageUiStatus === "Failed";
+    if (!isTerminal) return;
+
+    const refreshKey = `${packageJobId}:${packageUiStatus}`;
+    if (lastHistoryRefreshKeyRef.current === refreshKey) return;
+    lastHistoryRefreshKeyRef.current = refreshKey;
+    void loadHistory({ silent: true });
+  }, [packageJobId, packageUiStatus, loadHistory]);
+
+  const closeAbandonDialog = useCallback(() => {
+    setIsAbandonDialogOpen(false);
+    setPendingNavigationHref(null);
+  }, []);
+
+  const confirmAbandonNavigation = useCallback(() => {
+    if (!pendingNavigationHref) return;
+    allowNavigationRef.current = true;
+    const target = pendingNavigationHref;
+    setIsAbandonDialogOpen(false);
+    setPendingNavigationHref(null);
+    resetVideoState();
+    router.push(target);
+  }, [pendingNavigationHref, router]);
+
+  useEffect(() => {
+    if (!isAbandonDialogOpen && !pendingNavigationHref) {
+      allowNavigationRef.current = false;
+    }
+  }, [isAbandonDialogOpen, pendingNavigationHref]);
+
+  /**
+   * Click on a row of the history grid → fetch the full analysis from the backend and hydrate
+   * the UI exactly as it would have looked when the analysis just completed (snapshot + analysis +
+   * convert-panel state). No tokens are burned — we only read what's already persisted.
+   *
+   * If the analysis already had a content-generation job, that job's id is staged so the convert
+   * panel re-attaches to it (showing Completed/Failed/etc. with download if a package exists).
+   */
+  const handleLoadFromHistory = useCallback(
+    async (item: SingleContentAnalysisHistoryItem) => {
+      if (!effectiveToken || isLoading) return;
+      setIsHydratingHistory(true);
+      setIsLoading(true);
+      resetVideoState();
+      setError(null);
+      pendingPackageJobIdRef.current = item.latestContentGeneration?.jobId ?? null;
+      try {
+        const current = await getSingleContentAnalysis(item.id, effectiveToken);
+        if (current.snapshot) {
+          const result = mapBackendResponseToResult(current, selectedOrganizationId);
+          setVideoResult(result);
+          setPreviewNetworkTab(result.networkSource);
+        }
+        if (current.status === "Analyzed") {
+          setIsAnalyzed(true);
+        } else if (current.status === "Failed") {
+          setError({
+            code: current.failureCode ?? "social.single_analyzer.analysis_failed",
+            message:
+              current.failureMessageKey ??
+              "This analysis failed previously. Retry the AI step to resume without re-scraping.",
+          });
+        }
+        // For non-terminal statuses (Requested / ResolvingContent / Analyzing) we leave the
+        // overlay off — the user can paste the URL again or just observe state changes via reload.
+      } catch (e) {
+        const err = e as { message?: string };
+        setError({
+          message: err?.message ?? "Failed to load this saved analysis. Please try again.",
+        });
+      } finally {
+        setIsLoading(false);
+        setIsHydratingHistory(false);
+      }
+    },
+    [effectiveToken, isLoading, selectedOrganizationId]
+  );
+
+  const handleDeleteFromHistory = useCallback(
+    async (item: SingleContentAnalysisHistoryItem) => {
+      if (!effectiveToken) return;
+      if (
+        !window.confirm(
+          "Delete this analysis? The scrape, AI analysis, any generated content and downloadable packages will be permanently removed."
+        )
+      ) {
+        return;
+      }
+      setDeletingHistoryId(item.id);
+      try {
+        await deleteSingleContentAnalysis(item.id, effectiveToken);
+        setHistoryItems((prev) => prev.filter((row) => row.id !== item.id));
+        // Clear the main panel when the user just nuked the analysis they had loaded.
+        if (videoResult?.id === item.id) {
+          resetVideoState();
+        }
+      } catch (e) {
+        const err = e as { message?: string };
+        setError({ message: err?.message ?? "Failed to delete this analysis." });
+      } finally {
+        setDeletingHistoryId(null);
+      }
+    },
+    [effectiveToken, videoResult?.id]
+  );
+
+  const handleHistoryDownload = useCallback(async (jobId: string) => {
+    try {
+      const { blob, filename } = await downloadPackageFile(jobId, { token: effectiveToken });
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (e) {
+      const err = e as { message?: string };
+      setError({
+        message: err?.message ?? "Failed to download this package.",
+      });
+    }
+  }, [effectiveToken]);
 
   async function handleDownload() {
     if (!videoResult) return;
@@ -804,7 +1339,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     }, 80);
     await sleep(2500);
     clearInterval(interval);
-    const result = generateMockSingleDownload(selectedOrganizationId, videoResult.id, "all");
+    // Video + analysis download: still a local simulation (no backend endpoint for this yet).
+    const titleSlug = videoResult.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+    const result = { fileName: `${titleSlug}-analysis.zip`, downloadUrl: `/mock-downloads/single/${titleSlug}-all.zip` };
     setDownloadProgress(100);
     await sleep(200);
     setDownloadResult(result);
@@ -854,7 +1391,22 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       />
 
       {/* Screen-blocking overlay shown while the backend analysis is in flight. */}
+      <BlockingLoader
+        visible={initialToolLoading || isHydratingHistory}
+        title={isHydratingHistory ? "Loading saved analysis" : "Preparing Single Analyzer"}
+        description={
+          isHydratingHistory
+            ? "Recovering snapshot and analysis from history..."
+            : "Loading organizations, clients, networks and saved analyses..."
+        }
+      />
       <AnalysisOverlay status={analysisStatus} />
+      <PackageGenerationOverlay
+        visible={packageGenerationIsRunning}
+        status={packageUiStatus}
+        perFormatStatus={packageJob.perFormatStatus}
+        totalFormats={ALL_FORMAT_KEYS.length}
+      />
 
       {/* Main 2-col grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1200,57 +1752,125 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       </p>
                     </div>
 
-                    {/* Bulk generation — placeholder for the future "package.zip" content API.
-                        Today it populates all formats × all networks using the mock builders;
-                        when the real API ships, this button POSTs and downloads the package. */}
-                    <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3 space-y-2">
-                      <div className="flex items-start gap-2">
-                        <Sparkles className="h-4 w-4 text-purple-400 mt-0.5 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-foreground">Convert to all formats</p>
-                          <p className="text-xs text-muted-foreground/70">
-                            Generate script, carousel and flyer for every connected network in one shot. A
-                            downloadable <code className="text-[10px]">package.zip</code> will be available
-                            once the content-generation API is wired.
-                          </p>
+                    {/* Backend package pipeline: enqueue all formats, poll live status, then download zip. */}
+                    <div className="space-y-2">
+                      <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <Sparkles className="h-4 w-4 text-purple-400 mt-0.5 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-foreground">Convert to all formats</p>
+                            <p className="text-xs text-muted-foreground/70">
+                              Generate every supported format (carousel, flyer, reel-script, content idea,
+                              CTA, caption, hook). Download the <code className="text-[10px]">package.zip</code> when ready.
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1 h-8 text-xs"
-                          onClick={() => void handleConvertAll()}
-                          disabled={bulkGenerating || networkOptions.length === 0}
-                        >
-                          {bulkGenerating ? (
-                            <span className="flex items-center gap-2">
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 h-8 text-xs"
+                            onClick={() => void handleConvertAll()}
+                            disabled={
+                              packageGenerationIsRunning ||
+                              packageGenerationIsCompleted ||
+                              networkOptions.length === 0
+                            }
+                            title={
+                              packageGenerationIsCompleted
+                                ? "This analysis already finished all formats."
+                                : undefined
+                            }
+                          >
+                            {packageGenerationIsRunning ? (
+                              <span className="flex items-center gap-2">
+                                <RefreshCw className="h-3 w-3 animate-spin" />
+                                Generating all formats…
+                              </span>
+                            ) : packageGenerationIsCompleted ? (
+                              <span className="flex items-center gap-2">
+                                <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                All formats generated
+                              </span>
+                            ) : packageGenerationIsPartial ? (
+                              <span className="flex items-center gap-2">
+                                <CheckCircle2 className="h-3 w-3 text-amber-500" />
+                                Partial — retry?
+                              </span>
+                            ) : packageGenerationIsFailed ? (
+                              <span className="flex items-center gap-2">
+                                <XCircle className="h-3 w-3 text-red-500" />
+                                Retry generation
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-2">
+                                <Sparkles className="h-3 w-3" />
+                                Convert to all formats
+                              </span>
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            disabled={!packageDownloadAvailable || isDownloadingPackage}
+                            onClick={() => void handlePackageDownload()}
+                            title={packageDownloadAvailable ? "Download the generated package" : "Generate a package first"}
+                          >
+                            {isDownloadingPackage ? (
                               <RefreshCw className="h-3 w-3 animate-spin" />
-                              Generating all formats…
-                            </span>
-                          ) : bulkComplete ? (
-                            <span className="flex items-center gap-2">
-                              <CheckCircle2 className="h-3 w-3 text-green-500" />
-                              All formats generated
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-2">
-                              <Sparkles className="h-3 w-3" />
-                              Convert to all formats
-                            </span>
-                          )}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 text-xs"
-                          disabled
-                          title="Package download will be enabled once the content-generation API is integrated."
-                        >
-                          <Package className="h-3 w-3" />
-                          package.zip
-                        </Button>
+                            ) : (
+                              <Package className="h-3 w-3" />
+                            )}
+                            {isDownloadingPackage ? "Downloading..." : "package.zip"}
+                          </Button>
+                        </div>
+                        {Object.keys(packageJob.perFormatStatus).length > 0 && (packageGenerationIsRunning || packageGenerationIsPartial || packageGenerationIsCompleted) && (
+                          <div className="flex flex-wrap gap-1 pt-1">
+                            {(Object.entries(packageJob.perFormatStatus) as [ContentFormatKey, string][]).map(([fmt, st]) => (
+                              <span
+                                key={fmt}
+                                className={cn(
+                                  "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border",
+                                  st === "Rendered" || st === "Succeeded"
+                                    ? "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20"
+                                    : st === "Failed"
+                                    ? "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20"
+                                    : "bg-muted/40 text-muted-foreground border-border/30"
+                                )}
+                              >
+                                {FORMAT_LABELS[fmt]} · {st.toLowerCase()}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
+
+                      {packageJobError && (
+                        <div className="rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-2">
+                          <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          <span>{packageJobError.message}</span>
+                        </div>
+                      )}
+
+                      {packageGenerationIsFailed && !packageJobError && (
+                        <div className="rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-2">
+                          <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          <span>Generation failed. You can retry above.</span>
+                        </div>
+                      )}
+
+                      {packageGenerationIsPartial && (
+                        <PartialCompletionBanner
+                          succeededFormats={packageSucceededFormats}
+                          failedFormats={packageFailedFormats}
+                        />
+                      )}
+
+                      {(packageGenerationIsCompleted || packageGenerationIsPartial) &&
+                        (packageJob.manifest?.inferredFields?.length ?? 0) > 0 && (
+                          <InferredFieldsDisclosure fields={packageJob.manifest!.inferredFields!} />
+                        )}
                     </div>
 
                     {/* Format mode selector */}
@@ -1347,49 +1967,181 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         </div>
       </div>
 
-      {/* History */}
+      {/* History — saved analyses owned by the current user. Click to reload everything as if
+          the run just finished (snapshot + analysis + any existing content-generation job). */}
       {historyItems.length > 0 && (
         <Card className="border-border/40 bg-background/60">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
               <Clock className="h-4 w-4" />
-              Recent Analyses
+              Saved Analyses
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="divide-y divide-border/30">
-              {historyItems.slice(0, 5).map((item) => (
-                <div key={item.id} className="flex items-center gap-3 py-2.5">
-                  <img
-                    src={item.thumbnailUrl}
-                    alt={item.title}
-                    className="w-12 h-8 rounded object-cover shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-foreground/90 truncate">{item.title}</p>
-                    <p className="text-xs text-muted-foreground/60 capitalize">
-                      {item.networkSource} · {formatDate(item.analyzedAtUtc)}
-                    </p>
-                    <p className="text-xs text-muted-foreground/50">
-                      {item.clientName ? `Client: ${item.clientName}` : "No client context"}
-                    </p>
-                  </div>
-                  {item.strategyMode && (
-                    <Badge variant={strategyBadgeVariant(item.strategyMode)} className="text-xs capitalize shrink-0">
-                      {item.strategyMode}
-                    </Badge>
-                  )}
-                  {item.downloadedAtUtc && (
-                    <Badge variant="success" className="text-xs shrink-0">
-                      Downloaded
-                    </Badge>
-                  )}
-                </div>
+              {historyItems.map((item) => (
+                <SavedAnalysisRow
+                  key={item.id}
+                  item={item}
+                  isActive={videoResult?.id === item.id}
+                  isDeleting={deletingHistoryId === item.id}
+                  onOpen={() => void handleLoadFromHistory(item)}
+                  onDownload={() =>
+                    item.latestContentGeneration?.jobId &&
+                    void handleHistoryDownload(item.latestContentGeneration.jobId)
+                  }
+                  onDelete={() => void handleDeleteFromHistory(item)}
+                />
               ))}
             </div>
           </CardContent>
         </Card>
       )}
+
+      <ConfirmationDialog
+        open={isAbandonDialogOpen}
+        title="Leave this page?"
+        description="You have analysis content on screen that has not been saved or downloaded yet. If you leave now, this working context will be discarded."
+        cancelLabel="Stay here"
+        confirmLabel="Leave without saving"
+        confirmVariant="destructive"
+        onCancel={closeAbandonDialog}
+        onConfirm={confirmAbandonNavigation}
+      />
+    </div>
+  );
+}
+
+// ── History row ────────────────────────────────────────────────────────────────
+
+function statusBadgeVariant(status: SingleContentAnalysisStatus): BadgeVariant {
+  switch (status) {
+    case "Analyzed":
+      return "success";
+    case "ContentResolved":
+    case "ContentResolvedPartial":
+      return "info";
+    case "Failed":
+      return "destructive";
+    case "Requested":
+    case "ResolvingContent":
+    case "Analyzing":
+      return "warning";
+    default:
+      return "muted";
+  }
+}
+
+function statusLabel(status: SingleContentAnalysisStatus): string {
+  switch (status) {
+    case "Requested":
+      return "Queued";
+    case "ResolvingContent":
+      return "Scraping";
+    case "ContentResolved":
+      return "Scraped";
+    case "ContentResolvedPartial":
+      return "Scraped (partial)";
+    case "Analyzing":
+      return "Analyzing";
+    case "Analyzed":
+      return "Analyzed";
+    case "Failed":
+      return "Failed";
+    default:
+      return status;
+  }
+}
+
+function generationBadge(status: string): { label: string; variant: BadgeVariant } {
+  switch (status) {
+    case "Completed":
+      return { label: "Generated", variant: "success" };
+    case "PartialSuccess":
+    case "Partial":
+      return { label: "Partial", variant: "warning" };
+    case "Failed":
+      return { label: "Generation failed", variant: "destructive" };
+    case "Running":
+      return { label: "Generating…", variant: "info" };
+    case "Pending":
+      return { label: "Queued", variant: "muted" };
+    default:
+      return { label: status, variant: "muted" };
+  }
+}
+
+interface SavedAnalysisRowProps {
+  item: SingleContentAnalysisHistoryItem;
+  isActive: boolean;
+  isDeleting: boolean;
+  onOpen: () => void;
+  onDownload: () => void;
+  onDelete: () => void;
+}
+
+function SavedAnalysisRow({ item, isActive, isDeleting, onOpen, onDownload, onDelete }: SavedAnalysisRowProps) {
+  const gen = item.latestContentGeneration;
+  const canDownload =
+    gen?.hasPackage === true &&
+    (gen.status === "Completed" || gen.status === "Partial" || gen.status === "PartialSuccess");
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 py-2.5 px-1 -mx-1 rounded-md transition-colors",
+        isActive && "bg-muted/40"
+      )}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex-1 min-w-0 text-left hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+        title="Open this saved analysis"
+      >
+        <p className="text-xs font-medium text-foreground/90 truncate">
+          {item.normalizedUrl ?? item.sourceUrl}
+        </p>
+        <p className="text-xs text-muted-foreground/60 capitalize">
+          {item.sourcePlatformKey ?? "unknown"} · {formatDate(item.createdAtUtc)}
+        </p>
+      </button>
+
+      <Badge variant={statusBadgeVariant(item.status)} className="text-xs shrink-0">
+        {statusLabel(item.status)}
+      </Badge>
+
+      {gen && (() => {
+        const b = generationBadge(gen.status);
+        return (
+          <Badge variant={b.variant} className="text-xs shrink-0">
+            {b.label}
+          </Badge>
+        );
+      })()}
+
+      {canDownload && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2"
+          onClick={onDownload}
+          title="Re-download the generated package"
+        >
+          <Download className="h-3.5 w-3.5" />
+        </Button>
+      )}
+
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2 text-muted-foreground hover:text-destructive"
+        onClick={onDelete}
+        disabled={isDeleting}
+        title="Delete this analysis (hard delete)"
+      >
+        {isDeleting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+      </Button>
     </div>
   );
 }

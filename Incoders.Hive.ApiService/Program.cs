@@ -6,6 +6,7 @@ using Incoders.Hive.ApiService.Endpoints.Common;
 using Incoders.Hive.ApiService.Endpoints.Integrations;
 using Incoders.Hive.ApiService.Endpoints.PlatformConfiguration;
 using Incoders.Hive.ApiService.Endpoints.Social;
+using Incoders.Hive.ApiService.Endpoints.Social.ContentGeneration;
 using Incoders.Hive.ApiService.Endpoints.SystemSettings;
 using Incoders.Hive.ApiService.Endpoints.Tenants;
 using Incoders.Hive.ApiService.Endpoints.UserPreferences;
@@ -72,6 +73,9 @@ builder.Services.AddInfrastructure(builder.Configuration);
 // Consumes queued single-analysis jobs off the request thread (async/poll pipeline).
 builder.Services.AddHostedService<SingleAnalysisBackgroundWorker>();
 
+// Consumes queued content-generation jobs (async multi-step orchestration pipeline).
+builder.Services.AddHostedService<ContentGenerationBackgroundWorker>();
+
 var app = builder.Build();
 
 var clientAssetStorageOptions = app.Services.GetRequiredService<IOptions<ClientAssetStorageOptions>>().Value;
@@ -126,13 +130,15 @@ app.MapIntegrationsEndpoints();
 app.MapSocialClientsEndpoints();
 app.MapSocialNetworksEndpoints();
 app.MapClientReferentAccountsEndpoints();
+app.MapClientCompetitorAccountsEndpoints();
 app.MapClientAssetEndpoints();
 app.MapClientBrandManualsEndpoints();
 app.MapClientStrategyEndpoints();
-app.MapMonthlyObjectivesEndpoints();
+app.MapClientMonthlyObjectivesEndpoints();
 app.MapSocialIntegrationsEndpoints();
 app.MapSocialContentWorkflowEndpoints();
 app.MapSingleAnalyzerEndpoints();
+app.MapContentGenerationEndpoints();
 app.MapUserPreferencesEndpoints();
 
 app.MapDefaultEndpoints();

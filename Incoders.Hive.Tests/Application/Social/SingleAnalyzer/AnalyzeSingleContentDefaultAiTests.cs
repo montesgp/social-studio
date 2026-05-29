@@ -233,6 +233,14 @@ public sealed class AnalyzeSingleContentDefaultAiTests
 
             public Task UpdateAsync(SingleContentAnalysisRecord a, CancellationToken ct = default)
             { StoredAnalysis = a; StatusUpdates.Add(a.Status); return Task.CompletedTask; }
+
+            public Task<SingleContentAnalysisHistoryPage> ListByUserAsync(
+                Guid orgId, Guid userId, int page, int pageSize, CancellationToken ct = default) =>
+                Task.FromResult(new SingleContentAnalysisHistoryPage([], 0, page, pageSize));
+
+            public Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(
+                Guid id, Guid orgId, Guid userId, CancellationToken ct = default) =>
+                Task.FromResult<IReadOnlyList<string>?>(null);
         }
 
         public sealed class SimpleUnitOfWork : IUnitOfWork

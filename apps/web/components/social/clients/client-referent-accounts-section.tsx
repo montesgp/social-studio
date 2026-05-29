@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, Plus } from "lucide-react";
 import {
   activateClientReferentAccount,
@@ -20,6 +20,7 @@ import type {
 import { getSocialNetworkIcon } from "@/lib/social-network-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -33,8 +34,16 @@ import { SortableChildTable, Column } from "@/components/ui/sortable-child-table
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
 
+interface ClientReferentAccountsSectionProps {
+  clientId: string;
+  accounts?: ClientReferentAccount[];
+  loading?: boolean;
+  deferPersistence?: boolean;
+  onAccountsChange?: (accounts: ClientReferentAccount[]) => void;
+}
+
 function truncate(str: string, max: number): string {
-  return str.length <= max ? str : `${str.slice(0, max)}…`;
+  return str.length <= max ? str : `${str.slice(0, max)}...`;
 }
 
 function validateProfileUrl(url: string): string | null {
@@ -47,13 +56,35 @@ function validateProfileUrl(url: string): string | null {
   return null;
 }
 
-export function ClientReferentAccountsSection({ clientId }: { clientId: string }) {
+function createDraftId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `draft-${crypto.randomUUID()}`;
+  }
+
+  return `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function applySortOrder(accounts: ClientReferentAccount[]) {
+  return accounts.map((account, index) => ({ ...account, sortOrder: index, updatedAtUtc: nowIso() }));
+}
+
+export function ClientReferentAccountsSection({
+  clientId,
+  accounts,
+  loading,
+  deferPersistence = false,
+  onAccountsChange,
+}: ClientReferentAccountsSectionProps) {
   const token = useAccessToken();
   const toast = useToast();
 
-  const [accounts, setAccounts] = useState<ClientReferentAccount[]>([]);
+  const [persistedAccounts, setPersistedAccounts] = useState<ClientReferentAccount[]>([]);
   const [networks, setNetworks] = useState<SocialNetwork[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -65,31 +96,58 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
   const [createHandle, setCreateHandle] = useState("");
   const [createLabel, setCreateLabel] = useState("");
   const [createNotes, setCreateNotes] = useState("");
+  const [createNetworkError, setCreateNetworkError] = useState<string | null>(null);
   const [createProfileUrlError, setCreateProfileUrlError] = useState<string | null>(null);
   const [submittingCreate, setSubmittingCreate] = useState(false);
 
+  const [editNetworkId, setEditNetworkId] = useState("");
   const [editProfileUrl, setEditProfileUrl] = useState("");
   const [editHandle, setEditHandle] = useState("");
   const [editLabel, setEditLabel] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [editNetworkError, setEditNetworkError] = useState<string | null>(null);
   const [editProfileUrlError, setEditProfileUrlError] = useState<string | null>(null);
   const [submittingEdit, setSubmittingEdit] = useState(false);
 
   const effectiveToken = token ?? undefined;
+  const draftMode = deferPersistence && Boolean(accounts && onAccountsChange);
+  const allAccounts = useMemo(
+    () => (draftMode ? accounts ?? [] : persistedAccounts),
+    [accounts, draftMode, persistedAccounts],
+  );
+  const visibleAccounts = useMemo(
+    () => (showArchived ? allAccounts : allAccounts.filter((account) => account.isActive)),
+    [allAccounts, showArchived],
+  );
+
+  const updateAccounts = useCallback(
+    (next: ClientReferentAccount[]) => {
+      const sorted = [...next].sort((a, b) => a.sortOrder - b.sortOrder);
+      if (draftMode) {
+        onAccountsChange?.(sorted);
+      } else {
+        setPersistedAccounts(sorted);
+      }
+    },
+    [draftMode, onAccountsChange],
+  );
 
   const loadAccounts = useCallback(async () => {
-    if (!effectiveToken) return;
-    setLoading(true);
+    if (!effectiveToken || draftMode) return;
+    setLoadingAccounts(true);
     try {
-      const result = await listClientReferentAccounts(clientId, { includeInactive: showArchived }, effectiveToken);
-      const sorted = [...result.items].sort((a, b) => a.sortOrder - b.sortOrder);
-      setAccounts(sorted);
+      const result = await listClientReferentAccounts(
+        clientId,
+        { includeInactive: true, page: 1, pageSize: 200 },
+        effectiveToken,
+      );
+      setPersistedAccounts([...result.items].sort((a, b) => a.sortOrder - b.sortOrder));
     } catch {
       toast.error("Referent accounts", "Failed to load referent accounts.");
     } finally {
-      setLoading(false);
+      setLoadingAccounts(false);
     }
-  }, [clientId, effectiveToken, showArchived, toast]);
+  }, [clientId, draftMode, effectiveToken, toast]);
 
   useEffect(() => {
     void loadAccounts();
@@ -102,34 +160,88 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
       .catch(() => {});
   }, [effectiveToken]);
 
+  function findNetwork(id: string) {
+    return networks.find((network) => network.id === id) ?? null;
+  }
+
+  function validateNetwork(id: string): string | null {
+    return findNetwork(id) ? null : "Social Network is required.";
+  }
+
+  function validateDuplicate(networkId: string, profileUrl: string, excludeId?: string): string | null {
+    const normalizedUrl = profileUrl.trim();
+    const duplicate = allAccounts.some(
+      (account) =>
+        account.id !== excludeId &&
+        account.socialNetworkId === networkId &&
+        account.profileUrl.trim() === normalizedUrl,
+    );
+
+    return duplicate ? "This profile URL already exists for the selected social network." : null;
+  }
+
   function openCreate() {
     setCreateNetworkId(networks[0]?.id ?? "");
     setCreateProfileUrl("");
     setCreateHandle("");
     setCreateLabel("");
     setCreateNotes("");
+    setCreateNetworkError(null);
     setCreateProfileUrlError(null);
     setCreateOpen(true);
   }
 
   function openEdit(account: ClientReferentAccount) {
     setEditing(account);
+    setEditNetworkId(account.socialNetworkId);
     setEditProfileUrl(account.profileUrl);
     setEditHandle(account.handle ?? "");
     setEditLabel(account.label ?? "");
     setEditNotes(account.notes ?? "");
+    setEditNetworkError(null);
     setEditProfileUrlError(null);
     setEditOpen(true);
   }
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
-    const urlError = validateProfileUrl(createProfileUrl);
-    if (urlError) {
-      setCreateProfileUrlError(urlError);
+    e.stopPropagation();
+    const networkError = validateNetwork(createNetworkId);
+    const urlError =
+      validateProfileUrl(createProfileUrl) ??
+      validateDuplicate(createNetworkId, createProfileUrl);
+
+    setCreateNetworkError(networkError);
+    setCreateProfileUrlError(urlError);
+    if (networkError || urlError) return;
+
+    const network = findNetwork(createNetworkId);
+    if (!network) return;
+
+    if (draftMode) {
+      const nextSortOrder = allAccounts.length === 0 ? 0 : Math.max(...allAccounts.map((x) => x.sortOrder)) + 1;
+      const created: ClientReferentAccount = {
+        id: createDraftId(),
+        clientId,
+        organizationId: allAccounts[0]?.organizationId ?? "",
+        socialNetworkId: network.id,
+        socialNetworkCode: network.code,
+        socialNetworkDisplayName: network.displayName,
+        socialNetworkIconKey: network.iconKey,
+        profileUrl: createProfileUrl.trim(),
+        handle: createHandle.trim() || null,
+        label: createLabel.trim() || null,
+        notes: createNotes.trim() || null,
+        isActive: true,
+        sortOrder: nextSortOrder,
+        createdAtUtc: nowIso(),
+        updatedAtUtc: nowIso(),
+      };
+      updateAccounts([...allAccounts, created]);
+      setCreateOpen(false);
       return;
     }
-    setCreateProfileUrlError(null);
+
     setSubmittingCreate(true);
     try {
       const payload: CreateClientReferentAccountPayload = {
@@ -153,16 +265,48 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
 
   async function handleUpdate(e: FormEvent) {
     e.preventDefault();
+    e.stopPropagation();
     if (!editing) return;
-    const urlError = validateProfileUrl(editProfileUrl);
-    if (urlError) {
-      setEditProfileUrlError(urlError);
+
+    const networkError = validateNetwork(editNetworkId);
+    const urlError =
+      validateProfileUrl(editProfileUrl) ??
+      validateDuplicate(editNetworkId, editProfileUrl, editing.id);
+
+    setEditNetworkError(networkError);
+    setEditProfileUrlError(urlError);
+    if (networkError || urlError) return;
+
+    const network = findNetwork(editNetworkId);
+    if (!network) return;
+
+    if (draftMode) {
+      updateAccounts(
+        allAccounts.map((account) =>
+          account.id === editing.id
+            ? {
+                ...account,
+                socialNetworkId: network.id,
+                socialNetworkCode: network.code,
+                socialNetworkDisplayName: network.displayName,
+                socialNetworkIconKey: network.iconKey,
+                profileUrl: editProfileUrl.trim(),
+                handle: editHandle.trim() || null,
+                label: editLabel.trim() || null,
+                notes: editNotes.trim() || null,
+                updatedAtUtc: nowIso(),
+              }
+            : account,
+        ),
+      );
+      setEditOpen(false);
       return;
     }
-    setEditProfileUrlError(null);
+
     setSubmittingEdit(true);
     try {
       const payload: UpdateClientReferentAccountPayload = {
+        socialNetworkId: editNetworkId,
         profileUrl: editProfileUrl.trim(),
         handle: editHandle.trim() || undefined,
         label: editLabel.trim() || undefined,
@@ -181,8 +325,20 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
   }
 
   async function handleReorder(orderedIds: string[]) {
+    const orderedVisible = orderedIds
+      .map((id) => allAccounts.find((account) => account.id === id))
+      .filter((account): account is ClientReferentAccount => Boolean(account));
+    const hidden = allAccounts.filter((account) => !orderedIds.includes(account.id));
+    const next = applySortOrder([...orderedVisible, ...hidden]);
+
+    if (draftMode) {
+      updateAccounts(next);
+      return;
+    }
+
+    updateAccounts(next);
     try {
-      await reorderClientReferentAccounts(clientId, orderedIds, effectiveToken);
+      await reorderClientReferentAccounts(clientId, next.map((account) => account.id), effectiveToken);
       void loadAccounts();
     } catch (err) {
       const message = (err as { message?: string })?.message ?? "Failed to reorder accounts.";
@@ -192,6 +348,17 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
   }
 
   async function handleToggleActive(id: string, currentlyActive: boolean) {
+    if (draftMode) {
+      updateAccounts(
+        allAccounts.map((account) =>
+          account.id === id
+            ? { ...account, isActive: !currentlyActive, updatedAtUtc: nowIso() }
+            : account,
+        ),
+      );
+      return;
+    }
+
     try {
       if (currentlyActive) {
         await deactivateClientReferentAccount(clientId, id, effectiveToken);
@@ -287,11 +454,10 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
         <p className="text-sm font-semibold text-foreground">Referent Accounts</p>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={showArchived}
               onChange={(e) => setShowArchived(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-border"
+              className="h-3.5 w-3.5"
             />
             Show archived
           </label>
@@ -302,12 +468,12 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
       </div>
 
       <SortableChildTable<ClientReferentAccount>
-        items={accounts}
+        items={visibleAccounts}
         getId={(item) => item.id}
         columns={columns}
         onReorder={(orderedIds) => void handleReorder(orderedIds)}
         primaryLabel="Principal"
-        isLoading={loading}
+        isLoading={loading ?? loadingAccounts}
         emptyState="No referent accounts yet. Add one to start tracking."
       />
 
@@ -319,24 +485,32 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
               Track a social media profile for this client.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={(e) => void handleCreate(e)} className="space-y-4">
+          <form onSubmit={(e) => void handleCreate(e)} className="space-y-4" noValidate>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="create-network">
-                Social Network
+                Social Network <span className="text-destructive">*</span>
               </label>
               <Select
                 id="create-network"
                 value={createNetworkId}
-                onChange={(e) => setCreateNetworkId(e.target.value)}
+                onChange={(e) => {
+                  setCreateNetworkId(e.target.value);
+                  setCreateNetworkError(null);
+                  setCreateProfileUrlError(null);
+                }}
                 className="w-full"
-                required
+                aria-invalid={createNetworkError ? "true" : "false"}
               >
-                {networks.map((n) => (
-                  <option key={n.id} value={n.id}>
-                    {n.displayName}
+                <option value="">Select network</option>
+                {networks.map((network) => (
+                  <option key={network.id} value={network.id}>
+                    {network.displayName}
                   </option>
                 ))}
               </Select>
+              {createNetworkError ? (
+                <p className="text-xs text-destructive">{createNetworkError}</p>
+              ) : null}
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="create-url">
@@ -350,7 +524,7 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
                   setCreateProfileUrlError(null);
                 }}
                 placeholder="https://www.instagram.com/brand"
-                required
+                aria-invalid={createProfileUrlError ? "true" : "false"}
               />
               {createProfileUrlError ? (
                 <p className="text-xs text-destructive">{createProfileUrlError}</p>
@@ -398,7 +572,7 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
                 Cancel
               </Button>
               <Button type="submit" disabled={submittingCreate}>
-                {submittingCreate ? "Adding…" : "Add Account"}
+                {submittingCreate ? "Adding..." : draftMode ? "Add to Draft" : "Add Account"}
               </Button>
             </div>
           </form>
@@ -410,10 +584,36 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
           <DialogHeader>
             <DialogTitle>Edit Referent Account</DialogTitle>
             <DialogDescription>
-              Update profile URL, handle, label, or notes. The social network cannot be changed.
+              Update the network, profile URL, handle, label, or notes.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={(e) => void handleUpdate(e)} className="space-y-4">
+          <form onSubmit={(e) => void handleUpdate(e)} className="space-y-4" noValidate>
+            <div className="space-y-1">
+              <label className="text-sm font-medium" htmlFor="edit-network">
+                Social Network <span className="text-destructive">*</span>
+              </label>
+              <Select
+                id="edit-network"
+                value={editNetworkId}
+                onChange={(e) => {
+                  setEditNetworkId(e.target.value);
+                  setEditNetworkError(null);
+                  setEditProfileUrlError(null);
+                }}
+                className="w-full"
+                aria-invalid={editNetworkError ? "true" : "false"}
+              >
+                <option value="">Select network</option>
+                {networks.map((network) => (
+                  <option key={network.id} value={network.id}>
+                    {network.displayName}
+                  </option>
+                ))}
+              </Select>
+              {editNetworkError ? (
+                <p className="text-xs text-destructive">{editNetworkError}</p>
+              ) : null}
+            </div>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="edit-url">
                 Profile URL <span className="text-destructive">*</span>
@@ -426,7 +626,7 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
                   setEditProfileUrlError(null);
                 }}
                 placeholder="https://www.instagram.com/brand"
-                required
+                aria-invalid={editProfileUrlError ? "true" : "false"}
               />
               {editProfileUrlError ? (
                 <p className="text-xs text-destructive">{editProfileUrlError}</p>
@@ -474,7 +674,7 @@ export function ClientReferentAccountsSection({ clientId }: { clientId: string }
                 Cancel
               </Button>
               <Button type="submit" disabled={submittingEdit}>
-                {submittingEdit ? "Saving…" : "Save Changes"}
+                {submittingEdit ? "Saving..." : draftMode ? "Apply to Draft" : "Save Changes"}
               </Button>
             </div>
           </form>

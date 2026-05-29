@@ -7,6 +7,7 @@ using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
+using Incoders.Hive.Domain.Social.ContentGeneration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -116,7 +117,8 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
             parsed.Value.Payload,
             resolved.Value.ProviderKey,
             parsed.Value.Model,
-            []));
+            [],
+            parsed.Value.TokenUsage));
     }
 
     private async Task<Result<AiJsonCandidateResponse<TResponse>>> CompleteAndParseAsync<TResponse>(
@@ -147,7 +149,7 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
         var parsed = TryParse<TResponse>(completion.Value.Output);
         if (parsed.IsSuccess)
         {
-            return Result.Success(new AiJsonCandidateResponse<TResponse>(parsed.Value, completion.Value.Model));
+            return Result.Success(new AiJsonCandidateResponse<TResponse>(parsed.Value, completion.Value.Model, completion.Value.Usage));
         }
 
         // First parse failed — log a bounded preview of the raw output so we can diagnose what
@@ -174,7 +176,7 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
         parsed = TryParse<TResponse>(repair.Value.Output);
         if (parsed.IsSuccess)
         {
-            return Result.Success(new AiJsonCandidateResponse<TResponse>(parsed.Value, repair.Value.Model));
+            return Result.Success(new AiJsonCandidateResponse<TResponse>(parsed.Value, repair.Value.Model, repair.Value.Usage));
         }
 
         LogOutputPreview("json-repair retry", request, model, repair.Value.Output);
@@ -319,6 +321,6 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
         return text;
     }
 
-    private sealed record AiJsonCandidateResponse<TResponse>(TResponse Payload, string? Model)
+    private sealed record AiJsonCandidateResponse<TResponse>(TResponse Payload, string? Model, TokenUsage? TokenUsage = null)
         where TResponse : notnull;
 }

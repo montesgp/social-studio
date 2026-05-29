@@ -94,6 +94,122 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
         row.CompletedAtUtc = analysis.CompletedAtUtc;
     }
 
+    public async Task<SingleContentAnalysisHistoryPage> ListByUserAsync(
+        Guid organizationId,
+        Guid userId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var safePage = page < 1 ? 1 : page;
+        var safePageSize = pageSize switch
+        {
+            < 1 => 20,
+            > 100 => 100,
+            _ => pageSize,
+        };
+
+        var baseQuery = _dbContext.SingleContentAnalyses
+            .AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.UserId == userId);
+
+        var totalCount = await baseQuery.CountAsync(cancellationToken);
+
+        // Pull each analysis + the most recent content-generation job (if any) in a single
+        // round-trip. EF translates the correlated `OrderByDescending().FirstOrDefault()` into
+        // a LATERAL subquery on Postgres.
+        var rows = await baseQuery
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Skip((safePage - 1) * safePageSize)
+            .Take(safePageSize)
+            .Select(a => new
+            {
+                a.Id,
+                a.ClientId,
+                a.SourceUrl,
+                a.NormalizedUrl,
+                a.SourcePlatformKey,
+                a.Status,
+                a.FailureCode,
+                a.CreatedAtUtc,
+                a.UpdatedAtUtc,
+                a.CompletedAtUtc,
+                LatestJob = _dbContext.ContentGenerationJobs
+                    .Where(j => j.AnalysisId == a.Id)
+                    .OrderByDescending(j => j.CreatedAt)
+                    .Select(j => new
+                    {
+                        j.Id,
+                        j.Status,
+                        j.CompletedAt,
+                        HasPackage = _dbContext.GeneratedPackages.Any(p => p.JobId == j.Id),
+                    })
+                    .FirstOrDefault(),
+            })
+            .ToListAsync(cancellationToken);
+
+        var items = rows
+            .Select(r => new SingleContentAnalysisHistoryItem(
+                r.Id,
+                r.ClientId,
+                r.SourceUrl,
+                r.NormalizedUrl,
+                r.SourcePlatformKey,
+                Enum.Parse<SingleContentAnalysisStatus>(r.Status),
+                r.FailureCode,
+                r.CreatedAtUtc,
+                r.UpdatedAtUtc,
+                r.CompletedAtUtc,
+                r.LatestJob is null
+                    ? null
+                    : new ContentGenerationSummary(
+                        r.LatestJob.Id,
+                        r.LatestJob.Status,
+                        r.LatestJob.HasPackage,
+                        r.LatestJob.CompletedAt)))
+            .ToList();
+
+        return new SingleContentAnalysisHistoryPage(items, totalCount, safePage, safePageSize);
+    }
+
+    public async Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(
+        Guid analysisId,
+        Guid organizationId,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var analysis = await _dbContext.SingleContentAnalyses
+            .FirstOrDefaultAsync(
+                x => x.Id == analysisId
+                  && x.OrganizationId == organizationId
+                  && x.UserId == userId,
+                cancellationToken);
+
+        if (analysis is null)
+        {
+            return null;
+        }
+
+        // content_generation_jobs.analysis_id is indexed but NOT an FK, so EF won't cascade
+        // automatically — load and detach explicitly. format_results and generated_packages
+        // FK CASCADE off the job, so those rows go away with their parent.
+        var jobs = await _dbContext.ContentGenerationJobs
+            .Where(j => j.AnalysisId == analysisId)
+            .Include(j => j.Package)
+            .ToListAsync(cancellationToken);
+
+        var storageUris = jobs
+            .Select(j => j.Package?.StorageUri)
+            .Where(uri => !string.IsNullOrWhiteSpace(uri))
+            .Select(uri => uri!)
+            .ToList();
+
+        _dbContext.ContentGenerationJobs.RemoveRange(jobs);
+        _dbContext.SingleContentAnalyses.Remove(analysis);
+
+        return storageUris;
+    }
+
     private static SingleContentAnalysisData ToData(SingleContentAnalysisRecord analysis) => new()
     {
         Id = analysis.Id,

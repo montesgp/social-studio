@@ -108,7 +108,7 @@ public sealed class GetOrganizationIntegrationsHandler
         var checklistGroups = new List<IntegrationSetupChecklistResponse>
         {
             new("single-analyzer", "Single Analyzer", singleAnalyzerChecklist),
-            new("generator", "Generator required setup checklist", generatorChecklist)
+            new("generator", "Content Generator", generatorChecklist)
         };
 
         var checklist = singleAnalyzerChecklist.Concat(generatorChecklist).ToList();

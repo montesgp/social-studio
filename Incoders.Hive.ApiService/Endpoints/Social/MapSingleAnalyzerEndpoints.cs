@@ -2,6 +2,7 @@ using Incoders.Hive.ApiService.Endpoints.Common;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Application.Features.Social.SingleAnalyzer.Analyze;
+using Incoders.Hive.Application.Features.Social.SingleAnalyzer.History;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 using MediatR;
 
@@ -23,6 +24,12 @@ public static class SingleAnalyzerEndpointsExtensions
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
+        // History: paged list of analyses owned by the current user in the current org.
+        group.MapGet("/analyze", SingleAnalyzerEndpointFacade.ListAsync)
+            .WithName("ListSingleContentAnalyses")
+            .WithSummary("List the current user's analyses for the active organization (paged, newest first)")
+            .Produces<SingleContentAnalysisHistoryResponse>(StatusCodes.Status200OK);
+
         // Poll: returns the current status (+ result when Analyzed, failure when Failed).
         group.MapGet("/analyze/{id:guid}", SingleAnalyzerEndpointFacade.GetAsync)
             .WithName("GetSingleContentAnalysis")
@@ -35,6 +42,14 @@ public static class SingleAnalyzerEndpointsExtensions
             .WithName("RetryAiOnAnalysis")
             .WithSummary("Re-run only the AI stage of an existing analysis (reusing the persisted snapshot)")
             .Produces<SingleAnalyzerStatusResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // Hard delete: drops the analysis, its content-generation jobs and any package ZIP files.
+        // Owner-scoped — a user can only delete their own analyses.
+        group.MapDelete("/analyze/{id:guid}", SingleAnalyzerEndpointFacade.DeleteAsync)
+            .WithName("DeleteSingleContentAnalysis")
+            .WithSummary("Hard-delete an analysis owned by the current user")
+            .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
@@ -113,6 +128,59 @@ internal static class SingleAnalyzerEndpointFacade
 
         return result.Match(status =>
             (IResult)TypedResults.Accepted($"/api/social/single-analyzer/analyze/{status.Id}", status));
+    }
+
+    internal static async Task<IResult> ListAsync(
+        ISender sender,
+        ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
+        CancellationToken cancellationToken,
+        int? page = null,
+        int? pageSize = null)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+        {
+            return SingleAnalyzerErrors.OrganizationRequired.ToProblem();
+        }
+
+        if (currentUser.UserId is not { } userId)
+        {
+            return SingleAnalyzerErrors.UserRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new ListSingleContentAnalysesQuery(
+                OrganizationId: tenantId.Value,
+                UserId: userId,
+                Page: page ?? 1,
+                PageSize: pageSize ?? 20),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    internal static async Task<IResult> DeleteAsync(
+        Guid id,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+        {
+            return SingleAnalyzerErrors.OrganizationRequired.ToProblem();
+        }
+
+        if (currentUser.UserId is not { } userId)
+        {
+            return SingleAnalyzerErrors.UserRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new DeleteSingleContentAnalysisCommand(id, tenantId.Value, userId),
+            cancellationToken);
+
+        return result.Match(() => (IResult)TypedResults.NoContent());
     }
 }
 

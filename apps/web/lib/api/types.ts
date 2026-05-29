@@ -315,10 +315,21 @@ export interface CreateClientReferentAccountPayload {
 }
 
 export interface UpdateClientReferentAccountPayload {
+  socialNetworkId?: string;
   profileUrl: string;
   handle?: string;
   label?: string;
   notes?: string;
+}
+
+export interface SyncClientReferentAccountPayload {
+  id?: string;
+  socialNetworkId: string;
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+  isActive: boolean;
 }
 
 export interface ListClientReferentAccountsQuery {
@@ -329,6 +340,61 @@ export interface ListClientReferentAccountsQuery {
 
 export interface PagedClientReferentAccounts {
   items: ClientReferentAccount[];
+  totalCount: number;
+}
+
+export interface ClientCompetitorAccount {
+  id: string;
+  clientId: string;
+  organizationId: string;
+  socialNetworkId: string;
+  socialNetworkCode: string;
+  socialNetworkDisplayName: string;
+  socialNetworkIconKey: string;
+  profileUrl: string;
+  handle: string | null;
+  label: string | null;
+  notes: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface CreateClientCompetitorAccountPayload {
+  socialNetworkId: string;
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+}
+
+export interface UpdateClientCompetitorAccountPayload {
+  socialNetworkId?: string;
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+}
+
+export interface SyncClientCompetitorAccountPayload {
+  id?: string;
+  socialNetworkId: string;
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+  isActive: boolean;
+}
+
+export interface ListClientCompetitorAccountsQuery {
+  includeInactive?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PagedClientCompetitorAccounts {
+  items: ClientCompetitorAccount[];
   totalCount: number;
 }
 
@@ -515,6 +581,47 @@ export interface SingleContentAnalysisResponse {
   completedAtUtc: string | null;
 }
 
+// Status string for the latest content-generation job linked to an analysis.
+// Mirrors the backend ContentGenerationJob.Status values (free-form strings rather than enum on
+// the wire, to allow forward-compatible additions without breaking the contract).
+export type ContentGenerationJobStatusLabel =
+  | "Pending"
+  | "Running"
+  | "Completed"
+  | "Partial"
+  | "Failed"
+  | string;
+
+// Summary embedded in each saved-analysis row so the grid can render the right action.
+// `hasPackage` true → the package ZIP can be re-downloaded without rerunning the pipeline.
+export interface ContentGenerationSummary {
+  jobId: string;
+  status: ContentGenerationJobStatusLabel;
+  hasPackage: boolean;
+  completedAt: string | null;
+}
+
+export interface SingleContentAnalysisHistoryItem {
+  id: string;
+  clientId: string | null;
+  sourceUrl: string;
+  normalizedUrl: string | null;
+  sourcePlatformKey: string | null;
+  status: SingleContentAnalysisStatus;
+  failureCode: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  completedAtUtc: string | null;
+  latestContentGeneration: ContentGenerationSummary | null;
+}
+
+export interface SingleContentAnalysisHistoryResponse {
+  items: SingleContentAnalysisHistoryItem[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
 // Async/poll status view: snapshot/analysis are null until those stages complete.
 // Returned by POST /analyze (202 Accepted, status=Requested) and by GET /analyze/{id} (polling).
 export interface SingleAnalyzerStatusResponse {
@@ -534,7 +641,7 @@ export interface SingleAnalyzerStatusResponse {
   completedAtUtc: string | null;
 }
 
-export interface MonthlyObjective {
+export interface ClientMonthlyObjective {
   id: string;
   clientId: string;
   organizationId: string;
@@ -546,7 +653,70 @@ export interface MonthlyObjective {
   updatedAtUtc: string;
 }
 
-export interface UpsertMonthlyObjectivePayload {
+export interface UpsertClientMonthlyObjectivePayload {
   objectives: string;
   kpis?: string[];
+}
+
+// ── Content Generation types (single-analyzer package pipeline) ──────────────
+
+export type ContentFormatKey =
+  | "carousel"
+  | "flyer"
+  | "reel-script"
+  | "content-idea"
+  | "cta-variation"
+  | "caption"
+  | "hook";
+
+export interface GeneratePackageRequest {
+  requestedFormats: ContentFormatKey[];
+}
+
+export interface GeneratePackageResponse {
+  jobId: string;
+  statusUrl: string;
+}
+
+/** Status values returned by the backend for the overall job. */
+export type ContentGenerationJobStatus =
+  | "Queued"
+  | "Running"
+  | "Completed"
+  | "Partial"
+  | "PartialSuccess"
+  | "Failed";
+
+/** Manifest metadata for a single rendered format asset. */
+export interface FormatAssetMetadata {
+  formatKey: ContentFormatKey;
+  mime: string;
+  filename: string;
+  sizeBytes: number;
+  contentHash: string;
+}
+
+/**
+ * Deserialized from ManifestJson on completed/partial jobs. Every field here is optional because
+ * the background worker currently persists a reduced manifest (overallStatus + per-format status
+ * only) and the full manifest with inferred fields / warnings / size lives on the orchestrator
+ * result that did NOT make it to the persisted JSON. Consumers must defensive-default these.
+ */
+export interface GeneratedPackageManifest {
+  formats?: Partial<Record<ContentFormatKey, FormatAssetMetadata>>;
+  inferredFields?: string[];
+  warnings?: string[];
+  totalSizeBytes?: number;
+}
+
+/**
+ * Response from GET /api/social/content-generation-jobs/{jobId}/status.
+ * perFormatStatus is a flat dict: formatKey → status string (e.g. "Rendered", "Failed").
+ * manifest is populated (parsed from ManifestJson) when status is Completed or Partial.
+ */
+export interface ContentGenerationJobStatusResponse {
+  jobId: string;
+  status: ContentGenerationJobStatus;
+  perFormatStatus: Partial<Record<ContentFormatKey, string>>;
+  manifest: GeneratedPackageManifest | null;
 }

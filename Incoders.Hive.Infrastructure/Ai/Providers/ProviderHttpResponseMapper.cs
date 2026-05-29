@@ -2,6 +2,7 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
+using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Infrastructure.Ai.Providers;
 
@@ -23,7 +24,8 @@ internal static class ProviderHttpResponseMapper
             ExtractText(payload),
             providerKey,
             model,
-            []));
+            [],
+            ExtractTokenUsage(payload)));
     }
 
     /// <summary>
@@ -31,7 +33,12 @@ internal static class ProviderHttpResponseMapper
     /// Lets the caller log the body once (for diagnostics) without reading the content twice.
     /// </summary>
     public static Result<AiCompletionResponse> MapAiSuccess(string payload, string providerKey, string model) =>
-        Result.Success(new AiCompletionResponse(ExtractText(payload), providerKey, model, []));
+        Result.Success(new AiCompletionResponse(
+            ExtractText(payload),
+            providerKey,
+            model,
+            [],
+            ExtractTokenUsage(payload)));
 
     private static Error MapStatus(HttpResponseMessage response) =>
         (int)response.StatusCode switch
@@ -94,5 +101,55 @@ internal static class ProviderHttpResponseMapper
         }
 
         return payload;
+    }
+
+    /// <summary>
+    /// Extracts token usage from provider-native response metadata.
+    /// Returns null when no usage block is present (tokens-missing semantics).
+    /// Handles:
+    ///   - Claude: usage.input_tokens / usage.output_tokens
+    ///   - OpenAI: usage.prompt_tokens / usage.completion_tokens
+    ///   - Gemini: usageMetadata.promptTokenCount / usageMetadata.candidatesTokenCount
+    /// </summary>
+    private static TokenUsage? ExtractTokenUsage(string payload)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+
+            // Claude: { "usage": { "input_tokens": N, "output_tokens": N } }
+            if (root.TryGetProperty("usage", out var claudeUsage)
+                && claudeUsage.ValueKind == JsonValueKind.Object
+                && claudeUsage.TryGetProperty("input_tokens", out var inputTokens)
+                && claudeUsage.TryGetProperty("output_tokens", out var outputTokens))
+            {
+                return new TokenUsage(inputTokens.GetInt32(), outputTokens.GetInt32());
+            }
+
+            // OpenAI: { "usage": { "prompt_tokens": N, "completion_tokens": N } }
+            if (root.TryGetProperty("usage", out var openAiUsage)
+                && openAiUsage.ValueKind == JsonValueKind.Object
+                && openAiUsage.TryGetProperty("prompt_tokens", out var promptTokens)
+                && openAiUsage.TryGetProperty("completion_tokens", out var completionTokens))
+            {
+                return new TokenUsage(promptTokens.GetInt32(), completionTokens.GetInt32());
+            }
+
+            // Gemini: { "usageMetadata": { "promptTokenCount": N, "candidatesTokenCount": N } }
+            if (root.TryGetProperty("usageMetadata", out var geminiUsage)
+                && geminiUsage.ValueKind == JsonValueKind.Object
+                && geminiUsage.TryGetProperty("promptTokenCount", out var promptTokenCount)
+                && geminiUsage.TryGetProperty("candidatesTokenCount", out var candidatesTokenCount))
+            {
+                return new TokenUsage(promptTokenCount.GetInt32(), candidatesTokenCount.GetInt32());
+            }
+        }
+        catch (JsonException)
+        {
+            // Malformed payload — treat as tokens-missing
+        }
+
+        return null;
     }
 }

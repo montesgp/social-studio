@@ -73,8 +73,7 @@ public sealed class IntegrationCatalogSeeder
             true,
             [
                 new IntegrationCredentialField("api_key", "API key", true, true, null, "Apify API token/key for BYOK or managed mode"),
-                new IntegrationCredentialField("actor_id", "Default actor ID", false, false, null, "Legacy fallback Apify actor identifier"),
-                new IntegrationCredentialField("actor_mappings_json", "Actor mappings", false, false, null, "JSON actor routing by social network and variant")
+                new IntegrationCredentialField("actor_mappings_json", "Actor mappings", false, false, null, "JSON actor routing by social network")
             ],
             []),
         new(

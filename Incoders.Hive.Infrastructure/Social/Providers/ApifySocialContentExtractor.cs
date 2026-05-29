@@ -196,9 +196,7 @@ internal sealed class ApifySocialContentExtractor : ISocialContentExtractor
             return mappedActorId;
         }
 
-        return ProviderCredentialReader.TryGet(_credential, "actor_id", out var fallbackActorId)
-            ? fallbackActorId
-            : null;
+        return null;
     }
 
     private static bool TryResolveMappedActor(

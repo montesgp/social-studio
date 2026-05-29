@@ -2,22 +2,30 @@ using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Integrations;
+using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Infrastructure.Ai;
+using Incoders.Hive.Infrastructure.Packaging;
+using Incoders.Hive.Infrastructure.Rendering;
 using Incoders.Hive.Infrastructure.Social;
+using Incoders.Hive.Infrastructure.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Infrastructure.Caching.InMemory;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Integrations;
 using Incoders.Hive.Infrastructure.Integrations.HealthChecks;
+using Incoders.Hive.Infrastructure.Observability;
 using Incoders.Hive.Infrastructure.PlatformConfiguration;
 using Incoders.Hive.Infrastructure.Persistence;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
+using Incoders.Hive.Infrastructure.Persistence.Postgres.Repositories;
 using Incoders.Hive.Infrastructure.Social.Providers.Apify;
 using Incoders.Hive.Infrastructure.Social.Workflow;
 using Incoders.Hive.Infrastructure.Tenancy;
 using Incoders.Hive.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -47,6 +55,8 @@ public static class DependencyInjection
 
         services.AddMultiTenancy(configuration);
         services.AddClientAssetStorage(configuration);
+        services.AddObservability();
+        services.AddRenderingAndPackaging(configuration);
 
 
         return services;
@@ -109,9 +119,10 @@ public static class DependencyInjection
         services.AddScoped<ISocialClientRepository, EfSocialClientRepository>();
         services.AddScoped<ISocialNetworkRepository, EfSocialNetworkRepository>();
         services.AddScoped<IClientReferentAccountRepository, EfClientReferentAccountRepository>();
+        services.AddScoped<IClientCompetitorAccountRepository, EfClientCompetitorAccountRepository>();
         services.AddScoped<IClientBrandManualRepository, EfClientBrandManualRepository>();
         services.AddScoped<IClientStrategyRepository, EfClientStrategyRepository>();
-        services.AddScoped<IMonthlyObjectiveRepository, EfMonthlyObjectiveRepository>();
+        services.AddScoped<IClientMonthlyObjectiveRepository, EfClientMonthlyObjectiveRepository>();
         services.AddScoped<SocialNetworkCatalogSeeder>();
         services.AddScoped<PlatformSystemModuleSeeder>();
         services.AddScoped<PlatformEmailTemplateSeeder>();
@@ -121,6 +132,10 @@ public static class DependencyInjection
         services.AddScoped<IOrganizationIntegrationCredentialRepository, EfOrganizationIntegrationCredentialRepository>();
         services.AddScoped<IIntegrationExecutionAttemptRepository, EfIntegrationExecutionAttemptRepository>();
         services.AddScoped<ISingleContentAnalysisRepository, EfSingleContentAnalysisRepository>();
+        services.AddScoped<IClientBrandSnapshotLoader, EfClientBrandSnapshotLoader>();
+        services.AddScoped<IContentGenerationJobRepository, EfContentGenerationJobRepository>();
+        services.AddScoped<IContentGenerationFormatResultRepository, EfContentGenerationFormatResultRepository>();
+        services.AddScoped<IGeneratedPackageRepository, EfGeneratedPackageRepository>();
         // Per-platform Apify scrape adapters (ISocialPlatformScrapeAdapter)
         services.AddScoped<ISocialPlatformScrapeAdapter, TikTokApifyScrapeAdapter>();
         services.AddScoped<ISocialPlatformScrapeAdapter, InstagramApifyScrapeAdapter>();
@@ -163,17 +178,70 @@ public static class DependencyInjection
         services.AddScoped<IProviderFallbackPolicy, ProviderFallbackPolicy>();
         services.AddScoped<IIntegrationExecutionPolicy, IntegrationExecutionPolicy>();
         services.AddScoped<IExternalProviderClientFactory, ExternalProviderClientFactory>();
-        services.AddScoped<IAiCompletionGateway, AiCompletionGateway>();
+        // Register the concrete gateway first, then wrap it with the instrumentation decorator.
+        // Manual DI decoration (Scrutor not available): inner is registered under a named key via
+        // keyed services, outer is resolved as IAiCompletionGateway.
+        services.AddScoped<AiCompletionGateway>();
+        services.AddScoped<IAiCompletionGateway>(sp =>
+        {
+            var inner = sp.GetRequiredService<AiCompletionGateway>();
+            var ledger = sp.GetRequiredService<IUsageEventLedger>();
+            var ctx = sp.GetRequiredService<ProviderCallContext>();
+            return new AiCompletionGatewayInstrumentationDecorator(inner, ledger, ctx);
+        });
+
         services.AddScoped<ISocialContentResolver, SocialContentResolver>();
         // Background job queue for the async single-analyzer pipeline. Singleton: one in-memory
         // bounded channel shared by the POST producer and the hosted worker consumer.
         services.AddSingleton<ISingleAnalysisJobQueue, ChannelSingleAnalysisJobQueue>();
+
+        // Background job queue for the async content-generation pipeline.
+        services.AddSingleton<IContentGenerationJobQueue, ChannelContentGenerationJobQueue>();
         services.AddScoped<IntegrationCatalogSeeder>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 
         return services;
     }
 
+
+    private static IServiceCollection AddObservability(this IServiceCollection services)
+    {
+        // In-memory cache for cost rate lookups (shared per DI container — effectively singleton).
+        services.AddMemoryCache();
+
+        // Cost rate repository and cached lookup
+        services.AddScoped<IProviderCostRateRepository, EfProviderCostRateRepository>();
+        services.AddScoped<IProviderCostRateLookup, ProviderCostRateLookup>();
+
+        // Usage event storage (insert-only)
+        services.AddScoped<IUsageEventRepository, EfUsageEventRepository>();
+
+        // Safe ledger implementation — wraps all writes in try/catch
+        services.AddScoped<IUsageEventLedger, UsageEventLedger>();
+
+        // Ambient provider call context (scoped — one per HTTP request / background job scope)
+        services.AddScoped<ProviderCallContext>();
+
+        return services;
+    }
+
+    private static IServiceCollection AddRenderingAndPackaging(this IServiceCollection services, IConfiguration configuration)
+    {
+        // v1 PNG renderer (SkiaSharp) — no PDF, no external rendering service
+        services.AddScoped<IContentRenderer, LocalSvgContentRenderer>();
+
+        // Null adapters for future providers (v1 not supported)
+        services.AddScoped<IImageGenerationClient, NullImageGenerationClient>();
+        services.AddScoped<IVideoGenerationClient, NullVideoGenerationClient>();
+
+        // Local ephemeral package storage
+        // Root path from config key Storage:GeneratedPackagesPath; defaults to App_Data/generated-packages
+        var rootPath = configuration["Storage:GeneratedPackagesPath"]
+            ?? Path.Combine(AppContext.BaseDirectory, "App_Data", "generated-packages");
+        services.AddSingleton<IGeneratedPackageStorage>(_ => new LocalGeneratedPackageStorage(rootPath));
+
+        return services;
+    }
 
     private static void TryAddTimeProvider(this IServiceCollection services)
     {

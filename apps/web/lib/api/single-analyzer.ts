@@ -7,10 +7,11 @@ import type {
   SingleAnalyzerStatusResponse,
   SingleAnalyzerContentSnapshot,
   SingleAnalyzerAnalysis,
+  SingleContentAnalysisHistoryResponse,
 } from "@/lib/api/types";
 import type { SingleAnalyzerResult } from "@/lib/mocks/single-analyzer";
 
-export type { SingleAnalyzerStatusResponse };
+export type { SingleAnalyzerStatusResponse, SingleContentAnalysisHistoryResponse };
 
 export interface AnalyzeSingleContentPayload {
   url: string;
@@ -62,6 +63,36 @@ export async function retrySingleContentAnalysisAi(
   return apiRequest<SingleAnalyzerStatusResponse>(
     `/api/social/single-analyzer/analyze/${encodeURIComponent(id)}/retry-ai`,
     { method: "POST" },
+    token
+  );
+}
+
+/**
+ * List the current user's saved analyses for the active org (paged, newest first).
+ * Used by the history grid below the analyzer so the user can review past work or resume
+ * without re-running Apify + Claude.
+ */
+export async function listSingleContentAnalyses(
+  page = 1,
+  pageSize = 20,
+  token?: string
+): Promise<SingleContentAnalysisHistoryResponse> {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  return apiRequest<SingleContentAnalysisHistoryResponse>(
+    `/api/social/single-analyzer/analyze?${params.toString()}`,
+    { method: "GET" },
+    token
+  );
+}
+
+/**
+ * Hard-delete a saved analysis (owner-scoped). The backend cascades to all linked
+ * content-generation jobs, format-results, packages, and the physical ZIP files.
+ */
+export async function deleteSingleContentAnalysis(id: string, token?: string): Promise<void> {
+  await apiRequest<void>(
+    `/api/social/single-analyzer/analyze/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
     token
   );
 }

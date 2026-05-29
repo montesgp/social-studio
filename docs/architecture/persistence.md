@@ -34,6 +34,7 @@
 ## PostgreSQL Naming
 - Database identifiers use lower `snake_case` for Supabase/PostgreSQL compatibility.
 - C# entities and properties keep .NET naming conventions; EF Core maps them to relational names.
+- Client-owned Social child tables use the `client_*` association prefix, for example `social.client_strategies` and `social.client_monthly_objectives`.
 - ASP.NET Identity defaults such as `AspNetUsers` are not part of the database contract.
 - Identity tables live in the application-owned `identity` schema:
   - `identity.users`

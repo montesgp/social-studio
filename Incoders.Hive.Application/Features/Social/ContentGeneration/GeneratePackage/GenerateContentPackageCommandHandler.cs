@@ -1,0 +1,131 @@
+using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Domain.Common;
+using MediatR;
+
+namespace Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
+
+/// <summary>
+/// Handles <see cref="GenerateContentPackageCommand"/>:
+/// 1. Validates the analysis exists and belongs to the calling tenant.
+/// 2. Validates requested formats against the known whitelist.
+/// 3. Persists a <see cref="ContentGenerationJob"/> with status <c>Queued</c>.
+/// 4. Enqueues the job id to <see cref="IContentGenerationJobQueue"/>.
+/// 5. Returns the job id and a status poll URL.
+/// </summary>
+public sealed class GenerateContentPackageCommandHandler
+    : IRequestHandler<GenerateContentPackageCommand, Result<GenerateContentPackageResponse>>
+{
+    /// <summary>The 7 supported format keys.</summary>
+    internal static readonly IReadOnlySet<string> KnownFormatKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "carousel",
+        "flyer",
+        "reel-script",
+        "content-idea",
+        "cta-variation",
+        "caption",
+        "hook",
+    };
+
+    private readonly ISingleContentAnalysisRepository _analysisRepository;
+    private readonly IContentGenerationJobRepository _jobRepository;
+    private readonly IContentGenerationJobQueue _queue;
+
+    public GenerateContentPackageCommandHandler(
+        ISingleContentAnalysisRepository analysisRepository,
+        IContentGenerationJobRepository jobRepository,
+        IContentGenerationJobQueue queue)
+    {
+        ArgumentNullException.ThrowIfNull(analysisRepository);
+        ArgumentNullException.ThrowIfNull(jobRepository);
+        ArgumentNullException.ThrowIfNull(queue);
+
+        _analysisRepository = analysisRepository;
+        _jobRepository = jobRepository;
+        _queue = queue;
+    }
+
+    public async Task<Result<GenerateContentPackageResponse>> Handle(
+        GenerateContentPackageCommand command,
+        CancellationToken cancellationToken)
+    {
+        // Validate: at least one format requested
+        if (command.RequestedFormats is null || command.RequestedFormats.Count == 0)
+        {
+            return Result.Failure<GenerateContentPackageResponse>(
+                ContentGenerationErrors.EmptyFormats);
+        }
+
+        // Validate: all formats are from the known whitelist
+        var unknownFormats = command.RequestedFormats
+            .Where(f => !KnownFormatKeys.Contains(f))
+            .ToList();
+
+        if (unknownFormats.Count > 0)
+        {
+            return Result.Failure<GenerateContentPackageResponse>(
+                ContentGenerationErrors.UnknownFormatKey(unknownFormats[0]));
+        }
+
+        // Load analysis — tenant-scoped (repo filters by OrganizationId)
+        var analysis = await _analysisRepository.GetByIdAsync(
+            command.AnalysisId,
+            command.OrganizationId,
+            cancellationToken);
+
+        if (analysis is null)
+        {
+            return Result.Failure<GenerateContentPackageResponse>(
+                ContentGenerationErrors.AnalysisNotFound);
+        }
+
+        // Create and persist the job
+        var jobId = Guid.NewGuid();
+        var correlationId = command.CorrelationId ?? Guid.NewGuid();
+
+        var job = new ContentGenerationJob(
+            Id: jobId,
+            OrganizationId: command.OrganizationId,
+            ClientId: command.ClientId,
+            AnalysisId: command.AnalysisId,
+            RequestedFormats: command.RequestedFormats,
+            Status: "Queued",
+            StatusReason: null,
+            ErrorCode: null,
+            BrandSnapshotJson: "{}",  // brand snapshot loaded by the worker/orchestrator at runtime
+            ManifestJson: null,
+            CorrelationId: correlationId,
+            CreatedAt: DateTime.UtcNow,
+            UpdatedAt: DateTime.UtcNow,
+            StartedAt: null,
+            CompletedAt: null);
+
+        await _jobRepository.InsertAsync(job, cancellationToken);
+
+        // Enqueue the job id for async processing
+        await _queue.EnqueueAsync(jobId, cancellationToken);
+
+        var statusUrl = $"/api/social/content-generation-jobs/{jobId}/status";
+        return Result.Success(new GenerateContentPackageResponse(jobId, statusUrl));
+    }
+}
+
+/// <summary>Domain errors specific to the content generation feature.</summary>
+public static class ContentGenerationErrors
+{
+    public static readonly Error EmptyFormats =
+        Error.Validation("content-gen.empty-formats", "At least one format must be requested.");
+
+    public static readonly Error AnalysisNotFound =
+        Error.NotFound("content-gen.analysis-not-found", "The specified analysis was not found.");
+
+    public static readonly Error JobNotFound =
+        Error.NotFound("content-gen.job-not-found", "The specified job was not found.");
+
+    public static readonly Error PackageNotReady =
+        Error.NotFound("content-gen.package-not-ready", "The package is not yet available for download.");
+
+    public static Error UnknownFormatKey(string key) =>
+        Error.Validation("content-gen.unknown-format-key", $"Unknown format key: {key}");
+}

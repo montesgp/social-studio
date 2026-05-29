@@ -28,6 +28,12 @@ public sealed class SingleContentAnalysisData
 
     public string? FailureMessageKey { get; set; }
 
+    /// <summary>
+    /// Nullable jsonb column populated forward-only by analyses produced with prompt version v2 or later.
+    /// Existing rows keep NULL.
+    /// </summary>
+    public string? PatternSetJson { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
 
     public DateTime UpdatedAtUtc { get; set; }

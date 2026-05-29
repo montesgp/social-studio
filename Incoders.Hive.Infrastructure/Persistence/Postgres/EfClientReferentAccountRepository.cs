@@ -131,7 +131,8 @@ public sealed class EfClientReferentAccountRepository : IClientReferentAccountRe
         var entity = _dbContext.ClientReferentAccounts.Local.FirstOrDefault(x => x.Id == account.Id.Value)
                      ?? _dbContext.ClientReferentAccounts.First(x => x.Id == account.Id.Value);
 
-        // Only mutable fields — ClientId, OrganizationId, SocialNetworkId are immutable (R-NFR-002)
+        // Only mutable fields. ClientId and OrganizationId remain immutable.
+        entity.SocialNetworkId = account.SocialNetworkId.Value;
         entity.ProfileUrl = account.ProfileUrl;
         entity.Handle = account.Handle;
         entity.Label = account.Label;

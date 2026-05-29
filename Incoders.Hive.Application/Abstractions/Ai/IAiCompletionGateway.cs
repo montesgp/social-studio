@@ -1,5 +1,6 @@
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
+using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Application.Abstractions.Ai;
 
@@ -34,7 +35,8 @@ public sealed record AiCompletionResponse(
     string Output,
     string ProviderKey,
     string? Model,
-    IReadOnlyList<ProviderFailureDiagnostic> Diagnostics);
+    IReadOnlyList<ProviderFailureDiagnostic> Diagnostics,
+    TokenUsage? Usage = null);
 
 public sealed record AiJsonCompletionRequest(
     Guid OrganizationId,
@@ -49,5 +51,6 @@ public sealed record AiJsonCompletionResponse<TResponse>(
     TResponse Payload,
     string ProviderKey,
     string? Model,
-    IReadOnlyList<ProviderFailureDiagnostic> Diagnostics)
+    IReadOnlyList<ProviderFailureDiagnostic> Diagnostics,
+    TokenUsage? TokenUsage = null)
     where TResponse : notnull;

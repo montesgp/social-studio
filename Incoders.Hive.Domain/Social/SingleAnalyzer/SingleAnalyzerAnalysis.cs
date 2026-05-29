@@ -12,7 +12,8 @@ public sealed record SingleAnalyzerAnalysis(
     IReadOnlyList<SingleAnalyzerIdea> DerivedIdeas,
     IReadOnlyList<string> ClientAdaptationRecommendations,
     double Confidence,
-    IReadOnlyList<string> Warnings)
+    IReadOnlyList<string> Warnings,
+    PatternSet? Patterns = null)
 {
     public static Result<SingleAnalyzerAnalysis> Create(
         string summary,
@@ -24,7 +25,8 @@ public sealed record SingleAnalyzerAnalysis(
         IReadOnlyList<SingleAnalyzerIdea> derivedIdeas,
         IReadOnlyList<string> clientAdaptationRecommendations,
         double confidence,
-        IReadOnlyList<string> warnings)
+        IReadOnlyList<string> warnings,
+        PatternSet? patterns = null)
     {
         var analysis = new SingleAnalyzerAnalysis(
             NormalizeRequired(summary),
@@ -36,7 +38,8 @@ public sealed record SingleAnalyzerAnalysis(
             derivedIdeas?.ToArray() ?? [],
             NormalizeList(clientAdaptationRecommendations),
             confidence,
-            NormalizeList(warnings));
+            NormalizeList(warnings),
+            patterns);
 
         var validation = analysis.Validate();
         return validation.IsSuccess

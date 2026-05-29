@@ -1,0 +1,193 @@
+// API client for the content-generation pipeline (single-analyzer package generation).
+
+import { apiRequest } from "@/lib/api/client";
+import { ACTIVE_ORG_STORAGE_KEY } from "@/lib/auth/session";
+import type {
+  ContentFormatKey,
+  ContentGenerationJobStatusResponse,
+  ContentGenerationJobStatus,
+  GeneratePackageRequest,
+  GeneratePackageResponse,
+  GeneratedPackageManifest,
+} from "@/lib/api/types";
+
+export type {
+  ContentFormatKey,
+  ContentGenerationJobStatusResponse,
+  ContentGenerationJobStatus,
+  GeneratePackageRequest,
+  GeneratePackageResponse,
+  GeneratedPackageManifest,
+};
+
+/** All 7 supported format keys — used when the user wants to generate all formats. */
+export const ALL_FORMAT_KEYS: ContentFormatKey[] = [
+  "carousel",
+  "flyer",
+  "reel-script",
+  "content-idea",
+  "cta-variation",
+  "caption",
+  "hook",
+];
+
+/** Human-readable labels for each format key. */
+export const FORMAT_LABELS: Record<ContentFormatKey, string> = {
+  carousel: "Carousel",
+  flyer: "Flyer",
+  "reel-script": "Reel Script",
+  "content-idea": "Content Idea",
+  "cta-variation": "CTA Variation",
+  caption: "Caption",
+  hook: "Hook",
+};
+
+// ── Raw backend response shape (before client-side transform) ─────────────────
+
+interface RawJobStatusResponse {
+  jobId: string;
+  status: ContentGenerationJobStatus;
+  perFormatStatus: Record<string, string>;
+  manifestJson: string | null;
+}
+
+function parseContentDispositionFilename(contentDisposition: string | null): string | null {
+  if (!contentDisposition) return null;
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const fallbackMatch = /filename="?([^\";]+)"?/i.exec(contentDisposition);
+  return fallbackMatch?.[1] ?? null;
+}
+
+function parseManifest(manifestJson: string | null): GeneratedPackageManifest | null {
+  if (!manifestJson) return null;
+  try {
+    return JSON.parse(manifestJson) as GeneratedPackageManifest;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStatusResponse(raw: RawJobStatusResponse): ContentGenerationJobStatusResponse {
+  return {
+    jobId: raw.jobId,
+    status: raw.status,
+    perFormatStatus: raw.perFormatStatus as ContentGenerationJobStatusResponse["perFormatStatus"],
+    manifest: parseManifest(raw.manifestJson),
+  };
+}
+
+// ── API functions ─────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/social/single-analyzer/{analysisId}/generate-package
+ * Starts an async content package generation job.
+ * Returns immediately (202) with the jobId and a status poll URL.
+ */
+export async function requestPackage(
+  analysisId: string,
+  payload: GeneratePackageRequest,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<GeneratePackageResponse> {
+  return apiRequest<GeneratePackageResponse>(
+    `/api/social/single-analyzer/${encodeURIComponent(analysisId)}/generate-package`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal: opts?.signal,
+    },
+    opts?.token
+  );
+}
+
+/**
+ * GET /api/social/content-generation-jobs/{jobId}/status
+ * Polls the current status of a generation job.
+ */
+export async function getJobStatus(
+  jobId: string,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<ContentGenerationJobStatusResponse> {
+  const raw = await apiRequest<RawJobStatusResponse>(
+    `/api/social/content-generation-jobs/${encodeURIComponent(jobId)}/status`,
+    {
+      method: "GET",
+      signal: opts?.signal,
+    },
+    opts?.token
+  );
+  return normalizeStatusResponse(raw);
+}
+
+/**
+ * Returns the download URL and suggested filename for a completed package.
+ * The caller is responsible for triggering the download (via <a download> or fetch+blob).
+ * The URL hits the streaming endpoint that returns application/zip.
+ */
+export function getPackageDownloadUrl(
+  jobId: string
+): { url: string; filename: string } {
+  // Uses the same base URL path that apiRequest resolves — in-browser requests go through /hive-api
+  const base = typeof window !== "undefined" ? "/hive-api" : "";
+  return {
+    url: `${base}/api/social/content-generation-jobs/${encodeURIComponent(jobId)}/package`,
+    filename: `content-package-${jobId}.zip`,
+  };
+}
+
+/**
+ * GET /api/social/content-generation-jobs/{jobId}/package
+ * Downloads the generated ZIP using auth + tenant headers.
+ */
+export async function downloadPackageFile(
+  jobId: string,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<{ blob: Blob; filename: string }> {
+  const base = typeof window !== "undefined" ? "/hive-api" : "";
+  const headers = new Headers();
+
+  if (opts?.token) {
+    headers.set("Authorization", `Bearer ${opts.token}`);
+  }
+
+  if (typeof window !== "undefined") {
+    const orgId = window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+    if (orgId) {
+      headers.set("X-Tenant-Id", orgId);
+    }
+  }
+
+  const response = await fetch(
+    `${base}/api/social/content-generation-jobs/${encodeURIComponent(jobId)}/package`,
+    {
+      method: "GET",
+      headers,
+      signal: opts?.signal,
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    let message = `Failed to download package (HTTP ${response.status})`;
+    try {
+      const problem = (await response.json()) as { detail?: string; title?: string };
+      message = problem.detail ?? problem.title ?? message;
+    } catch {
+      // ignore: keep default HTTP message
+    }
+    throw new Error(message);
+  }
+
+  const filename =
+    parseContentDispositionFilename(response.headers.get("Content-Disposition")) ??
+    `content-package-${jobId}.zip`;
+  const blob = await response.blob();
+  return { blob, filename };
+}
