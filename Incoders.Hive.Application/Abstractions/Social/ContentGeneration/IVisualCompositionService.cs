@@ -22,6 +22,17 @@ public interface IVisualCompositionService
         CancellationToken ct);
 
     /// <summary>
+    /// Composes one or more visual specs for the given format.
+    /// Multi-asset formats (e.g. carousel) return N specs — one per slide/asset.
+    /// Single-asset formats return a 1-element list.
+    /// </summary>
+    Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
+        string formatKey,
+        object generatedPayload,
+        BrandSnapshot brand,
+        CancellationToken ct);
+
+    /// <summary>
     /// Returns the brand fields that were inferred (not explicitly supplied) during the last <see cref="ComposeAsync"/> call.
     /// </summary>
     IReadOnlyList<string> GetInferredFields();

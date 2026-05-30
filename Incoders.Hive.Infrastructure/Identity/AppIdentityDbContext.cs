@@ -71,6 +71,8 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<GeneratedPackageData> GeneratedPackages => Set<GeneratedPackageData>();
 
+    public DbSet<ContentGenerationFormatAssetData> ContentGenerationFormatAssets => Set<ContentGenerationFormatAssetData>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -746,6 +748,37 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasOne(x => x.Job)
                 .WithOne(x => x.Package)
                 .HasForeignKey<GeneratedPackageData>(x => x.JobId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ContentGenerationFormatAssetData>(entity =>
+        {
+            entity.ToTable("content_generation_format_assets", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.FormatResultId).HasColumnName("format_result_id").IsRequired();
+            entity.Property(x => x.AssetIndex).HasColumnName("asset_index").IsRequired();
+            entity.Property(x => x.StoragePath).HasColumnName("storage_path").IsRequired();
+            entity.Property(x => x.Filename).HasColumnName("filename").HasMaxLength(500).IsRequired();
+            entity.Property(x => x.MimeType).HasColumnName("mime_type").HasMaxLength(128).IsRequired();
+            entity.Property(x => x.SizeBytes).HasColumnName("size_bytes").IsRequired();
+            entity.Property(x => x.ContentHash).HasColumnName("content_hash").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+
+            // UNIQUE: one asset per (format_result_id, asset_index)
+            entity.HasIndex(x => new { x.FormatResultId, x.AssetIndex })
+                .IsUnique()
+                .HasDatabaseName("ix_content_generation_format_assets_result_index");
+
+            entity.HasIndex(x => x.FormatResultId)
+                .HasDatabaseName("ix_content_generation_format_assets_format_result_id");
+
+            entity.HasIndex(x => x.StoragePath)
+                .HasDatabaseName("ix_content_generation_format_assets_storage_path");
+
+            entity.HasOne(x => x.FormatResult)
+                .WithMany(x => x.Assets)
+                .HasForeignKey(x => x.FormatResultId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

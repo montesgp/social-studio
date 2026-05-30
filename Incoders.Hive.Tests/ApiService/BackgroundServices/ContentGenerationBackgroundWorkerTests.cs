@@ -247,7 +247,8 @@ file sealed class ProcessorHarness
         Processor = new ContentGenerationJobProcessor(
             JobRepo, Analyses, Orchestrator, FormatResults, BrandLoader,
             Composer, Renderer, PackageBuilder, Storage, Packages,
-            NullLogger<ContentGenerationJobProcessor>.Instance);
+            assetStorage: null, assetRepository: null,
+            logger: NullLogger<ContentGenerationJobProcessor>.Instance);
     }
 }
 
@@ -386,6 +387,19 @@ file sealed class SpyComposer : IVisualCompositionService
             AssetSlots: new Dictionary<string, AssetSlotSpec>(),
             CopySlots: new Dictionary<string, string> { ["title"] = "stub" },
             Dimensions: new CompositionDimensions(100, 100, 72)));
+
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object generatedPayload, BrandSnapshot brand, CancellationToken ct)
+    {
+        var spec = new VisualCompositionSpec(
+            FormatKey: formatKey,
+            LayoutType: "stack",
+            Palette: new CompositionPalette("#000000", "#111111", "#222222", "#333333", "#FFFFFF"),
+            Typography: new CompositionTypography("Inter", 32, "Inter", 16),
+            AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+            CopySlots: new Dictionary<string, string> { ["title"] = "stub" },
+            Dimensions: new CompositionDimensions(100, 100, 72));
+        return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>([spec]);
+    }
 
     public IReadOnlyList<string> GetInferredFields() => [];
 }

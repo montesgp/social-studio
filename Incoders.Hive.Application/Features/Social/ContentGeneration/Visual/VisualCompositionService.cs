@@ -55,5 +55,29 @@ public sealed class VisualCompositionService : IVisualCompositionService
         return Task.FromResult(spec);
     }
 
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
+        string formatKey,
+        object generatedPayload,
+        BrandSnapshot brand,
+        CancellationToken ct)
+    {
+        _lastInferred = new InferenceAccumulator();
+
+        if (!_composers.TryGetValue(formatKey, out var composer))
+        {
+            throw new InvalidOperationException($"No visual composer registered for format key '{formatKey}'.");
+        }
+
+        // If the composer supports multi-asset composition, use it.
+        if (composer is IMultiAssetVisualComposer multi)
+        {
+            return Task.FromResult(multi.ComposeMany(generatedPayload, brand, _lastInferred));
+        }
+
+        // Fall back to wrapping the single spec in a list.
+        var spec = composer.Compose(generatedPayload, brand, _lastInferred);
+        return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>([spec]);
+    }
+
     public IReadOnlyList<string> GetInferredFields() => _lastInferred.Fields;
 }

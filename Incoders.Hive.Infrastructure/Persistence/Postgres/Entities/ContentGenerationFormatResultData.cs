@@ -36,4 +36,7 @@ public sealed class ContentGenerationFormatResultData
 
     // Navigation
     public ContentGenerationJobData? Job { get; set; }
+
+    /// <summary>Per-asset child rows (one per rendered asset; N for carousel).</summary>
+    public ICollection<ContentGenerationFormatAssetData> Assets { get; set; } = [];
 }

@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
@@ -25,10 +27,11 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 ///         outcome as <c>AiSucceeded</c> (with OutputJson) or <c>AiFailed</c> (with the upstream
 ///         provider error code, never "unexpected-error").</item>
 ///   <item>For every format that has a payload (fresh or cached), compose + render and persist
-///         the render outcome. Failures carry the actual exception type + message so the user
-///         can act on them, not a generic "render failed".</item>
-///   <item>Build the ZIP, store it, persist the <c>generated_packages</c> row, update the job
-///         manifest with the full builder output, and set the final status.</item>
+///         the render outcome. Multi-asset formats (carousel) fan out N specs via ComposeMany.</item>
+///   <item>Upload each rendered asset to Supabase Storage via IGeneratedAssetStorage; persist
+///         one child asset row per stored object. Storage failures mark that format failed.</item>
+///   <item>Write manifest.json to storage (org/client/analysis context + formats + timestamps).</item>
+///   <item>Build the ZIP (backward-compat frozen path), store it, persist the generated_packages row.</item>
 /// </list>
 /// </summary>
 public sealed class ContentGenerationJobProcessor
@@ -45,6 +48,8 @@ public sealed class ContentGenerationJobProcessor
     private readonly IGeneratedPackageBuilder _packageBuilder;
     private readonly IGeneratedPackageStorage _packageStorage;
     private readonly IGeneratedPackageRepository _packages;
+    private readonly IGeneratedAssetStorage? _assetStorage;
+    private readonly IContentGenerationFormatAssetRepository? _assetRepository;
     private readonly ILogger<ContentGenerationJobProcessor> _logger;
 
     public ContentGenerationJobProcessor(
@@ -58,6 +63,8 @@ public sealed class ContentGenerationJobProcessor
         IGeneratedPackageBuilder packageBuilder,
         IGeneratedPackageStorage packageStorage,
         IGeneratedPackageRepository packages,
+        IGeneratedAssetStorage? assetStorage = null,
+        IContentGenerationFormatAssetRepository? assetRepository = null,
         ILogger<ContentGenerationJobProcessor>? logger = null)
     {
         _jobs = jobs;
@@ -70,6 +77,8 @@ public sealed class ContentGenerationJobProcessor
         _packageBuilder = packageBuilder;
         _packageStorage = packageStorage;
         _packages = packages;
+        _assetStorage = assetStorage;
+        _assetRepository = assetRepository;
         _logger = logger ?? NullLogger<ContentGenerationJobProcessor>.Instance;
     }
 
@@ -165,8 +174,7 @@ public sealed class ContentGenerationJobProcessor
                 formatsReusedFromCache.Count, job.Id, string.Join(", ", formatsReusedFromCache));
         }
 
-        // 3. Run the orchestrator only on formats that need fresh AI work. When everything is
-        // already cached we still need the brand snapshot for composing, so we load it directly.
+        // 3. Run the orchestrator only on formats that need fresh AI work.
         IReadOnlyDictionary<string, FormatGenerationResult<object>> freshResults =
             new Dictionary<string, FormatGenerationResult<object>>();
         BrandSnapshot brand;
@@ -185,8 +193,6 @@ public sealed class ContentGenerationJobProcessor
             freshResults = orchResult.PerFormatResults;
             brand = orchResult.Brand;
 
-            // Checkpoint every fresh outcome immediately. If the worker dies after this point,
-            // the next run picks up here instead of re-spending tokens.
             foreach (var (formatKey, formatResult) in freshResults)
             {
                 await PersistAiOutcomeAsync(job.Id, formatKey, formatResult, ct);
@@ -197,22 +203,22 @@ public sealed class ContentGenerationJobProcessor
             brand = await _brandLoader.LoadAsync(job.OrganizationId, effectiveClientId.Value, ct);
         }
 
-        // 4. Compose + render every format that has a usable payload (fresh OR cached). Persist
-        // each render outcome to format_results so a future retry can skip already-succeeded
-        // formats wholesale.
+        // 4. Compose + render every format. Multi-asset formats fan out via ComposeManyAsync.
+        //    The returned specs are then each rendered and stored individually.
         var assets = new List<RenderedAsset>();
         var publicationByFormat = new Dictionary<string, PublicationMetadata>(StringComparer.OrdinalIgnoreCase);
         var inferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var renderFailures = new List<string>();
         var aiFailures = new List<string>();
 
+        // Collect format result IDs for the asset repository (needed after upserting format results).
+        var formatResultIdByKey = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var formatKey in job.RequestedFormats)
         {
             var step = ResolveFormatPayload(formatKey, freshResults, existingByFormat);
             if (step.Payload is null)
             {
-                // No payload available — record the actual upstream reason (not a generic code)
-                // and move on. This is the AI failure path.
                 var reason = step.AiErrorCode ?? "ai-output-missing";
                 aiFailures.Add($"{formatKey}: {reason}");
                 _logger.LogWarning(
@@ -223,31 +229,146 @@ public sealed class ContentGenerationJobProcessor
 
             try
             {
-                var spec = await _composer.ComposeAsync(formatKey, step.Payload, brand, ct);
+                // Fan-out: carousel returns N specs, single-asset formats return 1 spec.
+                var specs = await _composer.ComposeManyAsync(formatKey, step.Payload, brand, ct);
                 foreach (var f in _composer.GetInferredFields())
                 {
                     inferred.Add(f);
                 }
 
-                var rendered = await _renderer.RenderAsync(spec, new RenderOptions(), ct);
-                if (rendered.IsSuccess)
+                var formatRendered = false;
+                var formatStorageFailed = false;
+                var formatAssetRows = new List<FormatAssetRow>();
+                Guid formatResultId;
+
+                // We need the format result ID to associate asset rows.
+                // Generate a stable ID now (it will be upserted into the DB after render).
+                formatResultId = existingByFormat.TryGetValue(formatKey, out var existingResult)
+                    ? existingResult.Id
+                    : Guid.NewGuid();
+                formatResultIdByKey[formatKey] = formatResultId;
+
+                for (var specIndex = 0; specIndex < specs.Count; specIndex++)
                 {
-                    assets.Add(rendered.Value);
+                    var spec = specs[specIndex];
+
+                    var rendered = await _renderer.RenderAsync(spec, new RenderOptions(), ct);
+                    if (!rendered.IsSuccess)
+                    {
+                        var detail = $"{rendered.Error.Code}: {rendered.Error.MessageKey}";
+                        renderFailures.Add($"{formatKey}: {detail}");
+                        _logger.LogWarning(
+                            "ContentGeneration: render failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}",
+                            formatKey, specIndex, job.Id, detail);
+                        await PersistRenderFailureAsync(job.Id, formatKey, step, detail, ct);
+                        break; // Fail the whole format on first render failure
+                    }
+
+                    var asset = rendered.Value;
+
+                    // Determine the relative path for storage.
+                    // Carousel: carousel/slide_{N}.png (1-based index)
+                    // Single-asset: just the filename (e.g. flyer.png, reel-script.txt)
+                    string relativePath;
+                    if (string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase) && specs.Count > 1)
+                    {
+                        relativePath = $"carousel/slide_{specIndex + 1}.png";
+                    }
+                    else
+                    {
+                        relativePath = asset.Filename;
+                    }
+
+                    // 5. Upload to Supabase Storage (if the adapter is wired).
+                    if (_assetStorage is not null)
+                    {
+                        try
+                        {
+                            var storageKey = new StoredAssetKey(
+                                job.OrganizationId,
+                                effectiveClientId.Value,
+                                job.AnalysisId,
+                                relativePath);
+
+                            var storedRef = await _assetStorage.PutAssetAsync(
+                                storageKey,
+                                new StoredAssetContent(asset.GetBytes(), asset.Mime),
+                                ct);
+
+                            formatAssetRows.Add(new FormatAssetRow(
+                                Id: Guid.NewGuid(),
+                                FormatResultId: formatResultId,
+                                AssetIndex: specs.Count > 1 ? specIndex + 1 : 0,
+                                StoragePath: storedRef.StoragePath,
+                                Filename: relativePath.Contains('/') ? relativePath.Split('/').Last() : relativePath,
+                                MimeType: asset.Mime,
+                                SizeBytes: storedRef.SizeBytes,
+                                ContentHash: storedRef.ContentHash,
+                                CreatedAt: DateTime.UtcNow,
+                                UpdatedAt: DateTime.UtcNow));
+
+                            formatRendered = true;
+                        }
+                        catch (GeneratedAssetStorageException ex)
+                        {
+                            var detail = FormatException(ex);
+                            renderFailures.Add($"{formatKey}: storage-upload-failed:{detail}");
+                            _logger.LogError(ex,
+                                "ContentGeneration: storage upload failed for format {FormatKey} spec {SpecIndex} (job {JobId}).",
+                                formatKey, specIndex, job.Id);
+                            formatStorageFailed = true;
+                            break; // No orphan row for this format
+                        }
+                    }
+                    else
+                    {
+                        // No asset storage wired — this is the legacy path (backward compat).
+                        formatRendered = true;
+                    }
+
+                    assets.Add(asset);
+                }
+
+                if (formatRendered && !formatStorageFailed)
+                {
                     var publication = ResolvePublicationMetadata(formatKey, step.Payload);
                     if (publication is not null)
                     {
                         publicationByFormat[formatKey] = publication;
                     }
-                    await PersistRenderSuccessAsync(job.Id, formatKey, step, rendered.Value, ct);
+
+                    // Persist format result first (so formatResultId is stable in DB).
+                    await PersistRenderSuccessAsync(job.Id, formatKey, step, assets.Last(), ct);
+
+                    // Persist per-asset rows if we have any.
+                    if (_assetRepository is not null && formatAssetRows.Count > 0)
+                    {
+                        await _assetRepository.UpsertManyForFormatAsync(formatResultId, formatAssetRows, ct);
+                    }
+
+                    // Create carousel folder placeholder.
+                    if (_assetStorage is not null
+                        && string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase)
+                        && specs.Count > 1)
+                    {
+                        try
+                        {
+                            var folderPath = $"{job.OrganizationId}/{effectiveClientId}/{job.AnalysisId}/carousel";
+                            await _assetStorage.PutFolderPlaceholderAsync(folderPath, ct);
+                        }
+                        catch (GeneratedAssetStorageException ex)
+                        {
+                            // Folder placeholder failure is non-fatal — log and continue.
+                            _logger.LogWarning(ex,
+                                "ContentGeneration: carousel folder placeholder PUT failed (job {JobId}). Continuing.",
+                                job.Id);
+                        }
+                    }
                 }
-                else
+                else if (formatStorageFailed)
                 {
-                    var detail = $"{rendered.Error.Code}: {rendered.Error.MessageKey}";
-                    renderFailures.Add($"{formatKey}: {detail}");
-                    _logger.LogWarning(
-                        "ContentGeneration: render failed for format {FormatKey} (job {JobId}): {Detail}",
-                        formatKey, job.Id, detail);
-                    await PersistRenderFailureAsync(job.Id, formatKey, step, detail, ct);
+                    // Storage failed — record as render failure (no asset row written).
+                    await PersistRenderFailureAsync(job.Id, formatKey, step, "storage-upload-failed", ct);
                 }
             }
             catch (Exception ex)
@@ -261,7 +382,40 @@ public sealed class ContentGenerationJobProcessor
             }
         }
 
-        // 5. Nothing renderable → fail the job with the actual reasons, not a generic placeholder.
+        // 5b. Write manifest.json to Supabase Storage.
+        if (_assetStorage is not null && assets.Count > 0)
+        {
+            try
+            {
+                var manifestContent = BuildManifestJson(
+                    job,
+                    effectiveClientId.Value,
+                    brand.Client?.Name,
+                    analysisRecord.UserId,
+                    job.RequestedFormats.Except(aiFailures.Select(f => f.Split(':')[0])).ToList(),
+                    DateTime.UtcNow);
+
+                var manifestKey = new StoredAssetKey(
+                    job.OrganizationId,
+                    effectiveClientId.Value,
+                    job.AnalysisId,
+                    "manifest.json");
+
+                await _assetStorage.PutAssetAsync(
+                    manifestKey,
+                    new StoredAssetContent(Encoding.UTF8.GetBytes(manifestContent), "application/json"),
+                    ct);
+            }
+            catch (GeneratedAssetStorageException ex)
+            {
+                // Manifest failure is non-fatal — the individual assets are already uploaded.
+                _logger.LogWarning(ex,
+                    "ContentGeneration: manifest.json upload failed (job {JobId}). Assets already uploaded.",
+                    job.Id);
+            }
+        }
+
+        // 6. Nothing renderable → fail the job.
         if (assets.Count == 0)
         {
             var statusReason = BuildStatusReason(aiFailures, renderFailures);
@@ -271,7 +425,7 @@ public sealed class ContentGenerationJobProcessor
             return;
         }
 
-        // 6. Build the ZIP, store it, persist the generated_packages row.
+        // 7. Build the frozen ZIP — backward-compat path; stays through INC-4.
         var warningsForManifest = aiFailures.Select(f => $"ai.{f}")
             .Concat(renderFailures.Select(f => $"render.{f}"))
             .ToList();
@@ -299,7 +453,7 @@ public sealed class ContentGenerationJobProcessor
         }
 
         built.Content.Position = 0;
-        var storedRef = await _packageStorage.StoreAsync(
+        var packageStoredRef = await _packageStorage.StoreAsync(
             built.Content,
             new StorePackageKey(job.OrganizationId, job.Id),
             ct);
@@ -308,16 +462,14 @@ public sealed class ContentGenerationJobProcessor
             new GeneratedPackage(
                 Id: Guid.NewGuid(),
                 JobId: job.Id,
-                StorageUri: storedRef.Uri,
+                StorageUri: packageStoredRef.Uri,
                 SizeBytes: built.SizeBytes,
                 ManifestJson: JsonSerializer.Serialize(built.Manifest, JsonOptions),
                 ExpiresAt: null,
                 CreatedAt: DateTime.UtcNow),
             ct);
 
-        // 7. Persist the FULL manifest and final status. Any AI or render failure across the run
-        // downgrades the job to Partial — the ZIP exists but is missing some formats; the reasons
-        // are visible in the warnings.
+        // 8. Persist the full manifest and final status.
         var fullManifestJson = JsonSerializer.Serialize(built.Manifest, JsonOptions);
         await _jobs.UpdateManifestAsync(job.Id, fullManifestJson, DateTime.UtcNow, ct);
 
@@ -326,6 +478,25 @@ public sealed class ContentGenerationJobProcessor
         var finalReason = anyFailure ? BuildStatusReason(aiFailures, renderFailures) : null;
         await _jobs.UpdateStatusAsync(job.Id, finalStatus, finalReason, null, ct);
     }
+
+    private static string BuildManifestJson(
+        ContentGenerationJob job,
+        Guid clientId,
+        string? clientName,
+        Guid generatingUserId,
+        IReadOnlyList<string> succeededFormats,
+        DateTime now) =>
+        JsonSerializer.Serialize(new
+        {
+            organizationId = job.OrganizationId,
+            clientId,
+            clientName,
+            analysisId = job.AnalysisId,
+            generatingUserId,
+            formats = succeededFormats,
+            createdAt = now.ToString("O"),
+            updatedAt = now.ToString("O"),
+        }, JsonOptions);
 
     private static PublicationMetadata? ResolvePublicationMetadata(string formatKey, object payload)
     {
@@ -389,7 +560,6 @@ public sealed class ContentGenerationJobProcessor
         IReadOnlyDictionary<string, FormatGenerationResult<object>> fresh,
         IReadOnlyDictionary<string, ContentGenerationFormatResult> cached)
     {
-        // Fresh-from-orchestrator wins over cached — caller may have re-triggered specifically.
         if (fresh.TryGetValue(formatKey, out var freshResult))
         {
             if (freshResult.Status == FormatGenerationStatus.Succeeded && freshResult.Payload is not null)
@@ -409,9 +579,6 @@ public sealed class ContentGenerationJobProcessor
 
         if (cached.TryGetValue(formatKey, out var cachedResult) && !string.IsNullOrWhiteSpace(cachedResult.OutputJson))
         {
-            // Composers accept `object` and the v1 implementations don't read it (brand-only),
-            // so a JsonElement is a forward-compatible carrier. When composers start reading
-            // payload fields, this can switch to typed deserialization per formatKey.
             JsonElement payload;
             try
             {
@@ -488,9 +655,7 @@ public sealed class ContentGenerationJobProcessor
             Status: "Rendered",
             OutputJson: step.OutputJson,
             CompositionSpecJson: null,
-            // v1 storage: PNG bytes live only inside the final ZIP. We persist a logical marker
-            // (filename + content hash) so future versions that store individual assets can
-            // recover them and skip re-rendering. ContentHash makes the marker idempotent.
+            // v1 storage: asset-hash marker for legacy compat (INC-4 switches to per-asset rows).
             RenderedAssetUri: $"asset-hash://{asset.ContentHash}",
             InferredFieldsJson: null,
             PromptVersion: step.PromptVersion,

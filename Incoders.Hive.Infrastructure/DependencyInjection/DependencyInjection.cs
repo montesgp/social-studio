@@ -136,6 +136,7 @@ public static class DependencyInjection
         services.AddScoped<IContentGenerationJobRepository, EfContentGenerationJobRepository>();
         services.AddScoped<IContentGenerationFormatResultRepository, EfContentGenerationFormatResultRepository>();
         services.AddScoped<IGeneratedPackageRepository, EfGeneratedPackageRepository>();
+        services.AddScoped<IContentGenerationFormatAssetRepository, EfContentGenerationFormatAssetRepository>();
         // Per-platform Apify scrape adapters (ISocialPlatformScrapeAdapter)
         services.AddScoped<ISocialPlatformScrapeAdapter, TikTokApifyScrapeAdapter>();
         services.AddScoped<ISocialPlatformScrapeAdapter, InstagramApifyScrapeAdapter>();
@@ -239,6 +240,19 @@ public static class DependencyInjection
         var rootPath = configuration["Storage:GeneratedPackagesPath"]
             ?? Path.Combine(AppContext.BaseDirectory, "App_Data", "generated-packages");
         services.AddSingleton<IGeneratedPackageStorage>(_ => new LocalGeneratedPackageStorage(rootPath));
+
+        // Supabase Storage adapter — durable per-asset storage.
+        // ServiceRoleKey comes from user-secrets (dev) or environment (prod) — NEVER from appsettings.
+        services.AddOptions<SupabaseStorageOptions>()
+            .Bind(configuration.GetSection(SupabaseStorageOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddHttpClient<IGeneratedAssetStorage, SupabaseStorageAdapter>((sp, client) =>
+        {
+            var opts = sp.GetRequiredService<IOptions<SupabaseStorageOptions>>().Value;
+            client.BaseAddress = new Uri(opts.Url);
+        });
 
         return services;
     }

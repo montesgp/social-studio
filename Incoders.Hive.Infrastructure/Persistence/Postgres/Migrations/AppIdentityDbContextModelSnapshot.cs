@@ -513,6 +513,72 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("client_strategies", "social");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationFormatAssetData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AssetIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("asset_index");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Filename")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("filename");
+
+                    b.Property<Guid>("FormatResultId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("format_result_id");
+
+                    b.Property<string>("MimeType")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("mime_type");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<string>("StoragePath")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("storage_path");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_content_generation_format_assets");
+
+                    b.HasIndex("FormatResultId")
+                        .HasDatabaseName("ix_content_generation_format_assets_format_result_id");
+
+                    b.HasIndex("StoragePath")
+                        .HasDatabaseName("ix_content_generation_format_assets_storage_path");
+
+                    b.HasIndex("FormatResultId", "AssetIndex")
+                        .IsUnique()
+                        .HasDatabaseName("ix_content_generation_format_assets_result_index");
+
+                    b.ToTable("content_generation_format_assets", "social");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationFormatResultData", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1913,6 +1979,18 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasConstraintName("fk_client_strategies_organizations_organization_id");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationFormatAssetData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationFormatResultData", "FormatResult")
+                        .WithMany("Assets")
+                        .HasForeignKey("FormatResultId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_content_generation_format_assets_content_generation_format_~");
+
+                    b.Navigation("FormatResult");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationFormatResultData", b =>
                 {
                     b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationJobData", "Job")
@@ -2151,6 +2229,11 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_user_tokens_users_user_id");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationFormatResultData", b =>
+                {
+                    b.Navigation("Assets");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationJobData", b =>
