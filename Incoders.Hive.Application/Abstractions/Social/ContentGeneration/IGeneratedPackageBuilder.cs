@@ -22,7 +22,12 @@ public sealed record BuildPackageInput(
     IReadOnlyList<string> Warnings,
     Guid OrganizationId,
     Guid JobId,
-    IReadOnlyDictionary<string, PublicationMetadata>? PublicationByFormat = null);
+    IReadOnlyDictionary<string, PublicationMetadata>? PublicationByFormat = null,
+    /// <summary>
+    /// Raw client name that will be normalized into a subfolder within the ZIP.
+    /// When null or blank the builder falls back to a flat root layout (legacy behaviour).
+    /// </summary>
+    string? ClientName = null);
 
 /// <summary>The result of a successful package build.</summary>
 public sealed record BuiltPackage(

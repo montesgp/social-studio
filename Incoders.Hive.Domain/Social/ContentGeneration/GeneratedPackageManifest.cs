@@ -2,13 +2,21 @@ namespace Incoders.Hive.Domain.Social.ContentGeneration;
 
 /// <summary>
 /// Summary manifest embedded in every generated package ZIP.
-/// Lists formats produced, any inferred brand fields, and warnings.
+/// Lists formats produced, any inferred brand fields, warnings, and the normalized
+/// client subfolder that the ZIP entries were placed under (e.g. <c>acme-corp</c>).
+/// <para>
+/// When <see cref="ClientFolderName"/> is present, format files live at
+/// <c>{ClientFolderName}/{filename}</c> (carousel slides at
+/// <c>{ClientFolderName}/carousel/{filename}</c>).
+/// Legacy packages without this field use a flat root layout.
+/// </para>
 /// </summary>
 public sealed record GeneratedPackageManifest(
     IReadOnlyDictionary<string, FormatAssetMetadata> Formats,
     IReadOnlyList<string> InferredFields,
     IReadOnlyList<string> Warnings,
-    long TotalSizeBytes);
+    long TotalSizeBytes,
+    string? ClientFolderName = null);
 
 /// <summary>Lightweight metadata for a single format asset inside the manifest.</summary>
 public sealed record FormatAssetMetadata(

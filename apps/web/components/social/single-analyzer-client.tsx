@@ -549,6 +549,26 @@ const FORMAT_FILE_NAMES: Record<ContentFormatKey, string> = {
   hook: "hook.txt",
 };
 
+/**
+ * Resolves the display filename for a format. Uses the manifest filename when available,
+ * but corrects the extension if the backend returns a wrong one (e.g. reel-script.png → .txt).
+ * Folder formats always use the canonical "/" representation.
+ */
+function resolveFormatFilename(formatKey: ContentFormatKey, manifestFilename?: string): string {
+  const canonical = FORMAT_FILE_NAMES[formatKey];
+  if (!manifestFilename) return canonical;
+  if (canonical.endsWith("/")) return canonical; // folder format — always canonical
+  const dotIdx = canonical.lastIndexOf(".");
+  if (dotIdx === -1) return manifestFilename;
+  const expectedExt = canonical.slice(dotIdx);
+  if (!manifestFilename.endsWith(expectedExt)) {
+    const baseDot = manifestFilename.lastIndexOf(".");
+    const base = baseDot !== -1 ? manifestFilename.slice(0, baseDot) : manifestFilename;
+    return base + expectedExt;
+  }
+  return manifestFilename;
+}
+
 function SocialTabletPreview({
   content,
   network,
@@ -647,8 +667,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     useState<PendingRegenerationRequest | null>(null);
   // When loading from history, we want the new analysis's existing content-generation job to
   // re-attach to the convert panel. The packageJobId-reset effect runs AFTER setVideoResult,
-  // so we pre-stage the jobId here and the effect reads it as it runs.
-  const pendingPackageJobIdRef = useRef<string | null>(null);
+  // so we pre-stage both the jobId and client context here and the effect reads them as it runs.
+  const pendingPackageReattachRef = useRef<{ jobId: string | null; clientId: string | null }>({
+    jobId: null,
+    clientId: null,
+  });
   const [pendingNavigationHref, setPendingNavigationHref] = useState<string | null>(null);
   const [isAbandonDialogOpen, setIsAbandonDialogOpen] = useState(false);
   const allowNavigationRef = useRef(false);
@@ -670,6 +693,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   );
   const [packageJobError, setPackageJobError] = useState<{ message: string } | null>(null);
   const [isRequestingPackage, setIsRequestingPackage] = useState(false);
+  // True while we are reattaching a pre-existing job loaded from history (initial status check).
+  // Prevents PackageGenerationOverlay from flashing for an already-completed job.
+  const [isReattachingJob, setIsReattachingJob] = useState(false);
+  // The client the current packageJobId was generated for (null = unknown or no job yet).
+  const [packageJobClientId, setPackageJobClientId] = useState<string | null>(null);
 
   // UX state for the new agregados.
   const [isVideoAnalysisCollapsed, setIsVideoAnalysisCollapsed] = useState(false);
@@ -696,7 +724,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   // Package job derived UI state.
   const packageGenerationIsRunning =
     isRequestingPackage ||
-    packageJob.isLoading ||
+    (packageJob.isLoading && !isReattachingJob) ||
     packageJob.isPolling ||
     packageUiStatus === "Queued" ||
     packageUiStatus === "Running";
@@ -718,11 +746,25 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     (selectedOrganizationId.length > 0 && clientsLoading && clients.length === 0);
 
   const packageSucceededFormats = useMemo(
-    () =>
-      (Object.entries(packageJob.perFormatStatus)
+    () => {
+      const fromPerFormatStatus = (Object.entries(packageJob.perFormatStatus)
         .filter(([, st]) => st === "Rendered" || st === "Succeeded")
-        .map(([fmt]) => fmt) as ContentFormatKey[]),
-    [packageJob.perFormatStatus]
+        .map(([fmt]) => fmt) as ContentFormatKey[]);
+      // Fallback for legacy jobs where perFormatStatus may be empty despite a terminal success:
+      // use manifest.formats keys, guarded to known format keys and terminal-success statuses.
+      const isTerminalSuccess =
+        packageJob.status === "Completed" ||
+        packageJob.status === "Partial" ||
+        packageJob.status === "PartialSuccess";
+      const fromManifest: ContentFormatKey[] =
+        fromPerFormatStatus.length === 0 && isTerminalSuccess && packageJob.manifest?.formats
+          ? (Object.keys(packageJob.manifest.formats).filter((k) =>
+              (ALL_FORMAT_KEYS as string[]).includes(k)
+            ) as ContentFormatKey[])
+          : [];
+      return Array.from(new Set([...fromPerFormatStatus, ...fromManifest]));
+    },
+    [packageJob.perFormatStatus, packageJob.status, packageJob.manifest]
   );
   const packageFailedFormats = useMemo(
     () =>
@@ -932,10 +974,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setLocalFormats({});
     setError(null);
     setPackageJobId(null);
+    setPackageJobClientId(null);
     setPackageRequestedFormats(ALL_FORMAT_KEYS);
     setPackageJobError(null);
     setIsDescriptionExpanded(false);
     setIsSavedAnalysisView(false);
+    pendingPackageReattachRef.current = { jobId: null, clientId: null };
   }
 
   async function loadVideoByUrl(opts?: { force?: boolean }) {
@@ -1190,6 +1234,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       );
       setPackageRequestedFormats([formatKey]);
       setPackageJobId(response.jobId);
+      setPackageJobClientId(selectedClientId || videoResult.clientId || null);
       const notice = mode === "script"
         ? buildScriptContent()
         : mode === "carousel"
@@ -1319,6 +1364,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       );
       setPackageRequestedFormats(requestedFormats);
       setPackageJobId(response.jobId);
+      setPackageJobClientId(selectedClientId || videoResult.clientId || null);
       if (regenerationObjection) {
         setRegenerationObjection("");
       }
@@ -1355,13 +1401,39 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   // Reset package job state when the analysis changes. If we're loading from history and the
   // user picked a row that already has a content-generation job, the click handler stashes that
-  // jobId in pendingPackageJobIdRef so the convert panel reattaches instead of "starting fresh".
+  // jobId (and its clientId) in pendingPackageReattachRef so the panel reattaches instead of
+  // "starting fresh".
+  // IMPORTANT: When videoResult becomes null (resetVideoState), we must NOT consume the ref —
+  // handleLoadFromHistory sets the ref synchronously before clearing videoResult, so if we
+  // consumed it on the null transition we'd lose the staged data before setVideoResult fires.
   useEffect(() => {
-    setPackageJobId(pendingPackageJobIdRef.current);
-    pendingPackageJobIdRef.current = null;
+    if (!videoResult?.id) {
+      // Analysis cleared; just reset job state. Leave the ref intact so the next
+      // setVideoResult(result) call can pick it up correctly.
+      setPackageJobId(null);
+      setPackageJobClientId(null);
+      setIsReattachingJob(false);
+      setPackageRequestedFormats(ALL_FORMAT_KEYS);
+      setPackageJobError(null);
+      return;
+    }
+    // videoResult has a real id — consume the pending reattach ref.
+    const { jobId, clientId } = pendingPackageReattachRef.current;
+    pendingPackageReattachRef.current = { jobId: null, clientId: null };
+    setPackageJobId(jobId);
+    setPackageJobClientId(clientId);
+    setIsReattachingJob(jobId !== null);
     setPackageRequestedFormats(ALL_FORMAT_KEYS);
     setPackageJobError(null);
   }, [videoResult?.id]);
+
+  // Clear the reattach guard once the initial status fetch completes so that subsequent
+  // real generation jobs can drive the overlay correctly.
+  useEffect(() => {
+    if (!packageJob.isLoading) {
+      setIsReattachingJob(false);
+    }
+  }, [packageJob.isLoading]);
 
   // Keep the "Saved Analyses" row aligned with live package-job polling for the loaded analysis.
   useEffect(() => {
@@ -1462,7 +1534,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       resetVideoState();
       setIsSavedAnalysisView(true);
       setError(null);
-      pendingPackageJobIdRef.current = item.latestContentGeneration?.jobId ?? null;
+      pendingPackageReattachRef.current = {
+        jobId: item.latestContentGeneration?.jobId ?? null,
+        clientId: item.clientId ?? null,
+      };
       try {
         const current = await getSingleContentAnalysis(item.id, effectiveToken);
         if (current.snapshot) {
@@ -1652,6 +1727,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
             ? "Recovering snapshot and analysis from history..."
             : "Loading organizations, clients, networks and saved analyses..."
         }
+        mode="progress"
       />
       <AnalysisOverlay status={analysisStatus} />
       <PackageGenerationOverlay
@@ -2025,7 +2101,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         <div className="flex flex-col gap-4">
           {isAnalyzed ? (
             <Card className="border-border/40 bg-background/60 flex-1">
-              <CardHeader className="pb-3">
+                <CardHeader className="pb-3 space-y-3">
                 <TabBar
                   tabs={[
                     { key: "conversion", label: "Convert" },
@@ -2035,37 +2111,31 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                   active={rightPanelTab}
                   onChange={(k) => setRightPanelTab(k as "conversion" | "preview" | "package")}
                 />
-              </CardHeader>
-              <CardContent className="pt-0">
+                  {/* Client context — global to all tabs: drives generation and package visibility */}
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="single-analyzer-client" className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                      Client context
+                    </label>
+                    <Select
+                      id="single-analyzer-client"
+                      size="sm"
+                      className="flex-1"
+                      value={selectedClientId}
+                      onChange={(e) => setSelectedClientId(e.target.value)}
+                      disabled={clientsLoading}
+                    >
+                      <option value="">Select a client</option>
+                      {clients.map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
                 {rightPanelTab === "conversion" && (
                   <div className="flex flex-col gap-4">
-                    {/* Client context — chosen before generating, drives brand orientation */}
-                    <div className="grid gap-1.5">
-                      <label htmlFor="single-analyzer-client" className="text-xs font-medium text-muted-foreground">
-                        Client context
-                      </label>
-                      <Select
-                        id="single-analyzer-client"
-                        size="sm"
-                        className="w-full"
-                        value={selectedClientId}
-                        onChange={(e) => setSelectedClientId(e.target.value)}
-                        disabled={clientsLoading}
-                      >
-                        <option value="">Select a client</option>
-                        {clients.map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.name}
-                          </option>
-                        ))}
-                      </Select>
-                      <p className="text-xs text-muted-foreground/70">
-                        {selectedClient
-                          ? `Content will be generated for ${selectedClient.name}.`
-                          : "Pick a client before generating branded content."}
-                      </p>
-                    </div>
-
                     <div className="space-y-1">
                       <label htmlFor="regeneration-objection" className="text-xs font-medium text-foreground/90">
                         Objections for regeneration (optional)
@@ -2355,8 +2425,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       isRequestingPackage ||
                       isDownloadingPackage
                     }
+                    isJobFetching={packageJob.isLoading && isReattachingJob}
                     packageActionRequiresBuild={packageActionRequiresBuild}
                     hasAnyGeneratedFormat={hasAnyGeneratedFormat}
+                    clientFolderName={packageJob.manifest?.client_folder_name ?? null}
                     onDownload={() => void handlePackageAction()}
                   />
                 )}
@@ -2509,8 +2581,16 @@ interface PackageTabContentProps {
   packageSucceededFormats: ContentFormatKey[];
   manifest: GeneratedPackageManifest | null;
   isLoading: boolean;
+  /** True while re-attaching an existing job from history (suppresses "no content" empty state). */
+  isJobFetching: boolean;
   packageActionRequiresBuild: boolean;
   hasAnyGeneratedFormat: boolean;
+  /**
+   * Normalized client subfolder from the backend manifest (e.g. "acme-corp").
+   * Present only for packages generated after the per-client folder feature.
+   * Null for legacy flat-layout packages.
+   */
+  clientFolderName: string | null;
   onDownload: () => void;
 }
 
@@ -2519,13 +2599,25 @@ function PackageTabContent({
   packageSucceededFormats,
   manifest,
   isLoading,
+  isJobFetching,
   packageActionRequiresBuild,
   hasAnyGeneratedFormat,
+  clientFolderName,
   onDownload,
 }: PackageTabContentProps) {
   const allFormatKeys = Array.from(
     new Set([...Object.keys(localFormats) as ContentFormatKey[], ...packageSucceededFormats])
   );
+
+  // Show a loading skeleton while the hook is fetching the reattached job status.
+  if (allFormatKeys.length === 0 && isJobFetching) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[160px] text-center text-xs text-muted-foreground/60 space-y-2 py-6">
+        <RefreshCw className="h-6 w-6 opacity-40 animate-spin" />
+        <p>Loading package contents…</p>
+      </div>
+    );
+  }
 
   if (allFormatKeys.length === 0) {
     return (
@@ -2537,6 +2629,8 @@ function PackageTabContent({
     );
   }
 
+  const hasBackendPackage = Boolean(manifest) || hasAnyGeneratedFormat;
+
   return (
     <div className="flex flex-col gap-4 py-2">
       {/* File tree */}
@@ -2544,20 +2638,37 @@ function PackageTabContent({
         <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wide mb-2">
           Package contents
         </p>
+
+        {/* Root folder label */}
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70 mb-1">
           <FolderOpen className="h-3.5 w-3.5 text-amber-400" />
           <span className="font-mono">package/</span>
         </div>
+
+        {/* Client subfolder wrapper — present for new-style packages */}
+        {clientFolderName && (
+          <div className="pl-4 mb-0.5">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70">
+              <FolderOpen className="h-3.5 w-3.5 text-amber-300" />
+              <span className="font-mono">{clientFolderName}/</span>
+            </div>
+          </div>
+        )}
+
+        {/* Format entries — indented further when inside a client folder */}
         {allFormatKeys.map((formatKey) => {
           const local = localFormats[formatKey];
           const isSucceeded = packageSucceededFormats.includes(formatKey);
-          const filename =
-            manifest?.formats?.[formatKey]?.filename ?? FORMAT_FILE_NAMES[formatKey];
+          const filename = resolveFormatFilename(
+            formatKey,
+            manifest?.formats?.[formatKey]?.filename
+          );
           const isFolder = filename.endsWith("/");
           const isRegenerated = (local?.regenerationCount ?? 0) > 0;
+          const indent = clientFolderName ? "pl-10" : "pl-4";
 
           return (
-            <div key={formatKey} className="flex items-start gap-2 pl-4 py-0.5">
+            <div key={formatKey} className={`flex items-start gap-2 ${indent} py-0.5`}>
               <div className="flex items-center gap-1.5 flex-1 min-w-0">
                 {isFolder ? (
                   <FolderOpen className="h-3.5 w-3.5 text-amber-400 shrink-0" />
@@ -2594,6 +2705,17 @@ function PackageTabContent({
             </div>
           );
         })}
+
+        {/* manifest.json is always bundled with every backend-generated package */}
+        {hasBackendPackage && (
+          <div className="flex items-start gap-2 pl-4 py-0.5">
+            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              <FileText className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+              <span className="font-mono text-xs text-muted-foreground/50 truncate">manifest.json</span>
+            </div>
+            <span className="text-[10px] text-muted-foreground/40 shrink-0">system</span>
+          </div>
+        )}
       </div>
 
       {/* Download button */}

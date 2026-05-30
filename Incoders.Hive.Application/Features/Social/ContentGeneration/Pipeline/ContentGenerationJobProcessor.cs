@@ -286,7 +286,8 @@ public sealed class ContentGenerationJobProcessor
                 warningsForManifest,
                 job.OrganizationId,
                 job.Id,
-                publicationByFormat),
+                publicationByFormat,
+                brand.Client?.Name),
             ct);
         }
         catch (PackagingException ex)

@@ -1,8 +1,11 @@
 import { ApiError, ProblemDetails } from "@/lib/api/types";
 import * as httpLoadingStore from "@/lib/loading/http-loading-store";
 import { ACTIVE_ORG_STORAGE_KEY } from "@/lib/auth/session";
+import { refreshAuthSession } from "@/lib/auth/refresh-session";
 
 const BROWSER_API_BASE_URL = "/hive-api";
+
+const AUTH_REFRESH_PATH = "/api/auth/refresh";
 
 function getServerApiBaseUrl() {
   const configuredBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -35,18 +38,32 @@ export async function apiRequest<T>(path: string, init?: RequestInit, token?: st
     if (orgId) headers.set("X-Tenant-Id", orgId);
   }
 
-  if (isBrowser) httpLoadingStore.increment();
+  const sendRequest = async () => {
+    if (isBrowser) httpLoadingStore.increment();
+    try {
+      return await fetch(`${baseUrl}${path}`, {
+        ...init,
+        headers,
+        cache: "no-store"
+      });
+    } finally {
+      if (isBrowser) {
+        httpLoadingStore.decrement();
+      }
+    }
+  };
 
-  let response: Response;
-  try {
-    response = await fetch(`${baseUrl}${path}`, {
-      ...init,
-      headers,
-      cache: "no-store"
-    });
-  } finally {
-    if (isBrowser) {
-      httpLoadingStore.decrement();
+  let response = await sendRequest();
+
+  // On an expired/invalid access token, transparently rotate the session once and
+  // retry the original request. Refresh requests themselves are never retried to
+  // avoid loops. A failed refresh clears the session, surfacing the 401 to the caller.
+  const canAttemptRefresh = isBrowser && Boolean(token) && !path.startsWith(AUTH_REFRESH_PATH);
+  if (response.status === 401 && canAttemptRefresh) {
+    const refreshedToken = await refreshAuthSession();
+    if (refreshedToken) {
+      headers.set("Authorization", `Bearer ${refreshedToken}`);
+      response = await sendRequest();
     }
   }
 

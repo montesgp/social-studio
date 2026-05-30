@@ -719,6 +719,10 @@ export interface GeneratedPackageManifest {
   inferredFields?: string[];
   warnings?: string[];
   totalSizeBytes?: number;
+  /** Normalized client subfolder used inside the ZIP (e.g. "acme-corp"). Present in packages
+   *  generated after the per-client folder feature; absent in legacy flat-layout packages.
+   *  NOTE: the backend serializes with snake_case so this key is `client_folder_name` in JSON. */
+  client_folder_name?: string;
 }
 
 /**
