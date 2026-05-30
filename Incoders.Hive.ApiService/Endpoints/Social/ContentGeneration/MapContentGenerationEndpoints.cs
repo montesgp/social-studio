@@ -2,6 +2,7 @@ using Incoders.Hive.ApiService.Endpoints.Common;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Assemble;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Download;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Status;
@@ -10,10 +11,11 @@ using MediatR;
 namespace Incoders.Hive.ApiService.Endpoints.Social.ContentGeneration;
 
 /// <summary>
-/// Maps the three content-generation API endpoints:
-/// POST /api/social/single-analyzer/{analysisId}/generate-package — start a job
-/// GET  /api/social/content-generation-jobs/{jobId}/status         — poll status
-/// GET  /api/social/content-generation-jobs/{jobId}/package        — download ZIP
+/// Maps the content-generation API endpoints:
+/// POST /api/social/single-analyzer/{analysisId}/generate-package         — start a job
+/// POST /api/social/single-analyzer/{analysisId}/package/assemble         — assemble ZIP on demand
+/// GET  /api/social/content-generation-jobs/{jobId}/status                — poll status
+/// GET  /api/social/content-generation-jobs/{jobId}/package               — legacy frozen-ZIP download
 /// </summary>
 public static class ContentGenerationEndpointsExtensions
 {
@@ -29,6 +31,12 @@ public static class ContentGenerationEndpointsExtensions
             .WithSummary("Start a content package generation job for a completed analysis")
             .Produces<GenerateContentPackageResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        analyzerGroup.MapPost("/{analysisId:guid}/package/assemble", ContentGenerationEndpointFacade.AssemblePackageAsync)
+            .WithName("AssembleGeneratedPackage")
+            .WithSummary("Assemble a ZIP on demand from currently-stored per-asset rows for the analysis")
+            .Produces(StatusCodes.Status200OK, contentType: "application/zip")
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         // Job status and download (shared group)
@@ -57,6 +65,18 @@ public sealed record GeneratePackageRequest(
     Guid? ClientId,
     IReadOnlyList<string>? RequestedFormats,
     string? RegenerationObjection);
+
+/// <summary>
+/// Per-client selection entry for the assemble endpoint.
+/// A null or absent <see cref="FormatKeys"/> means "include all stored assets for this client".
+/// </summary>
+public sealed record AssembleClientSelectionRequest(
+    Guid ClientId,
+    IReadOnlyList<string>? FormatKeys);
+
+/// <summary>Request body for the assemble-package endpoint.</summary>
+public sealed record AssemblePackageRequest(
+    IReadOnlyList<AssembleClientSelectionRequest>? Clients);
 
 /// <summary>
 /// Minimal API handler delegates for content generation endpoints.
@@ -106,6 +126,37 @@ public static class ContentGenerationEndpointFacade
             cancellationToken);
 
         return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    public static async Task<IResult> AssemblePackageAsync(
+        Guid analysisId,
+        AssemblePackageRequest body,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+            return OrganizationRequired.ToProblem();
+
+        // Build the selection — default to "all clients" sentinel when no body clients provided.
+        // An empty clients list means "include everything stored for this analysis".
+        var clients = body.Clients is { Count: > 0 }
+            ? body.Clients
+                .Select(c => new ClientSelection(c.ClientId, c.FormatKeys))
+                .ToList()
+            : [new ClientSelection(Guid.Empty, null)];  // wildcard: handler will expand
+
+        var selection = new AssembleSelection(clients);
+
+        var result = await sender.Send(
+            new AssembleGeneratedPackageQuery(analysisId, tenantId.Value, selection),
+            cancellationToken);
+
+        return result.Match(response =>
+            (IResult)TypedResults.File(
+                response.ZipStream,
+                contentType: "application/zip",
+                fileDownloadName: response.DownloadFilename));
     }
 
     public static async Task<IResult> DownloadPackageAsync(

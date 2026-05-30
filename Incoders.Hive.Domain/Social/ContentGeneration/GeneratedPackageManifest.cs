@@ -16,7 +16,13 @@ public sealed record GeneratedPackageManifest(
     IReadOnlyList<string> InferredFields,
     IReadOnlyList<string> Warnings,
     long TotalSizeBytes,
-    string? ClientFolderName = null);
+    string? ClientFolderName = null,
+    /// <summary>
+    /// Set to <c>true</c> when the job ran through the INC-3+ durable per-asset storage pipeline.
+    /// Legacy frozen-ZIP packages leave this <c>false</c> (default).
+    /// Frontend uses this to decide between assemble (new) and frozen-ZIP (legacy) download paths.
+    /// </summary>
+    bool HasStoredAssets = false);
 
 /// <summary>Lightweight metadata for a single format asset inside the manifest.</summary>
 public sealed record FormatAssetMetadata(

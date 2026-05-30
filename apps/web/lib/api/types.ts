@@ -723,6 +723,12 @@ export interface GeneratedPackageManifest {
    *  generated after the per-client folder feature; absent in legacy flat-layout packages.
    *  NOTE: the backend serializes with snake_case so this key is `client_folder_name` in JSON. */
   client_folder_name?: string;
+  /**
+   * Set to `true` when the job ran through the INC-3+ durable per-asset storage pipeline.
+   * When true, use the assemble endpoint; when false/absent, use the legacy frozen-ZIP download.
+   * NOTE: serialized as `has_stored_assets` (snake_case) by the backend.
+   */
+  has_stored_assets?: boolean;
 }
 
 /**

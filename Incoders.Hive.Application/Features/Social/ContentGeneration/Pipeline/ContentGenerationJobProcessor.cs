@@ -470,7 +470,11 @@ public sealed class ContentGenerationJobProcessor
             ct);
 
         // 8. Persist the full manifest and final status.
-        var fullManifestJson = JsonSerializer.Serialize(built.Manifest, JsonOptions);
+        // Set HasStoredAssets when the durable per-asset storage pipeline ran (INC-3+).
+        var manifestToStore = _assetStorage is not null && assets.Count > 0
+            ? built.Manifest with { HasStoredAssets = true }
+            : built.Manifest;
+        var fullManifestJson = JsonSerializer.Serialize(manifestToStore, JsonOptions);
         await _jobs.UpdateManifestAsync(job.Id, fullManifestJson, DateTime.UtcNow, ct);
 
         var anyFailure = aiFailures.Count + renderFailures.Count > 0;

@@ -63,6 +63,7 @@ import {
 import {
   requestPackage,
   downloadPackageFile,
+  assemblePackage,
   ALL_FORMAT_KEYS,
   FORMAT_LABELS,
 } from "@/lib/api/content-generation";
@@ -798,7 +799,20 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setIsDownloadingPackage(true);
     setPackageJobError(null);
     try {
-      const { blob, filename } = await downloadPackageFile(packageJobId, { token: effectiveToken });
+      // Dual-path download: use assemble endpoint for new-model packages (INC-3+ durable assets);
+      // fall back to legacy frozen-ZIP for older packages without per-asset storage rows.
+      const isNewModel = packageJob.manifest?.has_stored_assets === true;
+      const analysisId = videoResult?.id;
+
+      let blob: Blob;
+      let filename: string;
+
+      if (isNewModel && analysisId) {
+        ({ blob, filename } = await assemblePackage(analysisId, undefined, { token: effectiveToken }));
+      } else {
+        ({ blob, filename } = await downloadPackageFile(packageJobId, { token: effectiveToken }));
+      }
+
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objectUrl;
@@ -814,7 +828,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     } finally {
       setIsDownloadingPackage(false);
     }
-  }, [packageJobId, isDownloadingPackage, effectiveToken]);
+  }, [packageJobId, isDownloadingPackage, effectiveToken, packageJob.manifest, videoResult?.id]);
 
   useEffect(() => {
     setDuplicateAnalysisPrompt(null);

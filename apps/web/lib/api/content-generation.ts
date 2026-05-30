@@ -142,6 +142,73 @@ export function getPackageDownloadUrl(
   };
 }
 
+// ─── Assemble-on-demand types ─────────────────────────────────────────────────
+
+/** Per-client selection for the assemble endpoint. Omit `formatKeys` to include all stored formats. */
+export interface AssembleClientSelection {
+  clientId: string;
+  formatKeys?: string[];
+}
+
+/** Request body for POST .../package/assemble */
+export interface AssemblePackageRequest {
+  clients?: AssembleClientSelection[];
+}
+
+/**
+ * POST /api/social/single-analyzer/{analysisId}/package/assemble
+ * Assembles a ZIP on demand from the currently-stored per-asset rows (INC-3+ durable pipeline).
+ * Returns the zip blob + Content-Disposition filename.
+ * Use this for NEW-model packages (manifest.has_stored_assets === true).
+ */
+export async function assemblePackage(
+  analysisId: string,
+  selection?: AssemblePackageRequest,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<{ blob: Blob; filename: string }> {
+  const base = typeof window !== "undefined" ? "/hive-api" : "";
+  const headers = new Headers({ "Content-Type": "application/json" });
+
+  if (opts?.token) {
+    headers.set("Authorization", `Bearer ${opts.token}`);
+  }
+
+  if (typeof window !== "undefined") {
+    const orgId = window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+    if (orgId) {
+      headers.set("X-Tenant-Id", orgId);
+    }
+  }
+
+  const response = await fetch(
+    `${base}/api/social/single-analyzer/${encodeURIComponent(analysisId)}/package/assemble`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(selection ?? {}),
+      signal: opts?.signal,
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    let message = `Failed to assemble package (HTTP ${response.status})`;
+    try {
+      const problem = (await response.json()) as { detail?: string; title?: string };
+      message = problem.detail ?? problem.title ?? message;
+    } catch {
+      // ignore: keep default HTTP message
+    }
+    throw new Error(message);
+  }
+
+  const filename =
+    parseContentDispositionFilename(response.headers.get("Content-Disposition")) ??
+    `content-package-${analysisId}.zip`;
+  const blob = await response.blob();
+  return { blob, filename };
+}
+
 /**
  * GET /api/social/content-generation-jobs/{jobId}/package
  * Downloads the generated ZIP using auth + tenant headers.
