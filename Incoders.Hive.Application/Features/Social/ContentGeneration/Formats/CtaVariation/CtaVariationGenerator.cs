@@ -29,7 +29,7 @@ public sealed class CtaVariationGenerator : FormatContentGeneratorBase<CtaVariat
                           "Tie each CTA to the client's objectives and KPIs when present. " +
                           "Respond with ONLY raw JSON.",
             format = "cta-variation",
-            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis, ctx.RegenerationObjection),
             clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {

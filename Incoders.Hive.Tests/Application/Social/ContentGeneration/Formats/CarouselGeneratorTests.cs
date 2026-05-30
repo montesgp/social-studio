@@ -134,6 +134,24 @@ public sealed class CarouselGeneratorTests
         Assert.Contains("@referent", prompt);
         Assert.Contains("@competitor", prompt);
         Assert.Contains("Educational Series", prompt);
+        Assert.Contains("publicationDescription", prompt);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WithRegenerationObjection_IncludesUserCorrectionInPrompt()
+    {
+        var carousel = BuildValidCarousel();
+        var gateway = new SucceedingGateway<CarouselContent>(carousel);
+        var providerCallContext = BeginContext(OrgId, ClientId, CorrelationId);
+        var generator = new CarouselGenerator(gateway, providerCallContext);
+
+        await generator.GenerateAsync(
+            BuildContext(regenerationObjection: "Adjust the hook to remove exaggerated claims."),
+            CancellationToken.None);
+
+        Assert.NotNull(gateway.LastRequest);
+        Assert.Contains("userCorrection", gateway.LastRequest!.InputJson);
+        Assert.Contains("Adjust the hook to remove exaggerated claims.", gateway.LastRequest.InputJson);
     }
 
     // -------------------------------------------------------------------
@@ -203,7 +221,9 @@ public sealed class CarouselGeneratorTests
         CtaText: "Follow us for more",
         CtaLink: null);
 
-    private static GenerationContext BuildContext(BrandSnapshot? brand = null) => new(
+    private static GenerationContext BuildContext(
+        BrandSnapshot? brand = null,
+        string? regenerationObjection = null) => new(
         OrganizationId: OrgId,
         ClientId: ClientId,
         AnalysisId: AnalysisId,
@@ -244,7 +264,8 @@ public sealed class CarouselGeneratorTests
             ]),
         CorrelationId: CorrelationId,
         AiProviderKey: "claude",
-        AiModel: "claude-sonnet-4-6");
+        AiModel: "claude-sonnet-4-6",
+        RegenerationObjection: regenerationObjection);
 
     private static ProviderCallContext BeginContext(Guid orgId, Guid? clientId, Guid correlationId)
     {

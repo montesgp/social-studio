@@ -21,4 +21,5 @@ public sealed record GenerationContext(
     BrandSnapshot BrandSnapshot,
     Guid CorrelationId,
     string AiProviderKey,
-    string? AiModel);
+    string? AiModel,
+    string? RegenerationObjection = null);

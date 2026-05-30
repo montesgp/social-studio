@@ -622,6 +622,10 @@ export interface SingleContentAnalysisHistoryResponse {
   pageSize: number;
 }
 
+export interface FindSingleContentAnalysisByUrlResponse {
+  item: SingleContentAnalysisHistoryItem | null;
+}
+
 // Async/poll status view: snapshot/analysis are null until those stages complete.
 // Returned by POST /analyze (202 Accepted, status=Requested) and by GET /analyze/{id} (polling).
 export interface SingleAnalyzerStatusResponse {
@@ -672,6 +676,7 @@ export type ContentFormatKey =
 export interface GeneratePackageRequest {
   clientId?: string | null;
   requestedFormats: ContentFormatKey[];
+  regenerationObjection?: string | null;
 }
 
 export interface GeneratePackageResponse {
@@ -689,12 +694,18 @@ export type ContentGenerationJobStatus =
   | "Failed";
 
 /** Manifest metadata for a single rendered format asset. */
+export interface FormatPublicationMetadata {
+  description: string;
+}
+
+/** Manifest metadata for a single rendered format asset. */
 export interface FormatAssetMetadata {
   formatKey: ContentFormatKey;
   mime: string;
   filename: string;
   sizeBytes: number;
   contentHash: string;
+  publication?: FormatPublicationMetadata | null;
 }
 
 /**

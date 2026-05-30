@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, SyntheticEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   ScanSearch,
@@ -18,6 +18,10 @@ import {
   Package,
   Trash2,
   XCircle,
+  AlertTriangle,
+  FileText,
+  FolderOpen,
+  FileImage,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
@@ -37,6 +41,7 @@ import type {
   SocialNetwork,
   ContentFormatKey,
   ContentGenerationJobStatus,
+  GeneratedPackageManifest,
 } from "@/lib/api/types";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { listSocialNetworks } from "@/lib/api/social-networks";
@@ -51,6 +56,7 @@ import {
   deleteSingleContentAnalysis,
   getSingleContentAnalysis,
   listSingleContentAnalyses,
+  findSingleContentAnalysisByUrl,
   mapBackendResponseToResult,
   retrySingleContentAnalysisAi,
 } from "@/lib/api/single-analyzer";
@@ -69,6 +75,8 @@ import { SupportError } from "@/components/support/support-error";
 
 const POLL_INTERVAL_MS = 2500;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min hard cap so the overlay can't hang forever
+const FALLBACK_THUMBNAIL_PATH = "/images/thumbnail-unavailable.svg";
+const MAX_REGENERATION_OBJECTION_LENGTH = 1000;
 
 // Ordered stages shown in the progress overlay — mapped to backend statuses.
 const ANALYSIS_STEPS: Array<{
@@ -522,6 +530,25 @@ function PackageGenerationOverlay({
   );
 }
 
+// ── Per-format local tracking ──────────────────────────────────────────────────
+
+type LocalFormatEntry = {
+  content: string;
+  generatedAt: string; // ISO timestamp — when the generation job was requested
+  regenerationCount: number; // 0 = first generation, ≥1 = regenerated N times
+};
+
+/** Default filenames shown in the Package tab tree when the backend manifest is absent. */
+const FORMAT_FILE_NAMES: Record<ContentFormatKey, string> = {
+  "reel-script": "reel-script.txt",
+  flyer: "flyer.png",
+  carousel: "carousel/",
+  "content-idea": "content-idea.txt",
+  "cta-variation": "cta-variation.txt",
+  caption: "caption.txt",
+  hook: "hook.txt",
+};
+
 function SocialTabletPreview({
   content,
   network,
@@ -564,6 +591,23 @@ interface SingleAnalyzerClientProps {
   isPlatformAdmin: boolean;
 }
 
+type MutationMode = "script" | "carousel" | "flyer";
+
+type PendingRegenerationRequest =
+  | {
+      kind: "single";
+      mode: MutationMode;
+      formatKey: ContentFormatKey;
+      existingFormats: ContentFormatKey[];
+      regenerationObjection: string | null;
+    }
+  | {
+      kind: "all";
+      formats: ContentFormatKey[];
+      existingFormats: ContentFormatKey[];
+      regenerationObjection: string | null;
+    };
+
 export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientProps) {
   const router = useRouter();
   const { orgId: activeOrgId } = useActiveOrg();
@@ -587,16 +631,20 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isAnalyzed, setIsAnalyzed] = useState(false);
   const [analyzingProgress, setAnalyzingProgress] = useState(0);
-  const [generatedScripts, setGeneratedScripts] = useState<Record<string, string>>({});
-  const [generatedCarousels, setGeneratedCarousels] = useState<Record<string, string>>({});
-  const [generatedFlyers, setGeneratedFlyers] = useState<Record<string, string>>({});
-  const [generatingConversion, setGeneratingConversion] = useState<string | null>(null);
-  const [rightPanelTab, setRightPanelTab] = useState<"conversion" | "preview">("conversion");
-  const [previewNetworkTab, setPreviewNetworkTab] = useState("");
-  const [mutationMode, setMutationMode] = useState<"script" | "carousel" | "flyer">("script");
+  const [localFormats, setLocalFormats] = useState<Partial<Record<ContentFormatKey, LocalFormatEntry>>>({});
+  const [generatingConversion, setGeneratingConversion] = useState<MutationMode | null>(null);
+  const [rightPanelTab, setRightPanelTab] = useState<"conversion" | "preview" | "package">("conversion");
+  const [mutationMode, setMutationMode] = useState<MutationMode>("script");
   const [historyItems, setHistoryItems] = useState<SingleContentAnalysisHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [deletingHistoryId, setDeletingHistoryId] = useState<string | null>(null);
+  const [pendingDeleteHistoryItem, setPendingDeleteHistoryItem] =
+    useState<SingleContentAnalysisHistoryItem | null>(null);
+  const [duplicateAnalysisPrompt, setDuplicateAnalysisPrompt] =
+    useState<SingleContentAnalysisHistoryItem | null>(null);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+  const [pendingRegeneration, setPendingRegeneration] =
+    useState<PendingRegenerationRequest | null>(null);
   // When loading from history, we want the new analysis's existing content-generation job to
   // re-attach to the convert panel. The packageJobId-reset effect runs AFTER setVideoResult,
   // so we pre-stage the jobId here and the effect reads it as it runs.
@@ -625,9 +673,16 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   // UX state for the new agregados.
   const [isVideoAnalysisCollapsed, setIsVideoAnalysisCollapsed] = useState(false);
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
+  const [regenerationObjection, setRegenerationObjection] = useState("");
+  const [isSavedAnalysisView, setIsSavedAnalysisView] = useState(false);
 
   // Live-detected network from the URL the user is typing (frontend hint; backend is authoritative).
   const detectedPlatform = useMemo(() => detectPlatformFromUrl(urlInput), [urlInput]);
+  const canAnalyzeByUrl =
+    urlInput.trim().length > 0 &&
+    detectedPlatform !== null &&
+    detectedPlatform !== "unknown";
 
   // Package generation polling — active while packageJobId is set and no terminal state reached.
   const packageJob = useContentGenerationJob(packageJobId, {
@@ -677,7 +732,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     [packageJob.perFormatStatus]
   );
 
-  const handlePackageDownload = useCallback(async () => {
+  const downloadCurrentPackage = useCallback(async () => {
     if (!packageJobId || isDownloadingPackage) return;
     setIsDownloadingPackage(true);
     setPackageJobError(null);
@@ -700,16 +755,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     }
   }, [packageJobId, isDownloadingPackage, effectiveToken]);
 
-  // True when the URL currently typed is the SAME we just analyzed — blocks accidental re-runs
-  // that would burn extraction tokens for no gain. Reactivates as soon as the URL changes.
-  const isCurrentUrlAlreadyAnalyzed = useMemo(
-    () =>
-      isAnalyzed &&
-      !!videoResult &&
-      videoResult.inputUrl.trim() === urlInput.trim() &&
-      urlInput.trim().length > 0,
-    [isAnalyzed, videoResult, urlInput]
-  );
+  useEffect(() => {
+    setDuplicateAnalysisPrompt(null);
+  }, [urlInput]);
+
+  useEffect(() => {
+    setIsDescriptionExpanded(false);
+  }, [videoResult?.id]);
 
   // Cancel any in-flight polling loop on unmount.
   useEffect(() => {
@@ -788,9 +840,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setSocialNetworks(result.items);
       if (result.items.length > 0) {
         setSearchNetwork((prev) =>
-          result.items.some((n) => n.code === prev) ? prev : result.items[0].code
-        );
-        setPreviewNetworkTab((prev) =>
           result.items.some((n) => n.code === prev) ? prev : result.items[0].code
         );
       }
@@ -880,19 +929,49 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setVideoResult(null);
     setIsAnalyzed(false);
     setDownloadResult(null);
-    setGeneratedScripts({});
-    setGeneratedCarousels({});
-    setGeneratedFlyers({});
+    setLocalFormats({});
     setError(null);
     setPackageJobId(null);
     setPackageRequestedFormats(ALL_FORMAT_KEYS);
     setPackageJobError(null);
+    setIsDescriptionExpanded(false);
+    setIsSavedAnalysisView(false);
   }
 
-  async function loadVideoByUrl() {
-    if (!urlInput.trim()) return;
+  async function loadVideoByUrl(opts?: { force?: boolean }) {
+    const trimmedUrl = urlInput.trim();
+    if (!trimmedUrl) return;
+    const platform = detectPlatformFromUrl(trimmedUrl);
+    if (!platform || platform === "unknown") {
+      setDuplicateAnalysisPrompt(null);
+      setError({
+        code: "social.single_analyzer.invalid_url_input",
+        message:
+          "We can only analyze valid social URLs from TikTok, Instagram, YouTube, X, Facebook, or LinkedIn.",
+      });
+      return;
+    }
+
+    if (!opts?.force && effectiveToken) {
+      setIsCheckingDuplicate(true);
+      setError(null);
+      try {
+        const duplicate = await findSingleContentAnalysisByUrl(trimmedUrl, effectiveToken);
+        if (duplicate.item) {
+          setDuplicateAnalysisPrompt(duplicate.item);
+          return;
+        }
+      } catch {
+        // Do not block the user's explicit analysis request on a lookup-only failure.
+      } finally {
+        setIsCheckingDuplicate(false);
+      }
+    }
+
+    setDuplicateAnalysisPrompt(null);
     setIsLoading(true);
     resetVideoState();
+    setIsSavedAnalysisView(false);
     setAnalysisStatus("Requested");
     pollCancelRef.current = false;
     try {
@@ -902,7 +981,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       // so a slow client connection never cancels the backend work.
       const started = await analyzeSingleContent(
         {
-          url: urlInput.trim(),
+          url: trimmedUrl,
           clientId: selectedClientId || undefined,
         },
         effectiveToken
@@ -921,7 +1000,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         if (final.snapshot) {
           const partial = mapBackendResponseToResult(final, selectedOrganizationId);
           setVideoResult(partial);
-          setPreviewNetworkTab(partial.networkSource);
         }
         setError({
           code: final.failureCode ?? "social.single_analyzer.analysis_failed",
@@ -933,7 +1011,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       const result = mapBackendResponseToResult(final, selectedOrganizationId);
       setVideoResult(result);
       setSelectedClientId(final.clientId ?? "");
-      setPreviewNetworkTab(result.networkSource);
       setIsAnalyzed(true);
       void loadHistory({ silent: true });
     } catch (e) {
@@ -977,7 +1054,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       const result = mapBackendResponseToResult(final, selectedOrganizationId);
       setVideoResult(result);
       setSelectedClientId(final.clientId ?? "");
-      setPreviewNetworkTab(result.networkSource);
       setIsAnalyzed(true);
       void loadHistory({ silent: true });
     } catch (e) {
@@ -1015,6 +1091,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     if (!searchQuery.trim()) return;
     setIsLoading(true);
     resetVideoState();
+    setIsSavedAnalysisView(false);
     await sleep(700);
     try {
       const result = getMockVideoBySearch(
@@ -1024,7 +1101,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         searchStrategy
       );
       setVideoResult(result);
-      setPreviewNetworkTab(result.networkSource);
     } catch {
       setError({ message: "Search failed. Try a different keyword." });
     } finally {
@@ -1056,94 +1132,51 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setIsAnalyzed(true);
   }
 
-  function buildScriptContent(network: string) {
-    if (network.length >= 0) return buildBackendGenerationNotice("reel-script", network);
-    if (!videoResult) return "";
-    const clientLine = selectedClient
-      ? `Client orientation: adapt this mutation for ${selectedClient.name}.`
-      : "Client orientation: none - keep the original video's angle and positioning.";
-    return [
-      `── ${network.toUpperCase()} SCRIPT ──`,
-      clientLine,
-      "",
-      videoResult.scriptDraft || "(Run analysis to generate script)",
-      "",
-      `Hook adapted for ${network}: lead with the strongest transformation.`,
-      `CTA: Follow on ${network} for more insights.`,
-    ].join("\n");
+  function buildScriptContent() {
+    return buildBackendGenerationNotice("reel-script");
   }
 
-  function buildCarouselContent(network: string) {
-    if (network.length >= 0) return buildBackendGenerationNotice("carousel", network);
-    if (!videoResult) return "";
-    const clientLine = selectedClient
-      ? `[ Client Orientation ] ${selectedClient.name}`
-      : "[ Client Orientation ] None - preserve original positioning";
-    const points = videoResult.videoAnalysis
-      ? videoResult.videoAnalysis.split("\n").filter(Boolean).slice(1, 4).map((l) => `→ ${l}`)
-      : ["→ (Analyze video to generate key points)"];
-    return [
-      `📱 ${network.toUpperCase()} CAROUSEL`,
-      "",
-      clientLine,
-      "",
-      "[ Slide 1 — Cover ]",
-      videoResult.title,
-      "",
-      "[ Slides 2–4 — Key Points ]",
-      ...points,
-      "",
-      "[ Final Slide — CTA ]",
-      `Follow on ${network} for more quality content.`,
-    ].join("\n");
+  function buildCarouselContent() {
+    return buildBackendGenerationNotice("carousel");
   }
 
-  function buildFlyerContent(network: string) {
-    if (network.length >= 0) return buildBackendGenerationNotice("flyer", network);
-    if (!videoResult) return "";
-    const clientLine = selectedClient
-      ? `CLIENT: ${selectedClient.name}`
-      : "CLIENT: None - original video orientation";
-    return [
-      `🖼️ ${network.toUpperCase()} FLYER`,
-      "══════════════",
-      clientLine,
-      "",
-      `HEADLINE: ${videoResult.title.toUpperCase().slice(0, 50)}`,
-      "",
-      `AUTHOR: ${videoResult.author}`,
-      `VIEWS: ${videoResult.views.toLocaleString()} · LIKES: ${videoResult.likes.toLocaleString()}`,
-      "",
-      "FOOTER: Follow us for weekly insights.",
-    ].join("\n");
+  function buildFlyerContent() {
+    return buildBackendGenerationNotice("flyer");
   }
 
-  function buildBackendGenerationNotice(formatKey: ContentFormatKey, network: string) {
+  function buildBackendGenerationNotice(formatKey: ContentFormatKey) {
     const label = FORMAT_LABELS[formatKey];
-    const networkLabel = networkOptions.find((n) => n.value === network)?.label ?? network;
     const clientLabel = selectedClient?.name ?? "the selected client";
     return [
       `${label} generation started for ${clientLabel}.`,
-      `Target network: ${networkLabel}.`,
       "The backend package pipeline is using the analysis idea plus the client's brand manual, strategy, objectives, KPIs, and account context.",
-      "Track progress above and download package.zip when ready.",
+      "Check the Package tab to track progress and download when ready.",
     ].join("\n");
   }
 
-  function formatForMutationMode(): ContentFormatKey {
-    if (mutationMode === "script") return "reel-script";
-    if (mutationMode === "carousel") return "carousel";
+  function formatForMutationMode(mode: MutationMode = mutationMode): ContentFormatKey {
+    if (mode === "script") return "reel-script";
+    if (mode === "carousel") return "carousel";
     return "flyer";
   }
 
-  async function handleGenerate(network: string) {
+  function hasLocalGeneratedFormat(formatKey: ContentFormatKey): boolean {
+    return Boolean(localFormats[formatKey]);
+  }
+
+  function getExistingGeneratedFormats(formats: ContentFormatKey[]): ContentFormatKey[] {
+    return formats.filter(
+      (format) => packageSucceededFormats.includes(format) || hasLocalGeneratedFormat(format)
+    );
+  }
+
+  async function startSingleFormatGeneration(
+    mode: MutationMode,
+    regenerationObjection?: string | null
+  ) {
     if (!videoResult) return;
-    if (mutationMode === "script" && generatedScripts[network]) return;
-    if (mutationMode === "carousel" && generatedCarousels[network]) return;
-    if (mutationMode === "flyer" && generatedFlyers[network]) return;
-    const key = `${network}-${mutationMode}`;
-    setGeneratingConversion(key);
-    const formatKey = formatForMutationMode();
+    setGeneratingConversion(mode);
+    const formatKey = formatForMutationMode(mode);
     setPackageJobError(null);
     try {
       const response = await requestPackage(
@@ -1151,22 +1184,30 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         {
           clientId: selectedClientId || videoResult.clientId || null,
           requestedFormats: [formatKey],
+          regenerationObjection: regenerationObjection ?? null,
         },
         { token: effectiveToken }
       );
       setPackageRequestedFormats([formatKey]);
       setPackageJobId(response.jobId);
-      const notice = mutationMode === "script"
-        ? buildScriptContent(network)
-        : mutationMode === "carousel"
-        ? buildCarouselContent(network)
-        : buildFlyerContent(network);
-      if (mutationMode === "script") {
-        setGeneratedScripts((prev) => ({ ...prev, [network]: notice }));
-      } else if (mutationMode === "carousel") {
-        setGeneratedCarousels((prev) => ({ ...prev, [network]: notice }));
-      } else {
-        setGeneratedFlyers((prev) => ({ ...prev, [network]: notice }));
+      const notice = mode === "script"
+        ? buildScriptContent()
+        : mode === "carousel"
+        ? buildCarouselContent()
+        : buildFlyerContent();
+      setLocalFormats((prev) => {
+        const existing = prev[formatKey];
+        return {
+          ...prev,
+          [formatKey]: {
+            content: notice,
+            generatedAt: new Date().toISOString(),
+            regenerationCount: existing ? existing.regenerationCount + 1 : 0,
+          },
+        };
+      });
+      if (regenerationObjection) {
+        setRegenerationObjection("");
       }
     } catch (e) {
       const err = e as { message?: string };
@@ -1176,27 +1217,111 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     }
   }
 
+  function resolveRegenerationObjection(includeObjection: boolean): string | null {
+    if (!includeObjection) return null;
+    const normalized = regenerationObjection.trim();
+    if (normalized.length === 0) {
+      setPackageJobError({
+        message: "Add objection notes before using regenerate with objections.",
+      });
+      return null;
+    }
+    setPackageJobError(null);
+    return normalized;
+  }
+
+  const generatedFormatKeys = ALL_FORMAT_KEYS.filter(
+    (format) => packageSucceededFormats.includes(format) || hasLocalGeneratedFormat(format)
+  );
+  const hasAnyGeneratedFormat = generatedFormatKeys.length > 0;
+  const packageCoversGeneratedFormats =
+    packageDownloadAvailable &&
+    generatedFormatKeys.every((format) => packageRequestedFormats.includes(format));
+  const packageActionRequiresBuild = hasAnyGeneratedFormat && !packageCoversGeneratedFormats;
+
+  async function handlePackageAction() {
+    if (isDownloadingPackage || isRequestingPackage || packageGenerationIsRunning) return;
+    if (!hasAnyGeneratedFormat) return;
+
+    if (packageActionRequiresBuild) {
+      if (packageGenerationClientMissing) {
+        setPackageJobError({ message: "Pick a client before building package.zip." });
+        return;
+      }
+      if (packageGenerationClientMismatch) {
+        setPackageJobError({
+          message: "The selected client must match the analysis client to build package.zip.",
+        });
+        return;
+      }
+      await startRequestedFormatsGeneration(generatedFormatKeys, null);
+      return;
+    }
+
+    await downloadCurrentPackage();
+  }
+
+  async function handleGenerate(includeObjection = false) {
+    if (!videoResult) return;
+    const mode = mutationMode;
+    const formatKey = formatForMutationMode(mode);
+    const currentObjection = resolveRegenerationObjection(includeObjection);
+    if (includeObjection && !currentObjection) return;
+    const existingFormats = getExistingGeneratedFormats([formatKey]);
+    if (existingFormats.length > 0) {
+      setPendingRegeneration({
+        kind: "single",
+        mode,
+        formatKey,
+        existingFormats,
+        regenerationObjection: currentObjection,
+      });
+      return;
+    }
+
+    await startSingleFormatGeneration(mode, currentObjection);
+  }
+
+  function confirmRegeneration() {
+    const request = pendingRegeneration;
+    setPendingRegeneration(null);
+    if (!request) return;
+
+    if (request.kind === "all") {
+      void startAllFormatsGeneration(request.regenerationObjection);
+      return;
+    }
+
+    void startSingleFormatGeneration(request.mode, request.regenerationObjection);
+  }
+
   /**
-   * Start a real backend content-generation package job for all 7 formats.
-   * Replaces the previous mock-based bulk generation.
+   * Start a real backend content-generation package job for the requested formats.
    */
-  async function handleConvertAll() {
-    if (!videoResult || isRequestingPackage || allFormatsGenerationIsCompleted) return;
+  async function startRequestedFormatsGeneration(
+    requestedFormats: ContentFormatKey[],
+    regenerationObjection?: string | null
+  ) {
+    if (!videoResult || isRequestingPackage || requestedFormats.length === 0) return;
     setIsRequestingPackage(true);
     setPackageJobId(null);
     setPackageJobError(null);
-    setPackageRequestedFormats(ALL_FORMAT_KEYS);
+    setPackageRequestedFormats(requestedFormats);
     try {
       const response = await requestPackage(
         videoResult.id,
         {
           clientId: selectedClientId || videoResult.clientId || null,
-          requestedFormats: ALL_FORMAT_KEYS as ContentFormatKey[],
+          requestedFormats,
+          regenerationObjection: regenerationObjection ?? null,
         },
         { token: effectiveToken }
       );
-      setPackageRequestedFormats(ALL_FORMAT_KEYS);
+      setPackageRequestedFormats(requestedFormats);
       setPackageJobId(response.jobId);
+      if (regenerationObjection) {
+        setRegenerationObjection("");
+      }
     } catch (e) {
       const err = e as { message?: string };
       setPackageJobError({ message: err?.message ?? "Failed to start content generation." });
@@ -1204,6 +1329,29 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setIsRequestingPackage(false);
     }
   }
+
+  async function startAllFormatsGeneration(regenerationObjection?: string | null) {
+    await startRequestedFormatsGeneration(ALL_FORMAT_KEYS as ContentFormatKey[], regenerationObjection);
+  }
+
+  async function handleConvertAll(includeObjection = false) {
+    if (!videoResult || isRequestingPackage) return;
+    const currentObjection = resolveRegenerationObjection(includeObjection);
+    if (includeObjection && !currentObjection) return;
+    const existingFormats = getExistingGeneratedFormats(ALL_FORMAT_KEYS);
+    if (existingFormats.length > 0) {
+      setPendingRegeneration({
+        kind: "all",
+        formats: ALL_FORMAT_KEYS,
+        existingFormats,
+        regenerationObjection: currentObjection,
+      });
+      return;
+    }
+
+    await startAllFormatsGeneration(currentObjection);
+  }
+
 
   // Reset package job state when the analysis changes. If we're loading from history and the
   // user picked a row that already has a content-generation job, the click handler stashes that
@@ -1312,6 +1460,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setIsHydratingHistory(true);
       setIsLoading(true);
       resetVideoState();
+      setIsSavedAnalysisView(true);
       setError(null);
       pendingPackageJobIdRef.current = item.latestContentGeneration?.jobId ?? null;
       try {
@@ -1320,7 +1469,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
           const result = mapBackendResponseToResult(current, selectedOrganizationId);
           setVideoResult(result);
           setSelectedClientId(current.clientId ?? "");
-          setPreviewNetworkTab(result.networkSource);
         }
         if (current.status === "Analyzed") {
           setIsAnalyzed(true);
@@ -1336,6 +1484,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         // overlay off — the user can paste the URL again or just observe state changes via reload.
       } catch (e) {
         const err = e as { message?: string };
+        setIsSavedAnalysisView(false);
         setError({
           message: err?.message ?? "Failed to load this saved analysis. Please try again.",
         });
@@ -1347,16 +1496,17 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     [effectiveToken, isLoading, selectedOrganizationId]
   );
 
+  async function resumeDuplicateAnalysis() {
+    if (!duplicateAnalysisPrompt) return;
+    const item = duplicateAnalysisPrompt;
+    setDuplicateAnalysisPrompt(null);
+    setUrlInput(item.normalizedUrl ?? item.sourceUrl);
+    await handleLoadFromHistory(item);
+  }
+
   const handleDeleteFromHistory = useCallback(
     async (item: SingleContentAnalysisHistoryItem) => {
       if (!effectiveToken) return;
-      if (
-        !window.confirm(
-          "Delete this analysis? The scrape, AI analysis, any generated content and downloadable packages will be permanently removed."
-        )
-      ) {
-        return;
-      }
       setDeletingHistoryId(item.id);
       try {
         await deleteSingleContentAnalysis(item.id, effectiveToken);
@@ -1374,6 +1524,17 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     },
     [effectiveToken, videoResult?.id]
   );
+
+  const requestDeleteFromHistory = useCallback((item: SingleContentAnalysisHistoryItem) => {
+    setPendingDeleteHistoryItem(item);
+  }, []);
+
+  function confirmDeleteFromHistory() {
+    const item = pendingDeleteHistoryItem;
+    setPendingDeleteHistoryItem(null);
+    if (!item) return;
+    void handleDeleteFromHistory(item);
+  }
 
   const handleHistoryDownload = useCallback(async (jobId: string) => {
     try {
@@ -1415,11 +1576,36 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setIsDownloading(false);
   }
 
-  function activeContent(network: string): string | null {
-    if (mutationMode === "script") return generatedScripts[network] ?? null;
-    if (mutationMode === "carousel") return generatedCarousels[network] ?? null;
-    return generatedFlyers[network] ?? null;
+  function activeContent(): string | null {
+    const formatKey = formatForMutationMode();
+    return localFormats[formatKey]?.content ?? null;
   }
+
+  const pendingRegenerationLabels =
+    pendingRegeneration?.existingFormats.map((format) => FORMAT_LABELS[format]).join(", ") ?? "";
+  const selectedFormatKey = formatForMutationMode();
+  const hasExistingFormatForCurrentMode =
+    getExistingGeneratedFormats([selectedFormatKey]).length > 0;
+  const videoCardTitle =
+    videoResult?.title?.trim() || videoResult?.primaryHook?.trim() || "Untitled";
+  const normalizedVideoTitle = videoResult?.title?.trim() ?? "";
+  const normalizedVideoDescription = videoResult?.description?.trim() ?? "";
+  const descriptionMatchesTitle =
+    normalizedVideoTitle.length > 0 &&
+    normalizedVideoDescription.length > 0 &&
+    normalizedVideoDescription.toLowerCase() === normalizedVideoTitle.toLowerCase();
+  const shouldHideDuplicatedDescription =
+    !(videoResult?.primaryHook?.trim().length ?? 0) && descriptionMatchesTitle;
+  const shouldHideVideoDescription = Boolean(videoResult?.isFallbackThumbnail);
+  const shouldShowVideoDescription =
+    Boolean(videoResult?.description) &&
+    !shouldHideDuplicatedDescription &&
+    !shouldHideVideoDescription;
+
+  const handleVideoThumbnailError = useCallback((event: SyntheticEvent<HTMLImageElement>) => {
+    if (event.currentTarget.src.includes(FALLBACK_THUMBNAIL_PATH)) return;
+    event.currentTarget.src = FALLBACK_THUMBNAIL_PATH;
+  }, []);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -1480,125 +1666,162 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         {/* ── LEFT PANEL ── */}
         <div className="flex flex-col gap-4">
           {/* Input card */}
-          <Card className="border-border/40 bg-background/60">
-            <CardHeader className="pb-3">
-              <TabBar
-                tabs={[
-                  { key: "url", label: "By URL" },
-                  { key: "search", label: "By Search" },
-                ]}
-                active={inputMode}
-                onChange={(k) => setInputMode(k as "url" | "search")}
-              />
-            </CardHeader>
-            <CardContent className="pt-0 space-y-3">
-              {inputMode === "url" ? (
-                <div className="space-y-1.5">
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Paste a URL from TikTok, Instagram, YouTube, X, Facebook…"
-                      value={urlInput}
-                      onChange={(e) => setUrlInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !isCurrentUrlAlreadyAnalyzed) void loadVideoByUrl();
-                      }}
-                      className="h-8 text-xs"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={() => void loadVideoByUrl()}
-                      disabled={isLoading || !urlInput.trim() || isCurrentUrlAlreadyAnalyzed}
-                      className="h-8 px-3 text-xs"
-                      title={
-                        isCurrentUrlAlreadyAnalyzed
-                          ? "This URL is already analyzed. Change the URL to enable Analyze."
-                          : undefined
-                      }
-                    >
-                      {isLoading ? (
-                        <RefreshCw className="h-3 w-3 animate-spin" />
-                      ) : isCurrentUrlAlreadyAnalyzed ? (
-                        <span className="flex items-center gap-1">
-                          <CheckCircle2 className="h-3 w-3" />
-                          Analyzed
-                        </span>
-                      ) : (
-                        "Analyze"
-                      )}
-                    </Button>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-muted-foreground/70 flex-1">
-                      {isLoading
-                        ? "Analyzing… fetching and processing the video can take up to 60 seconds."
-                        : isCurrentUrlAlreadyAnalyzed
-                        ? "This URL has been analyzed. Paste a different URL to run a new analysis."
-                        : "Paste a URL to scrape and analyze the video in one step."}
-                    </p>
-                    {detectedPlatform && (
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "text-xs shrink-0 capitalize",
-                          detectedPlatform === "unknown" && "border-amber-500/40 text-amber-500"
-                        )}
-                        title={
-                          detectedPlatform === "unknown"
-                            ? "Unsupported domain — the backend will try a generic extractor; results may vary."
-                            : `Detected: ${PLATFORM_LABELS[detectedPlatform]}`
-                        }
+          {isSavedAnalysisView ? (
+            <Card className="border-border/40 bg-background/60">
+              <CardContent className="py-4">
+                <p className="text-xs text-muted-foreground/80">
+                  Saved analysis loaded. Analyze by URL/Search is hidden in this mode. You can regenerate content from this analysis.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border-border/40 bg-background/60">
+              <CardHeader className="pb-3">
+                <TabBar
+                  tabs={[
+                    { key: "url", label: "By URL" },
+                    { key: "search", label: "By Search" },
+                  ]}
+                  active={inputMode}
+                  onChange={(k) => setInputMode(k as "url" | "search")}
+                />
+              </CardHeader>
+              <CardContent className="pt-0 space-y-3">
+                {inputMode === "url" ? (
+                  <div className="space-y-1.5">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Paste a URL from TikTok, Instagram, YouTube, X, Facebook…"
+                        value={urlInput}
+                        onChange={(e) => setUrlInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void loadVideoByUrl();
+                        }}
+                        className="h-8 text-xs"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => void loadVideoByUrl()}
+                        disabled={isLoading || isCheckingDuplicate || !canAnalyzeByUrl}
+                        className="h-8 px-3 text-xs"
                       >
-                        {PLATFORM_LABELS[detectedPlatform]}
-                      </Badge>
+                        {isLoading || isCheckingDuplicate ? (
+                          <RefreshCw className="h-3 w-3 animate-spin" />
+                        ) : (
+                          "Analyze"
+                        )}
+                      </Button>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground/70 flex-1">
+                        {isCheckingDuplicate
+                          ? "Checking saved analyses before starting a new provider run."
+                          : isLoading
+                          ? "Analyzing… fetching and processing the video can take up to 60 seconds."
+                          : detectedPlatform === "unknown"
+                          ? "Unsupported URL for this analyzer. Paste a supported social URL."
+                          : "Paste a URL to scrape and analyze the video in one step."}
+                      </p>
+                      {detectedPlatform && (
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-xs shrink-0 capitalize",
+                            detectedPlatform === "unknown" && "border-amber-500/40 text-amber-500"
+                          )}
+                          title={
+                            detectedPlatform === "unknown"
+                              ? "Unsupported URL for this analyzer."
+                              : `Detected: ${PLATFORM_LABELS[detectedPlatform]}`
+                          }
+                        >
+                          {PLATFORM_LABELS[detectedPlatform]}
+                        </Badge>
+                      )}
+                    </div>
+                    {duplicateAnalysisPrompt && (
+                      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <p className="text-xs font-medium text-foreground">
+                              This video was already analyzed
+                            </p>
+                            <p className="text-xs text-muted-foreground/75">
+                              Saved on {formatDate(duplicateAnalysisPrompt.createdAtUtc)}. Resume the saved
+                              analysis to regenerate content, or run a new analysis from scratch.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            onClick={() => void loadVideoByUrl({ force: true })}
+                            disabled={isLoading}
+                          >
+                            Analyze again
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs"
+                            onClick={() => void resumeDuplicateAnalysis()}
+                            disabled={isLoading}
+                          >
+                            Resume saved analysis
+                          </Button>
+                        </div>
+                      </div>
                     )}
                   </div>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex gap-2">
-                    <Select
-                      size="sm"
-                      className="w-32"
-                      value={searchNetwork}
-                      onChange={(e) => setSearchNetwork(e.target.value)}
-                      disabled={networksLoading || networkOptions.length === 0}
-                    >
-                      {networkOptions.map((n) => (
-                        <option key={n.value} value={n.value}>{n.label}</option>
-                      ))}
-                    </Select>
-                    <Select
-                      size="sm"
-                      className="w-36"
-                      value={searchStrategy}
-                      onChange={(e) => setSearchStrategy(e.target.value)}
-                    >
-                      {strategyOptions.map((s) => (
-                        <option key={s.value} value={s.value}>{s.label}</option>
-                      ))}
-                    </Select>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <Select
+                        size="sm"
+                        className="w-32"
+                        value={searchNetwork}
+                        onChange={(e) => setSearchNetwork(e.target.value)}
+                        disabled={networksLoading || networkOptions.length === 0}
+                      >
+                        {networkOptions.map((n) => (
+                          <option key={n.value} value={n.value}>{n.label}</option>
+                        ))}
+                      </Select>
+                      <Select
+                        size="sm"
+                        className="w-36"
+                        value={searchStrategy}
+                        onChange={(e) => setSearchStrategy(e.target.value)}
+                      >
+                        {strategyOptions.map((s) => (
+                          <option key={s.value} value={s.value}>{s.label}</option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Search by keyword or topic…"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && void findBestMatch()}
+                        className="h-8 text-xs flex-1"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => void findBestMatch()}
+                        disabled={isLoading || !searchQuery.trim()}
+                        className="h-8 px-3 text-xs"
+                      >
+                        {isLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Search by keyword or topic…"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && void findBestMatch()}
-                      className="h-8 text-xs flex-1"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={() => void findBestMatch()}
-                      disabled={isLoading || !searchQuery.trim()}
-                      className="h-8 px-3 text-xs"
-                    >
-                      {isLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Video card */}
           {videoResult && (
@@ -1606,8 +1829,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
               <div className="relative aspect-video w-full overflow-hidden bg-muted/30">
                 <img
                   src={videoResult.thumbnailUrl}
-                  alt={videoResult.title}
+                  alt={videoCardTitle}
                   className="w-full h-full object-cover"
+                  onError={handleVideoThumbnailError}
                 />
                 <div className="absolute top-2 right-2">
                   <Badge variant="outline" className="bg-background/80 text-xs capitalize">
@@ -1624,8 +1848,30 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
               </div>
               <CardContent className="p-4 space-y-3">
                 <div>
-                  <h3 className="text-sm font-semibold text-foreground line-clamp-2">{videoResult.title}</h3>
+                  <h3 className="text-sm font-semibold text-foreground line-clamp-2">{videoCardTitle}</h3>
                   <p className="mt-0.5 text-xs text-muted-foreground">{videoResult.author}</p>
+                  {shouldShowVideoDescription && (
+                    <div className="mt-2 space-y-1">
+                      <p
+                        className={cn(
+                          "text-xs leading-relaxed text-muted-foreground/80",
+                          !isDescriptionExpanded && "line-clamp-2"
+                        )}
+                      >
+                        {videoResult.description}
+                      </p>
+                      {normalizedVideoDescription.length > 140 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs text-muted-foreground"
+                          onClick={() => setIsDescriptionExpanded((value) => !value)}
+                        >
+                          {isDescriptionExpanded ? "Show less" : "Show full description"}
+                        </Button>
+                      )}
+                    </div>
+                  )}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     <Badge variant="outline" className="text-xs capitalize">
                       {videoResult.contentType ?? "video"}
@@ -1784,14 +2030,15 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                   tabs={[
                     { key: "conversion", label: "Convert" },
                     { key: "preview", label: "Preview" },
+                    { key: "package", label: "Package" },
                   ]}
                   active={rightPanelTab}
-                  onChange={(k) => setRightPanelTab(k as "conversion" | "preview")}
+                  onChange={(k) => setRightPanelTab(k as "conversion" | "preview" | "package")}
                 />
               </CardHeader>
               <CardContent className="pt-0">
                 {rightPanelTab === "conversion" && (
-                  <div className="space-y-4">
+                  <div className="flex flex-col gap-4">
                     {/* Client context — chosen before generating, drives brand orientation */}
                     <div className="grid gap-1.5">
                       <label htmlFor="single-analyzer-client" className="text-xs font-medium text-muted-foreground">
@@ -1819,8 +2066,26 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       </p>
                     </div>
 
+                    <div className="space-y-1">
+                      <label htmlFor="regeneration-objection" className="text-xs font-medium text-foreground/90">
+                        Objections for regeneration (optional)
+                      </label>
+                      <textarea
+                        id="regeneration-objection"
+                        value={regenerationObjection}
+                        onChange={(event) => setRegenerationObjection(event.target.value)}
+                        maxLength={MAX_REGENERATION_OBJECTION_LENGTH}
+                        rows={3}
+                        placeholder="Describe what should be corrected in the generated content..."
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      />
+                      <p className="text-[10px] text-muted-foreground/70 text-right">
+                        {regenerationObjection.length}/{MAX_REGENERATION_OBJECTION_LENGTH}
+                      </p>
+                    </div>
+
                     {/* Backend package pipeline: enqueue all formats, poll live status, then download zip. */}
-                    <div className="space-y-2">
+                    <div className="space-y-2 order-2">
                       <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3 space-y-2">
                         <div className="flex items-start gap-2">
                           <Sparkles className="h-4 w-4 text-purple-400 mt-0.5 shrink-0" />
@@ -1839,15 +2104,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             className="flex-1 h-8 text-xs"
                             onClick={() => void handleConvertAll()}
                             disabled={
-                              packageGenerationIsRunning ||
-                              allFormatsGenerationIsCompleted ||
-                              packageGenerationClientMissing ||
-                              packageGenerationClientMismatch ||
-                              networkOptions.length === 0
-                            }
+                                packageGenerationIsRunning ||
+                                packageGenerationClientMissing ||
+                                packageGenerationClientMismatch
+                              }
                             title={
                               allFormatsGenerationIsCompleted
-                                ? "This analysis already finished all formats."
+                                ? "Regenerate all formats. The latest generated content will be replaced after confirmation."
                                 : packageGenerationClientMissing
                                 ? "Pick a client before generating branded content."
                                 : packageGenerationClientMismatch
@@ -1862,8 +2125,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                               </span>
                             ) : allFormatsGenerationIsCompleted ? (
                               <span className="flex items-center gap-2">
-                                <CheckCircle2 className="h-3 w-3 text-green-500" />
-                                All formats generated
+                                <RefreshCw className="h-3 w-3" />
+                                Regenerate all formats
                               </span>
                             ) : packageGenerationIsPartial ? (
                               <span className="flex items-center gap-2">
@@ -1882,22 +2145,24 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                               </span>
                             )}
                           </Button>
+                        </div>
+                        {allFormatsGenerationIsCompleted && (
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-8 text-xs"
-                            disabled={!packageDownloadAvailable || isDownloadingPackage}
-                            onClick={() => void handlePackageDownload()}
-                            title={packageDownloadAvailable ? "Download the generated package" : "Generate a package first"}
+                            className="w-full h-8 text-xs"
+                            onClick={() => void handleConvertAll(true)}
+                            disabled={
+                              packageGenerationIsRunning ||
+                              packageGenerationClientMissing ||
+                              packageGenerationClientMismatch
+                            }
+                            title="Regenerate every format using your objection notes."
                           >
-                            {isDownloadingPackage ? (
-                              <RefreshCw className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Package className="h-3 w-3" />
-                            )}
-                            {isDownloadingPackage ? "Downloading..." : "package.zip"}
+                            <AlertTriangle className="h-3 w-3" />
+                            Regenerate all with objections
                           </Button>
-                        </div>
+                        )}
                         {Object.keys(packageJob.perFormatStatus).length > 0 && (packageGenerationIsRunning || packageGenerationIsPartial || packageGenerationIsCompleted) && (
                           <div className="flex flex-wrap gap-1 pt-1">
                             {(Object.entries(packageJob.perFormatStatus) as [ContentFormatKey, string][]).map(([fmt, st]) => (
@@ -1946,82 +2211,129 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                         )}
                     </div>
 
-                    {/* Format mode selector */}
-                    <div className="flex gap-1.5">
-                      {(["script", "carousel", "flyer"] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => setMutationMode(mode)}
-                          className={cn(
-                            "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium border transition-colors capitalize",
-                            mutationMode === mode
-                              ? "border-purple-500/50 bg-purple-500/10 text-purple-400"
-                              : "border-border/40 text-muted-foreground hover:text-foreground"
-                          )}
-                        >
-                          {mode === "script" && <Film className="h-3 w-3" />}
-                          {mode === "carousel" && <ImageIcon className="h-3 w-3" />}
-                          {mode === "flyer" && <Megaphone className="h-3 w-3" />}
-                          {mode}
-                        </button>
-                      ))}
-                    </div>
+                    <div className="order-1 space-y-3">
+                      {/* Format mode selector */}
+                      <div className="flex gap-1.5">
+                        {(["script", "carousel", "flyer"] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setMutationMode(mode)}
+                            className={cn(
+                              "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium border transition-colors capitalize",
+                              mutationMode === mode
+                                ? "border-purple-500/50 bg-purple-500/10 text-purple-400"
+                                : "border-border/40 text-muted-foreground hover:text-foreground"
+                            )}
+                          >
+                            {mode === "script" && <Film className="h-3 w-3" />}
+                            {mode === "carousel" && <ImageIcon className="h-3 w-3" />}
+                            {mode === "flyer" && <Megaphone className="h-3 w-3" />}
+                            {mode}
+                          </button>
+                        ))}
+                      </div>
 
-                    {/* Per-network tabs */}
-                    <div>
-                      <TabBar
-                        tabs={networkOptions.map((n) => ({ key: n.value, label: n.label }))}
-                        active={previewNetworkTab}
-                        onChange={setPreviewNetworkTab}
-                      />
+                      {/* Per-format generate section */}
+                      <div>
                       <div className="mt-3 space-y-3">
-                        {activeContent(previewNetworkTab) ? (
-                          <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
+                        {activeContent() ? (
+                          <div className="rounded-lg border border-border/40 bg-muted/20 p-3 space-y-3">
                             <pre className="whitespace-pre-wrap text-xs text-foreground/80 font-mono leading-relaxed">
-                              {activeContent(previewNetworkTab)}
+                              {activeContent()}
                             </pre>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                onClick={() => void handleGenerate()}
+                                disabled={
+                                  generatingConversion !== null ||
+                                  packageGenerationIsRunning ||
+                                  packageGenerationClientMissing ||
+                                  packageGenerationClientMismatch
+                                }
+                              >
+                                <RefreshCw className="h-3 w-3" />
+                                Regenerate {mutationMode}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                onClick={() => void handleGenerate(true)}
+                                disabled={
+                                  generatingConversion !== null ||
+                                  packageGenerationIsRunning ||
+                                  packageGenerationClientMissing ||
+                                  packageGenerationClientMismatch
+                                }
+                                title="Regenerate this format using your objection notes."
+                              >
+                                <AlertTriangle className="h-3 w-3" />
+                                Regenerate with objections
+                              </Button>
+                            </div>
                           </div>
                         ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full h-8 text-xs"
-                            onClick={() => void handleGenerate(previewNetworkTab)}
-                            disabled={
-                              generatingConversion !== null ||
-                              packageGenerationIsRunning ||
-                              packageGenerationClientMissing ||
-                              packageGenerationClientMismatch
-                            }
-                          >
-                            {generatingConversion === `${previewNetworkTab}-${mutationMode}` ? (
-                              <span className="flex items-center gap-2">
-                                <RefreshCw className="h-3 w-3 animate-spin" />
-                                Generating…
-                              </span>
-                            ) : (
-                              `Generate ${mutationMode} for ${networkOptions.find((n) => n.value === previewNetworkTab)?.label ?? previewNetworkTab}`
+                          <div className="space-y-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="w-full h-8 text-xs"
+                              onClick={() => void handleGenerate()}
+                              disabled={
+                                generatingConversion !== null ||
+                                packageGenerationIsRunning ||
+                                packageGenerationClientMissing ||
+                                packageGenerationClientMismatch
+                              }
+                            >
+                              {generatingConversion === mutationMode ? (
+                                <span className="flex items-center gap-2">
+                                  <RefreshCw className="h-3 w-3 animate-spin" />
+                                  Generating…
+                                </span>
+                              ) : hasExistingFormatForCurrentMode ? (
+                                `Regenerate ${mutationMode}`
+                              ) : (
+                                `Generate ${mutationMode}`
+                              )}
+                            </Button>
+                            {hasExistingFormatForCurrentMode && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="w-full h-8 text-xs"
+                                onClick={() => void handleGenerate(true)}
+                                disabled={
+                                  generatingConversion !== null ||
+                                  packageGenerationIsRunning ||
+                                  packageGenerationClientMissing ||
+                                  packageGenerationClientMismatch
+                                }
+                                title="Regenerate this format using your objection notes."
+                              >
+                                <AlertTriangle className="h-3 w-3" />
+                                Regenerate with objections
+                              </Button>
                             )}
-                          </Button>
+                            </div>
                         )}
                       </div>
                     </div>
+                  </div>
                   </div>
                 )}
 
                 {rightPanelTab === "preview" && (
                   <div>
-                    <TabBar
-                      tabs={networkOptions.map((n) => ({ key: n.value, label: n.label }))}
-                      active={previewNetworkTab}
-                      onChange={setPreviewNetworkTab}
-                    />
                     <div className="mt-3">
-                      {activeContent(previewNetworkTab) ? (
+                      {activeContent() ? (
                         <SocialTabletPreview
-                          content={activeContent(previewNetworkTab) ?? ""}
-                          network={previewNetworkTab}
+                          content={activeContent() ?? ""}
+                          network={videoResult?.networkSource ?? "social"}
                         />
                       ) : (
                         <div className="flex flex-col items-center justify-center min-h-[160px] text-center text-xs text-muted-foreground/60 space-y-2">
@@ -2031,6 +2343,22 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       )}
                     </div>
                   </div>
+                )}
+
+                {rightPanelTab === "package" && (
+                  <PackageTabContent
+                    localFormats={localFormats}
+                    packageSucceededFormats={packageSucceededFormats}
+                    manifest={packageJob.manifest ?? null}
+                    isLoading={
+                      packageGenerationIsRunning ||
+                      isRequestingPackage ||
+                      isDownloadingPackage
+                    }
+                    packageActionRequiresBuild={packageActionRequiresBuild}
+                    hasAnyGeneratedFormat={hasAnyGeneratedFormat}
+                    onDownload={() => void handlePackageAction()}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -2068,13 +2396,39 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     item.latestContentGeneration?.jobId &&
                     void handleHistoryDownload(item.latestContentGeneration.jobId)
                   }
-                  onDelete={() => void handleDeleteFromHistory(item)}
+                  onDelete={() => requestDeleteFromHistory(item)}
                 />
               ))}
             </div>
           </CardContent>
         </Card>
       )}
+
+      <ConfirmationDialog
+        open={pendingDeleteHistoryItem !== null}
+        title="Delete this analysis?"
+        description="The scrape, AI analysis, generated formats, and downloadable packages will be permanently removed."
+        cancelLabel="Keep analysis"
+        confirmLabel="Delete permanently"
+        confirmVariant="destructive"
+        onCancel={() => setPendingDeleteHistoryItem(null)}
+        onConfirm={confirmDeleteFromHistory}
+      />
+
+      <ConfirmationDialog
+        open={pendingRegeneration !== null}
+        title="Replace generated content?"
+        description={
+          pendingRegenerationLabels
+            ? `Regenerating ${pendingRegenerationLabels} will replace the current generated content for this analysis.${pendingRegeneration?.regenerationObjection ? " Your objection notes will be sent to the agent." : ""}`
+            : `Regenerating will replace the current generated content for this analysis.${pendingRegeneration?.regenerationObjection ? " Your objection notes will be sent to the agent." : ""}`
+        }
+        cancelLabel="Keep current content"
+        confirmLabel="Regenerate and replace"
+        confirmVariant="destructive"
+        onCancel={() => setPendingRegeneration(null)}
+        onConfirm={confirmRegeneration}
+      />
 
       <ConfirmationDialog
         open={isAbandonDialogOpen}
@@ -2147,6 +2501,129 @@ function generationBadge(status: string): { label: string; variant: BadgeVariant
     default:
       return { label: status, variant: "muted" };
   }
+}
+
+// ── PackageTabContent ──────────────────────────────────────────────────────────
+interface PackageTabContentProps {
+  localFormats: Partial<Record<ContentFormatKey, LocalFormatEntry>>;
+  packageSucceededFormats: ContentFormatKey[];
+  manifest: GeneratedPackageManifest | null;
+  isLoading: boolean;
+  packageActionRequiresBuild: boolean;
+  hasAnyGeneratedFormat: boolean;
+  onDownload: () => void;
+}
+
+function PackageTabContent({
+  localFormats,
+  packageSucceededFormats,
+  manifest,
+  isLoading,
+  packageActionRequiresBuild,
+  hasAnyGeneratedFormat,
+  onDownload,
+}: PackageTabContentProps) {
+  const allFormatKeys = Array.from(
+    new Set([...Object.keys(localFormats) as ContentFormatKey[], ...packageSucceededFormats])
+  );
+
+  if (allFormatKeys.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[160px] text-center text-xs text-muted-foreground/60 space-y-2 py-6">
+        <Package className="h-8 w-8 opacity-30" />
+        <p>No content generated yet.</p>
+        <p className="text-[10px]">Use the Convert tab to generate formats.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 py-2">
+      {/* File tree */}
+      <div className="rounded-lg border border-border/40 bg-muted/20 p-3 space-y-1">
+        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wide mb-2">
+          Package contents
+        </p>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70 mb-1">
+          <FolderOpen className="h-3.5 w-3.5 text-amber-400" />
+          <span className="font-mono">package/</span>
+        </div>
+        {allFormatKeys.map((formatKey) => {
+          const local = localFormats[formatKey];
+          const isSucceeded = packageSucceededFormats.includes(formatKey);
+          const filename =
+            manifest?.formats?.[formatKey]?.filename ?? FORMAT_FILE_NAMES[formatKey];
+          const isFolder = filename.endsWith("/");
+          const isRegenerated = (local?.regenerationCount ?? 0) > 0;
+
+          return (
+            <div key={formatKey} className="flex items-start gap-2 pl-4 py-0.5">
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                {isFolder ? (
+                  <FolderOpen className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                ) : filename.endsWith(".png") || filename.endsWith(".jpg") ? (
+                  <FileImage className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                ) : (
+                  <FileText className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                )}
+                <span className="font-mono text-xs text-foreground/80 truncate">{filename}</span>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                {isRegenerated && (
+                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
+                    Regenerated ×{local!.regenerationCount}
+                  </span>
+                )}
+                {local?.generatedAt && (
+                  <span className="text-[10px] text-muted-foreground/50 tabular-nums">
+                    {new Date(local.generatedAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                )}
+                {isSucceeded && !local && (
+                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20">
+                    Generated
+                  </span>
+                )}
+                {isSucceeded && local && (
+                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Download button */}
+      <Button
+        size="sm"
+        className="w-full h-9 text-xs"
+        onClick={onDownload}
+        disabled={!hasAnyGeneratedFormat || isLoading}
+        title={
+          !hasAnyGeneratedFormat
+            ? "Generate at least one format first."
+            : packageActionRequiresBuild
+            ? "Build package.zip with all generated formats for this analysis."
+            : "Download the generated package."
+        }
+      >
+        {isLoading ? (
+          <span className="flex items-center gap-2">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            {packageActionRequiresBuild ? "Building…" : "Downloading…"}
+          </span>
+        ) : (
+          <span className="flex items-center gap-2">
+            <Package className="h-3 w-3" />
+            {packageActionRequiresBuild ? "Build package.zip" : "Download package.zip"}
+          </span>
+        )}
+      </Button>
+    </div>
+  );
 }
 
 interface SavedAnalysisRowProps {

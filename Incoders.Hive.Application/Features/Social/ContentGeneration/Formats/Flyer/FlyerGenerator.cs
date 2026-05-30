@@ -33,7 +33,7 @@ public sealed class FlyerGenerator : FormatContentGeneratorBase<FlyerContent>
                           "Apply any manual notes such as required signatures or handles in signatureText. " +
                           "Respond with ONLY raw JSON.",
             format = "flyer",
-            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis, ctx.RegenerationObjection),
             clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {
@@ -44,7 +44,8 @@ public sealed class FlyerGenerator : FormatContentGeneratorBase<FlyerContent>
                 ctaText = "string",
                 backgroundPrompt = "string|null - visual background direction when no brand template exists",
                 signatureText = "string|null - required footer/signature/handle from brand manual when applicable",
-                layoutHint = "string|null - layout suggestion e.g. grid, hero, split"
+                layoutHint = "string|null - layout suggestion e.g. grid, hero, split",
+                publicationDescription = "string|null - social post copy to publish with this flyer"
             }
         };
         return JsonSerializer.Serialize(input, JsonOptions);

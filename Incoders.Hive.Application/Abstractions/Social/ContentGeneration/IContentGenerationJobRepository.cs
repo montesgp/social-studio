@@ -43,4 +43,5 @@ public sealed record ContentGenerationJob(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     DateTime? StartedAt,
-    DateTime? CompletedAt);
+    DateTime? CompletedAt,
+    string? RegenerationObjection = null);

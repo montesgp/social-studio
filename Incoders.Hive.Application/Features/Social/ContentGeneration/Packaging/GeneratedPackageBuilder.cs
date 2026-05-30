@@ -50,12 +50,15 @@ public sealed class GeneratedPackageBuilder : IGeneratedPackageBuilder
                 totalSize += bytes.Length;
 
                 // Last asset metadata wins per format key (for multi-slide carousel, last slide)
+                PublicationMetadata? publication = null;
+                input.PublicationByFormat?.TryGetValue(asset.FormatKey, out publication);
                 formatMeta[asset.FormatKey] = new FormatAssetMetadata(
                     asset.FormatKey,
                     asset.Mime,
                     asset.Filename,
                     asset.SizeBytes,
-                    asset.ContentHash);
+                    asset.ContentHash,
+                    publication);
             }
 
             // Write manifest.json

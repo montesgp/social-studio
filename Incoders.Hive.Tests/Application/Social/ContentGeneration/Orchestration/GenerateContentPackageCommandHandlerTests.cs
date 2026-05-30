@@ -79,6 +79,56 @@ public sealed class GenerateContentPackageCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WithRegenerationObjection_PersistsNormalizedObjection()
+    {
+        var analysis = MakeAnalysisRecord(OrgId);
+        var analysisRepo = new FakeAnalysisRepository(analysis);
+        var jobRepo = new FakeContentGenerationJobRepository();
+        var queue = new FakeContentGenerationJobQueue();
+        var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue);
+
+        var command = new GenerateContentPackageCommand(
+            OrganizationId: OrgId,
+            ClientId: ClientId,
+            AnalysisId: AnalysisId,
+            RequestedFormats: ["carousel"],
+            CorrelationId: null,
+            RegenerationObjection: "  The CTA is inaccurate for this brand.  ");
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(jobRepo.Inserted);
+        Assert.Equal("The CTA is inaccurate for this brand.", jobRepo.Inserted[0].RegenerationObjection);
+    }
+
+    [Fact]
+    public async Task Handle_ObjectionTooLong_ReturnsValidationError()
+    {
+        var analysis = MakeAnalysisRecord(OrgId);
+        var analysisRepo = new FakeAnalysisRepository(analysis);
+        var jobRepo = new FakeContentGenerationJobRepository();
+        var queue = new FakeContentGenerationJobQueue();
+        var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue);
+
+        var command = new GenerateContentPackageCommand(
+            OrganizationId: OrgId,
+            ClientId: ClientId,
+            AnalysisId: AnalysisId,
+            RequestedFormats: ["carousel"],
+            CorrelationId: null,
+            RegenerationObjection: new string('x', 1001));
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ErrorType.Validation, result.Error.Type);
+        Assert.Equal("content-gen.regeneration-objection-too-long", result.Error.Code);
+        Assert.Empty(jobRepo.Inserted);
+        Assert.Empty(queue.Enqueued);
+    }
+
+    [Fact]
     public async Task Handle_NoClientOnCommandOrAnalysis_ReturnsValidationError()
     {
         var analysis = MakeAnalysisRecordWithoutClient(OrgId);
@@ -281,6 +331,10 @@ file sealed class FakeAnalysisRepository : ISingleContentAnalysisRepository
     public Task<SingleContentAnalysisHistoryPage> ListByUserAsync(
         Guid organizationId, Guid userId, int page, int pageSize, CancellationToken cancellationToken = default) =>
         Task.FromResult(new SingleContentAnalysisHistoryPage([], 0, page, pageSize));
+
+    public Task<SingleContentAnalysisHistoryItem?> FindLatestByUserAndUrlAsync(
+        Guid organizationId, Guid userId, string normalizedUrl, string sourceUrl, CancellationToken cancellationToken = default) =>
+        Task.FromResult<SingleContentAnalysisHistoryItem?>(null);
 
     public Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(
         Guid analysisId, Guid organizationId, Guid userId, CancellationToken cancellationToken = default) =>

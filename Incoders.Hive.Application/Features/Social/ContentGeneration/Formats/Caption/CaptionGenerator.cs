@@ -29,7 +29,7 @@ public sealed class CaptionGenerator : FormatContentGeneratorBase<CaptionContent
                           "Respect the primary derived idea, the client's voice, audience, objectives, and KPIs. " +
                           "Respond with ONLY raw JSON.",
             format = "caption",
-            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis, ctx.RegenerationObjection),
             clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" fill="none">
+  <rect width="1280" height="720" fill="#0F172A"/>
+  <rect x="120" y="100" width="1040" height="520" rx="28" fill="#111827" stroke="#334155" stroke-width="2"/>
+  <path d="M470 330H810V470H470V330Z" fill="#1F2937" stroke="#475569" stroke-width="2"/>
+  <path d="M520 440L590 365L650 425L705 385L760 440H520Z" fill="#334155"/>
+  <circle cx="745" cy="360" r="20" fill="#475569"/>
+  <text x="640" y="530" text-anchor="middle" fill="#94A3B8" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="600">
+    Thumbnail unavailable
+  </text>
+  <text x="640" y="568" text-anchor="middle" fill="#64748B" font-family="Inter, Arial, sans-serif" font-size="22">
+    The provider did not return an image for this video.
+  </text>
+</svg>

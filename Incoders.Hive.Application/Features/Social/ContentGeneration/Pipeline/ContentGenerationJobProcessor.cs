@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Flyer;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Social.ContentGeneration;
@@ -177,7 +179,8 @@ public sealed class ContentGenerationJobProcessor
                     AnalysisId: job.AnalysisId,
                     Analysis: analysis,
                     RequestedFormats: formatsNeedingAi,
-                    CorrelationId: job.CorrelationId),
+                    CorrelationId: job.CorrelationId,
+                    RegenerationObjection: job.RegenerationObjection),
                 ct);
             freshResults = orchResult.PerFormatResults;
             brand = orchResult.Brand;
@@ -198,6 +201,7 @@ public sealed class ContentGenerationJobProcessor
         // each render outcome to format_results so a future retry can skip already-succeeded
         // formats wholesale.
         var assets = new List<RenderedAsset>();
+        var publicationByFormat = new Dictionary<string, PublicationMetadata>(StringComparer.OrdinalIgnoreCase);
         var inferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var renderFailures = new List<string>();
         var aiFailures = new List<string>();
@@ -229,6 +233,11 @@ public sealed class ContentGenerationJobProcessor
                 if (rendered.IsSuccess)
                 {
                     assets.Add(rendered.Value);
+                    var publication = ResolvePublicationMetadata(formatKey, step.Payload);
+                    if (publication is not null)
+                    {
+                        publicationByFormat[formatKey] = publication;
+                    }
                     await PersistRenderSuccessAsync(job.Id, formatKey, step, rendered.Value, ct);
                 }
                 else
@@ -271,8 +280,14 @@ public sealed class ContentGenerationJobProcessor
         try
         {
             built = await _packageBuilder.BuildAsync(
-                new BuildPackageInput(assets, inferred.ToList(), warningsForManifest, job.OrganizationId, job.Id),
-                ct);
+            new BuildPackageInput(
+                assets,
+                inferred.ToList(),
+                warningsForManifest,
+                job.OrganizationId,
+                job.Id,
+                publicationByFormat),
+            ct);
         }
         catch (PackagingException ex)
         {
@@ -309,6 +324,63 @@ public sealed class ContentGenerationJobProcessor
         var finalStatus = anyFailure ? "Partial" : "Completed";
         var finalReason = anyFailure ? BuildStatusReason(aiFailures, renderFailures) : null;
         await _jobs.UpdateStatusAsync(job.Id, finalStatus, finalReason, null, ct);
+    }
+
+    private static PublicationMetadata? ResolvePublicationMetadata(string formatKey, object payload)
+    {
+        string? description = null;
+
+        if (string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase))
+        {
+            description = payload switch
+            {
+                CarouselContent carousel => carousel.PublicationDescription,
+                _ => ReadPublicationDescription(payload)
+            };
+        }
+        else if (string.Equals(formatKey, "flyer", StringComparison.OrdinalIgnoreCase))
+        {
+            description = payload switch
+            {
+                FlyerContent flyer => flyer.PublicationDescription,
+                _ => ReadPublicationDescription(payload)
+            };
+        }
+
+        var normalized = description?.Trim();
+        return string.IsNullOrWhiteSpace(normalized)
+            ? null
+            : new PublicationMetadata(normalized);
+    }
+
+    private static string? ReadPublicationDescription(JsonElement json)
+    {
+        if (!json.TryGetProperty("publicationDescription", out var publicationDescription))
+        {
+            return null;
+        }
+
+        return publicationDescription.ValueKind == JsonValueKind.String
+            ? publicationDescription.GetString()
+            : null;
+    }
+
+    private static string? ReadPublicationDescription(object payload)
+    {
+        if (payload is JsonElement json)
+        {
+            return ReadPublicationDescription(json);
+        }
+
+        var type = payload.GetType();
+        var property = type.GetProperty("PublicationDescription")
+            ?? type.GetProperty("publicationDescription");
+        if (property is null)
+        {
+            return null;
+        }
+
+        return property.GetValue(payload) as string;
     }
 
     private static FormatStep ResolveFormatPayload(

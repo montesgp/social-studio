@@ -39,6 +39,10 @@ public sealed class ContentGenerationBackgroundWorkerTests
         Assert.Single(harness.Packages.Inserted);
         Assert.Single(harness.JobRepo.ManifestUpdates);
         Assert.Contains("formats", harness.JobRepo.ManifestUpdates[0]);
+        Assert.NotNull(harness.PackageBuilder.LastInput?.PublicationByFormat);
+        Assert.Equal(
+            "carousel publication description",
+            harness.PackageBuilder.LastInput!.PublicationByFormat!["carousel"].Description);
     }
 
     [Fact]
@@ -296,6 +300,9 @@ file sealed class SpyAnalysisRepository : ISingleContentAnalysisRepository
     public Task<SingleContentAnalysisHistoryPage> ListByUserAsync(
         Guid orgId, Guid userId, int page, int pageSize, CancellationToken ct = default) =>
         Task.FromResult(new SingleContentAnalysisHistoryPage([], 0, page, pageSize));
+    public Task<SingleContentAnalysisHistoryItem?> FindLatestByUserAndUrlAsync(
+        Guid orgId, Guid userId, string normalizedUrl, string sourceUrl, CancellationToken ct = default) =>
+        Task.FromResult<SingleContentAnalysisHistoryItem?>(null);
     public Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(
         Guid id, Guid orgId, Guid userId, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<string>?>(null);
@@ -317,7 +324,15 @@ file sealed class FakeOrchestrator : IContentGenerationOrchestrator
             perFormat[fmt] = _status switch
             {
                 OrchestratorStatus.Succeeded or OrchestratorStatus.Partial =>
-                    FormatGenerationResult<object>.Succeeded(new { format = fmt }, "v1", []),
+                    FormatGenerationResult<object>.Succeeded(
+                        fmt switch
+                        {
+                            "carousel" => new { format = fmt, publicationDescription = "carousel publication description" },
+                            "flyer" => new { format = fmt, publicationDescription = "flyer publication description" },
+                            _ => new { format = fmt }
+                        },
+                        "v1",
+                        []),
                 _ => FormatGenerationResult<object>.Failed("v1", "fake-error"),
             };
         }
@@ -396,10 +411,12 @@ file sealed class SpyRenderer : IContentRenderer
 file sealed class SpyPackageBuilder : IGeneratedPackageBuilder
 {
     public int BuildCalls { get; private set; }
+    public BuildPackageInput? LastInput { get; private set; }
 
     public Task<BuiltPackage> BuildAsync(BuildPackageInput input, CancellationToken ct)
     {
         BuildCalls++;
+        LastInput = input;
         var ms = new MemoryStream([0x50, 0x4B]);
         var manifest = new GeneratedPackageManifest(
             Formats: input.Assets.ToDictionary(

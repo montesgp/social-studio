@@ -111,6 +111,9 @@ public sealed class DeleteSingleContentAnalysisHandlerTests
         public Task<SingleContentAnalysisHistoryPage> ListByUserAsync(
             Guid orgId, Guid userId, int page, int pageSize, CancellationToken ct = default) =>
             Task.FromResult(new SingleContentAnalysisHistoryPage([], 0, page, pageSize));
+        public Task<SingleContentAnalysisHistoryItem?> FindLatestByUserAndUrlAsync(
+            Guid orgId, Guid userId, string normalizedUrl, string sourceUrl, CancellationToken ct = default) =>
+            Task.FromResult<SingleContentAnalysisHistoryItem?>(null);
     }
 
     private sealed class SpyStorage : IGeneratedPackageStorage

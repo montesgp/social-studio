@@ -55,7 +55,8 @@ public static class ContentGenerationEndpointsExtensions
 /// <summary>Request body for the generate-package endpoint.</summary>
 public sealed record GeneratePackageRequest(
     Guid? ClientId,
-    IReadOnlyList<string>? RequestedFormats);
+    IReadOnlyList<string>? RequestedFormats,
+    string? RegenerationObjection);
 
 /// <summary>
 /// Minimal API handler delegates for content generation endpoints.
@@ -83,7 +84,8 @@ public static class ContentGenerationEndpointFacade
                 ClientId: body.ClientId,
                 AnalysisId: analysisId,
                 RequestedFormats: body.RequestedFormats ?? [],
-                CorrelationId: null),
+                CorrelationId: null,
+                RegenerationObjection: body.RegenerationObjection),
             cancellationToken);
 
         return result.Match(response =>

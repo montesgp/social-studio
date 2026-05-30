@@ -18,6 +18,7 @@ export interface SingleAnalyzerResult {
   thumbnailUrl: string;
   videoUrl: string;
   title: string;
+  description: string | null;
   author: string;
   views: number;
   likes: number;
@@ -35,6 +36,8 @@ export interface SingleAnalyzerResult {
   publishedAtUtc?: string | null;
   hashtags?: string[];
   dataSource?: "apify" | "mock";
+  primaryHook?: string | null;
+  isFallbackThumbnail?: boolean;
 }
 
 const analyzerSessions = new Map<string, SingleAnalyzerResult>();
@@ -87,6 +90,8 @@ function buildResult(
     thumbnailUrl: `https://picsum.photos/seed/${encodeURIComponent(id)}/640/360`,
     videoUrl: inputUrl || `https://example.com/mock/${networkSource}/video-${id}`,
     title,
+    description:
+      "A compact mock description that mirrors scraped social captions. Longer live descriptions can be expanded in the analyzer card.",
     author,
     views,
     likes,
@@ -187,6 +192,7 @@ export function analyzeMockVideo(organizationId: string, id: string): SingleAnal
     thumbnailUrl: `https://picsum.photos/seed/${encodeURIComponent(id)}/640/360`,
     videoUrl: `https://example.com/mock/tiktok/${id}`,
     title: "Mock video analysis",
+    description: null,
     author: "@mock_creator",
     views: 25000,
     likes: 1950,
@@ -274,6 +280,8 @@ function seedDefaultHistory() {
       thumbnailUrl: "https://picsum.photos/seed/sa-seed-001/640/360",
       videoUrl: "https://www.tiktok.com/@creator/video/123456",
       title: "TikTok: 3 productivity habits that changed my output",
+      description:
+        "Three practical habits for building a productivity system that survives busy weeks, client interruptions, and the usual motivation drop after day three.",
       author: "@daily_growth",
       views: 87400,
       likes: 6820,
@@ -307,6 +315,8 @@ function seedDefaultHistory() {
       thumbnailUrl: "https://picsum.photos/seed/sa-seed-002/640/360",
       videoUrl: "https://example.com/mock/instagram/seed-002",
       title: "Instagram: morning routine habits — what nobody talks about",
+      description:
+        "A calm morning routine breakdown focused on the hidden setup work that makes the visible habits easier to repeat.",
       author: "@wellness_lab_ig",
       views: 43200,
       likes: 3370,
@@ -340,6 +350,8 @@ function seedDefaultHistory() {
       thumbnailUrl: "https://picsum.photos/seed/sa-seed-003/640/360",
       videoUrl: "https://example.com/mock/youtube/seed-003",
       title: "YouTube: content creation for beginners — explained in 60 seconds",
+      description:
+        "A fast beginner-friendly creator framework with simple tools, clear pacing, and an intentionally lightweight production setup.",
       author: "@growth_studio_yt",
       views: 61800,
       likes: 4810,

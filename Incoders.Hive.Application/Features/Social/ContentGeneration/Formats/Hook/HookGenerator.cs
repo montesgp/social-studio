@@ -29,7 +29,7 @@ public sealed class HookGenerator : FormatContentGeneratorBase<HookContent>
                           "Respect the primary derived idea and client strategy. " +
                           "Respond with ONLY raw JSON.",
             format = "hook",
-            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis, ctx.RegenerationObjection),
             clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {

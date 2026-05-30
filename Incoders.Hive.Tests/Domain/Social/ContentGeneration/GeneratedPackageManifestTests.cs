@@ -61,5 +61,21 @@ public sealed class GeneratedPackageManifestTests
         Assert.Equal("hook.png", meta.Filename);
         Assert.Equal(512, meta.SizeBytes);
         Assert.Equal("deadbeef", meta.ContentHash);
+        Assert.Null(meta.Publication);
+    }
+
+    [Fact]
+    public void FormatAssetMetadata_WithPublication_PreservesDescription()
+    {
+        var meta = new FormatAssetMetadata(
+            FormatKey: "carousel",
+            Mime: "image/png",
+            Filename: "carousel.png",
+            SizeBytes: 1024,
+            ContentHash: "cafebabe",
+            Publication: new PublicationMetadata("Post copy for social publication."));
+
+        Assert.NotNull(meta.Publication);
+        Assert.Equal("Post copy for social publication.", meta.Publication!.Description);
     }
 }

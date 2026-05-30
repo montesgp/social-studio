@@ -69,6 +69,8 @@ Content operators repeatedly research viral content, interpret why it worked, id
 - A CM can create/select a client and run a content research workflow.
 - The system can persist retrieved references and AI-generated ideas.
 - The system can evaluate ideas with a configurable model.
+- The single-content URL analyzer warns before re-analyzing a video already present in the user's analysis history, and lets the user resume the saved analysis for content generation.
+- Regenerating an already generated single-content format requires explicit confirmation because it replaces the current generated content for that analysis.
 - Each organization can configure its own third-party integration credentials (AI, Canva, Blotato, etc.) without relying only on appsettings.
 - The frontend shows workflow state and errors clearly.
 - Backend use cases are provider-agnostic.

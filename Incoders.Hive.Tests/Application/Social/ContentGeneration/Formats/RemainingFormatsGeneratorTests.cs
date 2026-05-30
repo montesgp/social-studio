@@ -54,6 +54,8 @@ public sealed class RemainingFormatsGeneratorTests
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
         Assert.Equal(flyer.Title, result.Payload!.Title);
         Assert.Equal("flyer.v2", result.PromptVersion);
+        Assert.NotNull(gateway.LastRequest);
+        Assert.Contains("publicationDescription", gateway.LastRequest!.InputJson);
     }
 
     [Fact]
@@ -335,11 +337,13 @@ file sealed class SucceedingGateway<TResponse> : IAiCompletionGateway
 {
     private readonly TResponse _payload;
     public SucceedingGateway(TResponse payload) => _payload = payload;
+    public AiJsonCompletionRequest? LastRequest { get; private set; }
 
     public Task<Result<AiJsonCompletionResponse<T>>> CompleteJsonAsync<T>(
         AiJsonCompletionRequest request, CancellationToken ct)
         where T : notnull
     {
+        LastRequest = request;
         var response = new AiJsonCompletionResponse<T>(
             (T)(object)_payload,
             "claude",

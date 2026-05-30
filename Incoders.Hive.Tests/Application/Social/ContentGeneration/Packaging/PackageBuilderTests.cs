@@ -52,7 +52,12 @@ public sealed class PackageBuilderTests
             InferredFields: ["brand.ColorPalette"],
             Warnings: ["carousel: brand color inferred"],
             OrganizationId: Guid.NewGuid(),
-            JobId: Guid.NewGuid());
+            JobId: Guid.NewGuid(),
+            PublicationByFormat: new Dictionary<string, PublicationMetadata>
+            {
+                ["carousel"] = new("Carousel publication description"),
+                ["flyer"] = new("Flyer publication description"),
+            });
 
         var result = await builder.BuildAsync(input, CancellationToken.None);
 
@@ -61,6 +66,12 @@ public sealed class PackageBuilderTests
         Assert.Contains("flyer", result.Manifest.Formats.Keys);
         Assert.Single(result.Manifest.InferredFields);
         Assert.Single(result.Manifest.Warnings);
+        Assert.Equal(
+            "Carousel publication description",
+            result.Manifest.Formats["carousel"].Publication?.Description);
+        Assert.Equal(
+            "Flyer publication description",
+            result.Manifest.Formats["flyer"].Publication?.Description);
     }
 
     [Fact]

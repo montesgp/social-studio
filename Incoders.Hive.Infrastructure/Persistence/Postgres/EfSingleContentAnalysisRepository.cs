@@ -172,6 +172,72 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
         return new SingleContentAnalysisHistoryPage(items, totalCount, safePage, safePageSize);
     }
 
+    public async Task<SingleContentAnalysisHistoryItem?> FindLatestByUserAndUrlAsync(
+        Guid organizationId,
+        Guid userId,
+        string normalizedUrl,
+        string sourceUrl,
+        CancellationToken cancellationToken = default)
+    {
+        var row = await _dbContext.SingleContentAnalyses
+            .AsNoTracking()
+            .Where(x =>
+                x.OrganizationId == organizationId
+                && x.UserId == userId
+                && (
+                    x.SourceUrl == sourceUrl
+                    || x.SourceUrl == normalizedUrl
+                    || x.NormalizedUrl == normalizedUrl
+                    || x.NormalizedUrl == sourceUrl))
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Select(a => new
+            {
+                a.Id,
+                a.ClientId,
+                a.SourceUrl,
+                a.NormalizedUrl,
+                a.SourcePlatformKey,
+                a.Status,
+                a.FailureCode,
+                a.CreatedAtUtc,
+                a.UpdatedAtUtc,
+                a.CompletedAtUtc,
+                LatestJob = _dbContext.ContentGenerationJobs
+                    .Where(j => j.AnalysisId == a.Id)
+                    .OrderByDescending(j => j.CreatedAt)
+                    .Select(j => new
+                    {
+                        j.Id,
+                        j.Status,
+                        j.CompletedAt,
+                        HasPackage = _dbContext.GeneratedPackages.Any(p => p.JobId == j.Id),
+                    })
+                    .FirstOrDefault(),
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return row is null
+            ? null
+            : new SingleContentAnalysisHistoryItem(
+                row.Id,
+                row.ClientId,
+                row.SourceUrl,
+                row.NormalizedUrl,
+                row.SourcePlatformKey,
+                Enum.Parse<SingleContentAnalysisStatus>(row.Status),
+                row.FailureCode,
+                row.CreatedAtUtc,
+                row.UpdatedAtUtc,
+                row.CompletedAtUtc,
+                row.LatestJob is null
+                    ? null
+                    : new ContentGenerationSummary(
+                        row.LatestJob.Id,
+                        row.LatestJob.Status,
+                        row.LatestJob.HasPackage,
+                        row.LatestJob.CompletedAt));
+    }
+
     public async Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(
         Guid analysisId,
         Guid organizationId,

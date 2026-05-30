@@ -16,4 +16,9 @@ public sealed record FormatAssetMetadata(
     string Mime,
     string Filename,
     long SizeBytes,
-    string ContentHash);
+    string ContentHash,
+    PublicationMetadata? Publication = null);
+
+/// <summary>Optional social publication metadata for a generated format asset.</summary>
+public sealed record PublicationMetadata(
+    string Description);

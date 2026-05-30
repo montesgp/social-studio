@@ -21,7 +21,8 @@ public sealed record BuildPackageInput(
     IReadOnlyList<string> InferredFields,
     IReadOnlyList<string> Warnings,
     Guid OrganizationId,
-    Guid JobId);
+    Guid JobId,
+    IReadOnlyDictionary<string, PublicationMetadata>? PublicationByFormat = null);
 
 /// <summary>The result of a successful package build.</summary>
 public sealed record BuiltPackage(

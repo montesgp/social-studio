@@ -7,15 +7,26 @@ import type {
   SingleAnalyzerStatusResponse,
   SingleAnalyzerContentSnapshot,
   SingleAnalyzerAnalysis,
+  FindSingleContentAnalysisByUrlResponse,
   SingleContentAnalysisHistoryResponse,
 } from "@/lib/api/types";
 import type { SingleAnalyzerResult } from "@/lib/mocks/single-analyzer";
 
-export type { SingleAnalyzerStatusResponse, SingleContentAnalysisHistoryResponse };
+export type {
+  SingleAnalyzerStatusResponse,
+  FindSingleContentAnalysisByUrlResponse,
+  SingleContentAnalysisHistoryResponse,
+};
 
 export interface AnalyzeSingleContentPayload {
   url: string;
   clientId?: string;
+}
+
+const FALLBACK_THUMBNAIL_PATH = "/images/thumbnail-unavailable.svg";
+
+function normalizeComparableText(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
 }
 
 /**
@@ -86,6 +97,22 @@ export async function listSingleContentAnalyses(
 }
 
 /**
+ * Find the newest saved analysis for a URL before queueing a new provider run.
+ * The backend scopes the lookup to the active organization and current user.
+ */
+export async function findSingleContentAnalysisByUrl(
+  url: string,
+  token?: string
+): Promise<FindSingleContentAnalysisByUrlResponse> {
+  const params = new URLSearchParams({ url });
+  return apiRequest<FindSingleContentAnalysisByUrlResponse>(
+    `/api/social/single-analyzer/analyze/lookup?${params.toString()}`,
+    { method: "GET" },
+    token
+  );
+}
+
+/**
  * Hard-delete a saved analysis (owner-scoped). The backend cascades to all linked
  * content-generation jobs, format-results, packages, and the physical ZIP files.
  */
@@ -107,6 +134,19 @@ export function mapBackendResponseToResult(
 ): SingleAnalyzerResult {
   const snapshot: SingleAnalyzerContentSnapshot | null = response.snapshot;
   const analysis: SingleAnalyzerAnalysis | null = response.analysis;
+  const primaryHook = analysis?.detectedHooks.find((hook) => hook.trim().length > 0)?.trim() ?? null;
+  const title = snapshot?.title?.trim() ?? "";
+  const description = snapshot?.description?.trim() ?? "";
+  const titleEqualsDescription =
+    title.length > 0 &&
+    description.length > 0 &&
+    normalizeComparableText(title) === normalizeComparableText(description);
+  const rawThumbnailUrl = snapshot?.thumbnailUrl?.trim() ?? "";
+  const hasThumbnail = rawThumbnailUrl.length > 0;
+  const resolvedTitle =
+    primaryHook && (title.length === 0 || titleEqualsDescription)
+      ? primaryHook
+      : title || primaryHook || "Untitled";
 
   return {
     id: response.id,
@@ -117,14 +157,13 @@ export function mapBackendResponseToResult(
     inputUrl: response.sourceUrl,
     searchQuery: "",
     networkSource: response.platformKey,
-    thumbnailUrl:
-      snapshot?.thumbnailUrl ??
-      `https://picsum.photos/seed/${encodeURIComponent(response.sourceUrl)}/640/360`,
+    thumbnailUrl: hasThumbnail ? rawThumbnailUrl : FALLBACK_THUMBNAIL_PATH,
     videoUrl:
       snapshot?.mediaReferences.find((r) => r.kind === "video")?.uri ??
       snapshot?.canonicalUrl ??
       response.sourceUrl,
-    title: snapshot?.title ?? "Untitled",
+    title: resolvedTitle,
+    description: description || null,
     author: snapshot?.author ?? "Unknown creator",
     views: snapshot?.metrics["views"] ?? 0,
     likes: snapshot?.metrics["likes"] ?? 0,
@@ -158,5 +197,7 @@ export function mapBackendResponseToResult(
     publishedAtUtc: snapshot?.publishedAtUtc ?? null,
     hashtags: snapshot?.tags ?? [],
     dataSource: "apify",
+    primaryHook,
+    isFallbackThumbnail: !hasThumbnail,
   };
 }

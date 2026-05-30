@@ -92,6 +92,7 @@ public sealed class EfContentGenerationJobRepository : IContentGenerationJobRepo
         ErrorCode = job.ErrorCode,
         BrandSnapshotJson = job.BrandSnapshotJson,
         ManifestJson = job.ManifestJson,
+        RegenerationObjection = job.RegenerationObjection,
         CorrelationId = job.CorrelationId,
         StartedAt = job.StartedAt,
         CompletedAt = job.CompletedAt,
@@ -114,5 +115,6 @@ public sealed class EfContentGenerationJobRepository : IContentGenerationJobRepo
         CreatedAt: e.CreatedAt,
         UpdatedAt: e.UpdatedAt,
         StartedAt: e.StartedAt,
-        CompletedAt: e.CompletedAt);
+        CompletedAt: e.CompletedAt,
+        RegenerationObjection: e.RegenerationObjection);
 }

@@ -37,14 +37,15 @@ public sealed class CarouselGenerator : FormatContentGeneratorBase<CarouselConte
                           "Image prompt hints must reference the client's explicit palette, typography, logos, and visual notes when available. " +
                           "Respond with ONLY the raw JSON matching the expected structure.",
             format = "carousel",
-            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis, ctx.RegenerationObjection),
             clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {
                 coverTitle = "string - engaging cover headline",
                 slides = "array of {title: string, body: string, imagePromptHint: string|null}",
                 ctaText = "string - call to action text",
-                ctaLink = "string|null - optional URL for the CTA"
+                ctaLink = "string|null - optional URL for the CTA",
+                publicationDescription = "string|null - social post copy to publish with this carousel"
             }
         };
 

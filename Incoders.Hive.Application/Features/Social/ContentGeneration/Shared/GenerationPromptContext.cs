@@ -10,7 +10,7 @@ internal static class GenerationPromptContext
         "strategy, objectives, KPIs, referent accounts, and competitor context. Do not invent colors, fonts, " +
         "tone, audience, goals, or market positioning when explicit client data exists.";
 
-    public static object FromAnalysis(SingleAnalyzerAnalysis analysis)
+    public static object FromAnalysis(SingleAnalyzerAnalysis analysis, string? regenerationObjection = null)
     {
         return new
         {
@@ -62,7 +62,10 @@ internal static class GenerationPromptContext
                     communication = analysis.Patterns.CommunicationPatterns.Select(p => p.Name),
                     emotional = analysis.Patterns.EmotionalPatterns.Select(p => p.Name),
                     conversion = analysis.Patterns.ConversionPatterns.Select(p => p.Name)
-                }
+                },
+            userCorrection = string.IsNullOrWhiteSpace(regenerationObjection)
+                ? null
+                : regenerationObjection.Trim()
         };
     }
 

@@ -29,7 +29,7 @@ public sealed class ContentIdeaGenerator : FormatContentGeneratorBase<ContentIde
                           "Use the analyzed source idea as the base; do not drift away from it. " +
                           "Respond with ONLY raw JSON.",
             format = "content-idea",
-            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis, ctx.RegenerationObjection),
             clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {

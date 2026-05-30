@@ -9,4 +9,5 @@ public sealed record FlyerContent(
     string CtaText,
     string? BackgroundPrompt,
     string? SignatureText,
-    string? LayoutHint);
+    string? LayoutHint,
+    string? PublicationDescription = null);

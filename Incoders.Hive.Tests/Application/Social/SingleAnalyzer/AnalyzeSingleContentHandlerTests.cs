@@ -442,6 +442,14 @@ public sealed class AnalyzeSingleContentHandlerTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult(new SingleContentAnalysisHistoryPage([], 0, page, pageSize));
 
+        public Task<SingleContentAnalysisHistoryItem?> FindLatestByUserAndUrlAsync(
+            Guid organizationId,
+            Guid userId,
+            string normalizedUrl,
+            string sourceUrl,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<SingleContentAnalysisHistoryItem?>(null);
+
         public Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(
             Guid analysisId,
             Guid organizationId,

@@ -22,7 +22,8 @@ public sealed record OrchestratorRequest(
     Guid AnalysisId,
     SingleAnalyzerAnalysis Analysis,
     IReadOnlyList<string> RequestedFormats,
-    Guid CorrelationId);
+    Guid CorrelationId,
+    string? RegenerationObjection = null);
 
 /// <summary>
 /// Result from the content package orchestrator.

@@ -12,7 +12,8 @@ public sealed record GenerateContentPackageCommand(
     Guid? ClientId,
     Guid AnalysisId,
     IReadOnlyList<string> RequestedFormats,
-    Guid? CorrelationId) : IRequest<Result<GenerateContentPackageResponse>>;
+    Guid? CorrelationId,
+    string? RegenerationObjection = null) : IRequest<Result<GenerateContentPackageResponse>>;
 
 /// <summary>
 /// Response returned on successful command processing (202 Accepted).

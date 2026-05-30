@@ -32,6 +32,8 @@ public sealed class ContentGenerationJobData
     /// <summary>Package manifest once the job completes (jsonb, nullable).</summary>
     public string? ManifestJson { get; set; }
 
+    public string? RegenerationObjection { get; set; }
+
     public Guid CorrelationId { get; set; }
 
     public DateTime CreatedAt { get; set; }

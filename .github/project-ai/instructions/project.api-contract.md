@@ -11,6 +11,13 @@ Request body: `{ url: string, clientId?: string }`.
 
 Response: `SingleContentAnalysisResponse` — snapshot + AI analysis + status + diagnostics in one envelope.
 
+`GET /api/social/single-analyzer/analyze/lookup?url=<url>` - authenticated, tenant-scoped, user-scoped duplicate pre-flight.
+
+Response body: `{ item: SingleContentAnalysisHistoryItem | null }`.
+- The endpoint normalizes the submitted URL with the same domain value object used by analysis creation.
+- It returns the newest matching saved analysis for the current organization/user, including latest content-generation summary when present.
+- A null `item` means the frontend may continue queueing a new analysis without a duplicate warning.
+
 Error codes follow the `Integration.*` / `ContentExtraction.*` / `AI.*` namespace. Provider timeout and rate-limit currently map to 500; a follow-up will add 502/503/504 mapping.
 
 ## Tenant Isolation Rule (all endpoints)

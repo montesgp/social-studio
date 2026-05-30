@@ -63,24 +63,7 @@ public sealed class ListSingleContentAnalysesHandler
             cancellationToken);
 
         var items = page.Items
-            .Select(i => new SingleContentAnalysisHistoryItemResponse(
-                i.Id,
-                i.ClientId,
-                i.SourceUrl,
-                i.NormalizedUrl,
-                i.SourcePlatformKey,
-                i.Status,
-                i.FailureCode,
-                i.CreatedAtUtc,
-                i.UpdatedAtUtc,
-                i.CompletedAtUtc,
-                i.LatestContentGeneration is null
-                    ? null
-                    : new ContentGenerationSummaryResponse(
-                        i.LatestContentGeneration.JobId,
-                        i.LatestContentGeneration.Status,
-                        i.LatestContentGeneration.HasPackage,
-                        i.LatestContentGeneration.CompletedAt)))
+            .Select(SingleContentAnalysisHistoryMapping.ToResponse)
             .ToList();
 
         return Result.Success(new SingleContentAnalysisHistoryResponse(
@@ -89,4 +72,27 @@ public sealed class ListSingleContentAnalysesHandler
             page.Page,
             page.PageSize));
     }
+}
+
+internal static class SingleContentAnalysisHistoryMapping
+{
+    internal static SingleContentAnalysisHistoryItemResponse ToResponse(SingleContentAnalysisHistoryItem item) =>
+        new(
+            item.Id,
+            item.ClientId,
+            item.SourceUrl,
+            item.NormalizedUrl,
+            item.SourcePlatformKey,
+            item.Status,
+            item.FailureCode,
+            item.CreatedAtUtc,
+            item.UpdatedAtUtc,
+            item.CompletedAtUtc,
+            item.LatestContentGeneration is null
+                ? null
+                : new ContentGenerationSummaryResponse(
+                    item.LatestContentGeneration.JobId,
+                    item.LatestContentGeneration.Status,
+                    item.LatestContentGeneration.HasPackage,
+                    item.LatestContentGeneration.CompletedAt));
 }

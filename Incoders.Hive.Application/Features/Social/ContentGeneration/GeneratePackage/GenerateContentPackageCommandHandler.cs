@@ -16,6 +16,8 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePa
 public sealed class GenerateContentPackageCommandHandler
     : IRequestHandler<GenerateContentPackageCommand, Result<GenerateContentPackageResponse>>
 {
+    internal const int MaxRegenerationObjectionLength = 1000;
+
     /// <summary>The 7 supported format keys.</summary>
     internal static readonly IReadOnlySet<string> KnownFormatKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -50,6 +52,16 @@ public sealed class GenerateContentPackageCommandHandler
         GenerateContentPackageCommand command,
         CancellationToken cancellationToken)
     {
+        var normalizedRegenerationObjection = string.IsNullOrWhiteSpace(command.RegenerationObjection)
+            ? null
+            : command.RegenerationObjection.Trim();
+
+        if (normalizedRegenerationObjection is { Length: > MaxRegenerationObjectionLength })
+        {
+            return Result.Failure<GenerateContentPackageResponse>(
+                ContentGenerationErrors.RegenerationObjectionTooLong(MaxRegenerationObjectionLength));
+        }
+
         // Validate: at least one format requested
         if (command.RequestedFormats is null || command.RequestedFormats.Count == 0)
         {
@@ -114,7 +126,8 @@ public sealed class GenerateContentPackageCommandHandler
             CreatedAt: DateTime.UtcNow,
             UpdatedAt: DateTime.UtcNow,
             StartedAt: null,
-            CompletedAt: null);
+            CompletedAt: null,
+            RegenerationObjection: normalizedRegenerationObjection);
 
         await _jobRepository.InsertAsync(job, cancellationToken);
 
@@ -146,6 +159,11 @@ public static class ContentGenerationErrors
 
     public static readonly Error PackageNotReady =
         Error.NotFound("content-gen.package-not-ready", "The package is not yet available for download.");
+
+    public static Error RegenerationObjectionTooLong(int maxLength) =>
+        Error.Validation(
+            "content-gen.regeneration-objection-too-long",
+            $"Regeneration objection must be {maxLength} characters or fewer.");
 
     public static Error UnknownFormatKey(string key) =>
         Error.Validation("content-gen.unknown-format-key", $"Unknown format key: {key}");

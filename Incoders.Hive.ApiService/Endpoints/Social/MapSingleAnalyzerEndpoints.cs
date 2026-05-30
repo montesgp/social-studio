@@ -30,6 +30,13 @@ public static class SingleAnalyzerEndpointsExtensions
             .WithSummary("List the current user's analyses for the active organization (paged, newest first)")
             .Produces<SingleContentAnalysisHistoryResponse>(StatusCodes.Status200OK);
 
+        // Lookup: URL pre-flight so the UI can resume an existing run before spending providers again.
+        group.MapGet("/analyze/lookup", SingleAnalyzerEndpointFacade.LookupByUrlAsync)
+            .WithName("FindSingleContentAnalysisByUrl")
+            .WithSummary("Find the current user's latest saved analysis for a submitted URL")
+            .Produces<FindSingleContentAnalysisByUrlResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
+
         // Poll: returns the current status (+ result when Analyzed, failure when Failed).
         group.MapGet("/analyze/{id:guid}", SingleAnalyzerEndpointFacade.GetAsync)
             .WithName("GetSingleContentAnalysis")
@@ -154,6 +161,33 @@ internal static class SingleAnalyzerEndpointFacade
                 UserId: userId,
                 Page: page ?? 1,
                 PageSize: pageSize ?? 20),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    internal static async Task<IResult> LookupByUrlAsync(
+        string url,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+        {
+            return SingleAnalyzerErrors.OrganizationRequired.ToProblem();
+        }
+
+        if (currentUser.UserId is not { } userId)
+        {
+            return SingleAnalyzerErrors.UserRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new FindSingleContentAnalysisByUrlQuery(
+                OrganizationId: tenantId.Value,
+                UserId: userId,
+                Url: url),
             cancellationToken);
 
         return result.Match(response => (IResult)TypedResults.Ok(response));

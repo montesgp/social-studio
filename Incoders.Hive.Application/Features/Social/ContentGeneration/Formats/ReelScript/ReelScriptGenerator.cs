@@ -29,7 +29,7 @@ public sealed class ReelScriptGenerator : FormatContentGeneratorBase<ReelScriptC
                           "Respect the primary derived idea and the client's strategy/objectives. " +
                           "Respond with ONLY raw JSON.",
             format = "reel-script",
-            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis),
+            analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis, ctx.RegenerationObjection),
             clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
             {

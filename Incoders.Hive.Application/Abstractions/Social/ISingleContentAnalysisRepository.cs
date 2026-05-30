@@ -40,6 +40,17 @@ public interface ISingleContentAnalysisRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Finds the newest analysis owned by the user for the same submitted or normalized URL.
+    /// Used as a pre-flight duplicate check before queueing a new extraction + AI run.
+    /// </summary>
+    Task<SingleContentAnalysisHistoryItem?> FindLatestByUserAndUrlAsync(
+        Guid organizationId,
+        Guid userId,
+        string normalizedUrl,
+        string sourceUrl,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Hard-deletes an analysis owned by the given user. Cascades to:
     /// - integration_execution_attempts (DB-level FK CASCADE on analysis_id)
     /// - content_generation_jobs and their generated_packages (handled here in EF)

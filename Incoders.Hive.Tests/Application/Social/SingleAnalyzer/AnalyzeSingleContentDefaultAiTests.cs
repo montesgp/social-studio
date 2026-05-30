@@ -238,6 +238,10 @@ public sealed class AnalyzeSingleContentDefaultAiTests
                 Guid orgId, Guid userId, int page, int pageSize, CancellationToken ct = default) =>
                 Task.FromResult(new SingleContentAnalysisHistoryPage([], 0, page, pageSize));
 
+            public Task<SingleContentAnalysisHistoryItem?> FindLatestByUserAndUrlAsync(
+                Guid orgId, Guid userId, string normalizedUrl, string sourceUrl, CancellationToken ct = default) =>
+                Task.FromResult<SingleContentAnalysisHistoryItem?>(null);
+
             public Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(
                 Guid id, Guid orgId, Guid userId, CancellationToken ct = default) =>
                 Task.FromResult<IReadOnlyList<string>?>(null);

@@ -82,7 +82,8 @@ public sealed class ContentPackageOrchestrator : IContentGenerationOrchestrator
             BrandSnapshot: brandSnapshot,
             CorrelationId: request.CorrelationId,
             AiProviderKey: selectedAi.Value.ProviderKey,
-            AiModel: selectedAi.Value.Model);
+            AiModel: selectedAi.Value.Model,
+            RegenerationObjection: request.RegenerationObjection);
 
         foreach (var formatKey in request.RequestedFormats)
         {

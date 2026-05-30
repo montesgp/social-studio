@@ -37,6 +37,7 @@ public sealed class GenerationContextTests
         Assert.Same(analysis, ctx.Analysis);
         Assert.Same(brand, ctx.BrandSnapshot);
         Assert.Equal(CorrelationId, ctx.CorrelationId);
+        Assert.Null(ctx.RegenerationObjection);
     }
 
     [Fact]

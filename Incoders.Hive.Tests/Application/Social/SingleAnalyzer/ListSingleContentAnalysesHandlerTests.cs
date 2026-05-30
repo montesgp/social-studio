@@ -119,6 +119,10 @@ public sealed class ListSingleContentAnalysesHandlerTests
             return Task.FromResult(_page);
         }
 
+        public Task<SingleContentAnalysisHistoryItem?> FindLatestByUserAndUrlAsync(
+            Guid organizationId, Guid userId, string normalizedUrl, string sourceUrl, CancellationToken cancellationToken = default) =>
+            Task.FromResult<SingleContentAnalysisHistoryItem?>(null);
+
         public Task AddAsync(SingleContentAnalysisRecord analysis, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
         public Task<SingleContentAnalysisRecord?> GetByIdAsync(Guid id, Guid orgId, CancellationToken ct = default) =>

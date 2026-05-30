@@ -662,6 +662,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.ErrorCode).HasColumnName("error_code").HasMaxLength(128);
             entity.Property(x => x.BrandSnapshotJson).HasColumnName("brand_snapshot_json").HasColumnType("jsonb").IsRequired();
             entity.Property(x => x.ManifestJson).HasColumnName("manifest_json").HasColumnType("jsonb");
+            entity.Property(x => x.RegenerationObjection).HasColumnName("regeneration_objection").HasMaxLength(1000);
             entity.Property(x => x.CorrelationId).HasColumnName("correlation_id").IsRequired();
             entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
             entity.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
