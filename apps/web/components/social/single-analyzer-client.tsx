@@ -605,6 +605,25 @@ function SocialTabletPreview({
   );
 }
 
+// ── Client folder slug derivation (mirrors backend NormalizeFolderName) ────────
+
+/**
+ * Derives a URL-safe client folder slug from a client name, using the same
+ * normalization rules as the backend GeneratedPackageBuilder.NormalizeFolderName:
+ * lowercase → replace runs of non-alphanumeric chars with a single hyphen → trim hyphens.
+ *
+ * Examples:
+ *   "Acme Corp"   → "acme-corp"
+ *   "Café & Co"   → "caf-co"
+ *   "Test Client" → "test-client"
+ */
+export function deriveClientFolderSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 interface SingleAnalyzerClientProps {
@@ -2428,7 +2447,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     isJobFetching={packageJob.isLoading && isReattachingJob}
                     packageActionRequiresBuild={packageActionRequiresBuild}
                     hasAnyGeneratedFormat={hasAnyGeneratedFormat}
-                    clientFolderName={packageJob.manifest?.client_folder_name ?? null}
+                    clientFolderName={
+                      packageJob.manifest?.client_folder_name ??
+                      (selectedClientId
+                        ? deriveClientFolderSlug(selectedClient?.name ?? "")
+                        : null)
+                    }
                     onDownload={() => void handlePackageAction()}
                   />
                 )}

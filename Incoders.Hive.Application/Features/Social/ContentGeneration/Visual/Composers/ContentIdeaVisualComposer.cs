@@ -13,6 +13,10 @@ internal sealed class ContentIdeaVisualComposer : IFormatVisualComposer
         var palette = CompositionDefaults.ResolvePalette(brand, inferred);
         var typography = CompositionDefaults.ResolveTypography(brand, inferred);
 
+        var ideaBody = payload is null
+            ? "Content idea summary"
+            : $"{payload.IdeaTitle}: {payload.Angle}. {payload.Rationale}";
+
         return new VisualCompositionSpec(
             FormatKey: FormatKey,
             LayoutType: "text-card",
@@ -24,10 +28,12 @@ internal sealed class ContentIdeaVisualComposer : IFormatVisualComposer
             },
             CopySlots: new Dictionary<string, string>
             {
-                ["idea"] = payload is null
-                    ? "Content idea summary"
-                    : $"{payload.IdeaTitle}: {payload.Angle}. {payload.Rationale}"
+                ["idea"] = ideaBody
             },
-            Dimensions: CompositionDefaults.StandardDimensions);
+            Dimensions: CompositionDefaults.StandardDimensions)
+        {
+            OutputKind = CompositionOutputKind.Text,
+            TextBody = ideaBody,
+        };
     }
 }

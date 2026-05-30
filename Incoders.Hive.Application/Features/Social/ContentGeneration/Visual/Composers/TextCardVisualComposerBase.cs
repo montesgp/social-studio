@@ -16,6 +16,8 @@ internal abstract class TextCardVisualComposerBase : IFormatVisualComposer
     {
         var palette = CompositionDefaults.ResolvePalette(brand, inferred);
         var typography = CompositionDefaults.ResolveTypography(brand, inferred);
+        var copySlots = BuildCopySlots(generatedPayload);
+        var textBody = string.Join("\n\n", copySlots.Values.Where(v => !string.IsNullOrWhiteSpace(v)));
 
         return new VisualCompositionSpec(
             FormatKey: FormatKey,
@@ -26,8 +28,12 @@ internal abstract class TextCardVisualComposerBase : IFormatVisualComposer
             {
                 [SlotKey] = new AssetSlotSpec(null, null)
             },
-            CopySlots: BuildCopySlots(generatedPayload),
-            Dimensions: CompositionDefaults.StandardDimensions);
+            CopySlots: copySlots,
+            Dimensions: CompositionDefaults.StandardDimensions)
+        {
+            OutputKind = CompositionOutputKind.Text,
+            TextBody = textBody,
+        };
     }
 
     protected virtual IReadOnlyDictionary<string, string> BuildCopySlots(object generatedPayload) =>

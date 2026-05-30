@@ -1,6 +1,20 @@
 namespace Incoders.Hive.Domain.Social.ContentGeneration;
 
 /// <summary>
+/// Signals to the renderer whether the composition should be emitted as
+/// a raster image (PNG) or as a plain-text document (.txt).
+/// The renderer dispatches on this enum and MUST NOT branch on format key names.
+/// </summary>
+public enum CompositionOutputKind
+{
+    /// <summary>Default. Rendered to PNG via the raster pipeline.</summary>
+    Raster,
+
+    /// <summary>Plain-text output. Renderer emits UTF-8 .txt bytes from <see cref="VisualCompositionSpec.TextBody"/>.</summary>
+    Text,
+}
+
+/// <summary>
 /// Deterministic visual composition specification for a single format.
 /// Produced by <c>IVisualCompositionService</c> and consumed by <c>IContentRenderer</c>.
 /// Decouples composition reasoning from rendering mechanics.
@@ -12,7 +26,20 @@ public sealed record VisualCompositionSpec(
     CompositionTypography Typography,
     IReadOnlyDictionary<string, AssetSlotSpec> AssetSlots,
     IReadOnlyDictionary<string, string> CopySlots,
-    CompositionDimensions Dimensions);
+    CompositionDimensions Dimensions)
+{
+    /// <summary>
+    /// Signals the renderer to emit a .txt file instead of a .png.
+    /// Defaults to <see cref="CompositionOutputKind.Raster"/> for backward compatibility.
+    /// </summary>
+    public CompositionOutputKind OutputKind { get; init; } = CompositionOutputKind.Raster;
+
+    /// <summary>
+    /// The plain-text body to emit when <see cref="OutputKind"/> is <see cref="CompositionOutputKind.Text"/>.
+    /// Set by text-only composers from their CopySlots. Null for raster formats.
+    /// </summary>
+    public string? TextBody { get; init; }
+}
 
 /// <summary>Brand-derived or default colour palette.</summary>
 public sealed record CompositionPalette(

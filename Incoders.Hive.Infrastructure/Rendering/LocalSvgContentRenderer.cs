@@ -49,9 +49,17 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
     {
         try
         {
-            var bytes = RenderToPng(spec);
-            var asset = RenderedAsset.Create(spec.FormatKey, "image/png", $"{spec.FormatKey}.png", bytes);
-            return Task.FromResult(Result.Success(asset));
+            if (spec.OutputKind == CompositionOutputKind.Text)
+            {
+                var body = spec.TextBody ?? string.Empty;
+                var bytes = System.Text.Encoding.UTF8.GetBytes(body);
+                var asset = RenderedAsset.Create(spec.FormatKey, "text/plain; charset=utf-8", $"{spec.FormatKey}.txt", bytes);
+                return Task.FromResult(Result.Success(asset));
+            }
+
+            var pngBytes = RenderToPng(spec);
+            var pngAsset = RenderedAsset.Create(spec.FormatKey, "image/png", $"{spec.FormatKey}.png", pngBytes);
+            return Task.FromResult(Result.Success(pngAsset));
         }
         catch (Exception ex)
         {

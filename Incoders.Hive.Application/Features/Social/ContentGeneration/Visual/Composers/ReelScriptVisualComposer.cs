@@ -16,6 +16,10 @@ internal sealed class ReelScriptVisualComposer : IFormatVisualComposer
             ? string.Empty
             : string.Join(" ", payload.Scenes.Select(scene => $"{scene.Timestamp}: {scene.Voiceover} ({scene.OnScreenText})"));
 
+        var scriptBody = payload is null
+            ? "Reel script content"
+            : $"{payload.Hook} {scenes} CTA: {payload.CtaText}";
+
         return new VisualCompositionSpec(
             FormatKey: FormatKey,
             LayoutType: "text-card",
@@ -27,10 +31,12 @@ internal sealed class ReelScriptVisualComposer : IFormatVisualComposer
             },
             CopySlots: new Dictionary<string, string>
             {
-                ["script"] = payload is null
-                    ? "Reel script content"
-                    : $"{payload.Hook} {scenes} CTA: {payload.CtaText}"
+                ["script"] = scriptBody
             },
-            Dimensions: CompositionDefaults.StandardDimensions);
+            Dimensions: CompositionDefaults.StandardDimensions)
+        {
+            OutputKind = CompositionOutputKind.Text,
+            TextBody = scriptBody,
+        };
     }
 }

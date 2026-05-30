@@ -104,6 +104,72 @@ public sealed class VisualCompositionSpecTests
     }
 
     // -------------------------------------------------------------------
+    // T1.1 — CompositionOutputKind enum + OutputKind/TextBody on spec
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public void OutputKind_Default_IsRaster()
+    {
+        var spec = BuildValid();
+
+        Assert.Equal(CompositionOutputKind.Raster, spec.OutputKind);
+    }
+
+    [Fact]
+    public void OutputKind_WhenSetToText_IsPreserved()
+    {
+        var spec = BuildValid() with { OutputKind = CompositionOutputKind.Text };
+
+        Assert.Equal(CompositionOutputKind.Text, spec.OutputKind);
+    }
+
+    [Fact]
+    public void TextBody_Default_IsNull()
+    {
+        var spec = BuildValid();
+
+        Assert.Null(spec.TextBody);
+    }
+
+    [Fact]
+    public void TextBody_WhenSet_IsPreserved()
+    {
+        var spec = BuildValid() with { TextBody = "Some reel script text" };
+
+        Assert.Equal("Some reel script text", spec.TextBody);
+    }
+
+    [Fact]
+    public void OutputKindAndTextBody_SetTogether_ArePreserved()
+    {
+        var spec = BuildValid() with
+        {
+            OutputKind = CompositionOutputKind.Text,
+            TextBody = "Hook text body"
+        };
+
+        Assert.Equal(CompositionOutputKind.Text, spec.OutputKind);
+        Assert.Equal("Hook text body", spec.TextBody);
+    }
+
+    [Fact]
+    public void ExistingSpecConstruction_WithoutOutputKind_DefaultsToRaster_BackwardCompat()
+    {
+        // Verifies backward compat: constructing without OutputKind still defaults to Raster.
+        var spec = new VisualCompositionSpec(
+            FormatKey: "carousel",
+            LayoutType: "grid",
+            Palette: new CompositionPalette("#000", "#333", "#666", "#FFF", "#EEE"),
+            Typography: new CompositionTypography("Roboto", 24, "Roboto", 16),
+            AssetSlots: new Dictionary<string, AssetSlotSpec> { ["cover"] = new AssetSlotSpec(null, null) },
+            CopySlots: new Dictionary<string, string> { ["title"] = "Title" },
+            Dimensions: new CompositionDimensions(1080, 1080, 96));
+
+        Assert.Equal(CompositionOutputKind.Raster, spec.OutputKind);
+        Assert.Null(spec.TextBody);
+    }
+
+    // -------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------
 

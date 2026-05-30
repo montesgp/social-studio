@@ -87,6 +87,77 @@ public sealed class LocalSvgContentRendererTests
         Assert.Equal("hook.png", result.Value.Filename);
     }
 
+    // -------------------------------------------------------------------
+    // T1.5 — Renderer dispatches on OutputKind (not format-key name)
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task RenderAsync_SpecWithOutputKindText_ReturnsTxtAsset()
+    {
+        var renderer = new LocalSvgContentRenderer();
+        var spec = BuildTextSpec("reel-script", "Hook text. Scene 1: voiceover. CTA: book a call");
+
+        var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("text/plain; charset=utf-8", result.Value.Mime);
+        Assert.Equal("reel-script.txt", result.Value.Filename);
+    }
+
+    [Fact]
+    public async Task RenderAsync_SpecWithOutputKindText_BodyIsUtf8TextBody()
+    {
+        const string expectedBody = "This is the text body content";
+        var renderer = new LocalSvgContentRenderer();
+        var spec = BuildTextSpec("hook", expectedBody);
+
+        var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var decoded = System.Text.Encoding.UTF8.GetString(result.Value.GetBytes());
+        Assert.Equal(expectedBody, decoded);
+    }
+
+    [Fact]
+    public async Task RenderAsync_SpecWithOutputKindRaster_ReturnsPngAsset()
+    {
+        var renderer = new LocalSvgContentRenderer();
+        var spec = BuildCarouselSpec(); // OutputKind defaults to Raster
+
+        var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("image/png", result.Value.Mime);
+        Assert.EndsWith(".png", result.Value.Filename);
+    }
+
+    [Fact]
+    public async Task RenderAsync_TextKindWithAnyFormatKey_NeverBranchesOnFormatKeyName()
+    {
+        // Verifies that a non-text format key (e.g. "carousel") with OutputKind=Text
+        // still emits .txt — the renderer is format-agnostic, driven only by OutputKind.
+        var renderer = new LocalSvgContentRenderer();
+        var spec = BuildTextSpec("carousel", "Text body for any key");
+
+        var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("text/plain; charset=utf-8", result.Value.Mime);
+        Assert.Equal("carousel.txt", result.Value.Filename);
+    }
+
+    [Fact]
+    public async Task RenderAsync_TextKind_FilenameIsFormatKeyDotTxt()
+    {
+        var renderer = new LocalSvgContentRenderer();
+        var spec = BuildTextSpec("caption", "Caption text here");
+
+        var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("caption.txt", result.Value.Filename);
+    }
+
     [Fact]
     public async Task RenderAsync_FlyerSpec_MatchesStoryDimensions()
     {
@@ -190,6 +261,18 @@ public sealed class LocalSvgContentRendererTests
                 ["text"] = "This is the hook text content"
             },
             Dimensions: new CompositionDimensions(1080, 1080, 96));
+
+    /// <summary>Builds a spec with <see cref="CompositionOutputKind.Text"/> set (T1.5 tests).</summary>
+    private static VisualCompositionSpec BuildTextSpec(string formatKey, string textBody) =>
+        new VisualCompositionSpec(
+            FormatKey: formatKey,
+            LayoutType: "text-card",
+            Palette: new CompositionPalette("#333", "#666", "#999", "#FFF", "#EEE"),
+            Typography: new CompositionTypography("Arial", 20, "Arial", 14),
+            AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+            CopySlots: new Dictionary<string, string> { ["text"] = textBody },
+            Dimensions: new CompositionDimensions(1080, 1080, 96))
+        with { OutputKind = CompositionOutputKind.Text, TextBody = textBody };
 
     private static VisualCompositionSpec BuildFlyerSpec(string? backgroundUrl = null) =>
         new VisualCompositionSpec(
