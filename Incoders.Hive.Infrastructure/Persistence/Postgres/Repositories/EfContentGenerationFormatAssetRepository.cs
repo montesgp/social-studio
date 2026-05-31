@@ -64,6 +64,19 @@ public sealed class EfContentGenerationFormatAssetRepository : IContentGeneratio
         return entities.Select(Map).ToList();
     }
 
+    public async Task DeleteByFormatResultIdAsync(Guid formatResultId, CancellationToken ct)
+    {
+        var existing = await _db.ContentGenerationFormatAssets
+            .Where(x => x.FormatResultId == formatResultId)
+            .ToListAsync(ct);
+
+        if (existing.Count > 0)
+        {
+            _db.ContentGenerationFormatAssets.RemoveRange(existing);
+            await _db.SaveChangesAsync(ct);
+        }
+    }
+
     private static ContentGenerationFormatAssetData Map(FormatAssetRow r) => new()
     {
         Id = r.Id,

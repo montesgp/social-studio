@@ -64,6 +64,8 @@ import {
   requestPackage,
   downloadPackageFile,
   assemblePackage,
+  regenerateFormat,
+  deleteFormatItem,
   ALL_FORMAT_KEYS,
   FORMAT_LABELS,
 } from "@/lib/api/content-generation";
@@ -706,6 +708,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const pollCancelRef = useRef(false);
   const lastHistoryRefreshKeyRef = useRef<string | null>(null);
 
+  // Formats that were physically deleted in this session (INC-5).
+  // Tracked locally so the Convert button reverts to "Generate" without a page refresh.
+  const [deletedFormatKeys, setDeletedFormatKeys] = useState<Set<ContentFormatKey>>(new Set());
+  // True while a regenerate or delete-format operation is in progress.
+  const [isFormatMutating, setIsFormatMutating] = useState(false);
+
   // Content-generation package job state.
   const [packageJobId, setPackageJobId] = useState<string | null>(null);
   const [packageRequestedFormats, setPackageRequestedFormats] = useState<ContentFormatKey[]>(
@@ -782,9 +790,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
               (ALL_FORMAT_KEYS as string[]).includes(k)
             ) as ContentFormatKey[])
           : [];
-      return Array.from(new Set([...fromPerFormatStatus, ...fromManifest]));
+      // Exclude formats that were physically deleted in this session (INC-5).
+      const all = Array.from(new Set([...fromPerFormatStatus, ...fromManifest]));
+      return all.filter((fmt) => !deletedFormatKeys.has(fmt));
     },
-    [packageJob.perFormatStatus, packageJob.status, packageJob.manifest]
+    [packageJob.perFormatStatus, packageJob.status, packageJob.manifest, deletedFormatKeys]
   );
   const packageFailedFormats = useMemo(
     () =>
@@ -1238,7 +1248,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }
 
   function hasLocalGeneratedFormat(formatKey: ContentFormatKey): boolean {
-    return Boolean(localFormats[formatKey]);
+    // A locally-tracked format is NOT considered generated if it was deleted in this session.
+    return Boolean(localFormats[formatKey]) && !deletedFormatKeys.has(formatKey);
   }
 
   function getExistingGeneratedFormats(formats: ContentFormatKey[]): ContentFormatKey[] {
@@ -1292,6 +1303,83 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setPackageJobError({ message: err?.message ?? "Failed to start content generation." });
     } finally {
       setGeneratingConversion(null);
+    }
+  }
+
+  /**
+   * INC-5: Re-renders a single stored format via the backend regenerate endpoint and
+   * replaces that format's local entry so the Convert panel reflects the new content.
+   * Other formats are untouched.
+   */
+  async function handleRegenerateFormat(
+    formatKey: ContentFormatKey,
+    objection?: string
+  ) {
+    const analysisId = videoResult?.id;
+    const clientId = packageJobClientId ?? selectedClientId;
+    if (!analysisId || !clientId || isFormatMutating) return;
+    setIsFormatMutating(true);
+    setPackageJobError(null);
+    try {
+      await regenerateFormat(
+        analysisId,
+        formatKey,
+        { clientId, objection: objection ?? undefined },
+        { token: effectiveToken }
+      );
+      // Mark as regenerated in localFormats so the Convert panel reflects the update.
+      setLocalFormats((prev) => {
+        const existing = prev[formatKey];
+        return {
+          ...prev,
+          [formatKey]: {
+            content: existing?.content ?? "",
+            generatedAt: new Date().toISOString(),
+            regenerationCount: (existing?.regenerationCount ?? 0) + 1,
+          },
+        };
+      });
+      // Remove from deletedFormatKeys if it was previously deleted (re-generated = back).
+      if (deletedFormatKeys.has(formatKey)) {
+        setDeletedFormatKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(formatKey);
+          return next;
+        });
+      }
+    } catch (e) {
+      const err = e as { message?: string };
+      setPackageJobError({ message: err?.message ?? `Failed to regenerate ${formatKey}.` });
+    } finally {
+      setIsFormatMutating(false);
+    }
+  }
+
+  /**
+   * INC-5: Physically deletes a format's stored asset from the backend (storage + DB rows).
+   * Reverts the Convert button to "Generate" and removes the format from the Packages tree.
+   */
+  async function handleDeleteFormat(formatKey: ContentFormatKey) {
+    const analysisId = videoResult?.id;
+    const clientId = packageJobClientId ?? selectedClientId;
+    if (!analysisId || !clientId || isFormatMutating) return;
+    setIsFormatMutating(true);
+    setPackageJobError(null);
+    try {
+      await deleteFormatItem(analysisId, formatKey, clientId, { token: effectiveToken });
+      // Track as deleted so the Convert button reverts to "Generate".
+      setDeletedFormatKeys((prev) => new Set([...prev, formatKey]));
+      // Remove from localFormats so it disappears from the Packages tree.
+      setLocalFormats((prev) => {
+        const next = { ...prev };
+        delete next[formatKey];
+        return next;
+      });
+    } catch (e) {
+      const err = e as { message?: string };
+      setPackageJobError({ message: err?.message ?? `Failed to delete ${formatKey}.` });
+    } finally {
+      setIsFormatMutating(false);
     }
   }
 
@@ -2377,6 +2465,34 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 <AlertTriangle className="h-3 w-3" />
                                 Regenerate with objections
                               </Button>
+                              {/* INC-5: Stored-asset actions (only for new-model packages) */}
+                              {packageJob.manifest?.has_stored_assets &&
+                                packageSucceededFormats.includes(selectedFormatKey) && (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 text-xs"
+                                      onClick={() => void handleRegenerateFormat(selectedFormatKey)}
+                                      disabled={isFormatMutating || packageGenerationIsRunning}
+                                      title="Re-render and overwrite the stored asset for this format."
+                                    >
+                                      <RefreshCw className="h-3 w-3" />
+                                      Regenerate stored
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      className="h-8 text-xs"
+                                      onClick={() => void handleDeleteFormat(selectedFormatKey)}
+                                      disabled={isFormatMutating || packageGenerationIsRunning}
+                                      title="Permanently delete the stored asset for this format."
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                      Delete
+                                    </Button>
+                                  </>
+                                )}
                             </div>
                           </div>
                         ) : (

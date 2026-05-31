@@ -22,6 +22,17 @@ public interface IContentGenerationJobRepository
     Task UpdateManifestAsync(Guid id, string manifestJson, DateTime completedAt, CancellationToken ct);
 
     Task<IReadOnlyList<ContentGenerationJob>> ListPendingOrRunningAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Returns the most-recently created completed/partial job for the given analysis + client.
+    /// Returns null when no such job exists or the org does not match (tenant-scoped).
+    /// Used by the regenerate command to recover the AI-generated payload for a specific format.
+    /// </summary>
+    Task<ContentGenerationJob?> GetLatestByAnalysisAndClientAsync(
+        Guid analysisId,
+        Guid organizationId,
+        Guid clientId,
+        CancellationToken ct);
 }
 
 /// <summary>

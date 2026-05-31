@@ -5,6 +5,7 @@ using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Assemble;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Download;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Regenerate;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Status;
 using MediatR;
 
@@ -37,6 +38,18 @@ public static class ContentGenerationEndpointsExtensions
             .WithName("AssembleGeneratedPackage")
             .WithSummary("Assemble a ZIP on demand from currently-stored per-asset rows for the analysis")
             .Produces(StatusCodes.Status200OK, contentType: "application/zip")
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        analyzerGroup.MapPost("/{analysisId:guid}/formats/{formatKey}/regenerate", ContentGenerationEndpointFacade.RegenerateFormatAsync)
+            .WithName("RegenerateFormatAsset")
+            .WithSummary("Re-render a single format and overwrite the stored asset(s) for the given client")
+            .Produces<RegenerateFormatResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        analyzerGroup.MapDelete("/{analysisId:guid}/formats/{formatKey}", ContentGenerationEndpointFacade.DeleteFormatAsync)
+            .WithName("DeleteFormatAsset")
+            .WithSummary("Physically delete a format's asset object(s) from storage and remove the DB rows")
+            .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         // Job status and download (shared group)
@@ -77,6 +90,17 @@ public sealed record AssembleClientSelectionRequest(
 /// <summary>Request body for the assemble-package endpoint.</summary>
 public sealed record AssemblePackageRequest(
     IReadOnlyList<AssembleClientSelectionRequest>? Clients);
+
+/// <summary>Request body for the regenerate-format endpoint.</summary>
+public sealed record RegenerateFormatRequest(
+    Guid ClientId,
+    string? Objection);
+
+/// <summary>One regenerated asset entry returned by the regenerate endpoint.</summary>
+public sealed record RegenerateFormatAssetItem(string StoragePath, string Filename, string Mime, long SizeBytes);
+
+/// <summary>Response body for the regenerate-format endpoint.</summary>
+public sealed record RegenerateFormatResponse(string FormatKey, IReadOnlyList<RegenerateFormatAssetItem> Assets);
 
 /// <summary>
 /// Minimal API handler delegates for content generation endpoints.
@@ -157,6 +181,55 @@ public static class ContentGenerationEndpointFacade
                 response.ZipStream,
                 contentType: "application/zip",
                 fileDownloadName: response.DownloadFilename));
+    }
+
+    public static async Task<IResult> RegenerateFormatAsync(
+        Guid analysisId,
+        string formatKey,
+        RegenerateFormatRequest body,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+            return OrganizationRequired.ToProblem();
+
+        var result = await sender.Send(
+            new RegenerateFormatAssetCommand(
+                AnalysisId: analysisId,
+                OrganizationId: tenantId.Value,
+                ClientId: body.ClientId,
+                FormatKey: formatKey,
+                Objection: body.Objection),
+            cancellationToken);
+
+        return result.Match(response =>
+            (IResult)TypedResults.Ok(new RegenerateFormatResponse(
+                response.FormatKey,
+                response.Assets.Select(a => new RegenerateFormatAssetItem(
+                    a.StoragePath, a.Filename, a.Mime, a.SizeBytes)).ToList())));
+    }
+
+    public static async Task<IResult> DeleteFormatAsync(
+        Guid analysisId,
+        string formatKey,
+        Guid clientId,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+            return OrganizationRequired.ToProblem();
+
+        var result = await sender.Send(
+            new DeleteFormatAssetCommand(
+                AnalysisId: analysisId,
+                OrganizationId: tenantId.Value,
+                ClientId: clientId,
+                FormatKey: formatKey),
+            cancellationToken);
+
+        return result.Match(() => (IResult)TypedResults.NoContent());
     }
 
     public static async Task<IResult> DownloadPackageAsync(

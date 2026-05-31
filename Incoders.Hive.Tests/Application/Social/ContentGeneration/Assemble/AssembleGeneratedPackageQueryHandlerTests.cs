@@ -250,6 +250,9 @@ file sealed class FakeAssetRepository(
             return Task.FromResult(rows);
         return Task.FromResult<IReadOnlyList<FormatAssetRow>>([]);
     }
+
+    public Task DeleteByFormatResultIdAsync(Guid formatResultId, CancellationToken ct) =>
+        Task.CompletedTask;
 }
 
 file sealed class FakeAnalysisRepository(Guid ownerOrgId, Guid analysisId) : ISingleContentAnalysisRepository

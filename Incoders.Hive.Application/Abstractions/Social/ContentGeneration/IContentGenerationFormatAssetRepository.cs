@@ -26,6 +26,12 @@ public interface IContentGenerationFormatAssetRepository
         Guid organizationId,
         Guid analysisId,
         CancellationToken ct);
+
+    /// <summary>
+    /// Physically removes all asset rows for the given format result.
+    /// Used by delete-item (INC-5): storage objects must be deleted separately before calling this.
+    /// </summary>
+    Task DeleteByFormatResultIdAsync(Guid formatResultId, CancellationToken ct);
 }
 
 /// <summary>

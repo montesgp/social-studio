@@ -284,6 +284,10 @@ file sealed class SpyJobRepository : IContentGenerationJobRepository
 
     public Task<IReadOnlyList<ContentGenerationJob>> ListPendingOrRunningAsync(CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<ContentGenerationJob>>([]);
+
+    public Task<ContentGenerationJob?> GetLatestByAnalysisAndClientAsync(
+        Guid analysisId, Guid organizationId, Guid clientId, CancellationToken ct) =>
+        Task.FromResult<ContentGenerationJob?>(null);
 }
 
 file sealed class SpyAnalysisRepository : ISingleContentAnalysisRepository

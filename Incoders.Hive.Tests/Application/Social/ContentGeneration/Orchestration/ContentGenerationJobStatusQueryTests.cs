@@ -160,6 +160,10 @@ file sealed class FakeJobRepository : IContentGenerationJobRepository
     public Task UpdateManifestAsync(Guid id, string manifestJson, DateTime completedAt, CancellationToken ct) => Task.CompletedTask;
     public Task<IReadOnlyList<ContentGenerationJob>> ListPendingOrRunningAsync(CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<ContentGenerationJob>>(new List<ContentGenerationJob>());
+
+    public Task<ContentGenerationJob?> GetLatestByAnalysisAndClientAsync(
+        Guid analysisId, Guid organizationId, Guid clientId, CancellationToken ct) =>
+        Task.FromResult<ContentGenerationJob?>(null);
 }
 
 file sealed class FakeFormatResultRepository : IContentGenerationFormatResultRepository

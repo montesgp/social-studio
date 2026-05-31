@@ -327,6 +327,9 @@ file sealed class SpyAssetRepository : IContentGenerationFormatAssetRepository
 
     public Task<IReadOnlyList<FormatAssetRow>> ListByAnalysisClientAsync(Guid organizationId, Guid analysisId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<FormatAssetRow>>([]);
+
+    public Task DeleteByFormatResultIdAsync(Guid formatResultId, CancellationToken ct) =>
+        Task.CompletedTask;
 }
 
 file sealed class FailingAssetStorage : IGeneratedAssetStorage
@@ -379,6 +382,7 @@ file sealed class FakeJobRepository(ContentGenerationJob job) : IContentGenerati
     public Task UpdateStatusAsync(Guid id, string status, string? reason, string? code, CancellationToken ct) => Task.CompletedTask;
     public Task UpdateManifestAsync(Guid id, string json, DateTime completedAt, CancellationToken ct) => Task.CompletedTask;
     public Task<IReadOnlyList<ContentGenerationJob>> ListPendingOrRunningAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<ContentGenerationJob>>([]);
+    public Task<ContentGenerationJob?> GetLatestByAnalysisAndClientAsync(Guid analysisId, Guid organizationId, Guid clientId, CancellationToken ct) => Task.FromResult<ContentGenerationJob?>(null);
 }
 
 file sealed class FakeAnalysisRepository(SingleContentAnalysisRecord record) : ISingleContentAnalysisRepository

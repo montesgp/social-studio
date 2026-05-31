@@ -209,6 +209,67 @@ export async function assemblePackage(
   return { blob, filename };
 }
 
+// ─── Regenerate / Delete format types ────────────────────────────────────────
+
+export interface RegenerateFormatRequest {
+  clientId: string;
+  objection?: string;
+}
+
+export interface RegeneratedAssetInfo {
+  storagePath: string;
+  filename: string;
+  mime: string;
+  sizeBytes: number;
+}
+
+export interface RegenerateFormatResponse {
+  formatKey: string;
+  assets: RegeneratedAssetInfo[];
+}
+
+/**
+ * POST /api/social/single-analyzer/{analysisId}/formats/{formatKey}/regenerate
+ * Re-renders a single format and overwrites the stored asset(s).
+ * Returns the updated asset metadata.
+ */
+export async function regenerateFormat(
+  analysisId: string,
+  formatKey: string,
+  payload: RegenerateFormatRequest,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<RegenerateFormatResponse> {
+  return apiRequest<RegenerateFormatResponse>(
+    `/api/social/single-analyzer/${encodeURIComponent(analysisId)}/formats/${encodeURIComponent(formatKey)}/regenerate`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal: opts?.signal,
+    },
+    opts?.token
+  );
+}
+
+/**
+ * DELETE /api/social/single-analyzer/{analysisId}/formats/{formatKey}?clientId=...
+ * Physically deletes a format's asset object(s) from storage and removes the DB rows.
+ */
+export async function deleteFormatItem(
+  analysisId: string,
+  formatKey: string,
+  clientId: string,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<void> {
+  return apiRequest<void>(
+    `/api/social/single-analyzer/${encodeURIComponent(analysisId)}/formats/${encodeURIComponent(formatKey)}?clientId=${encodeURIComponent(clientId)}`,
+    {
+      method: "DELETE",
+      signal: opts?.signal,
+    },
+    opts?.token
+  );
+}
+
 /**
  * GET /api/social/content-generation-jobs/{jobId}/package
  * Downloads the generated ZIP using auth + tenant headers.

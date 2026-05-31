@@ -80,6 +80,26 @@ public sealed class EfContentGenerationJobRepository : IContentGenerationJobRepo
         return entities.Select(Map).ToList();
     }
 
+    /// <inheritdoc />
+    public async Task<ContentGenerationJob?> GetLatestByAnalysisAndClientAsync(
+        Guid analysisId,
+        Guid organizationId,
+        Guid clientId,
+        CancellationToken ct)
+    {
+        var entity = await _db.ContentGenerationJobs
+            .AsNoTracking()
+            .Where(x =>
+                x.AnalysisId == analysisId
+                && x.OrganizationId == organizationId
+                && x.ClientId == clientId
+                && (x.Status == "Completed" || x.Status == "Partial" || x.Status == "PartialSuccess"))
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
+        return entity is null ? null : Map(entity);
+    }
+
     private static ContentGenerationJobData Map(ContentGenerationJob job) => new()
     {
         Id = job.Id,
