@@ -69,7 +69,9 @@ import {
   ALL_FORMAT_KEYS,
   FORMAT_LABELS,
 } from "@/lib/api/content-generation";
+import type { PackageAssetEntry } from "@/lib/api/types";
 import { useContentGenerationJob } from "@/lib/hooks/use-content-generation-job";
+import { usePackageWorkspace } from "@/lib/hooks/use-package-workspace";
 import { InferredFieldsDisclosure } from "@/components/social/single-analyzer/inferred-fields-disclosure";
 import { PartialCompletionBanner } from "@/components/social/single-analyzer/partial-completion-banner";
 import { SupportError } from "@/components/support/support-error";
@@ -740,6 +742,17 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     detectedPlatform !== null &&
     detectedPlatform !== "unknown";
 
+  // INC-6: Multi-client package workspace — hydrated from the DB, survives refresh.
+  // clientPackages is keyed by clientId and contains the accumulated formats + assets per client.
+  const {
+    clientPackages,
+    isLoadingPackages,
+    hasStoredFormatsForClient,
+    markFormatDeleted,
+    markFormatRegenerated,
+    refreshPackages,
+  } = usePackageWorkspace(videoResult?.id, effectiveToken);
+
   // Package generation polling — active while packageJobId is set and no terminal state reached.
   const packageJob = useContentGenerationJob(packageJobId, {
     token: effectiveToken,
@@ -803,6 +816,16 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         .map(([fmt]) => fmt) as ContentFormatKey[]),
     [packageJob.perFormatStatus]
   );
+
+  // INC-6: Refresh the multi-client packages tree whenever a generation job reaches a terminal state.
+  // This ensures a newly-generated client folder appears in the Packages tab without a page refresh.
+  useEffect(() => {
+    const terminalStatuses = ["Completed", "Partial", "PartialSuccess"] as const;
+    if (packageJob.status && (terminalStatuses as readonly string[]).includes(packageJob.status)) {
+      refreshPackages();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [packageJob.status]);
 
   const downloadCurrentPackage = useCallback(async () => {
     if (!packageJobId || isDownloadingPackage) return;
@@ -1321,7 +1344,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setIsFormatMutating(true);
     setPackageJobError(null);
     try {
-      await regenerateFormat(
+      const response = await regenerateFormat(
         analysisId,
         formatKey,
         { clientId, objection: objection ?? undefined },
@@ -1347,6 +1370,14 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
           return next;
         });
       }
+      // INC-6: Update the per-client package tree with the new asset entries.
+      const updatedAssets: PackageAssetEntry[] = response.assets.map((a, idx) => ({
+        index: idx,
+        filename: a.filename,
+        storagePath: a.storagePath,
+        sizeBytes: a.sizeBytes,
+      }));
+      markFormatRegenerated(clientId, formatKey, updatedAssets);
     } catch (e) {
       const err = e as { message?: string };
       setPackageJobError({ message: err?.message ?? `Failed to regenerate ${formatKey}.` });
@@ -1375,6 +1406,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         delete next[formatKey];
         return next;
       });
+      // INC-6: Remove the format from the per-client package tree.
+      markFormatDeleted(clientId, formatKey);
     } catch (e) {
       const err = e as { message?: string };
       setPackageJobError({ message: err?.message ?? `Failed to delete ${formatKey}.` });
@@ -1399,7 +1432,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const generatedFormatKeys = ALL_FORMAT_KEYS.filter(
     (format) => packageSucceededFormats.includes(format) || hasLocalGeneratedFormat(format)
   );
-  const hasAnyGeneratedFormat = generatedFormatKeys.length > 0;
+  // INC-6: hasAnyGeneratedFormat also checks the per-client workspace from the backend tree.
+  // This ensures the "Download" button is enabled when the currently-selected client has stored assets.
+  const hasAnyGeneratedFormat =
+    generatedFormatKeys.length > 0 ||
+    (selectedClientId ? hasStoredFormatsForClient(selectedClientId) : false);
   const packageCoversGeneratedFormats =
     packageDownloadAvailable &&
     generatedFormatKeys.every((format) => packageRequestedFormats.includes(format));
@@ -2232,27 +2269,31 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                   active={rightPanelTab}
                   onChange={(k) => setRightPanelTab(k as "conversion" | "preview" | "package")}
                 />
-                  {/* Client context — global to all tabs: drives generation and package visibility */}
-                  <div className="flex items-center gap-2">
-                    <label htmlFor="single-analyzer-client" className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                      Client context
-                    </label>
-                    <Select
-                      id="single-analyzer-client"
-                      size="sm"
-                      className="flex-1"
-                      value={selectedClientId}
-                      onChange={(e) => setSelectedClientId(e.target.value)}
-                      disabled={clientsLoading}
-                    >
-                      <option value="">Select a client</option>
-                      {clients.map((client) => (
-                        <option key={client.id} value={client.id}>
-                          {client.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
+                  {/* Client context selector — shown on Convert and Preview tabs only.
+                      The Packages tab shows ALL clients' folders without filtering by client.
+                      INC-6 REQ-5: selector MUST NOT appear on the Packages tab. */}
+                  {rightPanelTab !== "package" && (
+                    <div className="flex items-center gap-2">
+                      <label htmlFor="single-analyzer-client" className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                        Client context
+                      </label>
+                      <Select
+                        id="single-analyzer-client"
+                        size="sm"
+                        className="flex-1"
+                        value={selectedClientId}
+                        onChange={(e) => setSelectedClientId(e.target.value)}
+                        disabled={clientsLoading}
+                      >
+                        <option value="">Select a client</option>
+                        {clients.map((client) => (
+                          <option key={client.id} value={client.id}>
+                            {client.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent className="pt-0">
                 {rightPanelTab === "conversion" && (
@@ -2572,7 +2613,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     isLoading={
                       packageGenerationIsRunning ||
                       isRequestingPackage ||
-                      isDownloadingPackage
+                      isDownloadingPackage ||
+                      isLoadingPackages
                     }
                     isJobFetching={packageJob.isLoading && isReattachingJob}
                     packageActionRequiresBuild={packageActionRequiresBuild}
@@ -2583,6 +2625,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                         ? deriveClientFolderSlug(selectedClient?.name ?? "")
                         : null)
                     }
+                    clientPackages={clientPackages}
+                    clientLabels={Object.fromEntries(
+                      clients.map((c) => [c.id, deriveClientFolderSlug(c.name)])
+                    )}
                     onDownload={() => void handlePackageAction()}
                   />
                 )}
@@ -2745,6 +2791,16 @@ interface PackageTabContentProps {
    * Null for legacy flat-layout packages.
    */
   clientFolderName: string | null;
+  /**
+   * INC-6: Multi-client package tree from the backend DB listing.
+   * Keyed by clientId → { formats, assets }.
+   * When present and non-empty, the Packages tab renders one folder per client
+   * with carousel slide children, instead of the single-client view.
+   */
+  clientPackages: import("@/lib/hooks/use-package-workspace").ClientPackages;
+  /** INC-6: Maps clientId → human-readable folder slug, so the tree shows the client
+   *  instead of an opaque GUID. Falls back to a truncated id when a client is unknown. */
+  clientLabels: Record<string, string>;
   onDownload: () => void;
 }
 
@@ -2757,14 +2813,20 @@ function PackageTabContent({
   packageActionRequiresBuild,
   hasAnyGeneratedFormat,
   clientFolderName,
+  clientPackages,
+  clientLabels,
   onDownload,
 }: PackageTabContentProps) {
   const allFormatKeys = Array.from(
     new Set([...Object.keys(localFormats) as ContentFormatKey[], ...packageSucceededFormats])
   );
 
+  // INC-6: Determine whether we have a multi-client tree from the backend.
+  const clientPackageEntries = Object.values(clientPackages);
+  const hasMultiClientTree = clientPackageEntries.length > 0;
+
   // Show a loading skeleton while the hook is fetching the reattached job status.
-  if (allFormatKeys.length === 0 && isJobFetching) {
+  if (allFormatKeys.length === 0 && !hasMultiClientTree && isJobFetching) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[160px] text-center text-xs text-muted-foreground/60 space-y-2 py-6">
         <RefreshCw className="h-6 w-6 opacity-40 animate-spin" />
@@ -2773,7 +2835,7 @@ function PackageTabContent({
     );
   }
 
-  if (allFormatKeys.length === 0) {
+  if (allFormatKeys.length === 0 && !hasMultiClientTree) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[160px] text-center text-xs text-muted-foreground/60 space-y-2 py-6">
         <Package className="h-8 w-8 opacity-30" />
@@ -2783,7 +2845,7 @@ function PackageTabContent({
     );
   }
 
-  const hasBackendPackage = Boolean(manifest) || hasAnyGeneratedFormat;
+  const hasBackendPackage = Boolean(manifest) || hasAnyGeneratedFormat || hasMultiClientTree;
 
   return (
     <div className="flex flex-col gap-4 py-2">
@@ -2799,66 +2861,118 @@ function PackageTabContent({
           <span className="font-mono">package/</span>
         </div>
 
-        {/* Client subfolder wrapper — present for new-style packages */}
-        {clientFolderName && (
-          <div className="pl-4 mb-0.5">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70">
-              <FolderOpen className="h-3.5 w-3.5 text-amber-300" />
-              <span className="font-mono">{clientFolderName}/</span>
+        {/* INC-6: Multi-client tree from the backend DB listing.
+            When clientPackages has entries, render one folder per client with
+            format files and carousel slide children. */}
+        {hasMultiClientTree ? (
+          clientPackageEntries.map((clientEntry) => (
+            <div key={clientEntry.clientId} className="pl-4 mb-1">
+              {/* Client folder */}
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70 mb-0.5">
+                <FolderOpen className="h-3.5 w-3.5 text-amber-300 shrink-0" />
+                <span className="font-mono text-xs truncate" title={clientEntry.clientId}>
+                  {clientLabels[clientEntry.clientId] ?? `${clientEntry.clientId.substring(0, 8)}…`}/
+                </span>
+              </div>
+              {/* Format files — indented inside client folder */}
+              {clientEntry.formats.map((formatEntry) => {
+                const isCarousel = formatEntry.formatKey === "carousel";
+                return (
+                  <div key={formatEntry.formatKey}>
+                    {/* Format row */}
+                    <div className="pl-6 flex items-center gap-1.5 py-0.5">
+                      {isCarousel ? (
+                        <FolderOpen className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                      ) : formatEntry.filename.endsWith(".png") || formatEntry.filename.endsWith(".jpg") ? (
+                        <FileImage className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                      ) : (
+                        <FileText className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                      )}
+                      <span className="font-mono text-xs text-foreground/80 truncate">
+                        {isCarousel ? "carousel/" : formatEntry.filename}
+                      </span>
+                      <span className="ml-auto inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 shrink-0">
+                        Generated
+                      </span>
+                    </div>
+                    {/* Carousel slide children */}
+                    {isCarousel && formatEntry.assets.map((asset) => (
+                      <div key={asset.index} className="pl-12 flex items-center gap-1.5 py-0.5">
+                        <FileImage className="h-3 w-3 text-blue-300 shrink-0" />
+                        <span className="font-mono text-xs text-muted-foreground/70 truncate">
+                          {asset.filename}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
-          </div>
+          ))
+        ) : (
+          <>
+            {/* Legacy single-client tree (backward compat: no clientPackages yet) */}
+            {clientFolderName && (
+              <div className="pl-4 mb-0.5">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70">
+                  <FolderOpen className="h-3.5 w-3.5 text-amber-300" />
+                  <span className="font-mono">{clientFolderName}/</span>
+                </div>
+              </div>
+            )}
+
+            {/* Format entries — indented further when inside a client folder */}
+            {allFormatKeys.map((formatKey) => {
+              const local = localFormats[formatKey];
+              const isSucceeded = packageSucceededFormats.includes(formatKey);
+              const filename = resolveFormatFilename(
+                formatKey,
+                manifest?.formats?.[formatKey]?.filename
+              );
+              const isFolder = filename.endsWith("/");
+              const isRegenerated = (local?.regenerationCount ?? 0) > 0;
+              const indent = clientFolderName ? "pl-10" : "pl-4";
+
+              return (
+                <div key={formatKey} className={`flex items-start gap-2 ${indent} py-0.5`}>
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    {isFolder ? (
+                      <FolderOpen className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    ) : filename.endsWith(".png") || filename.endsWith(".jpg") ? (
+                      <FileImage className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                    ) : (
+                      <FileText className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                    )}
+                    <span className="font-mono text-xs text-foreground/80 truncate">{filename}</span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {isRegenerated && (
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
+                        Regenerated ×{local!.regenerationCount}
+                      </span>
+                    )}
+                    {local?.generatedAt && (
+                      <span className="text-[10px] text-muted-foreground/50 tabular-nums">
+                        {new Date(local.generatedAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    )}
+                    {isSucceeded && !local && (
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20">
+                        Generated
+                      </span>
+                    )}
+                    {isSucceeded && local && (
+                      <CheckCircle2 className="h-3 w-3 text-green-500" />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </>
         )}
-
-        {/* Format entries — indented further when inside a client folder */}
-        {allFormatKeys.map((formatKey) => {
-          const local = localFormats[formatKey];
-          const isSucceeded = packageSucceededFormats.includes(formatKey);
-          const filename = resolveFormatFilename(
-            formatKey,
-            manifest?.formats?.[formatKey]?.filename
-          );
-          const isFolder = filename.endsWith("/");
-          const isRegenerated = (local?.regenerationCount ?? 0) > 0;
-          const indent = clientFolderName ? "pl-10" : "pl-4";
-
-          return (
-            <div key={formatKey} className={`flex items-start gap-2 ${indent} py-0.5`}>
-              <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                {isFolder ? (
-                  <FolderOpen className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                ) : filename.endsWith(".png") || filename.endsWith(".jpg") ? (
-                  <FileImage className="h-3.5 w-3.5 text-blue-400 shrink-0" />
-                ) : (
-                  <FileText className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-                )}
-                <span className="font-mono text-xs text-foreground/80 truncate">{filename}</span>
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                {isRegenerated && (
-                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
-                    Regenerated ×{local!.regenerationCount}
-                  </span>
-                )}
-                {local?.generatedAt && (
-                  <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-                    {new Date(local.generatedAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                )}
-                {isSucceeded && !local && (
-                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20">
-                    Generated
-                  </span>
-                )}
-                {isSucceeded && local && (
-                  <CheckCircle2 className="h-3 w-3 text-green-500" />
-                )}
-              </div>
-            </div>
-          );
-        })}
 
         {/* manifest.json is always bundled with every backend-generated package */}
         {hasBackendPackage && (

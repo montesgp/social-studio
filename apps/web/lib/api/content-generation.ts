@@ -9,6 +9,7 @@ import type {
   GeneratePackageRequest,
   GeneratePackageResponse,
   GeneratedPackageManifest,
+  AnalysisPackagesResponse,
 } from "@/lib/api/types";
 
 export type {
@@ -18,6 +19,7 @@ export type {
   GeneratePackageRequest,
   GeneratePackageResponse,
   GeneratedPackageManifest,
+  AnalysisPackagesResponse,
 };
 
 /** All 7 supported format keys — used when the user wants to generate all formats. */
@@ -264,6 +266,26 @@ export async function deleteFormatItem(
     `/api/social/single-analyzer/${encodeURIComponent(analysisId)}/formats/${encodeURIComponent(formatKey)}?clientId=${encodeURIComponent(clientId)}`,
     {
       method: "DELETE",
+      signal: opts?.signal,
+    },
+    opts?.token
+  );
+}
+
+/**
+ * GET /api/social/single-analyzer/{analysisId}/packages
+ * Returns the per-client package tree (formats + assets) for the given analysis.
+ * Sourced from DB — survives page refresh.
+ * INC-6: drives the multi-client Packages tab tree.
+ */
+export async function listAnalysisPackages(
+  analysisId: string,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<AnalysisPackagesResponse> {
+  return apiRequest<AnalysisPackagesResponse>(
+    `/api/social/single-analyzer/${encodeURIComponent(analysisId)}/packages`,
+    {
+      method: "GET",
       signal: opts?.signal,
     },
     opts?.token

@@ -742,3 +742,32 @@ export interface ContentGenerationJobStatusResponse {
   perFormatStatus: Partial<Record<ContentFormatKey, string>>;
   manifest: GeneratedPackageManifest | null;
 }
+
+// ── INC-6: Multi-client package tree types ────────────────────────────────────
+
+/** One stored asset (e.g. a carousel slide or a single-asset format file). */
+export interface PackageAssetEntry {
+  index: number;
+  filename: string;
+  storagePath: string;
+  sizeBytes: number;
+}
+
+/** One format's accumulated assets for a client. */
+export interface PackageFormatEntry {
+  formatKey: ContentFormatKey;
+  filename: string;
+  mime: string;
+  assets: PackageAssetEntry[];
+}
+
+/** One client's accumulated formats for this analysis. */
+export interface ClientPackageEntry {
+  clientId: string;
+  formats: PackageFormatEntry[];
+}
+
+/** Response from GET /api/social/single-analyzer/{analysisId}/packages. */
+export interface AnalysisPackagesResponse {
+  clients: ClientPackageEntry[];
+}

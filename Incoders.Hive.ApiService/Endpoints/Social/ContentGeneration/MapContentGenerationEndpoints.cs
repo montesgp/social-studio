@@ -5,6 +5,7 @@ using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Assemble;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Download;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.PackageListing;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Regenerate;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Status;
 using MediatR;
@@ -50,6 +51,12 @@ public static class ContentGenerationEndpointsExtensions
             .WithName("DeleteFormatAsset")
             .WithSummary("Physically delete a format's asset object(s) from storage and remove the DB rows")
             .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        analyzerGroup.MapGet("/{analysisId:guid}/packages", ContentGenerationEndpointFacade.ListPackagesAsync)
+            .WithName("ListAnalysisPackages")
+            .WithSummary("Returns the per-client package tree (formats + assets) for the given analysis, sourced from DB")
+            .Produces<AnalysisPackagesApiResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         // Job status and download (shared group)
@@ -101,6 +108,26 @@ public sealed record RegenerateFormatAssetItem(string StoragePath, string Filena
 
 /// <summary>Response body for the regenerate-format endpoint.</summary>
 public sealed record RegenerateFormatResponse(string FormatKey, IReadOnlyList<RegenerateFormatAssetItem> Assets);
+
+// ─── List Packages API response types ─────────────────────────────────────────
+
+/// <summary>One stored asset entry in the packages response.</summary>
+public sealed record AssetPackageApiEntry(int Index, string Filename, string StoragePath, long SizeBytes);
+
+/// <summary>One format's entries for a client in the packages response.</summary>
+public sealed record FormatPackageApiEntry(
+    string FormatKey,
+    string Filename,
+    string Mime,
+    IReadOnlyList<AssetPackageApiEntry> Assets);
+
+/// <summary>One client's accumulated formats in the packages response.</summary>
+public sealed record ClientPackageApiEntry(
+    Guid ClientId,
+    IReadOnlyList<FormatPackageApiEntry> Formats);
+
+/// <summary>Top-level response for GET .../packages.</summary>
+public sealed record AnalysisPackagesApiResponse(IReadOnlyList<ClientPackageApiEntry> Clients);
 
 /// <summary>
 /// Minimal API handler delegates for content generation endpoints.
@@ -230,6 +257,37 @@ public static class ContentGenerationEndpointFacade
             cancellationToken);
 
         return result.Match(() => (IResult)TypedResults.NoContent());
+    }
+
+    public static async Task<IResult> ListPackagesAsync(
+        Guid analysisId,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+            return OrganizationRequired.ToProblem();
+
+        var result = await sender.Send(
+            new ListAnalysisPackagesQuery(analysisId, tenantId.Value),
+            cancellationToken);
+
+        return result.Match(response =>
+            (IResult)TypedResults.Ok(new AnalysisPackagesApiResponse(
+                response.Clients
+                    .Select(c => new ClientPackageApiEntry(
+                        c.ClientId,
+                        c.Formats
+                            .Select(f => new FormatPackageApiEntry(
+                                f.FormatKey,
+                                f.Filename,
+                                f.Mime,
+                                f.Assets
+                                    .Select(a => new AssetPackageApiEntry(
+                                        a.Index, a.Filename, a.StoragePath, a.SizeBytes))
+                                    .ToList()))
+                            .ToList()))
+                    .ToList())));
     }
 
     public static async Task<IResult> DownloadPackageAsync(
