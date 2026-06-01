@@ -53,11 +53,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<ClientBrandManualData> ClientBrandManuals => Set<ClientBrandManualData>();
 
-    public DbSet<ClientStrategyData> ClientStrategies => Set<ClientStrategyData>();
-
     public DbSet<GeneralStrategyData> GeneralStrategies => Set<GeneralStrategyData>();
-
-    public DbSet<ClientMonthlyObjectiveData> ClientMonthlyObjectives => Set<ClientMonthlyObjectiveData>();
 
     public DbSet<ContentPlanData> ContentPlans => Set<ContentPlanData>();
 
@@ -464,84 +460,6 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .IsUnique()
                 .HasFilter("is_active = true")
                 .HasDatabaseName("ix_client_brand_manuals_one_active_per_client");
-        });
-
-        builder.Entity<ClientStrategyData>(entity =>
-        {
-            entity.ToTable("client_strategies", PostgresDatabaseNames.SocialSchema);
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.Id).HasColumnName("id");
-            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
-            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
-            entity.Property(x => x.TargetAudience).HasColumnName("target_audience").HasMaxLength(1000);
-            entity.Property(x => x.PostingFrequency).HasColumnName("posting_frequency").HasMaxLength(200);
-            entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(2000);
-            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
-            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
-
-            // jsonb columns for list fields
-            ConfigureJsonbCollection<ClientStrategyData, string>(entity, x => x.ContentPillars, "content_pillars");
-            ConfigureJsonbCollection<ClientStrategyData, string>(entity, x => x.ToneKeywords, "tone_keywords");
-
-            // FK: client_id → social.clients(id) ON DELETE CASCADE
-            entity.HasOne<SocialClientData>()
-                .WithMany()
-                .HasForeignKey(x => x.ClientId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
-            entity.HasOne<TenantData>()
-                .WithMany()
-                .HasForeignKey(x => x.OrganizationId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            // UNIQUE: one strategy per client
-            entity.HasIndex(x => x.ClientId)
-                .IsUnique()
-                .HasDatabaseName("ix_client_strategies_one_per_client");
-
-            entity.HasIndex(x => x.OrganizationId)
-                .HasDatabaseName("ix_client_strategies_organization_id");
-        });
-
-        builder.Entity<ClientMonthlyObjectiveData>(entity =>
-        {
-            entity.ToTable("client_monthly_objectives", PostgresDatabaseNames.SocialSchema);
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.Id).HasColumnName("id");
-            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
-            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
-            entity.Property(x => x.Year).HasColumnName("year").IsRequired();
-            entity.Property(x => x.Month).HasColumnName("month").IsRequired();
-            entity.Property(x => x.Objectives).HasColumnName("objectives").HasMaxLength(3000).IsRequired();
-            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
-            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
-
-            // jsonb column for KPIs list
-            ConfigureJsonbCollection<ClientMonthlyObjectiveData, string>(entity, x => x.Kpis, "kpis");
-
-            // FK: client_id → social.clients(id) ON DELETE CASCADE
-            entity.HasOne<SocialClientData>()
-                .WithMany()
-                .HasForeignKey(x => x.ClientId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
-            entity.HasOne<TenantData>()
-                .WithMany()
-                .HasForeignKey(x => x.OrganizationId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            // UNIQUE: one objective per (client, year, month)
-            entity.HasIndex(x => new { x.ClientId, x.Year, x.Month })
-                .IsUnique()
-                .HasDatabaseName("ix_client_monthly_objectives_client_year_month");
-
-            entity.HasIndex(x => x.ClientId)
-                .HasDatabaseName("ix_client_monthly_objectives_client_id");
-
-            entity.HasIndex(x => x.OrganizationId)
-                .HasDatabaseName("ix_client_monthly_objectives_organization_id");
         });
 
         builder.Entity<SocialNetworkData>(entity =>
