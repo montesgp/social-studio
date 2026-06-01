@@ -8,7 +8,7 @@ For local VS Code Copilot agent sessions, this repository auto-approves terminal
 
 Treat `dotnet ...` commands as pre-approved for build, test, restore, format, EF tooling, and SDK inspection workflows.
 
-This does not authorize Git write operations. Commits, pushes, resets, rebases, merges, and destructive filesystem operations still require explicit user approval according to `AGENTS.md`.
+This is about terminal command approval, not Git policy. Per `AGENTS.md` / `git-safety.rules.md`, agents may branch, commit, push, and open pull requests; approving and merging PRs into `dev`/`main` remain the user's authority. Force pushes, history rewrites on shared branches, and destructive filesystem operations still require explicit user approval.
 
 ## Copilot CLI parity
 

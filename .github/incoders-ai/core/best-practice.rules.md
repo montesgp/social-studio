@@ -113,8 +113,8 @@
 - Use checklists for security/testing/rollback readiness on impactful changes.
 - Apply boy-scout rule: leave touched code cleaner than found.
 - Before staging anything, list every file that will be included with a one-line description of what changed in each.
-- Propose a commit message and show the full staged diff summary before asking permission. Never commit silently.
-- Never push silently. Never use `--no-verify`, `--force`, or `--force-with-lease` without explicit user instruction.
+- Propose a commit message and show the staged diff summary before committing. Never commit silently — commits to work branches are announced, not gated on per-commit approval.
+- Never push silently, and never push to or merge into `dev`/`main` (those go through an agent-opened PR that the user approves and merges). Never use `--no-verify`, `--force`, or `--force-with-lease` without explicit user instruction.
 - One logical change per commit. If multiple unrelated changes are staged, ask whether to split them.
 - Commit messages in imperative present tense, focused on "why" rather than "what".
 - If a pre-commit hook fails, report the failure and ask how to proceed. Never bypass the hook.
