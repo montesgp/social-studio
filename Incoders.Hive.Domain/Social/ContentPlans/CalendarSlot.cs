@@ -26,6 +26,18 @@ public sealed class CalendarSlot
 
     public CalendarSlotId Id { get; }
 
+    /// <summary>
+    /// Trusted re-hydration factory used by EF/Infrastructure mapping. Bypasses all validation.
+    /// </summary>
+    public static CalendarSlot Restore(
+        CalendarSlotId id,
+        int day,
+        string contentFormat,
+        int sortOrder,
+        Guid? producedPackageId,
+        Provenance provenance) =>
+        new(id, day, contentFormat, sortOrder, producedPackageId, provenance);
+
     /// <summary>Day of month (1–DaysInMonth for the period).</summary>
     public int Day { get; }
 

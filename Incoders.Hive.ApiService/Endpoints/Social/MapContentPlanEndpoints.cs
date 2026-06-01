@@ -1,9 +1,10 @@
 using Incoders.Hive.ApiService.Endpoints.Common;
 using Incoders.Hive.Application.Abstractions.Tenancy;
-using Incoders.Hive.Application.Features.Social.ClientMonthlyObjectives.GetByClientAndMonth;
-using Incoders.Hive.Application.Features.Social.ClientMonthlyObjectives.ListByClient;
-using Incoders.Hive.Application.Features.Social.ClientMonthlyObjectives.Upsert;
-using Incoders.Hive.Domain.Social.ClientMonthlyObjectives;
+using Incoders.Hive.Application.Features.Social.ContentPlans;
+using Incoders.Hive.Application.Features.Social.ContentPlans.GetByPeriod;
+using Incoders.Hive.Application.Features.Social.ContentPlans.ListByClient;
+using Incoders.Hive.Application.Features.Social.ContentPlans.Upsert;
+using Incoders.Hive.Domain.Social.ContentPlans;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -12,30 +13,29 @@ using Microsoft.AspNetCore.Routing;
 
 namespace Incoders.Hive.ApiService.Endpoints.Social;
 
-public static class ClientMonthlyObjectivesEndpointsExtensions
+public static class ContentPlanEndpointsExtensions
 {
-    public static IEndpointRouteBuilder MapClientMonthlyObjectivesEndpoints(this IEndpointRouteBuilder app)
+    public static IEndpointRouteBuilder MapContentPlanEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/social/clients/{clientId:guid}/objectives")
-            .WithTags("Social ClientMonthlyObjectives")
+        var group = app.MapGroup("/api/social/clients/{clientId:guid}/content-plans")
+            .WithTags("Social ContentPlans")
             .RequireAuthorization();
 
         group.MapGet("/", ListAsync)
-            .WithName("ListClientMonthlyObjectives")
-            .WithSummary("List all monthly objectives for a client, ordered Year desc, Month desc")
-            .Produces<ClientMonthlyObjectivesListResponse>(StatusCodes.Status200OK);
+            .WithName("ListContentPlans")
+            .WithSummary("List all content plans for a client, ordered Year desc, Month desc")
+            .Produces<IReadOnlyList<ContentPlanSummaryResponse>>(StatusCodes.Status200OK);
 
         group.MapGet("/{year:int}/{month:int}", GetAsync)
-            .WithName("GetClientMonthlyObjective")
-            .WithSummary("Get the monthly objective for a specific year/month")
-            .Produces<ClientMonthlyObjectiveResponse>(StatusCodes.Status200OK)
+            .WithName("GetContentPlan")
+            .WithSummary("Get the content plan for a specific year/month period")
+            .Produces<ContentPlanResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPut("/{year:int}/{month:int}", UpsertAsync)
-            .WithName("UpsertClientMonthlyObjective")
-            .WithSummary("Create or update the monthly objective for a specific year/month (PUT idempotent)")
-            .Produces<ClientMonthlyObjectiveResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status404NotFound)
+            .WithName("UpsertContentPlan")
+            .WithSummary("Create or update the content plan for a specific year/month period (PUT idempotent)")
+            .Produces<ContentPlanResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
         return app;
@@ -49,11 +49,11 @@ public static class ClientMonthlyObjectivesEndpointsExtensions
     {
         if (currentTenant.TenantId is not { } organizationId)
         {
-            return ClientMonthlyObjectiveErrors.NotFound.ToProblem();
+            return ContentPlanErrors.NotFound.ToProblem();
         }
 
         var result = await sender.Send(
-            new ListClientMonthlyObjectivesQuery(clientId, organizationId.Value),
+            new ListContentPlansQuery(clientId, organizationId.Value),
             cancellationToken);
 
         return result.Match(r => (IResult)TypedResults.Ok(r));
@@ -69,11 +69,11 @@ public static class ClientMonthlyObjectivesEndpointsExtensions
     {
         if (currentTenant.TenantId is not { } organizationId)
         {
-            return ClientMonthlyObjectiveErrors.NotFound.ToProblem();
+            return ContentPlanErrors.NotFound.ToProblem();
         }
 
         var result = await sender.Send(
-            new GetClientMonthlyObjectiveQuery(clientId, organizationId.Value, year, month),
+            new GetContentPlanQuery(clientId, organizationId.Value, year, month),
             cancellationToken);
 
         return result.Match(r => (IResult)TypedResults.Ok(r));
@@ -83,24 +83,28 @@ public static class ClientMonthlyObjectivesEndpointsExtensions
         Guid clientId,
         int year,
         int month,
-        [FromBody] UpsertClientMonthlyObjectiveRequest body,
+        [FromBody] UpsertContentPlanRequest body,
         ICurrentTenant currentTenant,
         ISender sender,
         CancellationToken cancellationToken)
     {
         if (currentTenant.TenantId is not { } organizationId)
         {
-            return ClientMonthlyObjectiveErrors.NotFound.ToProblem();
+            return ContentPlanErrors.NotFound.ToProblem();
         }
 
+        var slots = body.Slots?.Select(s => new CalendarSlotRequest(s.Day, s.ContentFormat)).ToList();
+
         var result = await sender.Send(
-            new UpsertClientMonthlyObjectiveCommand(
+            new UpsertContentPlanCommand(
                 clientId,
                 organizationId.Value,
                 year,
                 month,
                 body.Objectives,
-                body.Kpis),
+                body.Kpis,
+                body.ContentStrategyText,
+                slots),
             cancellationToken);
 
         return result.IsSuccess
@@ -123,6 +127,12 @@ public static class ClientMonthlyObjectivesEndpointsExtensions
     }
 }
 
-public sealed record UpsertClientMonthlyObjectiveRequest(
+public sealed record CalendarSlotRequestBody(
+    int Day,
+    string ContentFormat);
+
+public sealed record UpsertContentPlanRequest(
     string Objectives,
-    IReadOnlyList<string>? Kpis);
+    IReadOnlyList<string>? Kpis,
+    string? ContentStrategyText,
+    IReadOnlyList<CalendarSlotRequestBody>? Slots);
