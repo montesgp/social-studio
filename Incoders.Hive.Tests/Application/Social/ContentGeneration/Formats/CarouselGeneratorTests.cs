@@ -261,7 +261,16 @@ public sealed class CarouselGeneratorTests
             competitorAccounts:
             [
                 new ClientAccountSnapshot("linkedin", "LinkedIn", "https://linkedin.com/company/competitor", "@competitor", "Competitor", "Avoid claims")
+            ],
+            contentStrategy: new ContentStrategySnapshot(
+                StrategyText: "Focus on educational carousels this period.",
+                Source: 1,
+                Status: 2),
+            calendar: new CalendarSnapshot(Slots:
+            [
+                new CalendarSlotSnapshot(Day: 10, ContentFormat: "carousel", SortOrder: 0),
             ]),
+            period: new PeriodSnapshot(Year: 2026, Month: 6, PeriodKind: 0)),
         CorrelationId: CorrelationId,
         AiProviderKey: "claude",
         AiModel: "claude-sonnet-4-6",

@@ -113,7 +113,35 @@ internal static class GenerationPromptContext
                 },
             referentAccounts = snapshot.ReferentAccounts.Select(ToPromptAccount),
             competitorAccounts = snapshot.CompetitorAccounts.Select(ToPromptAccount),
-            inferredFields = snapshot.InferredFields
+            inferredFields = snapshot.InferredFields,
+            // Per-period tactical context (null when not available — AI must not assume)
+            contentStrategy = snapshot.ContentStrategy is null
+                ? (object?)null
+                : new
+                {
+                    strategyText = snapshot.ContentStrategy.StrategyText,
+                    source = snapshot.ContentStrategy.Source,
+                    status = snapshot.ContentStrategy.Status
+                },
+            calendar = snapshot.Calendar is null
+                ? (object?)null
+                : new
+                {
+                    slots = snapshot.Calendar.Slots.Select(s => new
+                    {
+                        day = s.Day,
+                        contentFormat = s.ContentFormat,
+                        sortOrder = s.SortOrder
+                    })
+                },
+            period = snapshot.Period is null
+                ? (object?)null
+                : new
+                {
+                    year = snapshot.Period.Year,
+                    month = snapshot.Period.Month,
+                    periodKind = snapshot.Period.PeriodKind
+                }
         };
     }
 

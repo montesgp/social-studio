@@ -15,7 +15,11 @@ public sealed record BrandSnapshot(
     ClientMonthlyObjectiveSnapshot? MonthlyObjective,
     IReadOnlyList<ClientAccountSnapshot> ReferentAccounts,
     IReadOnlyList<ClientAccountSnapshot> CompetitorAccounts,
-    IReadOnlyDictionary<string, bool> InferredFields)
+    IReadOnlyDictionary<string, bool> InferredFields,
+    // NEW — optional per-period context (additive, safe defaults = null)
+    ContentStrategySnapshot? ContentStrategy = null,
+    CalendarSnapshot? Calendar = null,
+    PeriodSnapshot? Period = null)
 {
     /// <summary>
     /// Fully-inferred snapshot — used when no brand data exists at all.
@@ -33,7 +37,10 @@ public sealed record BrandSnapshot(
         ClientMonthlyObjectiveSnapshot? monthlyObjective,
         ClientProfileSnapshot? client = null,
         IReadOnlyList<ClientAccountSnapshot>? referentAccounts = null,
-        IReadOnlyList<ClientAccountSnapshot>? competitorAccounts = null)
+        IReadOnlyList<ClientAccountSnapshot>? competitorAccounts = null,
+        ContentStrategySnapshot? contentStrategy = null,
+        CalendarSnapshot? calendar = null,
+        PeriodSnapshot? period = null)
     {
         var inferred = new Dictionary<string, bool>();
 
@@ -69,6 +76,13 @@ public sealed record BrandSnapshot(
         inferred["ReferentAccounts"] = effectiveReferentAccounts.Count == 0;
         inferred["CompetitorAccounts"] = effectiveCompetitorAccounts.Count == 0;
 
+        // Per-period content strategy (new — optional)
+        inferred["ContentStrategy"] = contentStrategy is null ||
+                                      string.IsNullOrWhiteSpace(contentStrategy.StrategyText);
+
+        // Calendar slots (new — optional)
+        inferred["CalendarSlots"] = calendar is null || calendar.Slots.Count == 0;
+
         // Provide a default empty brand if none was supplied so consumers don't see nulls
         var effectiveBrand = brand ?? new BrandManualSnapshot(
             ColorPalette: Array.Empty<string>(),
@@ -85,6 +99,9 @@ public sealed record BrandSnapshot(
             monthlyObjective,
             effectiveReferentAccounts,
             effectiveCompetitorAccounts,
-            inferred);
+            inferred,
+            ContentStrategy: contentStrategy,
+            Calendar: calendar,
+            Period: period);
     }
 }

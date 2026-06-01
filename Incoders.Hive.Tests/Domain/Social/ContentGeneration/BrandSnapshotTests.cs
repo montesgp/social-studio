@@ -164,6 +164,16 @@ public sealed class BrandSnapshotTests
             competitorAccounts:
             [
                 new ClientAccountSnapshot("linkedin", "LinkedIn", "https://linkedin.com/company/competitor", "@competitor", "Competitor", "Avoid similar claims")
-            ]);
+            ],
+            contentStrategy: new ContentStrategySnapshot(
+                StrategyText: "Focus on educational reels and carousel posts this quarter.",
+                Source: 1,
+                Status: 2),
+            calendar: new CalendarSnapshot(Slots:
+            [
+                new CalendarSlotSnapshot(Day: 5,  ContentFormat: "caption",  SortOrder: 0),
+                new CalendarSlotSnapshot(Day: 15, ContentFormat: "carousel", SortOrder: 1),
+            ]),
+            period: new PeriodSnapshot(Year: 2026, Month: 6, PeriodKind: 0));
     }
 }

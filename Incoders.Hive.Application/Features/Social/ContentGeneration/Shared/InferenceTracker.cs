@@ -31,7 +31,8 @@ public sealed class InferenceTracker
     /// Returns true if the given brand source field was inferred (i.e. not present in client data).
     /// Brand field keys: ColorPalette, Logos, Typography, VoiceAndTone, Notes,
     ///                   ContentPillars, ToneKeywords, TargetAudience, PostingFrequency,
-    ///                   MonthlyObjectives, MonthlyKpis.
+    ///                   MonthlyObjectives, MonthlyKpis,
+    ///                   ContentStrategy, CalendarSlots.
     /// </summary>
     public bool IsInferred(string brandFieldKey) =>
         _sourceInferredFields.TryGetValue(brandFieldKey, out var inferred) && inferred;
