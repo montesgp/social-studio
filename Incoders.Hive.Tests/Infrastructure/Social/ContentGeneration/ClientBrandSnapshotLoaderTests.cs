@@ -300,4 +300,213 @@ public sealed class ClientBrandSnapshotLoaderTests : IDisposable
         Assert.False(snapshot.InferredFields["ContentPillars"]);
         Assert.False(snapshot.InferredFields["TargetAudience"]);
     }
+
+    // --- NEW: Content Strategy and Calendar threading ---
+
+    [Fact]
+    public async Task Load_WithContentStrategyText_ExposesContentStrategyOnSnapshot()
+    {
+        // Arrange: seed a ContentPlan with a content strategy text
+        var orgId = Guid.NewGuid();
+        var clientId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var planId = Guid.NewGuid();
+
+        _dbContext.ContentPlans.Add(new ContentPlanData
+        {
+            Id = planId,
+            ClientId = clientId,
+            OrganizationId = orgId,
+            PeriodKind = 0,
+            Year = now.Year,
+            Month = now.Month,
+            ObjectiveText = "Increase brand awareness",
+            ObjectiveKpis = new() { "10k impressions" },
+            ObjectiveProvenanceSource = 1,
+            ObjectiveProvenanceStatus = 1,
+            ContentStrategyText = "Focus on educational reels and carousel posts this month.",
+            ContentStrategyProvenanceSource = 1,
+            ContentStrategyProvenanceStatus = 2,
+            CalendarProvenanceSource = 0,
+            CalendarProvenanceStatus = 0,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+
+        await _dbContext.SaveChangesAsync();
+
+        // Act
+        var snapshot = await _loader.LoadAsync(orgId, clientId);
+
+        // Assert: ContentStrategy is populated and not inferred
+        Assert.NotNull(snapshot.ContentStrategy);
+        Assert.Equal("Focus on educational reels and carousel posts this month.", snapshot.ContentStrategy!.StrategyText);
+        Assert.Equal((short)1, snapshot.ContentStrategy.Source);
+        Assert.Equal((short)2, snapshot.ContentStrategy.Status);
+        Assert.False(snapshot.InferredFields["ContentStrategy"]);
+    }
+
+    [Fact]
+    public async Task Load_WithCalendarSlots_ExposesCalendarAndPeriodOnSnapshot()
+    {
+        // Arrange: seed a ContentPlan with 3 slots
+        var orgId = Guid.NewGuid();
+        var clientId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var planId = Guid.NewGuid();
+
+        var plan = new ContentPlanData
+        {
+            Id = planId,
+            ClientId = clientId,
+            OrganizationId = orgId,
+            PeriodKind = 0,
+            Year = now.Year,
+            Month = now.Month,
+            ObjectiveText = "Grow reach",
+            ObjectiveKpis = new() { "5k reach" },
+            ObjectiveProvenanceSource = 1,
+            ObjectiveProvenanceStatus = 1,
+            ContentStrategyProvenanceSource = 0,
+            ContentStrategyProvenanceStatus = 0,
+            CalendarProvenanceSource = 1,
+            CalendarProvenanceStatus = 2,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        };
+
+        _dbContext.ContentPlans.Add(plan);
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.ContentPlanSlots.AddRange(
+            new ContentPlanSlotData
+            {
+                Id = Guid.NewGuid(),
+                ContentPlanId = planId,
+                Day = 3,
+                ContentFormat = "caption",
+                SortOrder = 0,
+                SlotProvenanceSource = 1,
+                SlotProvenanceStatus = 2,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow,
+            },
+            new ContentPlanSlotData
+            {
+                Id = Guid.NewGuid(),
+                ContentPlanId = planId,
+                Day = 10,
+                ContentFormat = "carousel",
+                SortOrder = 1,
+                SlotProvenanceSource = 1,
+                SlotProvenanceStatus = 2,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow,
+            },
+            new ContentPlanSlotData
+            {
+                Id = Guid.NewGuid(),
+                ContentPlanId = planId,
+                Day = 20,
+                ContentFormat = "reel",
+                SortOrder = 2,
+                SlotProvenanceSource = 1,
+                SlotProvenanceStatus = 2,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow,
+            });
+
+        await _dbContext.SaveChangesAsync();
+
+        // Act
+        var snapshot = await _loader.LoadAsync(orgId, clientId);
+
+        // Assert: Calendar is populated with all 3 slots in SortOrder
+        Assert.NotNull(snapshot.Calendar);
+        Assert.Equal(3, snapshot.Calendar!.Slots.Count);
+        Assert.Equal(3, snapshot.Calendar.Slots[0].Day);
+        Assert.Equal("caption", snapshot.Calendar.Slots[0].ContentFormat);
+        Assert.Equal(0, snapshot.Calendar.Slots[0].SortOrder);
+        Assert.Equal(10, snapshot.Calendar.Slots[1].Day);
+        Assert.Equal("carousel", snapshot.Calendar.Slots[1].ContentFormat);
+        Assert.Equal(20, snapshot.Calendar.Slots[2].Day);
+        Assert.Equal("reel", snapshot.Calendar.Slots[2].ContentFormat);
+        Assert.False(snapshot.InferredFields["CalendarSlots"]);
+
+        // Assert: Period is populated
+        Assert.NotNull(snapshot.Period);
+        Assert.Equal(now.Year, snapshot.Period!.Year);
+        Assert.Equal(now.Month, snapshot.Period.Month);
+        Assert.Equal((short)0, snapshot.Period.PeriodKind);
+    }
+
+    [Fact]
+    public async Task Load_WithContentPlanButNullStrategyTextAndNoSlots_StrategyAndCalendarAreInferred()
+    {
+        // Arrange: ContentPlan exists but ContentStrategyText is null and no slots
+        var orgId = Guid.NewGuid();
+        var clientId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        _dbContext.ContentPlans.Add(new ContentPlanData
+        {
+            Id = Guid.NewGuid(),
+            ClientId = clientId,
+            OrganizationId = orgId,
+            PeriodKind = 0,
+            Year = now.Year,
+            Month = now.Month,
+            ObjectiveText = "Build community",
+            ObjectiveKpis = new() { "Followers +1k" },
+            ObjectiveProvenanceSource = 1,
+            ObjectiveProvenanceStatus = 1,
+            ContentStrategyText = null,          // absent
+            ContentStrategyProvenanceSource = 0,
+            ContentStrategyProvenanceStatus = 0,
+            CalendarProvenanceSource = 0,
+            CalendarProvenanceStatus = 0,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+
+        await _dbContext.SaveChangesAsync();
+
+        // Act
+        var snapshot = await _loader.LoadAsync(orgId, clientId);
+
+        // Assert: strategy and calendar inferred; period still populated
+        Assert.True(snapshot.InferredFields["ContentStrategy"]);
+        Assert.True(snapshot.InferredFields["CalendarSlots"]);
+
+        // ContentStrategy snapshot is created (provenance captured) but text is null
+        Assert.NotNull(snapshot.ContentStrategy);
+        Assert.Null(snapshot.ContentStrategy!.StrategyText);
+
+        // Calendar snapshot is created but empty
+        Assert.NotNull(snapshot.Calendar);
+        Assert.Empty(snapshot.Calendar!.Slots);
+
+        // Period is still populated from the plan row
+        Assert.NotNull(snapshot.Period);
+        Assert.Equal(now.Year, snapshot.Period!.Year);
+        Assert.Equal(now.Month, snapshot.Period.Month);
+    }
+
+    [Fact]
+    public async Task Load_WithNoContentPlan_ContentStrategyAndCalendarAndPeriodAreNull()
+    {
+        // Arrange: no content plan at all
+        var orgId = Guid.NewGuid();
+        var clientId = Guid.NewGuid();
+
+        // Act
+        var snapshot = await _loader.LoadAsync(orgId, clientId);
+
+        // Assert: new optional fields are all null; their inferred flags are set
+        Assert.Null(snapshot.ContentStrategy);
+        Assert.Null(snapshot.Calendar);
+        Assert.Null(snapshot.Period);
+        Assert.True(snapshot.InferredFields["ContentStrategy"]);
+        Assert.True(snapshot.InferredFields["CalendarSlots"]);
+    }
 }
