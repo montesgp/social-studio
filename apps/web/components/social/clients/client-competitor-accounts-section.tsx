@@ -10,14 +10,13 @@ import {
   reorderClientCompetitorAccounts,
   updateClientCompetitorAccount,
 } from "@/lib/api/client-competitor-accounts";
-import { listSocialNetworks } from "@/lib/api/social-networks";
 import type {
   ClientCompetitorAccount,
   CreateClientCompetitorAccountPayload,
-  SocialNetwork,
   UpdateClientCompetitorAccountPayload,
 } from "@/lib/api/types";
 import { getSocialNetworkIcon } from "@/lib/social-network-icons";
+import { useSocialNetworks } from "@/hooks/use-social-networks";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,10 +28,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { SortableChildTable, Column } from "@/components/ui/sortable-child-table";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { SocialNetworkSelect } from "@/components/social/social-network-select";
 
 interface ClientCompetitorAccountsSectionProps {
   clientId: string;
@@ -83,7 +82,6 @@ export function ClientCompetitorAccountsSection({
   const toast = useToast();
 
   const [persistedAccounts, setPersistedAccounts] = useState<ClientCompetitorAccount[]>([]);
-  const [networks, setNetworks] = useState<SocialNetwork[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
 
@@ -110,6 +108,7 @@ export function ClientCompetitorAccountsSection({
   const [submittingEdit, setSubmittingEdit] = useState(false);
 
   const effectiveToken = token ?? undefined;
+  const { networks, loading: networksLoading } = useSocialNetworks(effectiveToken);
   const draftMode = deferPersistence && Boolean(accounts && onAccountsChange);
   const allAccounts = useMemo(
     () => (draftMode ? accounts ?? [] : persistedAccounts),
@@ -152,13 +151,6 @@ export function ClientCompetitorAccountsSection({
   useEffect(() => {
     void loadAccounts();
   }, [loadAccounts]);
-
-  useEffect(() => {
-    if (!effectiveToken) return;
-    listSocialNetworks({}, effectiveToken)
-      .then((result) => setNetworks(result.items))
-      .catch(() => {});
-  }, [effectiveToken]);
 
   function findNetwork(id: string) {
     return networks.find((network) => network.id === id) ?? null;
@@ -490,24 +482,19 @@ export function ClientCompetitorAccountsSection({
               <label className="text-sm font-medium" htmlFor="create-comp-network">
                 Social Network <span className="text-destructive">*</span>
               </label>
-              <Select
+              <SocialNetworkSelect
                 id="create-comp-network"
+                networks={networks}
+                loading={networksLoading}
                 value={createNetworkId}
-                onChange={(e) => {
-                  setCreateNetworkId(e.target.value);
+                onChange={(value) => {
+                  setCreateNetworkId(value);
                   setCreateNetworkError(null);
                   setCreateProfileUrlError(null);
                 }}
                 className="w-full"
                 aria-invalid={createNetworkError ? "true" : "false"}
-              >
-                <option value="">Select network</option>
-                {networks.map((network) => (
-                  <option key={network.id} value={network.id}>
-                    {network.displayName}
-                  </option>
-                ))}
-              </Select>
+              />
               {createNetworkError ? (
                 <p className="text-xs text-destructive">{createNetworkError}</p>
               ) : null}
@@ -592,24 +579,19 @@ export function ClientCompetitorAccountsSection({
               <label className="text-sm font-medium" htmlFor="edit-comp-network">
                 Social Network <span className="text-destructive">*</span>
               </label>
-              <Select
+              <SocialNetworkSelect
                 id="edit-comp-network"
+                networks={networks}
+                loading={networksLoading}
                 value={editNetworkId}
-                onChange={(e) => {
-                  setEditNetworkId(e.target.value);
+                onChange={(value) => {
+                  setEditNetworkId(value);
                   setEditNetworkError(null);
                   setEditProfileUrlError(null);
                 }}
                 className="w-full"
                 aria-invalid={editNetworkError ? "true" : "false"}
-              >
-                <option value="">Select network</option>
-                {networks.map((network) => (
-                  <option key={network.id} value={network.id}>
-                    {network.displayName}
-                  </option>
-                ))}
-              </Select>
+              />
               {editNetworkError ? (
                 <p className="text-xs text-destructive">{editNetworkError}</p>
               ) : null}

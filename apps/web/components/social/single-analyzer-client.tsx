@@ -44,13 +44,12 @@ import type {
   SingleContentAnalysisStatus,
   SingleContentAnalysisHistoryItem,
   SocialClient,
-  SocialNetwork,
   ContentFormatKey,
   ContentGenerationJobStatus,
   GeneratedPackageManifest,
 } from "@/lib/api/types";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
-import { listSocialNetworks } from "@/lib/api/social-networks";
+import { useSocialNetworks } from "@/hooks/use-social-networks";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { useToast } from "@/components/ui/toaster";
 import {
@@ -756,14 +755,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const { orgId: activeOrgId } = useActiveOrg();
   const token = useAccessToken();
   const effectiveToken = token ?? undefined;
-
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [clients, setClients] = useState<SocialClient[]>([]);
   const [selectedClientId, setSelectedClientId] = useState("");
   const [clientsLoading, setClientsLoading] = useState(false);
-  const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>([]);
-  const [networksLoading, setNetworksLoading] = useState(true);
+  const { networks: socialNetworks, loading: networksLoading } = useSocialNetworks(effectiveToken);
   const [inputMode, setInputMode] = useState<"url" | "search">("url");
   const [urlInput, setUrlInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -1057,27 +1054,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     videoResult?.clientId && selectedClientId && selectedClientId !== videoResult.clientId
   );
 
-  const loadNetworks = useCallback(async () => {
-    if (!effectiveToken) return;
-    setNetworksLoading(true);
-    try {
-      const result = await listSocialNetworks({ page: 1, pageSize: 100 }, effectiveToken);
-      setSocialNetworks(result.items);
-      if (result.items.length > 0) {
-        setSearchNetwork((prev) =>
-          result.items.some((n) => n.code === prev) ? prev : result.items[0].code
-        );
-      }
-    } catch {
-      // silent — select stays disabled until retry
-    } finally {
-      setNetworksLoading(false);
-    }
-  }, [effectiveToken]);
-
+  // Normalize searchNetwork to first available network code when networks load.
   useEffect(() => {
-    void loadNetworks();
-  }, [loadNetworks]);
+    if (socialNetworks.length === 0) return;
+    setSearchNetwork((prev) =>
+      socialNetworks.some((n) => n.code === prev) ? prev : socialNetworks[0].code
+    );
+  }, [socialNetworks]);
 
   const loadClients = useCallback(async () => {
     if (!selectedOrganizationId) {
