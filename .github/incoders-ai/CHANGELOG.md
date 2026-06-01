@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.5.0
+- **`core/git-safety.rules.md` relaxed from STRICT.** Agents may now create branches, stage, commit, push to non-protected work branches, and open pull requests without per-action authorization. The user retains exclusive authority over integration: approving and merging pull requests into the protected branches `dev` and `main` (decided after reviewing the full PR; approval may be delegated to an agent only on explicit request). Always-forbidden items remain: hook-skip flags, force push / history rewrite on shared branches, and `rm -rf` on source. Synced references in `AGENTS.md` (`.codex/`, `.claude/CLAUDE.md`), `gates/ai-agent.gate.md`, `skills/shared/git-commit-workflow.skill.md`, `core/best-practice.rules.md`, and `.github/copilot-instructions.md`.
+
 ## 1.4.0
 - Added the reusable TestSprite QA provider layer for ecosystem-wide AI-assisted validation.
 - Introduced `providers/testing/testsprite/testsprite-validation.skill.md` and wired the global test engineer agent to use it when available.

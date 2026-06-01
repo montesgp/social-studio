@@ -6,7 +6,7 @@
 3. `.github/incoders-ai/core/ecosystem-loading-protocol.instructions.md` — load order and precedence.
 4. `.github/incoders-ai/core/best-practice.rules.md` — engineering baseline.
 5. `.github/incoders-ai/core/architecture-boundaries.rules.md` — hexagonal layering.
-6. `.github/incoders-ai/core/git-safety.rules.md` — STRICT: all Git write operations forbidden by default; user is the only authority for repository writes.
+6. `.github/incoders-ai/core/git-safety.rules.md` — agents branch/commit/push and open PRs; the user approves and merges PRs to `dev`/`main`.
 7. `.github/incoders-ai/gates/README.md` and any matching `*.gate.md` for the affected scope.
 8. The project instructions declared by `project.manifest.md`.
 9. OpenSpec specs relevant to the task, when present.
