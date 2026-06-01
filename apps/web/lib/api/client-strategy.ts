@@ -1,7 +1,7 @@
 import { apiRequest } from "@/lib/api/client";
 import type { ClientStrategy, UpsertClientStrategyPayload } from "@/lib/api/types";
 
-const base = (clientId: string) => `/api/social/clients/${clientId}/strategy`;
+const base = (clientId: string) => `/api/social/clients/${clientId}/general-strategy`;
 
 export async function getClientStrategy(
   clientId: string,
