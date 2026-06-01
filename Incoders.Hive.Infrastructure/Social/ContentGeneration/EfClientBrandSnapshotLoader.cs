@@ -57,11 +57,13 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
                 x => x.ClientId == clientId && x.OrganizationId == organizationId,
                 cancellationToken);
 
-        // Load content plan objective: prefer current month, fall back to latest by year/month desc
+        // Load content plan: prefer current month, fall back to latest by year/month desc.
+        // Include Slots so the calendar is eager-loaded (no lazy loading in this context).
         // (was ClientMonthlyObjectives, now ContentPlans — same ordering semantics)
         var now = DateTime.UtcNow;
         var contentPlanRow = await _dbContext.ContentPlans
             .AsNoTracking()
+            .Include(x => x.Slots)
             .Where(x => x.ClientId == clientId && x.OrganizationId == organizationId && x.PeriodKind == 0)
             .OrderByDescending(x => x.Year == now.Year && x.Month == now.Month)
             .ThenByDescending(x => x.Year)
@@ -124,6 +126,34 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
                 Objectives: contentPlanRow.ObjectiveText,
                 Kpis: contentPlanRow.ObjectiveKpis.ToArray());
 
+        // Map ContentPlan content-strategy node → ContentStrategySnapshot (new, optional)
+        ContentStrategySnapshot? contentStrategySnapshot = contentPlanRow is null
+            ? null
+            : new ContentStrategySnapshot(
+                StrategyText: contentPlanRow.ContentStrategyText,
+                Source: contentPlanRow.ContentStrategyProvenanceSource,
+                Status: contentPlanRow.ContentStrategyProvenanceStatus);
+
+        // Map ContentPlan slots → CalendarSnapshot (new, optional)
+        CalendarSnapshot? calendarSnapshot = contentPlanRow is null
+            ? null
+            : new CalendarSnapshot(
+                Slots: contentPlanRow.Slots
+                    .OrderBy(s => s.SortOrder)
+                    .Select(s => new CalendarSlotSnapshot(
+                        Day: s.Day,
+                        ContentFormat: s.ContentFormat,
+                        SortOrder: s.SortOrder))
+                    .ToArray());
+
+        // Map period triple → PeriodSnapshot (new, optional)
+        PeriodSnapshot? periodSnapshot = contentPlanRow is null
+            ? null
+            : new PeriodSnapshot(
+                Year: contentPlanRow.Year,
+                Month: contentPlanRow.Month,
+                PeriodKind: contentPlanRow.PeriodKind);
+
         var referentSnapshots = referentRows
             .Select(row => ToAccountSnapshot(row.SocialNetworkId, row.ProfileUrl, row.Handle, row.Label, row.Notes, networkRows))
             .ToArray();
@@ -138,7 +168,10 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
             objectiveSnapshot,
             clientSnapshot,
             referentSnapshots,
-            competitorSnapshots);
+            competitorSnapshots,
+            contentStrategySnapshot,
+            calendarSnapshot,
+            periodSnapshot);
     }
 
     private static ClientAccountSnapshot ToAccountSnapshot(
