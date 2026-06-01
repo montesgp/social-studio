@@ -738,6 +738,259 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("content_generation_jobs", "social");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentPlanData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("CalendarProvenanceGeneratedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("calendar_provenance_generated_at_utc");
+
+                    b.Property<string>("CalendarProvenancePromptVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("calendar_provenance_prompt_version");
+
+                    b.Property<short>("CalendarProvenanceSource")
+                        .HasColumnType("smallint")
+                        .HasColumnName("calendar_provenance_source");
+
+                    b.Property<short>("CalendarProvenanceStatus")
+                        .HasColumnType("smallint")
+                        .HasColumnName("calendar_provenance_status");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_id");
+
+                    b.Property<DateTime?>("ContentStrategyProvenanceGeneratedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("content_strategy_provenance_generated_at_utc");
+
+                    b.Property<string>("ContentStrategyProvenancePromptVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_strategy_provenance_prompt_version");
+
+                    b.Property<short>("ContentStrategyProvenanceSource")
+                        .HasColumnType("smallint")
+                        .HasColumnName("content_strategy_provenance_source");
+
+                    b.Property<short>("ContentStrategyProvenanceStatus")
+                        .HasColumnType("smallint")
+                        .HasColumnName("content_strategy_provenance_status");
+
+                    b.Property<string>("ContentStrategyText")
+                        .HasMaxLength(10000)
+                        .HasColumnType("character varying(10000)")
+                        .HasColumnName("content_strategy_text");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("Month")
+                        .HasColumnType("integer")
+                        .HasColumnName("month");
+
+                    b.Property<string>("ObjectiveKpis")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("objective_kpis")
+                        .HasDefaultValueSql("'[]'");
+
+                    b.Property<DateTime?>("ObjectiveProvenanceGeneratedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("objective_provenance_generated_at_utc");
+
+                    b.Property<string>("ObjectiveProvenancePromptVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("objective_provenance_prompt_version");
+
+                    b.Property<short>("ObjectiveProvenanceSource")
+                        .HasColumnType("smallint")
+                        .HasColumnName("objective_provenance_source");
+
+                    b.Property<short>("ObjectiveProvenanceStatus")
+                        .HasColumnType("smallint")
+                        .HasColumnName("objective_provenance_status");
+
+                    b.Property<string>("ObjectiveText")
+                        .IsRequired()
+                        .HasMaxLength(3000)
+                        .HasColumnType("character varying(3000)")
+                        .HasColumnName("objective_text");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<short>("PeriodKind")
+                        .HasColumnType("smallint")
+                        .HasColumnName("period_kind");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("integer")
+                        .HasColumnName("year");
+
+                    b.HasKey("Id")
+                        .HasName("pk_content_plans");
+
+                    b.HasIndex("ClientId")
+                        .HasDatabaseName("ix_content_plans_client_id");
+
+                    b.HasIndex("OrganizationId")
+                        .HasDatabaseName("ix_content_plans_organization_id");
+
+                    b.HasIndex("ClientId", "PeriodKind", "Year", "Month")
+                        .IsUnique()
+                        .HasDatabaseName("ix_content_plans_client_period");
+
+                    b.ToTable("content_plans", "social");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentPlanSlotData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ContentFormat")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("content_format");
+
+                    b.Property<Guid>("ContentPlanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("content_plan_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("Day")
+                        .HasColumnType("integer")
+                        .HasColumnName("day");
+
+                    b.Property<Guid?>("ProducedPackageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("produced_package_id");
+
+                    b.Property<DateTime?>("SlotProvenanceGeneratedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("slot_provenance_generated_at_utc");
+
+                    b.Property<string>("SlotProvenancePromptVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("slot_provenance_prompt_version");
+
+                    b.Property<short>("SlotProvenanceSource")
+                        .HasColumnType("smallint")
+                        .HasColumnName("slot_provenance_source");
+
+                    b.Property<short>("SlotProvenanceStatus")
+                        .HasColumnType("smallint")
+                        .HasColumnName("slot_provenance_status");
+
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("sort_order");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_content_plan_slots");
+
+                    b.HasIndex("ContentPlanId")
+                        .HasDatabaseName("ix_content_plan_slots_plan_id");
+
+                    b.HasIndex("ContentPlanId", "SortOrder")
+                        .HasDatabaseName("ix_content_plan_slots_plan_sort_order");
+
+                    b.ToTable("content_plan_slots", "social");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.GeneralStrategyData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_id");
+
+                    b.Property<string>("ContentPillars")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("content_pillars")
+                        .HasDefaultValueSql("'[]'");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("notes");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<string>("PostingFrequency")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("posting_frequency");
+
+                    b.Property<string>("TargetAudience")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("target_audience");
+
+                    b.Property<string>("ToneKeywords")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("tone_keywords")
+                        .HasDefaultValueSql("'[]'");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_general_strategies");
+
+                    b.HasIndex("ClientId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_general_strategies_one_per_client");
+
+                    b.HasIndex("OrganizationId")
+                        .HasDatabaseName("ix_general_strategies_organization_id");
+
+                    b.ToTable("general_strategies", "social");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.GeneratedPackageData", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2013,6 +2266,52 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasConstraintName("fk_content_generation_jobs_organizations_organization_id");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentPlanData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_content_plans_clients_client_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_content_plans_organizations_organization_id");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentPlanSlotData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentPlanData", "ContentPlan")
+                        .WithMany("Slots")
+                        .HasForeignKey("ContentPlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_content_plan_slots_content_plans_content_plan_id");
+
+                    b.Navigation("ContentPlan");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.GeneralStrategyData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_general_strategies_clients_client_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_general_strategies_organizations_organization_id");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.GeneratedPackageData", b =>
                 {
                     b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationJobData", "Job")
@@ -2241,6 +2540,11 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.Navigation("FormatResults");
 
                     b.Navigation("Package");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentPlanData", b =>
+                {
+                    b.Navigation("Slots");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.IntegrationProviderData", b =>

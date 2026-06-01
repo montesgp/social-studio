@@ -9,9 +9,19 @@ namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
 
 /// <summary>
 /// EF Core adapter for <see cref="IClientBrandSnapshotLoader"/>.
-/// Loads the client profile, active brand manual, strategy, latest monthly objective,
+/// Loads the client profile, active brand manual, general strategy, latest content plan objective,
 /// and active referent/competitor accounts for the client at job-start time.
 /// Returns a fully-inferred <see cref="BrandSnapshot"/> when any source is absent.
+///
+/// Source changes (PR 3 — loader re-sourcing):
+///   - Strategy: now reads <c>GeneralStrategies</c> (was <c>ClientStrategies</c>).
+///   - Monthly objective: now reads the <c>ContentPlans</c> objective node for the current period
+///     (was <c>ClientMonthlyObjectives</c>). Prefers the current month; falls back to latest by
+///     year desc, month desc.
+///
+/// <see cref="BrandSnapshot"/>, <see cref="StrategySnapshot"/>, and
+/// <see cref="ClientMonthlyObjectiveSnapshot"/> output shapes are FROZEN — they are shared with
+/// the in-flight generate-social-content-workflow. Do not change their constructors or property names.
 /// </summary>
 public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
 {
@@ -40,18 +50,19 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
                 x => x.ClientId == clientId && x.OrganizationId == organizationId && x.IsActive,
                 cancellationToken);
 
-        // Load strategy (one per client)
-        var strategyRow = await _dbContext.ClientStrategies
+        // Load general strategy (one per client — was ClientStrategies, now GeneralStrategies)
+        var strategyRow = await _dbContext.GeneralStrategies
             .AsNoTracking()
             .FirstOrDefaultAsync(
                 x => x.ClientId == clientId && x.OrganizationId == organizationId,
                 cancellationToken);
 
-        // Load current monthly objective first, then latest by year desc, month desc.
+        // Load content plan objective: prefer current month, fall back to latest by year/month desc
+        // (was ClientMonthlyObjectives, now ContentPlans — same ordering semantics)
         var now = DateTime.UtcNow;
-        var objectiveRow = await _dbContext.ClientMonthlyObjectives
+        var contentPlanRow = await _dbContext.ContentPlans
             .AsNoTracking()
-            .Where(x => x.ClientId == clientId && x.OrganizationId == organizationId)
+            .Where(x => x.ClientId == clientId && x.OrganizationId == organizationId && x.PeriodKind == 0)
             .OrderByDescending(x => x.Year == now.Year && x.Month == now.Month)
             .ThenByDescending(x => x.Year)
             .ThenByDescending(x => x.Month)
@@ -106,11 +117,12 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
                 TargetAudience: strategyRow.TargetAudience,
                 PostingFrequency: strategyRow.PostingFrequency);
 
-        ClientMonthlyObjectiveSnapshot? objectiveSnapshot = objectiveRow is null
+        // Map ContentPlan objective node → ClientMonthlyObjectiveSnapshot (frozen contract shape)
+        ClientMonthlyObjectiveSnapshot? objectiveSnapshot = contentPlanRow is null
             ? null
             : new ClientMonthlyObjectiveSnapshot(
-                Objectives: objectiveRow.Objectives,
-                Kpis: objectiveRow.Kpis.ToArray());
+                Objectives: contentPlanRow.ObjectiveText,
+                Kpis: contentPlanRow.ObjectiveKpis.ToArray());
 
         var referentSnapshots = referentRows
             .Select(row => ToAccountSnapshot(row.SocialNetworkId, row.ProfileUrl, row.Handle, row.Label, row.Notes, networkRows))
