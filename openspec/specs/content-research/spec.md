@@ -80,7 +80,14 @@ Content extraction uses per-platform Apify adapters. Supported platforms:
 - When a saved analysis is resumed, the analyze-by-URL/search input tool MUST be hidden so the user can focus on regeneration actions for that analysis.
 - If a user regenerates a format that already has generated content for the loaded analysis, the frontend MUST confirm that the current generated content will be replaced before starting the new generation request.
 - When regenerate actions are shown, the frontend MUST provide a "regenerate with objections" path so users can send free-text corrections to the generation pipeline.
+- In the Single Analyzer convert panel, the objection text area MUST be hidden by default and shown only after the user chooses a regenerate-with-objections path for already generated content.
+- Regenerate controls MUST use one primary regenerate action per target and then let the user choose plain regeneration or regeneration with objections.
+- The Single Analyzer generation action panel MUST remain hidden while Client context is "No client context"; format selection and generate/regenerate actions become available only after a client is selected.
+- Saved single-content analyses MUST expose a compact tool area with help, save work, and new analysis actions; save work must clear local unsent drafts while preserving the already persisted analysis/generation state, and new analysis must reset the analyzer to its initial input state.
+- The leave-without-saving confirmation MUST appear only for local user changes that have not been sent to the API, not merely because a persisted analysis is visible or the user expanded/collapsed UI sections.
+- When a saved analysis is opened from history, the Video Analysis section MUST be collapsed by default.
 - Long scraped descriptions MAY be collapsed in the snapshot card, but the UI MUST allow the user to expand and collapse the full description.
+- Scraped hashtags MUST NOT be repeated as a separate live-data block when they are already present in the video description.
 - When the scraped thumbnail is missing or unavailable, the snapshot card MUST show a placeholder image and MUST NOT render the scraped description text block.
 - When the scraped title is missing or matches the scraped description, the snapshot card SHOULD prioritize a detected hook as the displayed title.
 - In the Single Analyzer convert panel, individual format generation actions (script/carousel/flyer) SHOULD be visually prioritized above the convert-all section.
@@ -101,7 +108,12 @@ Content extraction uses per-platform Apify adapters. Supported platforms:
 - A CM can intentionally regenerate existing generated formats only after confirming the replacement.
 - A CM can regenerate with objection notes and those notes are forwarded to the generation prompt context.
 - A CM can regenerate each individual format with objections, not only the regenerate-all path.
+- A CM only sees the objections field after selecting a regenerate-with-objections option for content that already exists.
+- A CM sees no format or generation actions while "No client context" is selected.
+- A CM can leave a persisted analysis without an unsaved-work warning unless they have local notes or changes that have not been sent to the API.
+- A CM can save the current historical review state or reset the analyzer to start a new analysis from the saved-analysis tool area.
 - A CM can expand and collapse a truncated scraped description from the video snapshot card.
+- A CM sees hashtags in the video description only, without a duplicate hashtags block under live metrics.
 - A CM sees a placeholder thumbnail (and no description text block) when the scraper does not provide a valid image.
 - A CM sees individual format conversion controls before convert-all controls in the convert panel.
 - A CM can download `package.zip` from a general conversion action, and that package includes all formats already generated for the analysis.

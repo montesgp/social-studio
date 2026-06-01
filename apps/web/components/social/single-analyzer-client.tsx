@@ -9,11 +9,16 @@ import {
   Download,
   Clock,
   RefreshCw,
+  Building2,
   Film,
   ImageIcon,
   Megaphone,
   CheckCircle2,
   ChevronRight,
+  Wrench,
+  LifeBuoy,
+  Save,
+  Plus,
   Sparkles,
   Package,
   Trash2,
@@ -30,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { Input } from "@/components/ui/input";
+import { OptionCardSelector, type OptionCardSelectorOption } from "@/components/ui/option-card-selector";
 import { Select } from "@/components/ui/select";
 import { getMockClients, getMockOrganizations } from "@/lib/mocks/content-workflow";
 import { listWorkflowClients } from "@/lib/api/content-workflow";
@@ -46,6 +52,7 @@ import type {
 import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { listSocialNetworks } from "@/lib/api/social-networks";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { useToast } from "@/components/ui/toaster";
 import {
   getMockVideoBySearch,
   analyzeMockVideo,
@@ -64,17 +71,16 @@ import {
   requestPackage,
   downloadPackageFile,
   assemblePackage,
-  regenerateFormat,
   deleteFormatItem,
   ALL_FORMAT_KEYS,
   FORMAT_LABELS,
 } from "@/lib/api/content-generation";
-import type { PackageAssetEntry } from "@/lib/api/types";
 import { useContentGenerationJob } from "@/lib/hooks/use-content-generation-job";
 import { usePackageWorkspace } from "@/lib/hooks/use-package-workspace";
 import { InferredFieldsDisclosure } from "@/components/social/single-analyzer/inferred-fields-disclosure";
 import { PartialCompletionBanner } from "@/components/social/single-analyzer/partial-completion-banner";
 import { SupportError } from "@/components/support/support-error";
+import { openWhatsAppSupport } from "@/lib/support/support";
 
 // ── Async/poll constants ───────────────────────────────────────────────────────
 
@@ -629,6 +635,85 @@ export function deriveClientFolderSlug(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+function RegenerationChoicePanel({
+  onRegenerate,
+  onWithObjections,
+  disabled = false,
+}: {
+  onRegenerate: () => void;
+  onWithObjections: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2 rounded-md border border-border/40 bg-muted/20 p-2">
+      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onRegenerate} disabled={disabled}>
+        <RefreshCw className="h-3 w-3" />
+        Regenerate
+      </Button>
+      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onWithObjections} disabled={disabled}>
+        <AlertTriangle className="h-3 w-3" />
+        With objections
+      </Button>
+    </div>
+  );
+}
+
+function RegenerationObjectionEditor({
+  value,
+  onChange,
+  onCancel,
+  onSubmit,
+  disabled,
+  submitLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+  disabled: boolean;
+  submitLabel: string;
+}) {
+  const trimmed = value.trim();
+
+  return (
+    <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+      <label htmlFor="regeneration-objection" className="text-xs font-medium text-foreground/90">
+        Objections for regeneration
+      </label>
+      <textarea
+        id="regeneration-objection"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        maxLength={MAX_REGENERATION_OBJECTION_LENGTH}
+        rows={3}
+        placeholder="Describe what should be corrected in the generated content..."
+        className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] text-muted-foreground/70">
+          {value.length}/{MAX_REGENERATION_OBJECTION_LENGTH}
+        </span>
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={onCancel}>
+            <XCircle className="h-3 w-3" />
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs"
+            onClick={onSubmit}
+            disabled={disabled || trimmed.length === 0}
+          >
+            <AlertTriangle className="h-3 w-3" />
+            {submitLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 interface SingleAnalyzerClientProps {
@@ -652,8 +737,22 @@ type PendingRegenerationRequest =
       regenerationObjection: string | null;
     };
 
+type RegenerationTarget =
+  | { kind: "single"; mode: MutationMode; formatKey: ContentFormatKey }
+  | { kind: "all" };
+
+function isSameRegenerationTarget(
+  left: RegenerationTarget | null,
+  right: RegenerationTarget
+): boolean {
+  if (!left || left.kind !== right.kind) return false;
+  if (left.kind === "all" || right.kind === "all") return true;
+  return left.mode === right.mode && left.formatKey === right.formatKey;
+}
+
 export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientProps) {
   const router = useRouter();
+  const toast = useToast();
   const { orgId: activeOrgId } = useActiveOrg();
   const token = useAccessToken();
   const effectiveToken = token ?? undefined;
@@ -733,7 +832,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [isVideoAnalysisCollapsed, setIsVideoAnalysisCollapsed] = useState(false);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const [regenerationObjection, setRegenerationObjection] = useState("");
+  const [regenerationChoiceTarget, setRegenerationChoiceTarget] =
+    useState<RegenerationTarget | null>(null);
+  const [regenerationObjectionTarget, setRegenerationObjectionTarget] =
+    useState<RegenerationTarget | null>(null);
   const [isSavedAnalysisView, setIsSavedAnalysisView] = useState(false);
+  const [isToolboxOpen, setIsToolboxOpen] = useState(true);
 
   // Live-detected network from the URL the user is typing (frontend hint; backend is authoritative).
   const detectedPlatform = useMemo(() => detectPlatformFromUrl(urlInput), [urlInput]);
@@ -749,7 +853,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     isLoadingPackages,
     hasStoredFormatsForClient,
     markFormatDeleted,
-    markFormatRegenerated,
     refreshPackages,
   } = usePackageWorkspace(videoResult?.id, effectiveToken);
 
@@ -780,7 +883,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const packageGenerationIsFailed = packageUiStatus === "Failed";
   const packageDownloadAvailable =
     (packageGenerationIsCompleted || packageGenerationIsPartial) && packageJobId !== null;
-  const hasUnsavedWork = Boolean(videoResult && isAnalyzed);
+  const hasUnsavedWork =
+    isSavedAnalysisView &&
+    regenerationObjectionTarget !== null &&
+    regenerationObjection.trim().length > 0;
   const initialToolLoading =
     networksLoading ||
     historyLoading ||
@@ -878,9 +984,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     };
   }, []);
 
-  // Guard against closing/reloading while there is work on screen.
+  // Guard only local drafts that have not been sent to the API.
   useEffect(() => {
-    if (!hasUnsavedWork && !packageGenerationIsRunning) return;
+    if (!hasUnsavedWork) return;
     const handler = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       // Modern browsers ignore the message and show their own; setting returnValue is required
@@ -889,11 +995,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [hasUnsavedWork, packageGenerationIsRunning]);
+  }, [hasUnsavedWork]);
 
   // Themed in-app abandonment guard for navigation clicks (sidebar/menu links).
   useEffect(() => {
-    if (!hasUnsavedWork || packageGenerationIsRunning) return;
+    if (!hasUnsavedWork) return;
 
     const handleDocumentNavigation = (event: MouseEvent) => {
       if (allowNavigationRef.current) return;
@@ -926,7 +1032,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
     document.addEventListener("click", handleDocumentNavigation, true);
     return () => document.removeEventListener("click", handleDocumentNavigation, true);
-  }, [hasUnsavedWork, packageGenerationIsRunning]);
+  }, [hasUnsavedWork]);
 
   // Derived — always in sync with API data
   const networkOptions = socialNetworks.map((n) => ({ value: n.code, label: n.displayName }));
@@ -934,7 +1040,18 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     () => clients.find((client) => client.id === selectedClientId) ?? null,
     [clients, selectedClientId]
   );
-  const generationClientId = selectedClientId || videoResult?.clientId || "";
+  const clientContextOptions = useMemo<OptionCardSelectorOption[]>(
+    () =>
+      clients.map((client) => ({
+        value: client.id,
+        label: client.name,
+        description: deriveClientFolderSlug(client.name) || client.id,
+        icon: <Building2 className="h-4 w-4" />,
+      })),
+    [clients]
+  );
+  const hasClientContext = selectedClientId.trim().length > 0;
+  const generationClientId = selectedClientId;
   const packageGenerationClientMissing = !generationClientId;
   const packageGenerationClientMismatch = Boolean(
     videoResult?.clientId && selectedClientId && selectedClientId !== videoResult.clientId
@@ -1044,8 +1161,57 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setPackageRequestedFormats(ALL_FORMAT_KEYS);
     setPackageJobError(null);
     setIsDescriptionExpanded(false);
+    setIsVideoAnalysisCollapsed(false);
+    setRegenerationObjection("");
+    setRegenerationChoiceTarget(null);
+    setRegenerationObjectionTarget(null);
     setIsSavedAnalysisView(false);
     pendingPackageReattachRef.current = { jobId: null, clientId: null };
+  }
+
+  function startNewAnalysis() {
+    resetVideoState();
+    setInputMode("url");
+    setUrlInput("");
+    setSearchQuery("");
+    setSelectedClientId("");
+    setDuplicateAnalysisPrompt(null);
+    setRightPanelTab("conversion");
+    setMutationMode("script");
+    setPendingRegeneration(null);
+    setPendingDeleteHistoryItem(null);
+    setPendingNavigationHref(null);
+    setIsAbandonDialogOpen(false);
+    pollCancelRef.current = false;
+  }
+
+  function saveCurrentWork() {
+    setRegenerationObjection("");
+    setRegenerationChoiceTarget(null);
+    setRegenerationObjectionTarget(null);
+    void loadHistory({ silent: true });
+    toast.success("Work saved", "The current analysis and generated assets are persisted.");
+  }
+
+  function changeClientContext(clientId: string) {
+    setSelectedClientId(clientId);
+    if (!clientId) {
+      setRegenerationObjection("");
+      setRegenerationChoiceTarget(null);
+      setRegenerationObjectionTarget(null);
+      setPackageJobError(null);
+    }
+  }
+
+  function openAnalyzerHelp() {
+    openWhatsAppSupport({
+      feature: "single-analyzer",
+      organizationId: selectedOrganizationId,
+      details: {
+        analysisId: videoResult?.id ?? null,
+        savedAnalysis: isSavedAnalysisView,
+      },
+    });
   }
 
   async function loadVideoByUrl(opts?: { force?: boolean }) {
@@ -1293,7 +1459,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       const response = await requestPackage(
         videoResult.id,
         {
-          clientId: selectedClientId || videoResult.clientId || null,
+          clientId: selectedClientId || null,
           requestedFormats: [formatKey],
           regenerationObjection: regenerationObjection ?? null,
         },
@@ -1301,7 +1467,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       );
       setPackageRequestedFormats([formatKey]);
       setPackageJobId(response.jobId);
-      setPackageJobClientId(selectedClientId || videoResult.clientId || null);
+      setPackageJobClientId(selectedClientId || null);
       const notice = mode === "script"
         ? buildScriptContent()
         : mode === "carousel"
@@ -1321,68 +1487,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       if (regenerationObjection) {
         setRegenerationObjection("");
       }
+      setRegenerationChoiceTarget(null);
+      setRegenerationObjectionTarget(null);
     } catch (e) {
       const err = e as { message?: string };
       setPackageJobError({ message: err?.message ?? "Failed to start content generation." });
     } finally {
       setGeneratingConversion(null);
-    }
-  }
-
-  /**
-   * INC-5: Re-renders a single stored format via the backend regenerate endpoint and
-   * replaces that format's local entry so the Convert panel reflects the new content.
-   * Other formats are untouched.
-   */
-  async function handleRegenerateFormat(
-    formatKey: ContentFormatKey,
-    objection?: string
-  ) {
-    const analysisId = videoResult?.id;
-    const clientId = packageJobClientId ?? selectedClientId;
-    if (!analysisId || !clientId || isFormatMutating) return;
-    setIsFormatMutating(true);
-    setPackageJobError(null);
-    try {
-      const response = await regenerateFormat(
-        analysisId,
-        formatKey,
-        { clientId, objection: objection ?? undefined },
-        { token: effectiveToken }
-      );
-      // Mark as regenerated in localFormats so the Convert panel reflects the update.
-      setLocalFormats((prev) => {
-        const existing = prev[formatKey];
-        return {
-          ...prev,
-          [formatKey]: {
-            content: existing?.content ?? "",
-            generatedAt: new Date().toISOString(),
-            regenerationCount: (existing?.regenerationCount ?? 0) + 1,
-          },
-        };
-      });
-      // Remove from deletedFormatKeys if it was previously deleted (re-generated = back).
-      if (deletedFormatKeys.has(formatKey)) {
-        setDeletedFormatKeys((prev) => {
-          const next = new Set(prev);
-          next.delete(formatKey);
-          return next;
-        });
-      }
-      // INC-6: Update the per-client package tree with the new asset entries.
-      const updatedAssets: PackageAssetEntry[] = response.assets.map((a, idx) => ({
-        index: idx,
-        filename: a.filename,
-        storagePath: a.storagePath,
-        sizeBytes: a.sizeBytes,
-      }));
-      markFormatRegenerated(clientId, formatKey, updatedAssets);
-    } catch (e) {
-      const err = e as { message?: string };
-      setPackageJobError({ message: err?.message ?? `Failed to regenerate ${formatKey}.` });
-    } finally {
-      setIsFormatMutating(false);
     }
   }
 
@@ -1464,9 +1575,46 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     await downloadCurrentPackage();
   }
 
-  async function handleGenerate(includeObjection = false) {
+  function toggleRegenerationChoices(target: RegenerationTarget) {
+    setPackageJobError(null);
+    setRegenerationObjectionTarget(null);
+    setRegenerationChoiceTarget((current) =>
+      isSameRegenerationTarget(current, target) ? null : target
+    );
+  }
+
+  function showRegenerationObjection(target: RegenerationTarget) {
+    setPackageJobError(null);
+    setRegenerationChoiceTarget(null);
+    setRegenerationObjection("");
+    setRegenerationObjectionTarget(target);
+  }
+
+  function startSimpleRegeneration(target: RegenerationTarget) {
+    setRegenerationChoiceTarget(null);
+    setRegenerationObjectionTarget(null);
+    setRegenerationObjection("");
+
+    if (target.kind === "all") {
+      void handleConvertAll(false);
+      return;
+    }
+
+    void handleGenerate(false, target.mode);
+  }
+
+  function submitRegenerationWithObjection(target: RegenerationTarget) {
+    if (target.kind === "all") {
+      void handleConvertAll(true);
+      return;
+    }
+
+    void handleGenerate(true, target.mode);
+  }
+
+  async function handleGenerate(includeObjection = false, modeOverride?: MutationMode) {
     if (!videoResult) return;
-    const mode = mutationMode;
+    const mode = modeOverride ?? mutationMode;
     const formatKey = formatForMutationMode(mode);
     const currentObjection = resolveRegenerationObjection(includeObjection);
     if (includeObjection && !currentObjection) return;
@@ -1514,7 +1662,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       const response = await requestPackage(
         videoResult.id,
         {
-          clientId: selectedClientId || videoResult.clientId || null,
+          clientId: selectedClientId || null,
           requestedFormats,
           regenerationObjection: regenerationObjection ?? null,
         },
@@ -1522,10 +1670,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       );
       setPackageRequestedFormats(requestedFormats);
       setPackageJobId(response.jobId);
-      setPackageJobClientId(selectedClientId || videoResult.clientId || null);
+      setPackageJobClientId(selectedClientId || null);
       if (regenerationObjection) {
         setRegenerationObjection("");
       }
+      setRegenerationChoiceTarget(null);
+      setRegenerationObjectionTarget(null);
     } catch (e) {
       const err = e as { message?: string };
       setPackageJobError({ message: err?.message ?? "Failed to start content generation." });
@@ -1691,6 +1841,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setIsLoading(true);
       resetVideoState();
       setIsSavedAnalysisView(true);
+      setIsVideoAnalysisCollapsed(true);
       setError(null);
       pendingPackageReattachRef.current = {
         jobId: item.latestContentGeneration?.jobId ?? null,
@@ -1817,8 +1968,25 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const pendingRegenerationLabels =
     pendingRegeneration?.existingFormats.map((format) => FORMAT_LABELS[format]).join(", ") ?? "";
   const selectedFormatKey = formatForMutationMode();
+  const selectedFormatRegenerationTarget: RegenerationTarget = {
+    kind: "single",
+    mode: mutationMode,
+    formatKey: selectedFormatKey,
+  };
+  const allFormatsRegenerationTarget: RegenerationTarget = { kind: "all" };
   const hasExistingFormatForCurrentMode =
     getExistingGeneratedFormats([selectedFormatKey]).length > 0;
+  const shouldShowSavedAnalysisActions = isSavedAnalysisView && isAnalyzed && Boolean(videoResult);
+  const isSelectedFormatChoiceOpen =
+    isSameRegenerationTarget(regenerationChoiceTarget, selectedFormatRegenerationTarget);
+  const isAllFormatsChoiceOpen =
+    isSameRegenerationTarget(regenerationChoiceTarget, allFormatsRegenerationTarget);
+  const isSelectedFormatObjectionOpen =
+    isSameRegenerationTarget(regenerationObjectionTarget, selectedFormatRegenerationTarget) &&
+    hasExistingFormatForCurrentMode;
+  const isAllFormatsObjectionOpen =
+    isSameRegenerationTarget(regenerationObjectionTarget, allFormatsRegenerationTarget) &&
+    getExistingGeneratedFormats(ALL_FORMAT_KEYS).length > 0;
   const videoCardTitle =
     videoResult?.title?.trim() || videoResult?.primaryHook?.trim() || "Untitled";
   const normalizedVideoTitle = videoResult?.title?.trim() ?? "";
@@ -1845,7 +2013,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   return (
     <div className="flex flex-col gap-6 p-6 max-w-screen-xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="rounded-lg bg-purple-500/10 p-2.5">
             <ScanSearch className="h-5 w-5 text-purple-400" />
@@ -1855,18 +2023,70 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
             <p className="text-sm text-muted-foreground">Load any video · analyze · convert</p>
           </div>
         </div>
-        {isPlatformAdmin && organizations.length > 0 && (
-          <Select
-            size="sm"
-            className="min-w-[12rem]"
-            value={selectedOrganizationId}
-            onChange={(e) => setSelectedOrganizationId(e.target.value)}
-          >
-            {organizations.map((org) => (
-              <option key={org.id} value={org.id}>{org.name}</option>
-            ))}
-          </Select>
-        )}
+        <div className="flex items-center gap-2">
+          {isPlatformAdmin && organizations.length > 0 && (
+            <Select
+              size="sm"
+              className="min-w-[12rem]"
+              value={selectedOrganizationId}
+              onChange={(e) => setSelectedOrganizationId(e.target.value)}
+            >
+              {organizations.map((org) => (
+                <option key={org.id} value={org.id}>{org.name}</option>
+              ))}
+            </Select>
+          )}
+
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 w-8 p-0"
+              onClick={() => setIsToolboxOpen((open) => !open)}
+              aria-label={isToolboxOpen ? "Hide analyzer tools" : "Show analyzer tools"}
+              title={isToolboxOpen ? "Hide analyzer tools" : "Show analyzer tools"}
+            >
+              <Wrench className="h-3.5 w-3.5" />
+            </Button>
+            {isToolboxOpen && (
+              <div className="flex items-center gap-1.5 rounded-md border border-border/40 bg-background/60 p-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs"
+                  onClick={openAnalyzerHelp}
+                >
+                  <LifeBuoy className="h-3.5 w-3.5" />
+                  Help
+                </Button>
+                {shouldShowSavedAnalysisActions && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs"
+                      onClick={saveCurrentWork}
+                      disabled={isLoading || packageGenerationIsRunning}
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      Save work
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs"
+                      onClick={startNewAnalysis}
+                      disabled={isLoading || packageGenerationIsRunning}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      New analysis
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Error banner with built-in support actions */}
@@ -2130,15 +2350,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                   <Fact label="Saves" value={(videoResult.saves ?? 0).toLocaleString()} />
                   <Fact label="Duration" value={formatDuration(videoResult.durationSeconds)} />
                 </div>
-                {videoResult.hashtags && videoResult.hashtags.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {videoResult.hashtags.slice(0, 8).map((tag) => (
-                      <span key={tag} className="text-xs text-muted-foreground/70">
-                        #{tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
                 {error && videoResult ? (
                   // Partial success: extraction worked, AI failed. Retry ONLY the AI stage using
                   // the persisted snapshot — no Apify call, no extra extraction tokens.
@@ -2273,49 +2484,28 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       The Packages tab shows ALL clients' folders without filtering by client.
                       INC-6 REQ-5: selector MUST NOT appear on the Packages tab. */}
                   {rightPanelTab !== "package" && (
-                    <div className="flex items-center gap-2">
-                      <label htmlFor="single-analyzer-client" className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                        Client context
-                      </label>
-                      <Select
-                        id="single-analyzer-client"
-                        size="sm"
-                        className="flex-1"
-                        value={selectedClientId}
-                        onChange={(e) => setSelectedClientId(e.target.value)}
-                        disabled={clientsLoading}
-                      >
-                        <option value="">Select a client</option>
-                        {clients.map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
+                    <OptionCardSelector
+                      label="Client context"
+                      value={selectedClientId}
+                      options={clientContextOptions}
+                      onChange={changeClientContext}
+                      noneOption={{
+                        value: "",
+                        label: "No client context",
+                        description: "Analysis only",
+                        icon: <Building2 className="h-4 w-4" />,
+                      }}
+                      loading={clientsLoading}
+                      loadingLabel="Loading clients..."
+                      emptyLabel="No active clients"
+                      selectionLabel="Single selection"
+                    />
                   )}
                 </CardHeader>
                 <CardContent className="pt-0">
                 {rightPanelTab === "conversion" && (
+                  hasClientContext ? (
                   <div className="flex flex-col gap-4">
-                    <div className="space-y-1">
-                      <label htmlFor="regeneration-objection" className="text-xs font-medium text-foreground/90">
-                        Objections for regeneration (optional)
-                      </label>
-                      <textarea
-                        id="regeneration-objection"
-                        value={regenerationObjection}
-                        onChange={(event) => setRegenerationObjection(event.target.value)}
-                        maxLength={MAX_REGENERATION_OBJECTION_LENGTH}
-                        rows={3}
-                        placeholder="Describe what should be corrected in the generated content..."
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      />
-                      <p className="text-[10px] text-muted-foreground/70 text-right">
-                        {regenerationObjection.length}/{MAX_REGENERATION_OBJECTION_LENGTH}
-                      </p>
-                    </div>
-
                     {/* Backend package pipeline: enqueue all formats, poll live status, then download zip. */}
                     <div className="space-y-2 order-2">
                       <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3 space-y-2">
@@ -2334,7 +2524,14 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             size="sm"
                             variant="outline"
                             className="flex-1 h-8 text-xs"
-                            onClick={() => void handleConvertAll()}
+                            onClick={() => {
+                              if (allFormatsGenerationIsCompleted) {
+                                toggleRegenerationChoices(allFormatsRegenerationTarget);
+                                return;
+                              }
+
+                              void handleConvertAll();
+                            }}
                             disabled={
                                 packageGenerationIsRunning ||
                                 packageGenerationClientMissing ||
@@ -2378,22 +2575,33 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             )}
                           </Button>
                         </div>
-                        {allFormatsGenerationIsCompleted && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full h-8 text-xs"
-                            onClick={() => void handleConvertAll(true)}
+                        {isAllFormatsChoiceOpen && (
+                          <RegenerationChoicePanel
+                            onRegenerate={() => startSimpleRegeneration(allFormatsRegenerationTarget)}
+                            onWithObjections={() => showRegenerationObjection(allFormatsRegenerationTarget)}
                             disabled={
                               packageGenerationIsRunning ||
                               packageGenerationClientMissing ||
                               packageGenerationClientMismatch
                             }
-                            title="Regenerate every format using your objection notes."
-                          >
-                            <AlertTriangle className="h-3 w-3" />
-                            Regenerate all with objections
-                          </Button>
+                          />
+                        )}
+                        {isAllFormatsObjectionOpen && (
+                          <RegenerationObjectionEditor
+                            value={regenerationObjection}
+                            onChange={setRegenerationObjection}
+                            onCancel={() => {
+                              setRegenerationObjection("");
+                              setRegenerationObjectionTarget(null);
+                            }}
+                            onSubmit={() => submitRegenerationWithObjection(allFormatsRegenerationTarget)}
+                            disabled={
+                              packageGenerationIsRunning ||
+                              packageGenerationClientMissing ||
+                              packageGenerationClientMismatch
+                            }
+                            submitLabel="Regenerate all with objections"
+                          />
                         )}
                         {Object.keys(packageJob.perFormatStatus).length > 0 && (packageGenerationIsRunning || packageGenerationIsPartial || packageGenerationIsCompleted) && (
                           <div className="flex flex-wrap gap-1 pt-1">
@@ -2474,12 +2682,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             <pre className="whitespace-pre-wrap text-xs text-foreground/80 font-mono leading-relaxed">
                               {activeContent()}
                             </pre>
-                            <div className="flex flex-wrap gap-2">
+                            <div className="space-y-2">
                               <Button
                                 size="sm"
                                 variant="outline"
                                 className="h-8 text-xs"
-                                onClick={() => void handleGenerate()}
+                                onClick={() => toggleRegenerationChoices(selectedFormatRegenerationTarget)}
                                 disabled={
                                   generatingConversion !== null ||
                                   packageGenerationIsRunning ||
@@ -2490,49 +2698,49 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 <RefreshCw className="h-3 w-3" />
                                 Regenerate {mutationMode}
                               </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 text-xs"
-                                onClick={() => void handleGenerate(true)}
-                                disabled={
-                                  generatingConversion !== null ||
-                                  packageGenerationIsRunning ||
-                                  packageGenerationClientMissing ||
-                                  packageGenerationClientMismatch
-                                }
-                                title="Regenerate this format using your objection notes."
-                              >
-                                <AlertTriangle className="h-3 w-3" />
-                                Regenerate with objections
-                              </Button>
-                              {/* INC-5: Stored-asset actions (only for new-model packages) */}
+                              {isSelectedFormatChoiceOpen && (
+                                <RegenerationChoicePanel
+                                  onRegenerate={() => startSimpleRegeneration(selectedFormatRegenerationTarget)}
+                                  onWithObjections={() => showRegenerationObjection(selectedFormatRegenerationTarget)}
+                                  disabled={
+                                    generatingConversion !== null ||
+                                    packageGenerationIsRunning ||
+                                    packageGenerationClientMissing ||
+                                    packageGenerationClientMismatch
+                                  }
+                                />
+                              )}
+                              {isSelectedFormatObjectionOpen && (
+                                <RegenerationObjectionEditor
+                                  value={regenerationObjection}
+                                  onChange={setRegenerationObjection}
+                                  onCancel={() => {
+                                    setRegenerationObjection("");
+                                    setRegenerationObjectionTarget(null);
+                                  }}
+                                  onSubmit={() => submitRegenerationWithObjection(selectedFormatRegenerationTarget)}
+                                  disabled={
+                                    generatingConversion !== null ||
+                                    packageGenerationIsRunning ||
+                                    packageGenerationClientMissing ||
+                                    packageGenerationClientMismatch
+                                  }
+                                  submitLabel={`Regenerate ${mutationMode} with objections`}
+                                />
+                              )}
                               {packageJob.manifest?.has_stored_assets &&
                                 packageSucceededFormats.includes(selectedFormatKey) && (
-                                  <>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-8 text-xs"
-                                      onClick={() => void handleRegenerateFormat(selectedFormatKey)}
-                                      disabled={isFormatMutating || packageGenerationIsRunning}
-                                      title="Re-render and overwrite the stored asset for this format."
-                                    >
-                                      <RefreshCw className="h-3 w-3" />
-                                      Regenerate stored
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="destructive"
-                                      className="h-8 text-xs"
-                                      onClick={() => void handleDeleteFormat(selectedFormatKey)}
-                                      disabled={isFormatMutating || packageGenerationIsRunning}
-                                      title="Permanently delete the stored asset for this format."
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                      Delete
-                                    </Button>
-                                  </>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    className="h-8 text-xs"
+                                    onClick={() => void handleDeleteFormat(selectedFormatKey)}
+                                    disabled={isFormatMutating || packageGenerationIsRunning}
+                                    title="Permanently delete the stored asset for this format."
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                    Delete
+                                  </Button>
                                 )}
                             </div>
                           </div>
@@ -2542,7 +2750,14 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                               size="sm"
                               variant="outline"
                               className="w-full h-8 text-xs"
-                              onClick={() => void handleGenerate()}
+                              onClick={() => {
+                                if (hasExistingFormatForCurrentMode) {
+                                  toggleRegenerationChoices(selectedFormatRegenerationTarget);
+                                  return;
+                                }
+
+                                void handleGenerate();
+                              }}
                               disabled={
                                 generatingConversion !== null ||
                                 packageGenerationIsRunning ||
@@ -2561,23 +2776,35 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 `Generate ${mutationMode}`
                               )}
                             </Button>
-                            {hasExistingFormatForCurrentMode && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="w-full h-8 text-xs"
-                                onClick={() => void handleGenerate(true)}
+                            {hasExistingFormatForCurrentMode && isSelectedFormatChoiceOpen && (
+                              <RegenerationChoicePanel
+                                onRegenerate={() => startSimpleRegeneration(selectedFormatRegenerationTarget)}
+                                onWithObjections={() => showRegenerationObjection(selectedFormatRegenerationTarget)}
                                 disabled={
                                   generatingConversion !== null ||
                                   packageGenerationIsRunning ||
                                   packageGenerationClientMissing ||
                                   packageGenerationClientMismatch
                                 }
-                                title="Regenerate this format using your objection notes."
-                              >
-                                <AlertTriangle className="h-3 w-3" />
-                                Regenerate with objections
-                              </Button>
+                              />
+                            )}
+                            {isSelectedFormatObjectionOpen && (
+                              <RegenerationObjectionEditor
+                                value={regenerationObjection}
+                                onChange={setRegenerationObjection}
+                                onCancel={() => {
+                                  setRegenerationObjection("");
+                                  setRegenerationObjectionTarget(null);
+                                }}
+                                onSubmit={() => submitRegenerationWithObjection(selectedFormatRegenerationTarget)}
+                                disabled={
+                                  generatingConversion !== null ||
+                                  packageGenerationIsRunning ||
+                                  packageGenerationClientMissing ||
+                                  packageGenerationClientMismatch
+                                }
+                                submitLabel={`Regenerate ${mutationMode} with objections`}
+                              />
                             )}
                             </div>
                         )}
@@ -2585,6 +2812,14 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     </div>
                   </div>
                   </div>
+                  ) : (
+                    <div className="flex min-h-[220px] flex-col items-center justify-center rounded-md border border-dashed border-border/40 bg-muted/10 p-6 text-center">
+                      <Building2 className="h-8 w-8 text-muted-foreground/35" />
+                      <p className="mt-3 text-sm text-muted-foreground/70">
+                        Select a client context to generate branded content.
+                      </p>
+                    </div>
+                  )
                 )}
 
                 {rightPanelTab === "preview" && (
@@ -2705,7 +2940,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       <ConfirmationDialog
         open={isAbandonDialogOpen}
         title="Leave this page?"
-        description="You have analysis content on screen that has not been saved or downloaded yet. If you leave now, this working context will be discarded."
+        description="You have local regeneration notes that have not been sent to the API. If you leave now, this draft will be discarded."
         cancelLabel="Stay here"
         confirmLabel="Leave without saving"
         confirmVariant="destructive"

@@ -44,6 +44,7 @@ Feature code that re-implements any of these — inline or as a local component 
 | Modal / overlay             | `<Dialog>` etc.        | `@/components/ui/dialog`             |
 | Data table                  | `<Table>` etc.         | `@/components/ui/table`              |
 | Sortable child collection   | `<SortableChildTable>` | `@/components/ui/sortable-child-table` |
+| Option card selector        | `<OptionCardSelector>` | `@/components/ui/option-card-selector` |
 | Loading / skeleton          | `<HttpLoader>`         | `@/components/ui/http-loader`        |
 | Step / upload progress      | `<ProgressBar>`        | `@/components/ui/progress-bar`       |
 | Toast / notification        | `useToast`             | `@/components/ui/toaster`            |
