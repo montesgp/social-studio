@@ -83,6 +83,8 @@ public abstract class FormatContentGeneratorBase<TPayload> : IFormatContentGener
         tracker.TrackIfInferred("ClientSectorOrNiche", "brand.ClientSectorOrNiche");
         tracker.TrackIfInferred("ReferentAccounts", "brand.ReferentAccounts");
         tracker.TrackIfInferred("CompetitorAccounts", "brand.CompetitorAccounts");
+        tracker.TrackIfInferred("ContentStrategy", "brand.ContentStrategy");
+        tracker.TrackIfInferred("CalendarSlots", "brand.CalendarSlots");
     }
 
     /// <inheritdoc />
