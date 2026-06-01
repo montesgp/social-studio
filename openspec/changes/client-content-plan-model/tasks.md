@@ -88,17 +88,17 @@ Chain strategy: pending
 
 ## Phase 8 — Infrastructure: Loader Re-sourcing (PR 3, Work Unit 3) — refs BS-01, BS-02, BS-03, BS-04
 
-- [ ] 8.1 **[RED]** Verify existing `Incoders.Hive.Tests/Infrastructure/Social/ContentGeneration/ClientBrandSnapshotLoaderTests.cs` still compiles and passes (acts as regression guard before re-sourcing).
-- [ ] 8.2 **[RED]** Add new test in `ClientBrandSnapshotLoaderTests.cs`: loader reads `MonthlyObjective` from a persisted `ContentPlanData` row rather than `ClientMonthlyObjectiveData` (per BS-02 scenario "Loader reads Content Plan Objective for period"). Add test: missing Content Plan yields inferred objective without throwing (BS-02 scenario "Missing Content Plan yields inferred objective").
-- [ ] 8.3 **[GREEN]** In `Incoders.Hive.Infrastructure/Social/ContentGeneration/EfClientBrandSnapshotLoader.cs`, replace the `ClientMonthlyObjectives` query with a `ContentPlans` query (ordered `period_kind=0, year desc, month desc`, prefer current month); map `Objective` node → `ClientMonthlyObjectiveSnapshot(Objectives, Kpis)`. Replace `ClientStrategies` DbSet reference with `GeneralStrategies`. Keep `BrandSnapshot.FromBrandData` call signature and argument order unchanged (BS-01 contract stability).
-- [ ] 8.4 Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj` — ALL `BrandSnapshot` and `ClientBrandSnapshotLoader` tests must be green.
-- [ ] 8.5 Run full gate suite: `pwsh -File scripts/gates/Run-Gates.ps1`.
+- [x] 8.1 **[RED]** Verify existing `Incoders.Hive.Tests/Infrastructure/Social/ContentGeneration/ClientBrandSnapshotLoaderTests.cs` still compiles and passes (acts as regression guard before re-sourcing).
+- [x] 8.2 **[RED]** Add new test in `ClientBrandSnapshotLoaderTests.cs`: loader reads `MonthlyObjective` from a persisted `ContentPlanData` row rather than `ClientMonthlyObjectiveData` (per BS-02 scenario "Loader reads Content Plan Objective for period"). Add test: missing Content Plan yields inferred objective without throwing (BS-02 scenario "Missing Content Plan yields inferred objective").
+- [x] 8.3 **[GREEN]** In `Incoders.Hive.Infrastructure/Social/ContentGeneration/EfClientBrandSnapshotLoader.cs`, replace the `ClientMonthlyObjectives` query with a `ContentPlans` query (ordered `period_kind=0, year desc, month desc`, prefer current month); map `Objective` node → `ClientMonthlyObjectiveSnapshot(Objectives, Kpis)`. Replace `ClientStrategies` DbSet reference with `GeneralStrategies`. Keep `BrandSnapshot.FromBrandData` call signature and argument order unchanged (BS-01 contract stability).
+- [x] 8.4 Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj` — ALL `BrandSnapshot` and `ClientBrandSnapshotLoader` tests must be green.
+- [x] 8.5 Run full gate suite: `pwsh -File scripts/gates/Run-Gates.ps1`.
 
 ## Phase 9 — Docs Sync and Cleanup (PR 3, Work Unit 3) — refs GSTRAT-01–03, CP-01–06, BS-01–04
 
-- [ ] 9.1 Update `openspec/specs/general-strategy/spec.md` (main spec) to reflect `GeneralStrategy` rename (was `ClientStrategy`); merge delta from `openspec/changes/client-content-plan-model/specs/general-strategy/spec.md`.
-- [ ] 9.2 Create or update `openspec/specs/content-plan/spec.md` with the full Content Plan spec (merge from change delta).
-- [ ] 9.3 Create or update `openspec/specs/brand-snapshot/spec.md` with the BS spec (merge from change delta).
-- [ ] 9.4 Update `openspec/changes/client-content-plan-model/state.yaml` to mark phases complete.
-- [ ] 9.5 Remove `Features/Social/ClientMonthlyObjectives/` application folder (superseded — CP-06); remove `Domain/Social/ClientMonthlyObjectives/` domain folder after confirming no remaining usages.
-- [ ] 9.6 Final gate run: `pwsh -File scripts/gates/Run-Gates.ps1` — all MUST gates green before declaring done.
+- [x] 9.1 Update `openspec/specs/general-strategy/spec.md` (main spec) to reflect `GeneralStrategy` rename (was `ClientStrategy`); merge delta from `openspec/changes/client-content-plan-model/specs/general-strategy/spec.md`.
+- [x] 9.2 Create or update `openspec/specs/content-plan/spec.md` with the full Content Plan spec (merge from change delta).
+- [x] 9.3 Create or update `openspec/specs/brand-snapshot/spec.md` with the BS spec (merge from change delta).
+- [x] 9.4 Update `openspec/changes/client-content-plan-model/state.yaml` to mark phases complete.
+- [x] 9.5 Remove `Features/Social/ClientMonthlyObjectives/` application folder (superseded — CP-06); remove `Domain/Social/ClientMonthlyObjectives/` domain folder after confirming no remaining usages.
+- [x] 9.6 Final gate run: `pwsh -File scripts/gates/Run-Gates.ps1` — all MUST gates green before declaring done.

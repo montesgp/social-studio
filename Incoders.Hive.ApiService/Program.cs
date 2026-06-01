@@ -133,7 +133,6 @@ app.MapClientReferentAccountsEndpoints();
 app.MapClientCompetitorAccountsEndpoints();
 app.MapClientAssetEndpoints();
 app.MapClientBrandManualsEndpoints();
-app.MapClientStrategyEndpoints();
 app.MapGeneralStrategyEndpoints();
 app.MapContentPlanEndpoints();
 app.MapSocialIntegrationsEndpoints();
