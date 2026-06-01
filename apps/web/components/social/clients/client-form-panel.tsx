@@ -9,7 +9,7 @@ import { ClientReferentAccountsSection } from "@/components/social/clients/clien
 import { ClientCompetitorAccountsSection } from "@/components/social/clients/client-competitor-accounts-section";
 import { ClientBrandManualSection } from "@/components/social/clients/client-brand-manual-section";
 import { ClientStrategySection } from "@/components/social/clients/client-strategy-section";
-import { ClientMonthlyObjectivesSection } from "@/components/social/clients/client-monthly-objectives-section";
+import { ClientContentPlanSection } from "@/components/social/clients/client-content-plan-section";
 import type { ClientFormFieldErrors } from "@/components/social/clients/use-client-form";
 import type { ClientCompetitorAccount, ClientReferentAccount } from "@/lib/api/types";
 
@@ -167,12 +167,12 @@ export function ClientFormPanel({
             <ClientBrandManualSection clientId={clientId} />
           </CollapsibleSection>
 
-          <CollapsibleSection title="Strategy">
+          <CollapsibleSection title="General Strategy">
             <ClientStrategySection clientId={clientId} token={token} />
           </CollapsibleSection>
 
-          <CollapsibleSection title="Monthly Objectives">
-            <ClientMonthlyObjectivesSection clientId={clientId} token={token} />
+          <CollapsibleSection title="Content Plan">
+            <ClientContentPlanSection clientId={clientId} token={token} />
           </CollapsibleSection>
 
           <CollapsibleSection title="Associated Accounts">
