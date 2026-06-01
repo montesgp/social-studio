@@ -57,8 +57,8 @@
 - Protect against OWASP Top 10 classes:
   - injection, broken auth, sensitive data exposure, SSRF, insecure deserialization, etc.
 - Validate and encode untrusted input/output contexts (API, HTML, SQL, URLs).
-- External persistence providers (managed databases, BaaS, schema-changing APIs) MUST require explicit user authorization for every write/DDL/secret/deploy operation. Read operations may run freely.
-- Before any authorized write to an external provider: show the exact SQL/command that will execute and request authorization. Do not run writes as side effects of "cleanup" steps.
+- External persistence providers (managed databases, BaaS, schema-changing APIs): schema/data changes are authorized by **PR approval** — the PR review IS the verification. Migrations and provider writes that ship in an approved PR may run as part of that PR's merge/deploy with NO separate per-query confirmation. (Note: this repo applies EF migrations on app startup via `Database.Migrate()`, so an approved+merged change auto-applies its pending migrations on the next deploy.) Read operations may run freely.
+- Destructive AD-HOC operations OUTSIDE a reviewed PR (manual `DROP`/`DELETE`/`TRUNCATE` against a shared DB, secret rotation, one-off data scripts) still require explicit user authorization. Never run writes as side effects of "cleanup" steps.
 - Never instantiate ad-hoc HTTP clients in code paths that talk to external providers; use a centralized client factory with timeouts, retries, and resilience policies.
 
 ## 8) Secure Development Lifecycle (SHOULD)

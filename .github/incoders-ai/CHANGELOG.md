@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.6.0
+- **`core/best-practice.rules.md` §7 — external-provider write authorization moved to PR approval.** Removed the per-query "show the exact SQL and request authorization" gate. Schema/data changes (incl. EF migrations) are now authorized by PR approval — the PR review IS the verification — and run on merge/deploy without separate confirmation. This repo applies migrations on startup via `Database.Migrate()`, so an approved+merged change auto-applies pending migrations on the next deploy. Destructive AD-HOC operations outside a reviewed PR still require explicit authorization.
+
 ## 1.5.0
 - **`core/git-safety.rules.md` relaxed from STRICT.** Agents may now create branches, stage, commit, push to non-protected work branches, and open pull requests without per-action authorization. The user retains exclusive authority over integration: approving and merging pull requests into the protected branches `dev` and `main` (decided after reviewing the full PR; approval may be delegated to an agent only on explicit request). Always-forbidden items remain: hook-skip flags, force push / history rewrite on shared branches, and `rm -rf` on source. Synced references in `AGENTS.md` (`.codex/`, `.claude/CLAUDE.md`), `gates/ai-agent.gate.md`, `skills/shared/git-commit-workflow.skill.md`, `core/best-practice.rules.md`, and `.github/copilot-instructions.md`.
 
