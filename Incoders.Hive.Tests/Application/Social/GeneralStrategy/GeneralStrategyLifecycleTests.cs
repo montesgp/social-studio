@@ -1,8 +1,11 @@
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Features.Social.ContentPlans.GetByPeriod;
+using Incoders.Hive.Application.Features.Social.ContentPlans.Upsert;
 using Incoders.Hive.Application.Features.Social.GeneralStrategies.GetByClientId;
 using Incoders.Hive.Application.Features.Social.GeneralStrategies.Upsert;
 using Incoders.Hive.Domain.Social.GeneralStrategies;
 using Incoders.Hive.Tests.Common;
+using ContentPlanHarness = Incoders.Hive.Tests.Application.Social.ContentPlans.ContentPlanLifecycleTests;
 using DomainGeneralStrategy = Incoders.Hive.Domain.Social.GeneralStrategies.GeneralStrategy;
 
 namespace Incoders.Hive.Tests.Application.Social.GeneralStrategy;
@@ -337,6 +340,50 @@ public sealed class GeneralStrategyLifecycleTests
         Assert.Contains("Pillar A", resultA.Value.ContentPillars);
         Assert.Contains("Pillar B", resultB.Value.ContentPillars);
         Assert.NotEqual(resultA.Value.Id, resultB.Value.Id);
+    }
+
+    // ─── GSTRAT-02: updating the strategy does NOT cascade to Content Plans ──────
+
+    [Fact]
+    public async Task UpsertHandler_UpdatingStrategy_DoesNotCascadeToContentPlans()
+    {
+        var clientId = Guid.NewGuid();
+        var orgId = Guid.NewGuid();
+
+        // Seed a Content Plan for the same client (a separate aggregate, separate repo).
+        var planRepo = new ContentPlanHarness.InMemoryContentPlanRepository();
+        var planUpsert = new UpsertContentPlanCommandHandler(planRepo, new TestClock(Now));
+        var planGet = new GetContentPlanHandler(planRepo);
+
+        await planUpsert.Handle(
+            new UpsertContentPlanCommand(
+                clientId, orgId, 2026, 6,
+                Objectives: "Original objective",
+                Kpis: null,
+                ContentStrategyText: "Original content strategy",
+                Slots: null),
+            CancellationToken.None);
+
+        var before = await planGet.Handle(new GetContentPlanQuery(clientId, orgId, 2026, 6), CancellationToken.None);
+        Assert.True(before.IsSuccess);
+
+        // Create then update the General Strategy on a later clock.
+        var harness = new Harness(Now);
+        await harness.Upsert.Handle(
+            new UpsertGeneralStrategyCommand(clientId, orgId, ["Old direction"], null, null, null, null),
+            CancellationToken.None);
+
+        harness.Clock.UtcNow = Later;
+        await harness.Upsert.Handle(
+            new UpsertGeneralStrategyCommand(clientId, orgId, ["New direction"], ["bold"], "New audience", null, null),
+            CancellationToken.None);
+
+        // The Content Plan must be byte-for-byte untouched — no cascade from the strategy change.
+        var after = await planGet.Handle(new GetContentPlanQuery(clientId, orgId, 2026, 6), CancellationToken.None);
+        Assert.True(after.IsSuccess);
+        Assert.Equal("Original objective", after.Value.ObjectiveText);
+        Assert.Equal("Original content strategy", after.Value.ContentStrategyText);
+        Assert.Equal(before.Value.UpdatedAtUtc, after.Value.UpdatedAtUtc);
     }
 
     // ─── Harness ──────────────────────────────────────────────────────────────
