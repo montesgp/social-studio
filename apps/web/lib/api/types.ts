@@ -645,21 +645,55 @@ export interface SingleAnalyzerStatusResponse {
   completedAtUtc: string | null;
 }
 
-export interface ClientMonthlyObjective {
+export interface Provenance {
+  source: string;
+  status: string;
+  generatedAtUtc: string | null;
+  promptVersion: string | null;
+}
+
+export interface ContentPlanCalendarSlot {
+  id: string;
+  day: number;
+  contentFormat: string;
+  sortOrder: number;
+  producedPackageId: string | null;
+  provenance: Provenance;
+}
+
+export interface ContentPlan {
   id: string;
   clientId: string;
   organizationId: string;
+  periodKind: string;
   year: number;
   month: number;
-  objectives: string;
+  objectiveText: string;
   kpis: string[];
+  objectiveProvenance: Provenance;
+  contentStrategyText: string | null;
+  contentStrategyProvenance: Provenance;
+  slots: ContentPlanCalendarSlot[];
+  calendarProvenance: Provenance;
   createdAtUtc: string;
   updatedAtUtc: string;
 }
 
-export interface UpsertClientMonthlyObjectivePayload {
+export interface ContentPlanSummary {
+  id: string;
+  clientId: string;
+  periodKind: string;
+  year: number;
+  month: number;
+  objectiveProvenance: Provenance;
+  updatedAtUtc: string;
+}
+
+export interface UpsertContentPlanPayload {
   objectives: string;
   kpis?: string[];
+  contentStrategyText?: string | null;
+  slots?: { day: number; contentFormat: string }[];
 }
 
 // ── Content Generation types (single-analyzer package pipeline) ──────────────
