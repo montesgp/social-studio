@@ -67,7 +67,7 @@
 **Layer: Domain**
 **TDD order: test → implementation**
 
-- [ ] **[TEST]** Write xUnit unit tests (`Incoders.Hive.Tests/Domain/Social/ProfileAnalysis/ProfileAnalysisDomainTests.cs`) covering:
+- [x] **[TEST]** Write xUnit unit tests (`Incoders.Hive.Tests/Domain/Social/ProfileAnalysis/ProfileAnalysisDomainTests.cs`) covering:
   - Status transitions: all valid happy-path transitions (`Requested → ScrapingProfile → ProfileScraped → Analyzing → Analyzed`).
   - `ProfileScrapedPartial` path: valid transition from `ScrapingProfile → ProfileScrapedPartial → Analyzing → Analyzed`.
   - `Failed` is terminal: any attempted transition from `Failed` raises a domain invariant violation.
@@ -77,42 +77,42 @@
   - Factory: `ProfileAnalysis.CreateFromUrl(orgId, profileUrl)` populates correct fields; `ClientId` and `OwnAccountId` are null.
   - _Spec: PA-13, PA-14_
 
-- [ ] **[TEST]** Write xUnit unit tests (`ProfileAnalysisStatusTests.cs`) for the `ProfileAnalysisStatus` enum values and transition guard rules.
+- [x] **[TEST]** Write xUnit unit tests (`ProfileAnalysisStatusTests.cs`) for the `ProfileAnalysisStatus` enum values and transition guard rules.
   - _Spec: PA-14_
 
-- [ ] Create `Domain/Social/ProfileAnalysis/ProfileAnalysisStatus.cs` — status enum with values: `Requested`, `ScrapingProfile`, `ProfileScraped`, `ProfileScrapedPartial`, `Analyzing`, `Analyzed`, `Failed`.
+- [x] Create `Domain/Social/ProfileAnalysis/ProfileAnalysisStatus.cs` — status enum with values: `Requested`, `ScrapingProfile`, `ProfileScraped`, `ProfileScrapedPartial`, `Analyzing`, `Failed`.
   - _Spec: PA-14_
 
-- [ ] Create `Domain/Social/ProfileAnalysis/ProfileAnalysisErrors.cs` — domain error constants (invariant violation codes for invalid status transitions, no-usable-owner-posts, etc.).
+- [x] Create `Domain/Social/ProfileAnalysis/ProfileAnalysisErrors.cs` — domain error constants (invariant violation codes for invalid status transitions, no-usable-owner-posts, etc.).
   - _Spec: PA-08, PA-14_
 
-- [ ] Create `Domain/Social/ProfileAnalysis/ProfileSnapshot.cs` — value object carrying profile-level fields from the Apify response (instagramId, username, followersCount, postsCount, reelsCount, engagementRate, medianDaysBetweenPosts, profilePicUrl, biography, isVerified, isBusinessAccount, businessCategoryName, etc.).
+- [x] Create `Domain/Social/ProfileAnalysis/ProfileSnapshot.cs` — value object carrying profile-level fields from the Apify response (instagramId, username, followersCount, postsCount, reelsCount, engagementRate, medianDaysBetweenPosts, profilePicUrl, biography, isVerified, isBusinessAccount, businessCategoryName, etc.).
   - _Spec: PA-13, PA-16_
 
-- [ ] Create `Domain/Social/ProfileAnalysis/ProfilePost.cs` — value object for a single post entry (postId, mediaType, likesCount, commentsCount, videoViewCount, timestamp, ownerId, ownerUsername, isPaidPartnership, _degraded, hashtags, etc.). Include `IsOwnerPost(string profileInstagramId): bool` helper. Include `IsVideo: bool` (mediaType is Video or Reel).
+- [x] Create `Domain/Social/ProfileAnalysis/ProfilePost.cs` — value object for a single post entry (postId, mediaType, likesCount, commentsCount, videoViewCount, timestamp, ownerId, ownerUsername, isPaidPartnership, _degraded, hashtags, etc.). Include `IsOwnerPost(string profileInstagramId): bool` helper. Include `IsVideo: bool` (mediaType is Video or Reel).
   - _Spec: PA-07, PA-08, PA-09_
 
-- [ ] Create `Domain/Social/ProfileAnalysis/ProfileStats.cs` — value object for server-derived aggregate stats (engagementRate, medianViews [nullable], avgLikesByWeekday, avgCommentsByWeekday, avgViewsByWeekday, contentTypeMix, postingCadenceDays, ownerPostCount, degradedPostCount).
+- [x] Create `Domain/Social/ProfileAnalysis/ProfileStats.cs` — value object for server-derived aggregate stats (engagementRate, medianViews [nullable], avgLikesByWeekday, avgCommentsByWeekday, avgViewsByWeekday, contentTypeMix, postingCadenceDays, ownerPostCount, degradedPostCount).
   - _Spec: PA-09, PA-12, PA-16_
 
-- [ ] Create `Domain/Social/ProfileAnalysis/ProfileAiAnalysis.cs` — value object carrying the structured AI output (summary, audienceProfile, contentPillars, topContentTypes, postingDays, detectedBrandColors, detectedFonts, detectedBackgroundImages, voiceTone, recommendedKpis, monthlyObjectiveSuggestion, contentStrategySuggestion, strengths, weaknesses, opportunities, confidence, warnings).
+- [x] Create `Domain/Social/ProfileAnalysis/ProfileAiAnalysis.cs` — value object carrying the structured AI output (summary, audienceProfile, contentPillars, topContentTypes, postingDays, detectedBrandColors, detectedFonts, detectedBackgroundImages, voiceTone, recommendedKpis, monthlyObjectiveSuggestion, contentStrategySuggestion, strengths, weaknesses, opportunities, confidence, warnings).
   - _Spec: PA-11_
 
-- [ ] Create `Domain/Social/ProfileAnalysis/ProfileAnalysis.cs` — aggregate root:
+- [x] Create `Domain/Social/ProfileAnalysis/ProfileAnalysis.cs` — aggregate root:
   - Fields: Id, OrganizationId, ClientId (nullable), OwnAccountId (nullable), ProfileUrl (nullable), Status, ProfileUrlOrHandle, RawPostsDatasetJson, ServerDerivedStatsJson, AiAnalysisJson, ProviderDiagnosticsJson, FailureCode, CreatedAtUtc, UpdatedAtUtc, CompletedAtUtc, Warnings.
   - Static factories: `CreateFromClient` and `CreateFromUrl`.
   - Status-transition methods: `StartScraping()`, `CompleteScrape(bool isPartial)`, `StartAnalyzing()`, `CompleteAnalysis(ProfileAiAnalysis analysis)`, `MarkFailed(string failureCode, string? message)`.
   - Invariant: no EF / Npgsql / JSON types referenced.
   - _Spec: PA-13, PA-14_
 
-- [ ] **[TEST]** Verify all new tests pass in isolation: `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalysis"` — all green before proceeding.
+- [x] **[TEST]** Verify all new tests pass in isolation: `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalysis"` — all green before proceeding.
   - _Spec: PA-13, PA-14, PA-REG-01_
 
-- [ ] **[ARCH TEST]** Add architecture test asserting the `Domain.Social.ProfileAnalysis` namespace has ZERO references to any type in `Domain.Social.SingleAnalyzer` (and vice versa).
+- [x] **[ARCH TEST]** Add architecture test asserting the `Domain.Social.ProfileAnalysis` namespace has ZERO references to any type in `Domain.Social.SingleAnalyzer` (and vice versa).
   - _Spec: PA-REG-01_
 
-- [ ] Run `pwsh -File scripts/gates/Run-Gates.ps1` — resolve any MUST gate failures before committing.
-- [ ] Commit: `feat(domain): add ProfileAnalysis aggregate, status machine, and domain value objects`
+- [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — resolve any MUST gate failures before committing.
+- [x] Commit: `feat(domain): add ProfileAnalysis aggregate, status machine, and domain value objects`
 
 ---
 
