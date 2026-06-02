@@ -153,27 +153,28 @@ public sealed class GenerateContentPackageCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_CommandClientDiffersFromAnalysisClient_ReturnsValidationError()
+    public async Task Handle_CommandClientDiffersFromAnalysisClient_UsesRequestedClient()
     {
         var analysis = MakeAnalysisRecord(OrgId);
         var analysisRepo = new FakeAnalysisRepository(analysis);
         var jobRepo = new FakeContentGenerationJobRepository();
         var queue = new FakeContentGenerationJobQueue();
         var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue);
+        var requestedClientId = Guid.NewGuid();
 
         var command = new GenerateContentPackageCommand(
             OrganizationId: OrgId,
-            ClientId: Guid.NewGuid(),
+            ClientId: requestedClientId,
             AnalysisId: AnalysisId,
             RequestedFormats: ["carousel"],
             CorrelationId: null);
 
         var result = await handler.Handle(command, CancellationToken.None);
 
-        Assert.True(result.IsFailure);
-        Assert.Equal("content-gen.client-mismatch", result.Error.Code);
-        Assert.Empty(jobRepo.Inserted);
-        Assert.Empty(queue.Enqueued);
+        Assert.True(result.IsSuccess);
+        Assert.Single(jobRepo.Inserted);
+        Assert.Equal(requestedClientId, jobRepo.Inserted[0].ClientId);
+        Assert.Single(queue.Enqueued);
     }
 
     // ─── Cross-tenant: analysis belongs to a different org ──────────────────

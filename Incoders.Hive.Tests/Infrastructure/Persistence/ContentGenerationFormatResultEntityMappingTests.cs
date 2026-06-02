@@ -1,5 +1,7 @@
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
+using Incoders.Hive.Infrastructure.Persistence.Postgres.Repositories;
 using Microsoft.EntityFrameworkCore;
 
 namespace Incoders.Hive.Tests.Infrastructure.Persistence;
@@ -71,6 +73,64 @@ public sealed class ContentGenerationFormatResultEntityMappingTests
         var read = await db.ContentGenerationFormatResults.FindAsync(r1.Id);
         Assert.Equal("flyer", read!.FormatKey);
         Assert.Equal("file:///tmp/test.png", read.RenderedAssetUri);
+    }
+
+    [Fact]
+    public async Task FormatResultRepository_Upsert_ReturnsPersistedIdForExistingJobFormat()
+    {
+        await using var db = CreateDbContext();
+        var jobId = Guid.NewGuid();
+        BuildJob(db, jobId);
+
+        var repository = new EfContentGenerationFormatResultRepository(db);
+        var first = await repository.UpsertAsync(new ContentGenerationFormatResult(
+            Id: Guid.NewGuid(),
+            JobId: jobId,
+            FormatKey: "carousel",
+            Status: "AiSucceeded",
+            OutputJson: "{\"slides\":[]}",
+            CompositionSpecJson: null,
+            RenderedAssetUri: null,
+            InferredFieldsJson: null,
+            PromptVersion: "carousel.v1",
+            ErrorCode: null,
+            CreatedAt: Now,
+            UpdatedAt: Now), CancellationToken.None);
+
+        var second = await repository.UpsertAsync(new ContentGenerationFormatResult(
+            Id: Guid.NewGuid(),
+            JobId: jobId,
+            FormatKey: "carousel",
+            Status: "Rendered",
+            OutputJson: "{\"slides\":[]}",
+            CompositionSpecJson: null,
+            RenderedAssetUri: "asset-hash://abc",
+            InferredFieldsJson: null,
+            PromptVersion: "carousel.v1",
+            ErrorCode: null,
+            CreatedAt: Now.AddMinutes(1),
+            UpdatedAt: Now.AddMinutes(1)), CancellationToken.None);
+
+        Assert.Equal(first.Id, second.Id);
+        Assert.Equal("Rendered", second.Status);
+        Assert.Equal("asset-hash://abc", second.RenderedAssetUri);
+    }
+
+    [Fact]
+    public void FormatAssetData_MapsToSocialFormatAssetsTable_WithCascadeForeignKey()
+    {
+        using var db = CreateDbContext();
+
+        var entityType = db.Model.FindEntityType(typeof(ContentGenerationFormatAssetData));
+        Assert.NotNull(entityType);
+        Assert.Equal("content_generation_format_assets", entityType!.GetTableName());
+        Assert.Equal("social", entityType.GetSchema());
+
+        var foreignKey = Assert.Single(entityType.GetForeignKeys(),
+            fk => fk.Properties.Any(p => p.Name == nameof(ContentGenerationFormatAssetData.FormatResultId)));
+
+        Assert.Equal(typeof(ContentGenerationFormatResultData), foreignKey.PrincipalEntityType.ClrType);
+        Assert.Equal(DeleteBehavior.Cascade, foreignKey.DeleteBehavior);
     }
 
     private static ContentGenerationJobData BuildJob(AppIdentityDbContext db, Guid jobId)

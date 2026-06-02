@@ -53,25 +53,27 @@ public sealed class GeneratedPackageBuilder : IGeneratedPackageBuilder
 
         var ms = new MemoryStream();
         var formatMeta = new Dictionary<string, FormatAssetMetadata>();
+        var formatAssetIndexes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         long totalSize = 0;
 
         using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
         {
             foreach (var asset in input.Assets)
             {
+                var archiveFilename = ResolveArchiveFilename(asset, formatAssetIndexes);
                 string entryPath;
                 if (hasClientFolder)
                 {
                     entryPath = asset.FormatKey == "carousel"
-                        ? $"{clientFolder}/carousel/{asset.Filename}"
-                        : $"{clientFolder}/{asset.Filename}";
+                        ? $"{clientFolder}/carousel/{archiveFilename}"
+                        : $"{clientFolder}/{archiveFilename}";
                 }
                 else
                 {
                     // Legacy flat layout
                     entryPath = asset.FormatKey == "carousel"
-                        ? $"carousel/{asset.Filename}"
-                        : asset.Filename;
+                        ? $"carousel/{archiveFilename}"
+                        : archiveFilename;
                 }
 
                 var entry = archive.CreateEntry(entryPath, CompressionLevel.Optimal);
@@ -86,7 +88,7 @@ public sealed class GeneratedPackageBuilder : IGeneratedPackageBuilder
                 formatMeta[asset.FormatKey] = new FormatAssetMetadata(
                     asset.FormatKey,
                     asset.Mime,
-                    asset.Filename,
+                    asset.FormatKey == "carousel" ? "carousel/" : archiveFilename,
                     asset.SizeBytes,
                     asset.ContentHash,
                     publication);
@@ -111,6 +113,37 @@ public sealed class GeneratedPackageBuilder : IGeneratedPackageBuilder
             var built = new BuiltPackage(ms, totalSize, manifest, filename);
             return Task.FromResult(built);
         }
+    }
+
+    private static string ResolveArchiveFilename(
+        RenderedAsset asset,
+        IDictionary<string, int> formatAssetIndexes)
+    {
+        var sourceFilename = FileNameOnly(asset.Filename);
+        if (!string.Equals(asset.FormatKey, "carousel", StringComparison.OrdinalIgnoreCase))
+        {
+            return sourceFilename;
+        }
+
+        var nextIndex = formatAssetIndexes.TryGetValue(asset.FormatKey, out var current)
+            ? current + 1
+            : 1;
+        formatAssetIndexes[asset.FormatKey] = nextIndex;
+
+        var extension = Path.GetExtension(sourceFilename);
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            extension = ".png";
+        }
+
+        return $"slide_{nextIndex}{extension}";
+    }
+
+    private static string FileNameOnly(string filename)
+    {
+        var normalized = filename.Replace('\\', '/');
+        var slashIndex = normalized.LastIndexOf('/');
+        return slashIndex >= 0 ? normalized[(slashIndex + 1)..] : normalized;
     }
 }
 

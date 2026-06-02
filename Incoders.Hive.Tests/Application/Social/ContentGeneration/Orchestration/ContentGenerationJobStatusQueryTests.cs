@@ -176,5 +176,6 @@ file sealed class FakeFormatResultRepository : IContentGenerationFormatResultRep
         Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>(
             _results.Where(r => r.JobId == jobId).ToList());
 
-    public Task UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct) => Task.CompletedTask;
+    public Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct) =>
+        Task.FromResult(result);
 }

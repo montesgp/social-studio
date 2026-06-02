@@ -355,11 +355,16 @@ file sealed class SpyFormatResultRepository : IContentGenerationFormatResultRepo
         _store[(r.JobId, r.FormatKey)] = r;
     }
 
-    public Task UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct)
+    public Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct)
     {
-        Upserts.Add(result);
-        _store[(result.JobId, result.FormatKey)] = result;
-        return Task.CompletedTask;
+        var key = (result.JobId, result.FormatKey);
+        var persisted = _store.TryGetValue(key, out var existing)
+            ? result with { Id = existing.Id, CreatedAt = existing.CreatedAt }
+            : result;
+
+        Upserts.Add(persisted);
+        _store[key] = persisted;
+        return Task.FromResult(persisted);
     }
 
     public Task<IReadOnlyList<ContentGenerationFormatResult>> ListByJobAsync(Guid jobId, CancellationToken ct)

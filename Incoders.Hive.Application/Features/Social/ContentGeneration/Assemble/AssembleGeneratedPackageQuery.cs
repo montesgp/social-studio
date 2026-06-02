@@ -124,11 +124,21 @@ public sealed class AssembleGeneratedPackageQueryHandler
 
         using (var archive = new ZipArchive(memStream, ZipArchiveMode.Create, leaveOpen: true))
         {
+            var writtenEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var row in allRows)
             {
-                // Derive the clientId from the storage path: {orgId}/{clientId}/{analysisId}/...
-                if (!TryExtractClientId(row.StoragePath, query.OrganizationId, query.AnalysisId, out var clientId))
+                // Derive the clientId and relative asset path from:
+                // {orgId}/{clientId}/{analysisId}/{relativePath}
+                if (!TryExtractAssetPath(
+                        row.StoragePath,
+                        query.OrganizationId,
+                        query.AnalysisId,
+                        out var clientId,
+                        out var relativeAssetPath))
+                {
                     continue;
+                }
 
                 // Only include selected clients (null selectedClientIds = wildcard = include all)
                 if (selectedClientIds is not null && !selectedClientIds.Contains(clientId))
@@ -138,8 +148,7 @@ public sealed class AssembleGeneratedPackageQueryHandler
                 if (clientFormatFilter.TryGetValue(clientId, out var allowedFormats)
                     && allowedFormats is not null)
                 {
-                    // Determine format key from the filename (first path segment before /)
-                    var formatKey = DeriveFormatKey(row.Filename);
+                    var formatKey = DeriveFormatKey(relativeAssetPath);
                     if (!allowedFormats.Contains(formatKey))
                         continue;
                 }
@@ -155,8 +164,14 @@ public sealed class AssembleGeneratedPackageQueryHandler
                 using var assetStream = openResult.Value;
 
                 // ZIP entry path: {clientId}/{relativeFilename}
-                // row.Filename may be "flyer.png" or "carousel/slide_1.png"
-                var entryName = $"{clientId}/{row.Filename}";
+                // The DB filename is intentionally a leaf for carousel slides; the storage path
+                // is authoritative for preserving subfolders such as carousel/slide_1.png.
+                var entryName = $"{clientId}/{relativeAssetPath}";
+                if (!writtenEntries.Add(entryName))
+                {
+                    continue;
+                }
+
                 var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
 
                 await using var entryStream = entry.Open();
@@ -173,17 +188,19 @@ public sealed class AssembleGeneratedPackageQueryHandler
     // ─── Private helpers ──────────────────────────────────────────────────────
 
     /// <summary>
-    /// Attempts to extract the clientId GUID from a storage path of the form
-    /// <c>{orgId}/{clientId}/{analysisId}/...</c>.
+    /// Attempts to extract the clientId GUID and relative asset path from a storage path of the form
+    /// <c>{orgId}/{clientId}/{analysisId}/{relativePath}</c>.
     /// Returns false if the path doesn't conform to the expected layout.
     /// </summary>
-    private static bool TryExtractClientId(
+    private static bool TryExtractAssetPath(
         string storagePath,
         Guid organizationId,
         Guid analysisId,
-        out Guid clientId)
+        out Guid clientId,
+        out string relativeAssetPath)
     {
         clientId = Guid.Empty;
+        relativeAssetPath = string.Empty;
 
         // Expected segments: [orgId, clientId, analysisId, ...rest]
         var segments = storagePath.Split('/');
@@ -197,6 +214,10 @@ public sealed class AssembleGeneratedPackageQueryHandler
             return false;
 
         if (!Guid.TryParse(segments[2], out var pathAnalysisId) || pathAnalysisId != analysisId)
+            return false;
+
+        relativeAssetPath = string.Join("/", segments.Skip(3)).Trim('/');
+        if (string.IsNullOrWhiteSpace(relativeAssetPath))
             return false;
 
         clientId = pathClientId;

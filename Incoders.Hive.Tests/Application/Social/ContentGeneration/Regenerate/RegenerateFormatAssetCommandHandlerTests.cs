@@ -431,8 +431,8 @@ file sealed class FakeRegenerateAssetRepository(IReadOnlyList<FormatAssetRow> ro
 file sealed class FakeRegenerateFormatResultRepository(
     List<ContentGenerationFormatResult> results) : IContentGenerationFormatResultRepository
 {
-    public Task UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct) =>
-        Task.CompletedTask;
+    public Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct) =>
+        Task.FromResult(result);
 
     public Task<IReadOnlyList<ContentGenerationFormatResult>> ListByJobAsync(Guid jobId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>(results);

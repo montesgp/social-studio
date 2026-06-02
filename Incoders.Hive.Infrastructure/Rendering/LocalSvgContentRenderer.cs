@@ -87,16 +87,30 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         using var surface = SKSurface.Create(imageInfo);
         var canvas = surface.Canvas;
 
-        // Background
-        canvas.Clear(ParseColor(spec.Palette.Background, SKColors.White));
+        var background = ParseColor(spec.Palette.Background, SKColors.White);
+        var primary = ParseColor(spec.Palette.Primary, new SKColor(31, 41, 55));
+        var accent = ParseColor(spec.Palette.Accent, new SKColor(59, 130, 246));
 
-        // Draw decorative accent bar at top (20px)
-        using var accentPaint = new SKPaint
+        using var gradient = SKShader.CreateLinearGradient(
+            new SKPoint(0, 0),
+            new SKPoint(width, height),
+            [background, WithAlpha(accent, 72), WithAlpha(primary, 120)],
+            [0f, 0.62f, 1f],
+            SKShaderTileMode.Clamp);
+        using var backgroundPaint = new SKPaint
         {
-            Color = ParseColor(spec.Palette.Accent, new SKColor(59, 130, 246)),
+            Shader = gradient,
             IsAntialias = true,
         };
-        canvas.DrawRect(0, 0, width, 20, accentPaint);
+        canvas.DrawRect(0, 0, width, height, backgroundPaint);
+        DrawSeededDecorativeShapes(canvas, spec, width, height, accent, primary);
+
+        using var panelPaint = new SKPaint
+        {
+            Color = WithAlpha(background, 214),
+            IsAntialias = true,
+        };
+        canvas.DrawRoundRect(SKRect.Create(40, 52, width - 80, height - 124), 42, 42, panelPaint);
 
         // Draw copy slots as text
         using var headingPaint = new SKPaint { IsAntialias = true };
@@ -108,8 +122,8 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         using var headingFont = new SKFont(SKTypeface.FromFamilyName(spec.Typography.HeadingFamily), spec.Typography.HeadingSize);
         using var bodyFont = new SKFont(SKTypeface.FromFamilyName(spec.Typography.BodyFamily), spec.Typography.BodySize);
 
-        float y = 80f;
-        float margin = 48f;
+        float y = 118f;
+        float margin = 80f;
         float maxWidth = width - 2 * margin;
 
         foreach (var (slotKey, text) in spec.CopySlots)
@@ -191,10 +205,13 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         var secondary = ParseColor(spec.Palette.Secondary, new SKColor(55, 65, 81));
         var accent = ParseColor(spec.Palette.Accent, new SKColor(59, 130, 246));
         var background = ParseColor(spec.Palette.Background, new SKColor(249, 250, 251));
+        var seed = ComputeVisualSeed(spec);
+        var gradientEndX = width * (0.72f + SeededUnit(seed, 1) * 0.28f);
+        var gradientEndY = height * (0.78f + SeededUnit(seed, 2) * 0.22f);
 
         using var gradient = SKShader.CreateLinearGradient(
             new SKPoint(0, 0),
-            new SKPoint(width, height),
+            new SKPoint(gradientEndX, gradientEndY),
             [background, WithAlpha(primary, 225), WithAlpha(accent, 220)],
             [0f, 0.58f, 1f],
             SKShaderTileMode.Clamp);
@@ -211,19 +228,25 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
             IsAntialias = true
         };
         using var band = new SKPath();
-        band.MoveTo(-120, height * 0.18f);
-        band.LineTo(width, height * 0.03f);
-        band.LineTo(width + 140, height * 0.25f);
-        band.LineTo(0, height * 0.42f);
+        var bandTop = height * (0.12f + SeededUnit(seed, 3) * 0.16f);
+        var bandDepth = height * (0.20f + SeededUnit(seed, 4) * 0.08f);
+        band.MoveTo(-140, bandTop);
+        band.LineTo(width, bandTop - height * (0.06f + SeededUnit(seed, 5) * 0.08f));
+        band.LineTo(width + 160, bandTop + bandDepth);
+        band.LineTo(0, bandTop + bandDepth + height * 0.08f);
         band.Close();
         canvas.DrawPath(band, bandPaint);
+
+        DrawSeededDecorativeShapes(canvas, spec, width, height, accent, secondary);
 
         using var accentPaint = new SKPaint
         {
             Color = WithAlpha(accent, 150),
             IsAntialias = true
         };
-        canvas.DrawRect(SKRect.Create(width * 0.70f, 0, width * 0.18f, height), accentPaint);
+        var accentX = width * (0.62f + SeededUnit(seed, 6) * 0.22f);
+        var accentWidth = width * (0.10f + SeededUnit(seed, 7) * 0.10f);
+        canvas.DrawRect(SKRect.Create(accentX, 0, accentWidth, height), accentPaint);
 
     }
 
@@ -520,6 +543,79 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         }
 
         return new SKFont(SKTypeface.FromFamilyName(family), minimumSize);
+    }
+
+    private static void DrawSeededDecorativeShapes(
+        SKCanvas canvas,
+        VisualCompositionSpec spec,
+        int width,
+        int height,
+        SKColor accent,
+        SKColor secondary)
+    {
+        var seed = ComputeVisualSeed(spec);
+        using var accentPaint = new SKPaint
+        {
+            Color = WithAlpha(accent, 82),
+            IsAntialias = true
+        };
+        using var secondaryPaint = new SKPaint
+        {
+            Color = WithAlpha(secondary, 64),
+            IsAntialias = true
+        };
+
+        for (var i = 0; i < 4; i++)
+        {
+            var x = width * SeededUnit(seed, 20 + i * 3);
+            var y = height * SeededUnit(seed, 21 + i * 3);
+            var radius = width * (0.08f + SeededUnit(seed, 22 + i * 3) * 0.11f);
+            canvas.DrawCircle(x, y, radius, i % 2 == 0 ? accentPaint : secondaryPaint);
+        }
+    }
+
+    private static uint ComputeVisualSeed(VisualCompositionSpec spec)
+    {
+        unchecked
+        {
+            const uint offset = 2166136261;
+            const uint prime = 16777619;
+            var hash = offset;
+
+            void Add(string? value)
+            {
+                if (string.IsNullOrEmpty(value)) return;
+                foreach (var ch in value)
+                {
+                    hash ^= ch;
+                    hash *= prime;
+                }
+            }
+
+            Add(spec.FormatKey);
+            Add(spec.LayoutType);
+            foreach (var (key, value) in spec.CopySlots.OrderBy(slot => slot.Key, StringComparer.Ordinal))
+            {
+                Add(key);
+                Add(value);
+            }
+
+            return hash;
+        }
+    }
+
+    private static float SeededUnit(uint seed, int salt)
+    {
+        unchecked
+        {
+            var value = seed + ((uint)salt * 0x9E3779B9u);
+            value ^= value >> 16;
+            value *= 0x7FEB352Du;
+            value ^= value >> 15;
+            value *= 0x846CA68Bu;
+            value ^= value >> 16;
+            return (value & 0xFFFF) / 65535f;
+        }
     }
 
     private static SKColor WithAlpha(SKColor color, byte alpha) =>

@@ -69,6 +69,8 @@ Supabase is initial infrastructure provider. Domain and Application must not dep
 
 Client-managed image assets (for example brand manual logos and backgrounds) are uploaded through backend endpoints and stored behind a storage adapter abstraction. Persisted business records keep the resulting URL reference, never raw file payloads.
 
+API startup applies pending EF Core migrations before hosted background workers process schema-dependent jobs. Developer fast-startup shortcuts may skip data seeding, but must not skip migrations because content generation workers rely on tables such as `social.content_generation_format_assets`.
+
 Persistence schemas:
 - `identity` for authentication/authorization data.
 - `platform` for organizations, memberships, system settings and shared provider/model catalogs.

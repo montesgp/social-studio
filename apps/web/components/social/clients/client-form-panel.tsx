@@ -1,7 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -39,42 +38,6 @@ interface ClientFormPanelProps {
   token: string;
 }
 
-function CollapsibleSection({
-  title,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-
-  return (
-    <div className="rounded-lg border border-border overflow-hidden">
-      <Button
-        type="button"
-        variant="ghost"
-        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium hover:bg-muted/40 transition-colors"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <span>{title}</span>
-        {open ? (
-          <ChevronDown className="h-4 w-4 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-        )}
-      </Button>
-      {open && (
-        <div className="border-t border-border px-4 py-4">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function ClientFormPanel({
   mode,
   clientId,
@@ -99,90 +62,104 @@ export function ClientFormPanel({
   onCancel,
   token,
 }: ClientFormPanelProps) {
+  const basicInfoFields = (
+    <div className="space-y-4 pt-4">
+      <div className="space-y-1.5">
+        <label htmlFor="panel-client-name" className="text-sm font-medium">
+          Name <span className="text-destructive">*</span>
+        </label>
+        <Input
+          id="panel-client-name"
+          value={name}
+          onChange={(e) => onNameChange(e.target.value)}
+          placeholder="e.g. Acme Growth Studio"
+          aria-invalid={fieldErrors.name ? "true" : "false"}
+          aria-describedby={fieldErrors.name ? "panel-client-name-error" : undefined}
+        />
+        {fieldErrors.name ? (
+          <p id="panel-client-name-error" className="text-xs text-destructive">
+            {fieldErrors.name}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="panel-client-description" className="text-sm font-medium">
+          Description <span className="text-muted-foreground text-xs">(optional)</span>
+        </label>
+        <textarea
+          id="panel-client-description"
+          value={description}
+          onChange={(e) => onDescriptionChange(e.target.value)}
+          placeholder="Brief description of this client…"
+          rows={3}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-invalid={fieldErrors.description ? "true" : "false"}
+          aria-describedby={fieldErrors.description ? "panel-client-description-error" : undefined}
+        />
+        {fieldErrors.description ? (
+          <p id="panel-client-description-error" className="text-xs text-destructive">
+            {fieldErrors.description}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="panel-sector-niche" className="text-sm font-medium">
+          Sector / Niche{" "}
+          <span className="text-muted-foreground text-xs">(optional, max 300)</span>
+        </label>
+        <textarea
+          id="panel-sector-niche"
+          value={sectorOrNiche ?? ""}
+          onChange={(e) => onSectorOrNicheChange(e.target.value || null)}
+          maxLength={300}
+          placeholder="e.g. Beauty & Wellness, SaaS B2B…"
+          rows={2}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-invalid={fieldErrors.sectorOrNiche ? "true" : "false"}
+          aria-describedby={fieldErrors.sectorOrNiche ? "panel-sector-niche-error" : undefined}
+        />
+        {fieldErrors.sectorOrNiche ? (
+          <p id="panel-sector-niche-error" className="text-xs text-destructive">
+            {fieldErrors.sectorOrNiche}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+
   return (
     <form className="space-y-4" noValidate onSubmit={(e) => void onSubmit(e)}>
-      <CollapsibleSection title="Basic Info" defaultOpen={mode === "create"}>
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <label htmlFor="panel-client-name" className="text-sm font-medium">
-              Name <span className="text-destructive">*</span>
-            </label>
-            <Input
-              id="panel-client-name"
-              value={name}
-              onChange={(e) => onNameChange(e.target.value)}
-              placeholder="e.g. Acme Growth Studio"
-              aria-invalid={fieldErrors.name ? "true" : "false"}
-              aria-describedby={fieldErrors.name ? "panel-client-name-error" : undefined}
-            />
-            {fieldErrors.name ? (
-              <p id="panel-client-name-error" className="text-xs text-destructive">
-                {fieldErrors.name}
-              </p>
-            ) : null}
-          </div>
+      {mode === "create" || !clientId ? (
+        basicInfoFields
+      ) : (
+        <Tabs defaultValue="info">
+          <TabsList className="w-full">
+            <TabsTrigger value="info">Basic Info</TabsTrigger>
+            <TabsTrigger value="brand-manual">Brand Manual</TabsTrigger>
+            <TabsTrigger value="strategy">General Strategy</TabsTrigger>
+            <TabsTrigger value="content-plan">Content Plan</TabsTrigger>
+            <TabsTrigger value="accounts">Accounts</TabsTrigger>
+          </TabsList>
 
-          <div className="space-y-1.5">
-            <label htmlFor="panel-client-description" className="text-sm font-medium">
-              Description <span className="text-muted-foreground text-xs">(optional)</span>
-            </label>
-            <textarea
-              id="panel-client-description"
-              value={description}
-              onChange={(e) => onDescriptionChange(e.target.value)}
-              placeholder="Brief description of this client…"
-              rows={3}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-invalid={fieldErrors.description ? "true" : "false"}
-              aria-describedby={fieldErrors.description ? "panel-client-description-error" : undefined}
-            />
-            {fieldErrors.description ? (
-              <p id="panel-client-description-error" className="text-xs text-destructive">
-                {fieldErrors.description}
-              </p>
-            ) : null}
-          </div>
+          <TabsContent value="info">
+            {basicInfoFields}
+          </TabsContent>
 
-          <div className="space-y-1.5">
-            <label htmlFor="panel-sector-niche" className="text-sm font-medium">
-              Sector / Niche{" "}
-              <span className="text-muted-foreground text-xs">(optional, max 300)</span>
-            </label>
-            <textarea
-              id="panel-sector-niche"
-              value={sectorOrNiche ?? ""}
-              onChange={(e) => onSectorOrNicheChange(e.target.value || null)}
-              maxLength={300}
-              placeholder="e.g. Beauty & Wellness, SaaS B2B…"
-              rows={2}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-invalid={fieldErrors.sectorOrNiche ? "true" : "false"}
-              aria-describedby={fieldErrors.sectorOrNiche ? "panel-sector-niche-error" : undefined}
-            />
-            {fieldErrors.sectorOrNiche ? (
-              <p id="panel-sector-niche-error" className="text-xs text-destructive">
-                {fieldErrors.sectorOrNiche}
-              </p>
-            ) : null}
-          </div>
-        </div>
-      </CollapsibleSection>
-
-      {clientId && mode === "edit" && (
-        <>
-          <CollapsibleSection title="Brand Manual">
+          <TabsContent value="brand-manual" className="pt-4">
             <ClientBrandManualSection clientId={clientId} />
-          </CollapsibleSection>
+          </TabsContent>
 
-          <CollapsibleSection title="General Strategy">
+          <TabsContent value="strategy" className="pt-4">
             <ClientStrategySection clientId={clientId} token={token} />
-          </CollapsibleSection>
+          </TabsContent>
 
-          <CollapsibleSection title="Content Plan">
+          <TabsContent value="content-plan" className="pt-4">
             <ClientContentPlanSection clientId={clientId} token={token} />
-          </CollapsibleSection>
+          </TabsContent>
 
-          <CollapsibleSection title="Associated Accounts">
+          <TabsContent value="accounts" className="pt-4">
             <Tabs defaultValue="own">
               <TabsList>
                 <TabsTrigger value="own">Own Accounts</TabsTrigger>
@@ -220,8 +197,8 @@ export function ClientFormPanel({
                 />
               </TabsContent>
             </Tabs>
-          </CollapsibleSection>
-        </>
+          </TabsContent>
+        </Tabs>
       )}
 
       <div className="flex justify-end gap-2 pt-2">

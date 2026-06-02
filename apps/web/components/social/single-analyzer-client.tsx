@@ -548,6 +548,27 @@ type LocalFormatEntry = {
   regenerationCount: number; // 0 = first generation, ≥1 = regenerated N times
 };
 
+const SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS: ContentFormatKey[] = [
+  "reel-script",
+  "carousel",
+  "flyer",
+];
+
+const LOCAL_NO_CLIENT_KEY = "__no_client__";
+
+function localClientKey(clientId: string | null | undefined): string {
+  const normalized = clientId?.trim();
+  return normalized && normalized.length > 0 ? normalized : LOCAL_NO_CLIENT_KEY;
+}
+
+function scopedFormatKey(clientId: string | null | undefined, formatKey: ContentFormatKey): string {
+  return `${localClientKey(clientId)}:${formatKey}`;
+}
+
+function isKnownFormatKey(key: string): key is ContentFormatKey {
+  return (ALL_FORMAT_KEYS as string[]).includes(key);
+}
+
 /** Default filenames shown in the Package tab tree when the backend manifest is absent. */
 const FORMAT_FILE_NAMES: Record<ContentFormatKey, string> = {
   "reel-script": "reel-script.txt",
@@ -771,7 +792,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isAnalyzed, setIsAnalyzed] = useState(false);
   const [analyzingProgress, setAnalyzingProgress] = useState(0);
-  const [localFormats, setLocalFormats] = useState<Partial<Record<ContentFormatKey, LocalFormatEntry>>>({});
+  const [localFormatsByClient, setLocalFormatsByClient] = useState<
+    Record<string, Partial<Record<ContentFormatKey, LocalFormatEntry>>>
+  >({});
   const [generatingConversion, setGeneratingConversion] = useState<MutationMode | null>(null);
   const [rightPanelTab, setRightPanelTab] = useState<"conversion" | "preview" | "package">("conversion");
   const [mutationMode, setMutationMode] = useState<MutationMode>("script");
@@ -808,14 +831,14 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   // Formats that were physically deleted in this session (INC-5).
   // Tracked locally so the Convert button reverts to "Generate" without a page refresh.
-  const [deletedFormatKeys, setDeletedFormatKeys] = useState<Set<ContentFormatKey>>(new Set());
+  const [deletedFormatKeys, setDeletedFormatKeys] = useState<Set<string>>(new Set());
   // True while a regenerate or delete-format operation is in progress.
   const [isFormatMutating, setIsFormatMutating] = useState(false);
 
   // Content-generation package job state.
   const [packageJobId, setPackageJobId] = useState<string | null>(null);
   const [packageRequestedFormats, setPackageRequestedFormats] = useState<ContentFormatKey[]>(
-    ALL_FORMAT_KEYS
+    SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS
   );
   const [packageJobError, setPackageJobError] = useState<{ message: string } | null>(null);
   const [isRequestingPackage, setIsRequestingPackage] = useState(false);
@@ -852,6 +875,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     markFormatDeleted,
     refreshPackages,
   } = usePackageWorkspace(videoResult?.id, effectiveToken);
+  const selectedClientLocalFormats =
+    localFormatsByClient[localClientKey(selectedClientId)] ?? {};
+  const hasAnyStoredGeneratedFormat = useMemo(
+    () => Object.values(clientPackages).some((entry) => entry.formats.length > 0),
+    [clientPackages]
+  );
 
   // Package generation polling — active while packageJobId is set and no terminal state reached.
   const packageJob = useContentGenerationJob(packageJobId, {
@@ -871,8 +900,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     packageUiStatus === "Running";
   const packageGenerationIsCompleted = packageUiStatus === "Completed";
   const packageGenerationIsAllFormatJob =
-    packageRequestedFormats.length === ALL_FORMAT_KEYS.length &&
-    ALL_FORMAT_KEYS.every((format) => packageRequestedFormats.includes(format));
+    packageRequestedFormats.length === SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS.length &&
+    SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS.every((format) => packageRequestedFormats.includes(format));
   const allFormatsGenerationIsCompleted =
     packageGenerationIsCompleted && packageGenerationIsAllFormatJob;
   const packageGenerationIsPartial =
@@ -889,11 +918,15 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     historyLoading ||
     (selectedOrganizationId.length > 0 && clientsLoading && clients.length === 0);
 
-  const packageSucceededFormats = useMemo(
+  const currentPackageJobMatchesSelectedClient =
+    selectedClientId.length > 0 && packageJobClientId === selectedClientId;
+
+  const packageJobSucceededFormats = useMemo(
     () => {
       const fromPerFormatStatus = (Object.entries(packageJob.perFormatStatus)
         .filter(([, st]) => st === "Rendered" || st === "Succeeded")
-        .map(([fmt]) => fmt) as ContentFormatKey[]);
+        .map(([fmt]) => fmt)
+        .filter(isKnownFormatKey));
       // Fallback for legacy jobs where perFormatStatus may be empty despite a terminal success:
       // use manifest.formats keys, guarded to known format keys and terminal-success statuses.
       const isTerminalSuccess =
@@ -902,22 +935,46 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         packageJob.status === "PartialSuccess";
       const fromManifest: ContentFormatKey[] =
         fromPerFormatStatus.length === 0 && isTerminalSuccess && packageJob.manifest?.formats
-          ? (Object.keys(packageJob.manifest.formats).filter((k) =>
-              (ALL_FORMAT_KEYS as string[]).includes(k)
-            ) as ContentFormatKey[])
+          ? Object.keys(packageJob.manifest.formats).filter(isKnownFormatKey)
           : [];
-      // Exclude formats that were physically deleted in this session (INC-5).
-      const all = Array.from(new Set([...fromPerFormatStatus, ...fromManifest]));
-      return all.filter((fmt) => !deletedFormatKeys.has(fmt));
+      return Array.from(new Set([...fromPerFormatStatus, ...fromManifest]));
     },
-    [packageJob.perFormatStatus, packageJob.status, packageJob.manifest, deletedFormatKeys]
+    [packageJob.perFormatStatus, packageJob.status, packageJob.manifest]
+  );
+  const selectedClientStoredFormatKeys = useMemo(
+    () => {
+      if (!selectedClientId) return [];
+      const entry = clientPackages[selectedClientId];
+      if (!entry) return [];
+      return entry.formats
+        .map((format) => format.formatKey)
+        .filter(isKnownFormatKey);
+    },
+    [clientPackages, selectedClientId]
+  );
+  const packageSucceededFormats = useMemo(
+    () => {
+      const fromCurrentJob = currentPackageJobMatchesSelectedClient ? packageJobSucceededFormats : [];
+      const all = Array.from(new Set([...selectedClientStoredFormatKeys, ...fromCurrentJob]));
+      return all.filter((fmt) => !deletedFormatKeys.has(scopedFormatKey(selectedClientId, fmt)));
+    },
+    [
+      currentPackageJobMatchesSelectedClient,
+      deletedFormatKeys,
+      packageJobSucceededFormats,
+      selectedClientId,
+      selectedClientStoredFormatKeys,
+    ]
   );
   const packageFailedFormats = useMemo(
     () =>
-      (Object.entries(packageJob.perFormatStatus)
+      currentPackageJobMatchesSelectedClient
+        ? (Object.entries(packageJob.perFormatStatus)
         .filter(([, st]) => st === "Failed")
-        .map(([fmt]) => fmt) as ContentFormatKey[]),
-    [packageJob.perFormatStatus]
+        .map(([fmt]) => fmt)
+        .filter(isKnownFormatKey))
+        : [],
+    [currentPackageJobMatchesSelectedClient, packageJob.perFormatStatus]
   );
 
   // INC-6: Refresh the multi-client packages tree whenever a generation job reaches a terminal state.
@@ -1050,9 +1107,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const hasClientContext = selectedClientId.trim().length > 0;
   const generationClientId = selectedClientId;
   const packageGenerationClientMissing = !generationClientId;
-  const packageGenerationClientMismatch = Boolean(
-    videoResult?.clientId && selectedClientId && selectedClientId !== videoResult.clientId
-  );
+  // A saved analysis can be converted for multiple active clients; each generated output
+  // is scoped by the client selected at generation time.
 
   // Normalize searchNetwork to first available network code when networks load.
   useEffect(() => {
@@ -1137,11 +1193,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setVideoResult(null);
     setIsAnalyzed(false);
     setDownloadResult(null);
-    setLocalFormats({});
+    setLocalFormatsByClient({});
+    setDeletedFormatKeys(new Set());
     setError(null);
     setPackageJobId(null);
     setPackageJobClientId(null);
-    setPackageRequestedFormats(ALL_FORMAT_KEYS);
+    setPackageRequestedFormats(SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS);
     setPackageJobError(null);
     setIsDescriptionExpanded(false);
     setIsVideoAnalysisCollapsed(false);
@@ -1391,28 +1448,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setIsAnalyzed(true);
   }
 
-  function buildScriptContent() {
-    return buildBackendGenerationNotice("reel-script");
-  }
-
-  function buildCarouselContent() {
-    return buildBackendGenerationNotice("carousel");
-  }
-
-  function buildFlyerContent() {
-    return buildBackendGenerationNotice("flyer");
-  }
-
-  function buildBackendGenerationNotice(formatKey: ContentFormatKey) {
-    const label = FORMAT_LABELS[formatKey];
-    const clientLabel = selectedClient?.name ?? "the selected client";
-    return [
-      `${label} generation started for ${clientLabel}.`,
-      "The backend package pipeline is using the analysis idea plus the client's brand manual, strategy, objectives, KPIs, and account context.",
-      "Check the Package tab to track progress and download when ready.",
-    ].join("\n");
-  }
-
   function formatForMutationMode(mode: MutationMode = mutationMode): ContentFormatKey {
     if (mode === "script") return "reel-script";
     if (mode === "carousel") return "carousel";
@@ -1420,8 +1455,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }
 
   function hasLocalGeneratedFormat(formatKey: ContentFormatKey): boolean {
-    // A locally-tracked format is NOT considered generated if it was deleted in this session.
-    return Boolean(localFormats[formatKey]) && !deletedFormatKeys.has(formatKey);
+    // A locally-tracked format is client-scoped and is NOT considered generated if it was deleted in this session.
+    return Boolean(selectedClientLocalFormats[formatKey]) &&
+      !deletedFormatKeys.has(scopedFormatKey(selectedClientId, formatKey));
   }
 
   function getExistingGeneratedFormats(formats: ContentFormatKey[]): ContentFormatKey[] {
@@ -1451,21 +1487,26 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setPackageRequestedFormats([formatKey]);
       setPackageJobId(response.jobId);
       setPackageJobClientId(selectedClientId || null);
-      const notice = mode === "script"
-        ? buildScriptContent()
-        : mode === "carousel"
-        ? buildCarouselContent()
-        : buildFlyerContent();
-      setLocalFormats((prev) => {
-        const existing = prev[formatKey];
+      setLocalFormatsByClient((prev) => {
+        const clientKey = localClientKey(selectedClientId);
+        const existingFormats = prev[clientKey] ?? {};
+        const existing = existingFormats[formatKey];
         return {
           ...prev,
-          [formatKey]: {
-            content: notice,
-            generatedAt: new Date().toISOString(),
-            regenerationCount: existing ? existing.regenerationCount + 1 : 0,
+          [clientKey]: {
+            ...existingFormats,
+            [formatKey]: {
+              content: "",
+              generatedAt: new Date().toISOString(),
+              regenerationCount: existing ? existing.regenerationCount + 1 : 0,
+            },
           },
         };
+      });
+      setDeletedFormatKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(scopedFormatKey(selectedClientId, formatKey));
+        return next;
       });
       if (regenerationObjection) {
         setRegenerationObjection("");
@@ -1493,11 +1534,20 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     try {
       await deleteFormatItem(analysisId, formatKey, clientId, { token: effectiveToken });
       // Track as deleted so the Convert button reverts to "Generate".
-      setDeletedFormatKeys((prev) => new Set([...prev, formatKey]));
+      setDeletedFormatKeys((prev) => new Set([...prev, scopedFormatKey(clientId, formatKey)]));
       // Remove from localFormats so it disappears from the Packages tree.
-      setLocalFormats((prev) => {
+      setLocalFormatsByClient((prev) => {
+        const clientKey = localClientKey(clientId);
+        const existingFormats = prev[clientKey];
+        if (!existingFormats) return prev;
+        const nextFormats = { ...existingFormats };
+        delete nextFormats[formatKey];
         const next = { ...prev };
-        delete next[formatKey];
+        if (Object.keys(nextFormats).length === 0) {
+          delete next[clientKey];
+        } else {
+          next[clientKey] = nextFormats;
+        }
         return next;
       });
       // INC-6: Remove the format from the per-client package tree.
@@ -1523,14 +1573,31 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     return normalized;
   }
 
-  const generatedFormatKeys = ALL_FORMAT_KEYS.filter(
+  const generatedFormatKeys = SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS.filter(
     (format) => packageSucceededFormats.includes(format) || hasLocalGeneratedFormat(format)
   );
+  const allActiveFormatsGenerated = SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS.every((format) =>
+    generatedFormatKeys.includes(format)
+  );
+  const shouldRegenerateAllFormats = allFormatsGenerationIsCompleted || allActiveFormatsGenerated;
+  const convertAllPills = SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS
+    .filter((format) => {
+      if (generatedFormatKeys.includes(format)) return true;
+      return Boolean(currentPackageJobMatchesSelectedClient && packageJob.perFormatStatus[format]);
+    })
+    .map((format) => {
+      const liveStatus = currentPackageJobMatchesSelectedClient
+        ? packageJob.perFormatStatus[format]
+        : null;
+      const status = liveStatus ?? "Generated";
+      return { format, status };
+    });
   // INC-6: hasAnyGeneratedFormat also checks the per-client workspace from the backend tree.
   // This ensures the "Download" button is enabled when the currently-selected client has stored assets.
   const hasAnyGeneratedFormat =
     generatedFormatKeys.length > 0 ||
-    (selectedClientId ? hasStoredFormatsForClient(selectedClientId) : false);
+    (selectedClientId ? hasStoredFormatsForClient(selectedClientId) : false) ||
+    hasAnyStoredGeneratedFormat;
   const packageCoversGeneratedFormats =
     packageDownloadAvailable &&
     generatedFormatKeys.every((format) => packageRequestedFormats.includes(format));
@@ -1543,12 +1610,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     if (packageActionRequiresBuild) {
       if (packageGenerationClientMissing) {
         setPackageJobError({ message: "Pick a client before building package.zip." });
-        return;
-      }
-      if (packageGenerationClientMismatch) {
-        setPackageJobError({
-          message: "The selected client must match the analysis client to build package.zip.",
-        });
         return;
       }
       await startRequestedFormatsGeneration(generatedFormatKeys, null);
@@ -1668,18 +1729,18 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }
 
   async function startAllFormatsGeneration(regenerationObjection?: string | null) {
-    await startRequestedFormatsGeneration(ALL_FORMAT_KEYS as ContentFormatKey[], regenerationObjection);
+    await startRequestedFormatsGeneration(SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS, regenerationObjection);
   }
 
   async function handleConvertAll(includeObjection = false) {
     if (!videoResult || isRequestingPackage) return;
     const currentObjection = resolveRegenerationObjection(includeObjection);
     if (includeObjection && !currentObjection) return;
-    const existingFormats = getExistingGeneratedFormats(ALL_FORMAT_KEYS);
+    const existingFormats = getExistingGeneratedFormats(SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS);
     if (existingFormats.length > 0) {
       setPendingRegeneration({
         kind: "all",
-        formats: ALL_FORMAT_KEYS,
+        formats: SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS,
         existingFormats,
         regenerationObjection: currentObjection,
       });
@@ -1704,7 +1765,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setPackageJobId(null);
       setPackageJobClientId(null);
       setIsReattachingJob(false);
-      setPackageRequestedFormats(ALL_FORMAT_KEYS);
+      setPackageRequestedFormats(SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS);
       setPackageJobError(null);
       return;
     }
@@ -1714,7 +1775,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setPackageJobId(jobId);
     setPackageJobClientId(clientId);
     setIsReattachingJob(jobId !== null);
-    setPackageRequestedFormats(ALL_FORMAT_KEYS);
+    setPackageRequestedFormats(SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS);
     setPackageJobError(null);
   }, [videoResult?.id]);
 
@@ -1945,7 +2006,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   function activeContent(): string | null {
     const formatKey = formatForMutationMode();
-    return localFormats[formatKey]?.content ?? null;
+    const content = selectedClientLocalFormats[formatKey]?.content?.trim();
+    return content && content.length > 0 ? content : null;
   }
 
   const pendingRegenerationLabels =
@@ -1969,7 +2031,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     hasExistingFormatForCurrentMode;
   const isAllFormatsObjectionOpen =
     isSameRegenerationTarget(regenerationObjectionTarget, allFormatsRegenerationTarget) &&
-    getExistingGeneratedFormats(ALL_FORMAT_KEYS).length > 0;
+    getExistingGeneratedFormats(SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS).length > 0;
   const videoCardTitle =
     videoResult?.title?.trim() || videoResult?.primaryHook?.trim() || "Untitled";
   const normalizedVideoTitle = videoResult?.title?.trim() ?? "";
@@ -2497,8 +2559,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-medium text-foreground">Convert to all formats</p>
                             <p className="text-xs text-muted-foreground/70">
-                              Generate every supported format (carousel, flyer, reel-script, content idea,
-                              CTA, caption, hook). Download the <code className="text-[10px]">package.zip</code> when ready.
+                              Generate the active formats on this screen: script, carousel, and flyer.
+                              Download the <code className="text-[10px]">package.zip</code> when ready.
                             </p>
                           </div>
                         </div>
@@ -2508,7 +2570,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             variant="outline"
                             className="flex-1 h-8 text-xs"
                             onClick={() => {
-                              if (allFormatsGenerationIsCompleted) {
+                              if (shouldRegenerateAllFormats) {
                                 toggleRegenerationChoices(allFormatsRegenerationTarget);
                                 return;
                               }
@@ -2517,16 +2579,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             }}
                             disabled={
                                 packageGenerationIsRunning ||
-                                packageGenerationClientMissing ||
-                                packageGenerationClientMismatch
+                                packageGenerationClientMissing
                               }
                             title={
-                              allFormatsGenerationIsCompleted
+                              shouldRegenerateAllFormats
                                 ? "Regenerate all formats. The latest generated content will be replaced after confirmation."
                                 : packageGenerationClientMissing
                                 ? "Pick a client before generating branded content."
-                                : packageGenerationClientMismatch
-                                ? "The selected client must match the analysis client."
                                 : undefined
                             }
                           >
@@ -2535,7 +2594,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 <RefreshCw className="h-3 w-3 animate-spin" />
                                 Generating all formats…
                               </span>
-                            ) : allFormatsGenerationIsCompleted ? (
+                            ) : shouldRegenerateAllFormats ? (
                               <span className="flex items-center gap-2">
                                 <RefreshCw className="h-3 w-3" />
                                 Regenerate all formats
@@ -2564,8 +2623,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             onWithObjections={() => showRegenerationObjection(allFormatsRegenerationTarget)}
                             disabled={
                               packageGenerationIsRunning ||
-                              packageGenerationClientMissing ||
-                              packageGenerationClientMismatch
+                              packageGenerationClientMissing
                             }
                           />
                         )}
@@ -2580,27 +2638,26 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             onSubmit={() => submitRegenerationWithObjection(allFormatsRegenerationTarget)}
                             disabled={
                               packageGenerationIsRunning ||
-                              packageGenerationClientMissing ||
-                              packageGenerationClientMismatch
+                              packageGenerationClientMissing
                             }
                             submitLabel="Regenerate all with objections"
                           />
                         )}
-                        {Object.keys(packageJob.perFormatStatus).length > 0 && (packageGenerationIsRunning || packageGenerationIsPartial || packageGenerationIsCompleted) && (
+                        {convertAllPills.length > 0 && (
                           <div className="flex flex-wrap gap-1 pt-1">
-                            {(Object.entries(packageJob.perFormatStatus) as [ContentFormatKey, string][]).map(([fmt, st]) => (
+                            {convertAllPills.map(({ format: fmt, status: st }) => (
                               <span
                                 key={fmt}
                                 className={cn(
                                   "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border",
-                                  st === "Rendered" || st === "Succeeded"
+                                  st === "Rendered" || st === "Succeeded" || st === "Generated"
                                     ? "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20"
                                     : st === "Failed"
                                     ? "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20"
                                     : "bg-muted/40 text-muted-foreground border-border/30"
                                 )}
                               >
-                                {FORMAT_LABELS[fmt]} · {st.toLowerCase()}
+                                {FORMAT_LABELS[fmt]} · {st === "Rendered" || st === "Succeeded" ? "generated" : st.toLowerCase()}
                               </span>
                             ))}
                           </div>
@@ -2674,8 +2731,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 disabled={
                                   generatingConversion !== null ||
                                   packageGenerationIsRunning ||
-                                  packageGenerationClientMissing ||
-                                  packageGenerationClientMismatch
+                                  packageGenerationClientMissing
                                 }
                               >
                                 <RefreshCw className="h-3 w-3" />
@@ -2688,8 +2744,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                   disabled={
                                     generatingConversion !== null ||
                                     packageGenerationIsRunning ||
-                                    packageGenerationClientMissing ||
-                                    packageGenerationClientMismatch
+                                    packageGenerationClientMissing
                                   }
                                 />
                               )}
@@ -2705,8 +2760,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                   disabled={
                                     generatingConversion !== null ||
                                     packageGenerationIsRunning ||
-                                    packageGenerationClientMissing ||
-                                    packageGenerationClientMismatch
+                                    packageGenerationClientMissing
                                   }
                                   submitLabel={`Regenerate ${mutationMode} with objections`}
                                 />
@@ -2744,8 +2798,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                               disabled={
                                 generatingConversion !== null ||
                                 packageGenerationIsRunning ||
-                                packageGenerationClientMissing ||
-                                packageGenerationClientMismatch
+                                packageGenerationClientMissing
                               }
                             >
                               {generatingConversion === mutationMode ? (
@@ -2766,8 +2819,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 disabled={
                                   generatingConversion !== null ||
                                   packageGenerationIsRunning ||
-                                  packageGenerationClientMissing ||
-                                  packageGenerationClientMismatch
+                                  packageGenerationClientMissing
                                 }
                               />
                             )}
@@ -2783,8 +2835,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 disabled={
                                   generatingConversion !== null ||
                                   packageGenerationIsRunning ||
-                                  packageGenerationClientMissing ||
-                                  packageGenerationClientMismatch
+                                  packageGenerationClientMissing
                                 }
                                 submitLabel={`Regenerate ${mutationMode} with objections`}
                               />
@@ -2825,7 +2876,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
                 {rightPanelTab === "package" && (
                   <PackageTabContent
-                    localFormats={localFormats}
+                    localFormats={selectedClientLocalFormats}
                     packageSucceededFormats={packageSucceededFormats}
                     manifest={packageJob.manifest ?? null}
                     isLoading={

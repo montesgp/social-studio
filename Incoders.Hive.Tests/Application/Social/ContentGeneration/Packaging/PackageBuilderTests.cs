@@ -82,8 +82,8 @@ public sealed class PackageBuilderTests
         var builder = new GeneratedPackageBuilder();
         var assets = new[]
         {
-            RenderedAsset.Create("carousel", "image/png", "carousel-0.png", new byte[] { 1, 2, 3 }),
-            RenderedAsset.Create("carousel", "image/png", "carousel-1.png", new byte[] { 4, 5, 6 }),
+            RenderedAsset.Create("carousel", "image/png", "carousel.png", new byte[] { 1, 2, 3 }),
+            RenderedAsset.Create("carousel", "image/png", "carousel.png", new byte[] { 4, 5, 6 }),
         };
         var input = new BuildPackageInput(
             Assets: assets,
@@ -97,6 +97,8 @@ public sealed class PackageBuilderTests
         result.Content.Seek(0, SeekOrigin.Begin);
         using var archive = new ZipArchive(result.Content, ZipArchiveMode.Read, leaveOpen: true);
         // Both carousel slides should be present under carousel/ (flat layout, no client folder)
+        Assert.Contains(archive.Entries, e => e.FullName == "carousel/slide_1.png");
+        Assert.Contains(archive.Entries, e => e.FullName == "carousel/slide_2.png");
         Assert.Equal(2, archive.Entries.Count(e => e.FullName.StartsWith("carousel/")));
     }
 
@@ -107,7 +109,7 @@ public sealed class PackageBuilderTests
         var assets = new[]
         {
             RenderedAsset.Create("flyer", "image/png", "flyer.png", new byte[] { 1, 2 }),
-            RenderedAsset.Create("carousel", "image/png", "carousel-0.png", new byte[] { 3, 4 }),
+            RenderedAsset.Create("carousel", "image/png", "carousel.png", new byte[] { 3, 4 }),
         };
         var input = new BuildPackageInput(
             Assets: assets,
@@ -124,7 +126,7 @@ public sealed class PackageBuilderTests
 
         // Files live under the client folder
         Assert.Contains(archive.Entries, e => e.FullName == "acme-corp/flyer.png");
-        Assert.Contains(archive.Entries, e => e.FullName == "acme-corp/carousel/carousel-0.png");
+        Assert.Contains(archive.Entries, e => e.FullName == "acme-corp/carousel/slide_1.png");
         // manifest.json stays at root
         Assert.Contains(archive.Entries, e => e.FullName == "manifest.json");
         // Manifest records the folder name

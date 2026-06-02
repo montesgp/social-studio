@@ -139,14 +139,6 @@ public sealed class ContentGenerationJobProcessor
             return;
         }
 
-        if (job.ClientId is { } jobClientId
-            && analysisRecord.ClientId is { } analysisClientId
-            && jobClientId != analysisClientId)
-        {
-            await _jobs.UpdateStatusAsync(job.Id, "Failed", "client_mismatch", "client-mismatch", ct);
-            return;
-        }
-
         var effectiveClientId = job.ClientId ?? analysisRecord.ClientId;
         if (effectiveClientId is null || effectiveClientId == Guid.Empty)
         {
@@ -195,7 +187,8 @@ public sealed class ContentGenerationJobProcessor
 
             foreach (var (formatKey, formatResult) in freshResults)
             {
-                await PersistAiOutcomeAsync(job.Id, formatKey, formatResult, ct);
+                var persisted = await PersistAiOutcomeAsync(job.Id, formatKey, formatResult, ct);
+                existingByFormat[formatKey] = persisted;
             }
         }
         else
@@ -211,9 +204,6 @@ public sealed class ContentGenerationJobProcessor
         var renderFailures = new List<string>();
         var aiFailures = new List<string>();
 
-        // Collect format result IDs for the asset repository (needed after upserting format results).
-        var formatResultIdByKey = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-
         foreach (var formatKey in job.RequestedFormats)
         {
             var step = ResolveFormatPayload(formatKey, freshResults, existingByFormat);
@@ -225,6 +215,11 @@ public sealed class ContentGenerationJobProcessor
                     "ContentGeneration: skipping render for format {FormatKey} — no AI payload available ({Reason}).",
                     formatKey, reason);
                 continue;
+            }
+
+            foreach (var f in step.InferredFields)
+            {
+                inferred.Add(f);
             }
 
             try
@@ -246,7 +241,6 @@ public sealed class ContentGenerationJobProcessor
                 formatResultId = existingByFormat.TryGetValue(formatKey, out var existingResult)
                     ? existingResult.Id
                     : Guid.NewGuid();
-                formatResultIdByKey[formatKey] = formatResultId;
 
                 for (var specIndex = 0; specIndex < specs.Count; specIndex++)
                 {
@@ -338,12 +332,28 @@ public sealed class ContentGenerationJobProcessor
                     }
 
                     // Persist format result first (so formatResultId is stable in DB).
-                    await PersistRenderSuccessAsync(job.Id, formatKey, step, assets.Last(), ct);
+                    var persistedFormatResult = await PersistRenderSuccessAsync(
+                        formatResultId,
+                        job.Id,
+                        formatKey,
+                        step,
+                        assets.Last(),
+                        ct);
+                    existingByFormat[formatKey] = persistedFormatResult;
 
                     // Persist per-asset rows if we have any.
                     if (_assetRepository is not null && formatAssetRows.Count > 0)
                     {
-                        await _assetRepository.UpsertManyForFormatAsync(formatResultId, formatAssetRows, ct);
+                        var persistedAssetRows = persistedFormatResult.Id == formatResultId
+                            ? formatAssetRows
+                            : formatAssetRows
+                                .Select(row => row with { FormatResultId = persistedFormatResult.Id })
+                                .ToList();
+
+                        await _assetRepository.UpsertManyForFormatAsync(
+                            persistedFormatResult.Id,
+                            persistedAssetRows,
+                            ct);
                     }
 
                     // Create carousel folder placeholder.
@@ -572,12 +582,14 @@ public sealed class ContentGenerationJobProcessor
                     Payload: freshResult.Payload,
                     PromptVersion: freshResult.PromptVersion,
                     OutputJson: JsonSerializer.Serialize(freshResult.Payload, JsonOptions),
+                    InferredFields: freshResult.InferredFields,
                     AiErrorCode: null);
             }
             return new FormatStep(
                 Payload: null,
                 PromptVersion: freshResult.PromptVersion,
                 OutputJson: null,
+                InferredFields: [],
                 AiErrorCode: freshResult.FailureReason);
         }
 
@@ -591,20 +603,38 @@ public sealed class ContentGenerationJobProcessor
             }
             catch (Exception ex)
             {
-                return new FormatStep(null, cachedResult.PromptVersion, null, $"cached-output-unreadable:{ex.GetType().Name}");
+                return new FormatStep(null, cachedResult.PromptVersion, null, [], $"cached-output-unreadable:{ex.GetType().Name}");
             }
 
             return new FormatStep(
                 Payload: payload,
                 PromptVersion: cachedResult.PromptVersion,
                 OutputJson: cachedResult.OutputJson,
+                InferredFields: ParseInferredFields(cachedResult.InferredFieldsJson),
                 AiErrorCode: null);
         }
 
-        return new FormatStep(null, null, null, "no-output-recorded");
+        return new FormatStep(null, null, null, [], "no-output-recorded");
     }
 
-    private async Task PersistAiOutcomeAsync(
+    private static IReadOnlyList<string> ParseInferredFields(string? inferredFieldsJson)
+    {
+        if (string.IsNullOrWhiteSpace(inferredFieldsJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(inferredFieldsJson, JsonOptions) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private async Task<ContentGenerationFormatResult> PersistAiOutcomeAsync(
         Guid jobId,
         string formatKey,
         FormatGenerationResult<object> result,
@@ -641,10 +671,11 @@ public sealed class ContentGenerationJobProcessor
                 CreatedAt: now,
                 UpdatedAt: now);
 
-        await _formatResults.UpsertAsync(record, ct);
+        return await _formatResults.UpsertAsync(record, ct);
     }
 
-    private async Task PersistRenderSuccessAsync(
+    private async Task<ContentGenerationFormatResult> PersistRenderSuccessAsync(
+        Guid resultId,
         Guid jobId,
         string formatKey,
         FormatStep step,
@@ -652,8 +683,8 @@ public sealed class ContentGenerationJobProcessor
         CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        await _formatResults.UpsertAsync(new ContentGenerationFormatResult(
-            Id: Guid.NewGuid(),
+        return await _formatResults.UpsertAsync(new ContentGenerationFormatResult(
+            Id: resultId,
             JobId: jobId,
             FormatKey: formatKey,
             Status: "Rendered",
@@ -661,7 +692,9 @@ public sealed class ContentGenerationJobProcessor
             CompositionSpecJson: null,
             // v1 storage: asset-hash marker for legacy compat (INC-4 switches to per-asset rows).
             RenderedAssetUri: $"asset-hash://{asset.ContentHash}",
-            InferredFieldsJson: null,
+            InferredFieldsJson: step.InferredFields.Count == 0
+                ? null
+                : JsonSerializer.Serialize(step.InferredFields, JsonOptions),
             PromptVersion: step.PromptVersion,
             ErrorCode: null,
             CreatedAt: now,
@@ -684,7 +717,9 @@ public sealed class ContentGenerationJobProcessor
             OutputJson: step.OutputJson, // keep the AI payload so a later retry can re-render
             CompositionSpecJson: null,
             RenderedAssetUri: null,
-            InferredFieldsJson: null,
+            InferredFieldsJson: step.InferredFields.Count == 0
+                ? null
+                : JsonSerializer.Serialize(step.InferredFields, JsonOptions),
             PromptVersion: step.PromptVersion,
             ErrorCode: detail,
             CreatedAt: now,
@@ -746,5 +781,6 @@ public sealed class ContentGenerationJobProcessor
         object? Payload,
         string? PromptVersion,
         string? OutputJson,
+        IReadOnlyList<string> InferredFields,
         string? AiErrorCode);
 }

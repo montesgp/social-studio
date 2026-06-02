@@ -5,8 +5,11 @@ namespace Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 /// </summary>
 public interface IContentGenerationFormatResultRepository
 {
-    /// <summary>Upserts the result for a (jobId, formatKey) pair.</summary>
-    Task UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct);
+    /// <summary>
+    /// Upserts the result for a (jobId, formatKey) pair and returns the persisted row.
+    /// The returned Id is authoritative for child rows such as format assets.
+    /// </summary>
+    Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct);
 
     Task<IReadOnlyList<ContentGenerationFormatResult>> ListByJobAsync(Guid jobId, CancellationToken ct);
 }

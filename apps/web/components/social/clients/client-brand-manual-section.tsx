@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import { HexColorPicker } from "react-colorful";
 import {
   Plus,
   History,
@@ -124,78 +124,6 @@ function validateHex(hex: string): string | null {
   return null;
 }
 
-function clamp(value: number, min = 0, max = 1): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function expandHex(hex: string): string {
-  const normalized = hex.trim().replace("#", "");
-  if (normalized.length === 3) {
-    return `#${normalized
-      .split("")
-      .map((char) => char + char)
-      .join("")}`;
-  }
-
-  return `#${normalized.slice(0, 6)}`;
-}
-
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const safeHex = validateHex(hex) ? "#000000" : expandHex(hex);
-  const value = Number.parseInt(safeHex.slice(1), 16);
-  return {
-    r: (value >> 16) & 255,
-    g: (value >> 8) & 255,
-    b: value & 255,
-  };
-}
-
-function rgbToHex(r: number, g: number, b: number): string {
-  return `#${[r, g, b]
-    .map((value) => Math.round(value).toString(16).padStart(2, "0"))
-    .join("")}`;
-}
-
-function rgbToHsv(r: number, g: number, b: number): { h: number; s: number; v: number } {
-  const red = r / 255;
-  const green = g / 255;
-  const blue = b / 255;
-  const max = Math.max(red, green, blue);
-  const min = Math.min(red, green, blue);
-  const delta = max - min;
-  let h = 0;
-
-  if (delta !== 0) {
-    if (max === red) h = 60 * (((green - blue) / delta) % 6);
-    if (max === green) h = 60 * ((blue - red) / delta + 2);
-    if (max === blue) h = 60 * ((red - green) / delta + 4);
-  }
-
-  return {
-    h: h < 0 ? h + 360 : h,
-    s: max === 0 ? 0 : delta / max,
-    v: max,
-  };
-}
-
-function hsvToHex(h: number, s: number, v: number): string {
-  const c = v * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = v - c;
-  let r = 0;
-  let g = 0;
-  let b = 0;
-
-  if (h < 60) [r, g, b] = [c, x, 0];
-  else if (h < 120) [r, g, b] = [x, c, 0];
-  else if (h < 180) [r, g, b] = [0, c, x];
-  else if (h < 240) [r, g, b] = [0, x, c];
-  else if (h < 300) [r, g, b] = [x, 0, c];
-  else [r, g, b] = [c, 0, x];
-
-  return rgbToHex((r + m) * 255, (g + m) * 255, (b + m) * 255);
-}
-
 function validateHttpUrl(url: string): string | null {
   const trimmed = url.trim();
   if (!trimmed) return "URL is required.";
@@ -271,110 +199,38 @@ function normalizeTypographyEntries(entries: TypographyEntry[]): TypographyEntry
     .filter((entry) => entry.fontFamily.length > 0);
 }
 
+// --- Types and helpers ---
+
+type BrandManualDraft = {
+  title: string;
+  palette: ColorEntry[];
+  logos: LogoEntry[];
+  bg: BackgroundEntry[];
+  typo: TypographyEntry[];
+  voice: string;
+  notes: string;
+};
+
+function createEmptyDraft(): BrandManualDraft {
+  return { title: "", palette: [], logos: [], bg: [], typo: [], voice: "", notes: "" };
+}
+
+function updateAt<T>(list: T[], i: number, item: T): T[] {
+  return list.map((x, idx) => (idx === i ? item : x));
+}
+
+function removeAt<T>(list: T[], i: number): T[] {
+  return list.filter((_, idx) => idx !== i);
+}
+
 // --- Row editors ---
 
-function toPickerValue(hex: string): string {
+function toSafeHex(hex: string): string {
   const h = hex.trim();
-  if (/^#[0-9a-fA-F]{3}$/.test(h)) {
-    return `#${h[1]}${h[1]}${h[2]}${h[2]}${h[3]}${h[3]}`;
-  }
+  if (/^#[0-9a-fA-F]{3}$/.test(h)) return `#${h[1]}${h[1]}${h[2]}${h[2]}${h[3]}${h[3]}`;
   if (/^#[0-9a-fA-F]{6}$/.test(h)) return h;
   if (/^#[0-9a-fA-F]{8}$/.test(h)) return h.slice(0, 7);
   return "#000000";
-}
-
-function ColorPickerPanel({
-  value,
-  onChange,
-  onClose,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  onClose: () => void;
-}) {
-  const planeRef = useRef<HTMLDivElement>(null);
-  const pickerValue = toPickerValue(value);
-  const { r, g, b } = hexToRgb(pickerValue);
-  const hsv = rgbToHsv(r, g, b);
-
-  function updateFromPointer(event: ReactPointerEvent<HTMLDivElement>) {
-    const rect = planeRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const s = clamp((event.clientX - rect.left) / rect.width);
-    const v = 1 - clamp((event.clientY - rect.top) / rect.height);
-    onChange(hsvToHex(hsv.h, s, v));
-  }
-
-  return (
-    <div className="rounded-md border border-border bg-background p-3 shadow-sm">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-muted-foreground">Color picker</span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          onClick={onClose}
-          aria-label="Close color picker"
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
-
-      <div
-        ref={planeRef}
-        className="relative h-40 cursor-crosshair overflow-hidden rounded-md border border-border"
-        style={{ backgroundColor: `hsl(${hsv.h}, 100%, 50%)` }}
-        onPointerDown={(event) => {
-          event.currentTarget.setPointerCapture(event.pointerId);
-          updateFromPointer(event);
-        }}
-        onPointerMove={(event) => {
-          if (event.buttons === 1) updateFromPointer(event);
-        }}
-      >
-        <div className="absolute inset-0 bg-gradient-to-r from-white to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent" />
-        <span
-          className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.45)]"
-          style={{
-            left: `${hsv.s * 100}%`,
-            top: `${(1 - hsv.v) * 100}%`,
-          }}
-        />
-      </div>
-
-      <input
-        type="range"
-        min={0}
-        max={360}
-        value={Math.round(hsv.h)}
-        onChange={(event) => onChange(hsvToHex(Number(event.target.value), hsv.s, hsv.v))}
-        className="mt-3 w-full cursor-pointer accent-primary"
-        style={{
-          background:
-            "linear-gradient(90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)",
-        }}
-        aria-label="Hue"
-      />
-
-      <div className="mt-3 grid grid-cols-8 gap-1.5">
-        {COLOR_SWATCHES.map((swatch) => (
-          <Button
-            key={swatch}
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 w-8 p-0"
-            style={{ backgroundColor: swatch }}
-            onClick={() => onChange(swatch)}
-            aria-label={`Use ${swatch}`}
-          />
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function ColorRow({
@@ -410,7 +266,7 @@ function ColorRow({
               variant="outline"
               size="sm"
               className="h-9 w-9 shrink-0 p-0"
-              style={{ backgroundColor: toPickerValue(entry.hex) }}
+              style={{ backgroundColor: toSafeHex(entry.hex) }}
               onClick={() => setPickerOpen((open) => !open)}
               aria-label="Open color picker"
             />
@@ -443,11 +299,40 @@ function ColorRow({
       </div>
 
       {pickerOpen ? (
-        <ColorPickerPanel
-          value={entry.hex}
-          onChange={(hex) => onChange({ ...entry, hex })}
-          onClose={() => setPickerOpen(false)}
-        />
+        <div className="rounded-md border border-border bg-background p-3 shadow-sm space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-muted-foreground">Color picker</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={() => setPickerOpen(false)}
+              aria-label="Close color picker"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <HexColorPicker
+            color={toSafeHex(entry.hex)}
+            onChange={(hex) => onChange({ ...entry, hex })}
+            style={{ width: "100%" }}
+          />
+          <div className="grid grid-cols-8 gap-1.5">
+            {COLOR_SWATCHES.map((swatch) => (
+              <Button
+                key={swatch}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                style={{ backgroundColor: swatch }}
+                onClick={() => onChange({ ...entry, hex: swatch })}
+                aria-label={`Use ${swatch}`}
+              />
+            ))}
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -576,14 +461,7 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
   const [fontPickerOpen, setFontPickerOpen] = useState(false);
   const [customFontFamily, setCustomFontFamily] = useState("");
 
-  // Form state
-  const [fTitle, setFTitle] = useState("");
-  const [fPalette, setFPalette] = useState<ColorEntry[]>([]);
-  const [fLogos, setFLogos] = useState<LogoEntry[]>([]);
-  const [fBg, setFBg] = useState<BackgroundEntry[]>([]);
-  const [fTypo, setFTypo] = useState<TypographyEntry[]>([]);
-  const [fVoice, setFVoice] = useState("");
-  const [fNotes, setFNotes] = useState("");
+  const [form, setForm] = useState<BrandManualDraft>(createEmptyDraft);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -650,13 +528,7 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
   function openCreate() {
     setDialogMode("create");
     setEditing(null);
-    setFTitle("");
-    setFPalette([]);
-    setFLogos([]);
-    setFBg([]);
-    setFTypo([]);
-    setFVoice("");
-    setFNotes("");
+    setForm(createEmptyDraft());
     setShowValidationErrors(false);
     setTitleError(null);
     setSignalError(null);
@@ -668,13 +540,15 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
   function openEdit(manual: ClientBrandManual) {
     setDialogMode("edit");
     setEditing(manual);
-    setFTitle(manual.title);
-    setFPalette([...manual.colorPalette]);
-    setFLogos([...manual.logos]);
-    setFBg([...manual.backgroundTemplates]);
-    setFTypo([...manual.typography]);
-    setFVoice(manual.voiceAndTone ?? "");
-    setFNotes(manual.notes ?? "");
+    setForm({
+      title: manual.title,
+      palette: [...manual.colorPalette],
+      logos: [...manual.logos],
+      bg: [...manual.backgroundTemplates],
+      typo: [...manual.typography],
+      voice: manual.voiceAndTone ?? "",
+      notes: manual.notes ?? "",
+    });
     setShowValidationErrors(false);
     setTitleError(null);
     setSignalError(null);
@@ -686,11 +560,8 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
   function addFont(fontFamily: string) {
     const trimmed = fontFamily.trim();
     if (!trimmed) return;
-    if (fTypo.some((entry) => entry.fontFamily.trim().toLowerCase() === trimmed.toLowerCase())) {
-      return;
-    }
-
-    setFTypo([...fTypo, createTypographyEntry(trimmed)]);
+    if (form.typo.some((e) => e.fontFamily.trim().toLowerCase() === trimmed.toLowerCase())) return;
+    setForm((prev) => ({ ...prev, typo: [...prev.typo, createTypographyEntry(trimmed)] }));
     setCustomFontFamily("");
     setSignalError(null);
   }
@@ -700,17 +571,17 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
     e.stopPropagation();
     setShowValidationErrors(true);
 
-    const nextTitleError = fTitle.trim() ? null : "Title is required.";
+    const nextTitleError = form.title.trim() ? null : "Title is required.";
     setTitleError(nextTitleError);
 
-    if (!hasSignal(fPalette, fLogos, fBg, fTypo, fVoice, fNotes)) {
+    if (!hasSignal(form.palette, form.logos, form.bg, form.typo, form.voice, form.notes)) {
       setSignalError(
         "At least one field is required (palette, logos, backgrounds, typography, voice, or notes).",
       );
       return;
     }
 
-    if (hasInvalidStructuredEntries(fPalette, fLogos, fBg, fTypo)) {
+    if (hasInvalidStructuredEntries(form.palette, form.logos, form.bg, form.typo)) {
       setSignalError("Complete the required fields before saving the brand manual.");
       return;
     }
@@ -724,13 +595,13 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
     setSubmitting(true);
     try {
       const payload: CreateClientBrandManualPayload | UpdateClientBrandManualPayload = {
-        title: fTitle.trim(),
-        colorPalette: fPalette,
-        logos: fLogos,
-        backgroundTemplates: fBg,
-        typography: normalizeTypographyEntries(fTypo),
-        voiceAndTone: fVoice.trim() || undefined,
-        notes: fNotes.trim() || undefined,
+        title: form.title.trim(),
+        colorPalette: form.palette,
+        logos: form.logos,
+        backgroundTemplates: form.bg,
+        typography: normalizeTypographyEntries(form.typo),
+        voiceAndTone: form.voice.trim() || undefined,
+        notes: form.notes.trim() || undefined,
       };
       if (dialogMode === "create") {
         await createClientBrandManual(clientId, payload as CreateClientBrandManualPayload, effectiveToken);
@@ -950,9 +821,9 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
             <div>
               <label className="text-xs font-medium">Title *</label>
               <Input
-                value={fTitle}
+                value={form.title}
                 onChange={(e) => {
-                  setFTitle(e.target.value);
+                  setForm((prev) => ({ ...prev, title: e.target.value }));
                   setTitleError(null);
                 }}
                 maxLength={80}
@@ -971,23 +842,26 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                   variant="outline"
                   size="sm"
                   onClick={() =>
-                    setFPalette([...fPalette, { name: "", hex: "#000000", role: null }])
+                    setForm((prev) => ({
+                      ...prev,
+                      palette: [...prev.palette, { name: "", hex: "#000000", role: null }],
+                    }))
                   }
                 >
                   <Plus className="h-3 w-3" /> Add Color
                 </Button>
               </div>
-              {fPalette.map((c, i) => (
+              {form.palette.map((c, i) => (
                 <ColorRow
                   key={i}
                   entry={c}
                   showValidationErrors={showValidationErrors}
-                  onChange={(updated) => {
-                    const copy = [...fPalette];
-                    copy[i] = updated;
-                    setFPalette(copy);
-                  }}
-                  onRemove={() => setFPalette(fPalette.filter((_, idx) => idx !== i))}
+                  onChange={(updated) =>
+                    setForm((prev) => ({ ...prev, palette: updateAt(prev.palette, i, updated) }))
+                  }
+                  onRemove={() =>
+                    setForm((prev) => ({ ...prev, palette: removeAt(prev.palette, i) }))
+                  }
                 />
               ))}
             </div>
@@ -1001,13 +875,16 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                   variant="outline"
                   size="sm"
                   onClick={() =>
-                    setFLogos([...fLogos, { name: "", url: "", variant: null }])
+                    setForm((prev) => ({
+                      ...prev,
+                      logos: [...prev.logos, { name: "", url: "", variant: null }],
+                    }))
                   }
                 >
                   <Plus className="h-3 w-3" /> Add Logo
                 </Button>
               </div>
-              {fLogos.map((l, i) => (
+              {form.logos.map((l, i) => (
                 <ImageAssetRow
                   key={i}
                   name={l.name}
@@ -1016,23 +893,19 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                   extraPlaceholder="Variant"
                   assetLabel={`Logo ${l.name || i + 1}`}
                   showValidationErrors={showValidationErrors}
-                  onChangeName={(v) => {
-                    const copy = [...fLogos];
-                    copy[i] = { ...copy[i], name: v };
-                    setFLogos(copy);
-                  }}
-                  onChangeUrl={(v) => {
-                    const copy = [...fLogos];
-                    copy[i] = { ...copy[i], url: v };
-                    setFLogos(copy);
-                  }}
-                  onChangeExtra={(v) => {
-                    const copy = [...fLogos];
-                    copy[i] = { ...copy[i], variant: v };
-                    setFLogos(copy);
-                  }}
+                  onChangeName={(v) =>
+                    setForm((prev) => ({ ...prev, logos: updateAt(prev.logos, i, { ...prev.logos[i], name: v }) }))
+                  }
+                  onChangeUrl={(v) =>
+                    setForm((prev) => ({ ...prev, logos: updateAt(prev.logos, i, { ...prev.logos[i], url: v }) }))
+                  }
+                  onChangeExtra={(v) =>
+                    setForm((prev) => ({ ...prev, logos: updateAt(prev.logos, i, { ...prev.logos[i], variant: v }) }))
+                  }
                   onUpload={handleImageUpload}
-                  onRemove={() => setFLogos(fLogos.filter((_, idx) => idx !== i))}
+                  onRemove={() =>
+                    setForm((prev) => ({ ...prev, logos: removeAt(prev.logos, i) }))
+                  }
                 />
               ))}
             </div>
@@ -1059,13 +932,15 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                 </Button>
               </div>
 
-              {fTypo.length > 0 ? (
+              {form.typo.length > 0 ? (
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {fTypo.map((entry, index) => (
+                  {form.typo.map((entry, index) => (
                     <SelectedFontCard
                       key={`${entry.fontFamily}-${index}`}
                       entry={entry}
-                      onRemove={() => setFTypo(fTypo.filter((_, idx) => idx !== index))}
+                      onRemove={() =>
+                        setForm((prev) => ({ ...prev, typo: removeAt(prev.typo, index) }))
+                      }
                     />
                   ))}
                 </div>
@@ -1088,9 +963,8 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {COMMON_FONT_FAMILIES.map((fontFamily) => {
-                      const selected = fTypo.some(
-                        (entry) =>
-                          entry.fontFamily.trim().toLowerCase() === fontFamily.toLowerCase(),
+                      const selected = form.typo.some(
+                        (e) => e.fontFamily.trim().toLowerCase() === fontFamily.toLowerCase(),
                       );
 
                       return (
@@ -1150,7 +1024,7 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
               ) : null}
 
               {showValidationErrors &&
-              fTypo.some((entry) => !entry.fontFamily.trim()) ? (
+              form.typo.some((entry) => !entry.fontFamily.trim()) ? (
                 <p className="text-xs text-destructive">
                   Remove empty font entries before saving.
                 </p>
@@ -1166,13 +1040,16 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                   variant="outline"
                   size="sm"
                   onClick={() =>
-                    setFBg([...fBg, { name: "", url: "", useCase: null }])
+                    setForm((prev) => ({
+                      ...prev,
+                      bg: [...prev.bg, { name: "", url: "", useCase: null }],
+                    }))
                   }
                 >
                   <Plus className="h-3 w-3" /> Add Background
                 </Button>
               </div>
-              {fBg.map((b, i) => (
+              {form.bg.map((b, i) => (
                 <ImageAssetRow
                   key={i}
                   name={b.name}
@@ -1181,23 +1058,19 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                   extraPlaceholder="Use Case"
                   assetLabel={`Background ${b.name || i + 1}`}
                   showValidationErrors={showValidationErrors}
-                  onChangeName={(v) => {
-                    const copy = [...fBg];
-                    copy[i] = { ...copy[i], name: v };
-                    setFBg(copy);
-                  }}
-                  onChangeUrl={(v) => {
-                    const copy = [...fBg];
-                    copy[i] = { ...copy[i], url: v };
-                    setFBg(copy);
-                  }}
-                  onChangeExtra={(v) => {
-                    const copy = [...fBg];
-                    copy[i] = { ...copy[i], useCase: v };
-                    setFBg(copy);
-                  }}
+                  onChangeName={(v) =>
+                    setForm((prev) => ({ ...prev, bg: updateAt(prev.bg, i, { ...prev.bg[i], name: v }) }))
+                  }
+                  onChangeUrl={(v) =>
+                    setForm((prev) => ({ ...prev, bg: updateAt(prev.bg, i, { ...prev.bg[i], url: v }) }))
+                  }
+                  onChangeExtra={(v) =>
+                    setForm((prev) => ({ ...prev, bg: updateAt(prev.bg, i, { ...prev.bg[i], useCase: v }) }))
+                  }
                   onUpload={handleImageUpload}
-                  onRemove={() => setFBg(fBg.filter((_, idx) => idx !== i))}
+                  onRemove={() =>
+                    setForm((prev) => ({ ...prev, bg: removeAt(prev.bg, i) }))
+                  }
                 />
               ))}
             </div>
@@ -1207,8 +1080,8 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
               <label className="text-xs font-medium">Voice &amp; Tone</label>
               <textarea
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-20 resize-y"
-                value={fVoice}
-                onChange={(e) => setFVoice(e.target.value)}
+                value={form.voice}
+                onChange={(e) => setForm((prev) => ({ ...prev, voice: e.target.value }))}
                 maxLength={2000}
                 placeholder="Describe the brand voice and tone…"
               />
@@ -1219,8 +1092,8 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
               <label className="text-xs font-medium">Notes</label>
               <textarea
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-20 resize-y"
-                value={fNotes}
-                onChange={(e) => setFNotes(e.target.value)}
+                value={form.notes}
+                onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
                 maxLength={4000}
                 placeholder="Internal guidelines, brand notes…"
               />

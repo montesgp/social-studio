@@ -108,6 +108,75 @@ public sealed class ContentGenerationJobProcessorStorageTests
         Assert.All(upserts, u => Assert.True(u.Assets.Count >= 1));
     }
 
+    [Fact]
+    public async Task ProcessAsync_FreshAiOutput_PersistsAssetRowsWithPersistedFormatResultId()
+    {
+        var assetStorage = new SpyAssetStorage();
+        var assetRepo = new SpyAssetRepository();
+        var formatResults = new FakeFormatResultRepository();
+
+        var processor = BuildProcessor(
+            "flyer",
+            new object(),
+            assetStorage,
+            assetRepo,
+            formatResults);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        var renderedResult = Assert.Single(formatResults.Upserts, r => r.Status == "Rendered");
+        var assetUpsert = Assert.Single(assetRepo.UpsertCalls);
+
+        Assert.Equal(renderedResult.Id, assetUpsert.FormatResultId);
+        Assert.All(assetUpsert.Assets, row => Assert.Equal(renderedResult.Id, row.FormatResultId));
+    }
+
+    [Fact]
+    public async Task ProcessAsync_FreshAiOutput_PreservesInferredFieldsAfterRender()
+    {
+        var assetStorage = new SpyAssetStorage();
+        var assetRepo = new SpyAssetRepository();
+        var formatResults = new FakeFormatResultRepository();
+
+        var processor = BuildProcessor(
+            "flyer",
+            new object(),
+            assetStorage,
+            assetRepo,
+            formatResults,
+            inferredFields: ["brand.ColorPalette", "brand.TargetAudience"]);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        var renderedResult = Assert.Single(formatResults.Upserts, r => r.Status == "Rendered");
+
+        Assert.NotNull(renderedResult.InferredFieldsJson);
+        Assert.Contains("brand.ColorPalette", renderedResult.InferredFieldsJson);
+        Assert.Contains("brand.TargetAudience", renderedResult.InferredFieldsJson);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_JobClientDiffersFromAnalysisClient_StoresAssetsUnderJobClient()
+    {
+        var assetStorage = new SpyAssetStorage();
+        var assetRepo = new SpyAssetRepository();
+        var requestedClientId = Guid.Parse("99999999-9999-9999-9999-999999999999");
+        var analysisClientId = Guid.Parse("88888888-8888-8888-8888-888888888888");
+
+        var processor = BuildProcessor(
+            "flyer",
+            new object(),
+            assetStorage,
+            assetRepo,
+            jobClientId: requestedClientId,
+            analysisClientId: analysisClientId);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        var flyerPut = Assert.Single(assetStorage.Puts, p => p.Key.RelativePath == "flyer.txt");
+        Assert.Equal(requestedClientId, flyerPut.Key.ClientId);
+    }
+
     // -----------------------------------------------------------------------
     // T3.12.2 — Storage PUT failure marks format failed, no orphan rows
     // -----------------------------------------------------------------------
@@ -181,23 +250,40 @@ public sealed class ContentGenerationJobProcessorStorageTests
         string formatKey,
         object payload,
         IGeneratedAssetStorage assetStorage,
-        IContentGenerationFormatAssetRepository assetRepo)
+        IContentGenerationFormatAssetRepository assetRepo,
+        IContentGenerationFormatResultRepository? formatResultRepository = null,
+        IReadOnlyList<string>? inferredFields = null,
+        Guid? jobClientId = null,
+        Guid? analysisClientId = null)
     {
-        return BuildProcessorMultiFormat([(formatKey, payload)], assetStorage, assetRepo);
+        return BuildProcessorMultiFormat(
+            [(formatKey, payload)],
+            assetStorage,
+            assetRepo,
+            formatResultRepository,
+            inferredFields,
+            jobClientId,
+            analysisClientId);
     }
 
     private ContentGenerationJobProcessor BuildProcessorMultiFormat(
         IEnumerable<(string FormatKey, object Payload)> formats,
         IGeneratedAssetStorage assetStorage,
-        IContentGenerationFormatAssetRepository assetRepo)
+        IContentGenerationFormatAssetRepository assetRepo,
+        IContentGenerationFormatResultRepository? formatResultRepository = null,
+        IReadOnlyList<string>? inferredFields = null,
+        Guid? jobClientId = null,
+        Guid? analysisClientId = null)
     {
         var formatList = formats.ToList();
         var requestedFormats = formatList.Select(f => f.FormatKey).ToList();
+        var effectiveJobClientId = jobClientId ?? ClientId;
+        var effectiveAnalysisClientId = analysisClientId ?? ClientId;
 
         var fakeJob = new ContentGenerationJob(
             Id: JobId,
             OrganizationId: OrgId,
-            ClientId: ClientId,
+            ClientId: effectiveJobClientId,
             AnalysisId: AnalysisId,
             RequestedFormats: requestedFormats,
             Status: "Queued",
@@ -217,7 +303,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
         var fakeAnalysisRecord = new SingleContentAnalysisRecord(
             Id: AnalysisId,
             OrganizationId: OrgId,
-            ClientId: ClientId,
+            ClientId: effectiveAnalysisClientId,
             UserId: Guid.NewGuid(),
             SourceUrl: "https://example.com/video",
             NormalizedUrl: null,
@@ -234,9 +320,9 @@ public sealed class ContentGenerationJobProcessorStorageTests
 
         var jobs = new FakeJobRepository(fakeJob);
         var analyses = new FakeAnalysisRepository(fakeAnalysisRecord);
-        var formatResults = new FakeFormatResultRepository();
+        var formatResults = formatResultRepository ?? new FakeFormatResultRepository();
         var brandLoader = new FakeBrandLoader();
-        var composer = new FakeCompositionService(formatList);
+        var composer = new FakeCompositionService();
         var renderer = new FakeRenderer();
         var packageBuilder = new FakePackageBuilder();
         var packageStorage = new FakePackageStorage();
@@ -245,7 +331,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
         return new ContentGenerationJobProcessor(
             jobs: jobs,
             analyses: analyses,
-            orchestrator: new FakeOrchestrator(formatList),
+            orchestrator: new FakeOrchestrator(formatList, inferredFields ?? []),
             formatResults: formatResults,
             brandLoader: brandLoader,
             composer: composer,
@@ -399,9 +485,24 @@ file sealed class FakeAnalysisRepository(SingleContentAnalysisRecord record) : I
 
 file sealed class FakeFormatResultRepository : IContentGenerationFormatResultRepository
 {
-    public Task UpsertAsync(ContentGenerationFormatResult r, CancellationToken ct) => Task.CompletedTask;
+    private readonly Dictionary<(Guid JobId, string FormatKey), ContentGenerationFormatResult> _store = new();
+    public List<ContentGenerationFormatResult> Upserts { get; } = [];
+
+    public Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult r, CancellationToken ct)
+    {
+        var key = (r.JobId, r.FormatKey);
+        var persisted = _store.TryGetValue(key, out var existing)
+            ? r with { Id = existing.Id, CreatedAt = existing.CreatedAt }
+            : r;
+
+        Upserts.Add(persisted);
+        _store[key] = persisted;
+        return Task.FromResult(persisted);
+    }
+
     public Task<IReadOnlyList<ContentGenerationFormatResult>> ListByJobAsync(Guid jobId, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>([]);
+        Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>(
+            _store.Values.Where(r => r.JobId == jobId).ToList());
 }
 
 file sealed class FakeBrandLoader : IClientBrandSnapshotLoader
@@ -410,13 +511,15 @@ file sealed class FakeBrandLoader : IClientBrandSnapshotLoader
         Task.FromResult(BrandSnapshot.FromBrandData(null, null, null));
 }
 
-file sealed class FakeOrchestrator(IEnumerable<(string FormatKey, object Payload)> formats) : IContentGenerationOrchestrator
+file sealed class FakeOrchestrator(
+    IEnumerable<(string FormatKey, object Payload)> formats,
+    IReadOnlyList<string> inferredFields) : IContentGenerationOrchestrator
 {
     public Task<OrchestratorResult> RunAsync(OrchestratorRequest request, CancellationToken ct)
     {
         var results = formats.ToDictionary(
             f => f.FormatKey,
-            f => FormatGenerationResult<object>.Succeeded(f.Payload, "fake.v1", []),
+            f => FormatGenerationResult<object>.Succeeded(f.Payload, "fake.v1", inferredFields),
             StringComparer.OrdinalIgnoreCase);
 
         return Task.FromResult(new OrchestratorResult(
@@ -426,7 +529,7 @@ file sealed class FakeOrchestrator(IEnumerable<(string FormatKey, object Payload
     }
 }
 
-file sealed class FakeCompositionService(IEnumerable<(string FormatKey, object Payload)> formats) : IVisualCompositionService
+file sealed class FakeCompositionService : IVisualCompositionService
 {
     private static readonly CompositionPalette DefaultPalette = new("#333", "#666", "#999", "#FFF", "#EEE");
     private static readonly CompositionTypography DefaultTypo = new("Arial", 24, "Arial", 14);

@@ -35,7 +35,18 @@ public sealed class EfContentGenerationFormatAssetRepository : IContentGeneratio
             _db.ContentGenerationFormatAssets.Add(Map(asset));
         }
 
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // A failed asset insert (FK violation, missing table, etc.) leaves pending child
+            // entities tracked in this scoped DbContext. Clear them so the caller can still
+            // persist a render failure or mark the job failed without retrying the bad insert.
+            _db.ChangeTracker.Clear();
+            throw;
+        }
     }
 
     public async Task<IReadOnlyList<FormatAssetRow>> ListByJobAsync(Guid jobId, CancellationToken ct)

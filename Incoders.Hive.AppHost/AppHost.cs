@@ -7,8 +7,9 @@ var apiService = builder.AddProject<Projects.Incoders_Hive_ApiService>("apiservi
 
 if (string.Equals(builder.Configuration["HIVE_FAST_STARTUP"], "true", StringComparison.OrdinalIgnoreCase))
 {
+    // Keep migrations enabled even in fast startup. Background workers depend on the
+    // current schema; skipping migrations can let jobs run against missing tables.
     apiService
-        .WithEnvironment("StartupTasks__ApplyMigrations", "false")
         .WithEnvironment("StartupTasks__SeedData", "false")
         .WithEnvironment("FileLogging__Enabled", "false");
 }

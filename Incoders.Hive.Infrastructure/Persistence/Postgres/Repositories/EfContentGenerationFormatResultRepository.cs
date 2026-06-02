@@ -14,14 +14,15 @@ public sealed class EfContentGenerationFormatResultRepository : IContentGenerati
         _db = db;
     }
 
-    public async Task UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct)
+    public async Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct)
     {
         var existing = await _db.ContentGenerationFormatResults
             .FirstOrDefaultAsync(x => x.JobId == result.JobId && x.FormatKey == result.FormatKey, ct);
 
         if (existing is null)
         {
-            _db.ContentGenerationFormatResults.Add(Map(result));
+            existing = Map(result);
+            _db.ContentGenerationFormatResults.Add(existing);
         }
         else
         {
@@ -36,6 +37,8 @@ public sealed class EfContentGenerationFormatResultRepository : IContentGenerati
         }
 
         await _db.SaveChangesAsync(ct);
+
+        return Map(existing);
     }
 
     public async Task<IReadOnlyList<ContentGenerationFormatResult>> ListByJobAsync(Guid jobId, CancellationToken ct)

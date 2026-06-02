@@ -147,8 +147,10 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
 
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(resultId, 1, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png", "carousel/slide_1.png"),
-            MakeRow(resultId, 2, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png", "carousel/slide_2.png"),
+            // The durable asset rows store carousel filenames as leaf names; the storage path
+            // is authoritative for preserving the carousel/ subfolder in assembled ZIPs.
+            MakeRow(resultId, 1, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png", "slide_1.png"),
+            MakeRow(resultId, 2, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png", "slide_2.png"),
         };
 
         var files = new Dictionary<string, byte[]>
@@ -169,8 +171,9 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read);
         var entries = zip.Entries.Select(e => e.FullName).ToList();
 
-        Assert.Contains(entries, e => e.Contains("carousel/slide_1.png"));
-        Assert.Contains(entries, e => e.Contains("carousel/slide_2.png"));
+        Assert.Contains($"{ClientId1}/carousel/slide_1.png", entries);
+        Assert.Contains($"{ClientId1}/carousel/slide_2.png", entries);
+        Assert.DoesNotContain($"{ClientId1}/slide_1.png", entries);
     }
 
     // ─── T4.1.5 — Empty storage → valid empty ZIP ────────────────────────────

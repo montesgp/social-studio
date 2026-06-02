@@ -92,14 +92,6 @@ public sealed class GenerateContentPackageCommandHandler
                 ContentGenerationErrors.AnalysisNotFound);
         }
 
-        if (analysis.ClientId is { } analysisClientId
-            && command.ClientId is { } requestedClientId
-            && analysisClientId != requestedClientId)
-        {
-            return Result.Failure<GenerateContentPackageResponse>(
-                ContentGenerationErrors.ClientMismatch);
-        }
-
         var effectiveClientId = command.ClientId ?? analysis.ClientId;
         if (effectiveClientId is null || effectiveClientId == Guid.Empty)
         {
@@ -153,9 +145,6 @@ public static class ContentGenerationErrors
 
     public static readonly Error ClientRequired =
         Error.Validation("content-gen.client-required", "A client is required to generate branded content.");
-
-    public static readonly Error ClientMismatch =
-        Error.Validation("content-gen.client-mismatch", "The requested client does not match the analysis client.");
 
     public static readonly Error PackageNotReady =
         Error.NotFound("content-gen.package-not-ready", "The package is not yet available for download.");

@@ -11,8 +11,8 @@ Content research retrieves candidate high-performing content by client, niche, r
 - Sysadmins MAY list clients across organizations and filter the list by organization.
 - Sysadmin client list views MUST show the organization each client belongs to.
 - Single-content analysis workflows MAY run without a selected client for analysis-only use cases.
-- Single-content package generation MUST resolve a client from either the analysis record or the generation request before invoking AI format generation.
-- Single-content package generation MUST reject a generation request when the requested client differs from the analysis client.
+- Single-content package generation MUST resolve a client from either the generation request or, when absent, the analysis record before invoking AI format generation.
+- Single-content package generation MUST allow the same analyzed video to be converted for multiple active clients in the organization; each output is scoped to the client selected at generation time.
 - Single-content package regeneration MAY include `regenerationObjection` text from the user; when provided, prompt context MUST include that correction and the backend MUST reject values longer than 1000 characters.
 - `manifest.json` MUST include `formats.<format_key>.publication.description` for `carousel` and `flyer` when that publication copy is generated.
 - Single-content package generation prompts MUST include the resolved client's profile, active brand manual, strategy, current/latest monthly objective and KPIs, active referent accounts, and active competitor accounts.
@@ -92,7 +92,8 @@ Content extraction uses per-platform Apify adapters. Supported platforms:
 - When the scraped thumbnail is missing or unavailable, the snapshot card MUST show a placeholder image and MUST NOT render the scraped description text block.
 - When the scraped title is missing or matches the scraped description, the snapshot card SHOULD prioritize a detected hook as the displayed title.
 - In the Single Analyzer convert panel, individual format generation actions (script/carousel/flyer) SHOULD be visually prioritized above the convert-all section.
-- The `package.zip` action MUST be shown as a section-level conversion action and MUST package all formats already generated for the loaded analysis (single-format generations and/or convert-all).
+- In the Single Analyzer convert panel, "Convert to all formats" MUST request only the active formats visible on the screen (script, carousel, flyer).
+- The `package.zip` action MUST be shown as a section-level conversion action and MUST package all formats already generated for the loaded analysis, grouped by client folder when multiple clients have generated outputs.
 
 ## Events
 - TBD
@@ -102,7 +103,7 @@ Content extraction uses per-platform Apify adapters. Supported platforms:
 - A CM can list clients for the resolved organization.
 - A client id from another organization returns not found.
 - A CM can run single-content analysis with no client selected for analysis-only review.
-- A CM must choose an active client before generating a single-content package when the analysis does not already have a client.
+- A CM must choose an active client before generating a single-content package from the Single Analyzer UI; the selected client determines the generated output context.
 - Generated single-content packages use the resolved client's brand, strategy, objectives/KPIs, and account context.
 - A CM can paste a TikTok or Instagram URL; the backend scrapes and analyzes it in one call; no Apify request is visible in the browser.
 - A CM pasting a previously analyzed URL is warned before a new provider run and can resume the saved analysis for content generation.
@@ -117,7 +118,8 @@ Content extraction uses per-platform Apify adapters. Supported platforms:
 - A CM sees hashtags in the video description only, without a duplicate hashtags block under live metrics.
 - A CM sees a placeholder thumbnail (and no description text block) when the scraper does not provide a valid image.
 - A CM sees individual format conversion controls before convert-all controls in the convert panel.
-- A CM can download `package.zip` from a general conversion action, and that package includes all formats already generated for the analysis.
+- A CM using "Convert to all formats" generates only script, carousel, and flyer while those are the active Single Analyzer formats.
+- A CM can download `package.zip` from a general conversion action, and that package includes all formats already generated for the analysis grouped by generated client.
 - A CM cannot submit analyze-by-URL with invalid/unsupported input from the analyzer UI.
 - When no AI integration is configured, the endpoint returns 422 with `code: "AI.NoProviderConfigured"`.
 - Tenant isolation: the organizationId is always sourced from the authenticated principal, never from the request body.
