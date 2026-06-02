@@ -907,8 +907,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const packageGenerationIsPartial =
     packageUiStatus === "Partial" || packageUiStatus === "PartialSuccess";
   const packageGenerationIsFailed = packageUiStatus === "Failed";
+  const canAssembleFromStoredAssets =
+    Boolean(videoResult?.id) &&
+    (hasAnyStoredGeneratedFormat || packageJob.manifest?.has_stored_assets === true);
   const packageDownloadAvailable =
-    (packageGenerationIsCompleted || packageGenerationIsPartial) && packageJobId !== null;
+    canAssembleFromStoredAssets ||
+    ((packageGenerationIsCompleted || packageGenerationIsPartial) && packageJobId !== null);
   const hasUnsavedWork =
     isSavedAnalysisView &&
     regenerationObjectionTarget !== null &&
@@ -988,22 +992,24 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }, [packageJob.status]);
 
   const downloadCurrentPackage = useCallback(async () => {
-    if (!packageJobId || isDownloadingPackage) return;
+    if (isDownloadingPackage) return;
+    const analysisId = videoResult?.id;
+    const shouldAssemble = Boolean(analysisId) && canAssembleFromStoredAssets;
+    if (!shouldAssemble && !packageJobId) return;
     setIsDownloadingPackage(true);
     setPackageJobError(null);
     try {
-      // Dual-path download: use assemble endpoint for new-model packages (INC-3+ durable assets);
-      // fall back to legacy frozen-ZIP for older packages without per-asset storage rows.
-      const isNewModel = packageJob.manifest?.has_stored_assets === true;
-      const analysisId = videoResult?.id;
+      // Dual-path download:
+      // 1) Assemble from currently stored assets (preferred; survives cross-job regenerations).
+      // 2) Fallback to legacy frozen-ZIP download for older jobs.
 
       let blob: Blob;
       let filename: string;
 
-      if (isNewModel && analysisId) {
+      if (shouldAssemble && analysisId) {
         ({ blob, filename } = await assemblePackage(analysisId, undefined, { token: effectiveToken }));
       } else {
-        ({ blob, filename } = await downloadPackageFile(packageJobId, { token: effectiveToken }));
+        ({ blob, filename } = await downloadPackageFile(packageJobId!, { token: effectiveToken }));
       }
 
       const objectUrl = URL.createObjectURL(blob);
@@ -1021,7 +1027,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     } finally {
       setIsDownloadingPackage(false);
     }
-  }, [packageJobId, isDownloadingPackage, effectiveToken, packageJob.manifest, videoResult?.id]);
+  }, [packageJobId, isDownloadingPackage, effectiveToken, videoResult?.id, canAssembleFromStoredAssets]);
 
   useEffect(() => {
     setDuplicateAnalysisPrompt(null);
@@ -1592,27 +1598,19 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       const status = liveStatus ?? "Generated";
       return { format, status };
     });
-  // INC-6: hasAnyGeneratedFormat also checks the per-client workspace from the backend tree.
-  // This ensures the "Download" button is enabled when the currently-selected client has stored assets.
+  // INC-6: hasAnyGeneratedFormat also checks the persisted multi-client workspace.
   const hasAnyGeneratedFormat =
     generatedFormatKeys.length > 0 ||
     (selectedClientId ? hasStoredFormatsForClient(selectedClientId) : false) ||
     hasAnyStoredGeneratedFormat;
-  const packageCoversGeneratedFormats =
-    packageDownloadAvailable &&
-    generatedFormatKeys.every((format) => packageRequestedFormats.includes(format));
-  const packageActionRequiresBuild = hasAnyGeneratedFormat && !packageCoversGeneratedFormats;
+  const canDownloadPackage = hasAnyGeneratedFormat && packageDownloadAvailable;
 
   async function handlePackageAction() {
     if (isDownloadingPackage || isRequestingPackage || packageGenerationIsRunning) return;
-    if (!hasAnyGeneratedFormat) return;
-
-    if (packageActionRequiresBuild) {
-      if (packageGenerationClientMissing) {
-        setPackageJobError({ message: "Pick a client before building package.zip." });
-        return;
-      }
-      await startRequestedFormatsGeneration(generatedFormatKeys, null);
+    if (!canDownloadPackage) {
+      setPackageJobError({
+        message: "Package is not ready yet. Finish at least one successful generation first.",
+      });
       return;
     }
 
@@ -2886,7 +2884,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       isLoadingPackages
                     }
                     isJobFetching={packageJob.isLoading && isReattachingJob}
-                    packageActionRequiresBuild={packageActionRequiresBuild}
+                    canDownloadPackage={canDownloadPackage}
                     hasAnyGeneratedFormat={hasAnyGeneratedFormat}
                     clientFolderName={
                       packageJob.manifest?.client_folder_name ??
@@ -3052,7 +3050,7 @@ interface PackageTabContentProps {
   isLoading: boolean;
   /** True while re-attaching an existing job from history (suppresses "no content" empty state). */
   isJobFetching: boolean;
-  packageActionRequiresBuild: boolean;
+  canDownloadPackage: boolean;
   hasAnyGeneratedFormat: boolean;
   /**
    * Normalized client subfolder from the backend manifest (e.g. "acme-corp").
@@ -3079,7 +3077,7 @@ function PackageTabContent({
   manifest,
   isLoading,
   isJobFetching,
-  packageActionRequiresBuild,
+  canDownloadPackage,
   hasAnyGeneratedFormat,
   clientFolderName,
   clientPackages,
@@ -3260,24 +3258,24 @@ function PackageTabContent({
         size="sm"
         className="w-full h-9 text-xs"
         onClick={onDownload}
-        disabled={!hasAnyGeneratedFormat || isLoading}
+        disabled={!hasAnyGeneratedFormat || !canDownloadPackage || isLoading}
         title={
           !hasAnyGeneratedFormat
             ? "Generate at least one format first."
-            : packageActionRequiresBuild
-            ? "Build package.zip with all generated formats for this analysis."
+            : !canDownloadPackage
+            ? "Package is not ready yet."
             : "Download the generated package."
         }
       >
         {isLoading ? (
           <span className="flex items-center gap-2">
             <RefreshCw className="h-3 w-3 animate-spin" />
-            {packageActionRequiresBuild ? "Building…" : "Downloading…"}
+            Downloading…
           </span>
         ) : (
           <span className="flex items-center gap-2">
             <Package className="h-3 w-3" />
-            {packageActionRequiresBuild ? "Build package.zip" : "Download package.zip"}
+            Download package.zip
           </span>
         )}
       </Button>

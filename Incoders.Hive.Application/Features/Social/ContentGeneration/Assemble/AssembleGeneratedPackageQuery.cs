@@ -98,6 +98,13 @@ public sealed class AssembleGeneratedPackageQueryHandler
             query.AnalysisId,
             cancellationToken);
 
+        // 2b. Keep only the latest format-result version per (client, format) so assembled
+        // ZIPs never include stale assets from previous generations/regenerations.
+        var latestRows = SelectLatestRowsPerClientFormat(
+            allRows,
+            query.OrganizationId,
+            query.AnalysisId);
+
         // 3. Determine the effective client set from the selection.
         // A single entry with ClientId == Guid.Empty is the wildcard sentinel meaning "all clients".
         var isWildcard = query.Selection.Clients.Count == 1
@@ -126,35 +133,22 @@ public sealed class AssembleGeneratedPackageQueryHandler
         {
             var writtenEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var row in allRows)
+            foreach (var parsed in latestRows)
             {
-                // Derive the clientId and relative asset path from:
-                // {orgId}/{clientId}/{analysisId}/{relativePath}
-                if (!TryExtractAssetPath(
-                        row.StoragePath,
-                        query.OrganizationId,
-                        query.AnalysisId,
-                        out var clientId,
-                        out var relativeAssetPath))
-                {
-                    continue;
-                }
-
                 // Only include selected clients (null selectedClientIds = wildcard = include all)
-                if (selectedClientIds is not null && !selectedClientIds.Contains(clientId))
+                if (selectedClientIds is not null && !selectedClientIds.Contains(parsed.ClientId))
                     continue;
 
                 // Apply per-client format filter if provided
-                if (clientFormatFilter.TryGetValue(clientId, out var allowedFormats)
+                if (clientFormatFilter.TryGetValue(parsed.ClientId, out var allowedFormats)
                     && allowedFormats is not null)
                 {
-                    var formatKey = DeriveFormatKey(relativeAssetPath);
-                    if (!allowedFormats.Contains(formatKey))
+                    if (!allowedFormats.Contains(parsed.FormatKey))
                         continue;
                 }
 
                 // Open asset from storage — 404 → skip silently
-                var openResult = await _assetStorage.OpenAsync(row.StoragePath, cancellationToken);
+                var openResult = await _assetStorage.OpenAsync(parsed.Row.StoragePath, cancellationToken);
                 if (openResult.IsFailure)
                 {
                     // Missing asset: skip without aborting the whole ZIP
@@ -166,7 +160,7 @@ public sealed class AssembleGeneratedPackageQueryHandler
                 // ZIP entry path: {clientId}/{relativeFilename}
                 // The DB filename is intentionally a leaf for carousel slides; the storage path
                 // is authoritative for preserving subfolders such as carousel/slide_1.png.
-                var entryName = $"{clientId}/{relativeAssetPath}";
+                var entryName = $"{parsed.ClientId}/{parsed.RelativeAssetPath}";
                 if (!writtenEntries.Add(entryName))
                 {
                     continue;
@@ -237,4 +231,56 @@ public sealed class AssembleGeneratedPackageQueryHandler
         var dotIndex = firstSegment.LastIndexOf('.');
         return dotIndex > 0 ? firstSegment[..dotIndex] : firstSegment;
     }
+
+    private static IReadOnlyList<ParsedFormatAsset> SelectLatestRowsPerClientFormat(
+        IReadOnlyList<FormatAssetRow> allRows,
+        Guid organizationId,
+        Guid analysisId)
+    {
+        var parsedRows = allRows
+            .Select(row =>
+            {
+                var ok = TryExtractAssetPath(
+                    row.StoragePath,
+                    organizationId,
+                    analysisId,
+                    out var clientId,
+                    out var relativeAssetPath);
+
+                if (!ok)
+                {
+                    return null;
+                }
+
+                return new ParsedFormatAsset(
+                    ClientId: clientId,
+                    RelativeAssetPath: relativeAssetPath,
+                    FormatKey: DeriveFormatKey(relativeAssetPath),
+                    Row: row);
+            })
+            .Where(row => row is not null)
+            .Select(row => row!)
+            .ToList();
+
+        return parsedRows
+            .GroupBy(r => new { r.ClientId, r.FormatKey })
+            .SelectMany(group =>
+            {
+                var latestVersion = group
+                    .GroupBy(r => r.Row.FormatResultId)
+                    .OrderByDescending(version => version.Max(v => v.Row.JobCreatedAtUtc))
+                    .ThenByDescending(version => version.Max(v => v.Row.UpdatedAt))
+                    .ThenByDescending(version => version.Key)
+                    .First();
+
+                return latestVersion;
+            })
+            .ToList();
+    }
+
+    private sealed record ParsedFormatAsset(
+        Guid ClientId,
+        string RelativeAssetPath,
+        string FormatKey,
+        FormatAssetRow Row);
 }

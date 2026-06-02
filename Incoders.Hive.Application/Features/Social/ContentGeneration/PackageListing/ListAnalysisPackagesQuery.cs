@@ -52,10 +52,11 @@ public sealed record AssetPackageEntry(
 /// Algorithm:
 /// 1. Tenant-scope: verify the analysis belongs to <c>OrganizationId</c>.
 /// 2. Load all asset rows via <see cref="IContentGenerationFormatAssetRepository.ListByAnalysisClientAsync"/>.
-/// 3. Group rows by clientId (extracted from storage path segment 1), then by formatKey
-///    (derived from the filename: "carousel/slide_N.png" → "carousel"; "flyer.png" → "flyer").
-/// 4. Within each formatKey group, collect all <see cref="AssetPackageEntry"/> ordered by AssetIndex.
-/// 5. Return the tree as <see cref="AnalysisPackagesResponse"/>.
+/// 3. Parse each storage path as <c>{orgId}/{clientId}/{analysisId}/{relativePath}</c> and derive formatKey.
+/// 4. Keep only the latest format-result version per (clientId, formatKey) to avoid stale duplicates
+///    from previous jobs (for example duplicate carousel slides after regeneration).
+/// 5. Within each selected format, collect all <see cref="AssetPackageEntry"/> ordered by AssetIndex.
+/// 6. Return the tree as <see cref="AnalysisPackagesResponse"/>.
 /// </para>
 /// </summary>
 public sealed class ListAnalysisPackagesQueryHandler
@@ -97,45 +98,53 @@ public sealed class ListAnalysisPackagesQueryHandler
             query.AnalysisId,
             cancellationToken);
 
-        // 3. Group by clientId, then by formatKey
-        // Storage path layout: {orgId}/{clientId}/{analysisId}/[carousel/]<filename>
-        var clientGroups = new Dictionary<Guid, Dictionary<string, List<FormatAssetRow>>>();
-
-        foreach (var row in allRows)
-        {
-            if (!TryExtractClientId(row.StoragePath, query.OrganizationId, query.AnalysisId, out var clientId))
-                continue;
-
-            var formatKey = DeriveFormatKey(row.Filename);
-
-            if (!clientGroups.TryGetValue(clientId, out var formatMap))
+        // 3. Parse storage-path metadata and derive format keys.
+        var parsedRows = allRows
+            .Select(row =>
             {
-                formatMap = new Dictionary<string, List<FormatAssetRow>>(StringComparer.OrdinalIgnoreCase);
-                clientGroups[clientId] = formatMap;
-            }
+                var ok = TryExtractClientAndRelativePath(
+                    row.StoragePath,
+                    query.OrganizationId,
+                    query.AnalysisId,
+                    out var clientId,
+                    out var relativePath);
 
-            if (!formatMap.TryGetValue(formatKey, out var rowList))
-            {
-                rowList = [];
-                formatMap[formatKey] = rowList;
-            }
+                if (!ok)
+                {
+                    return null;
+                }
 
-            rowList.Add(row);
-        }
+                return new ParsedFormatAsset(
+                    ClientId: clientId,
+                    RelativePath: relativePath,
+                    FormatKey: DeriveFormatKey(relativePath),
+                    Row: row);
+            })
+            .Where(row => row is not null)
+            .Select(row => row!)
+            .ToList();
 
-        // 4. Build the response tree
-        var clientEntries = clientGroups
+        // 4. Keep only the latest version per (client, format).
+        var latestRows = SelectLatestRowsPerClientFormat(parsedRows);
+
+        // 5. Build the response tree
+        var clientEntries = latestRows
+            .GroupBy(r => r.ClientId)
             .Select(kvClient =>
             {
-                var formatEntries = kvClient.Value
+                var formatEntries = kvClient
+                    .GroupBy(r => r.FormatKey, StringComparer.OrdinalIgnoreCase)
                     .Select(kvFormat =>
                     {
-                        var orderedRows = kvFormat.Value.OrderBy(r => r.AssetIndex).ToList();
+                        var orderedRows = kvFormat
+                            .Select(r => r.Row)
+                            .OrderBy(r => r.AssetIndex)
+                            .ToList();
                         var firstRow = orderedRows[0];
 
                         // Representative filename for the format: for carousel → "carousel/"
                         // (the folder); for others → the single asset filename.
-                        var representativeFilename = kvFormat.Key == "carousel"
+                        var representativeFilename = string.Equals(kvFormat.Key, "carousel", StringComparison.OrdinalIgnoreCase)
                             ? "carousel/"
                             : firstRow.Filename;
 
@@ -167,17 +176,19 @@ public sealed class ListAnalysisPackagesQueryHandler
     // ─── Private helpers ──────────────────────────────────────────────────────
 
     /// <summary>
-    /// Extracts the clientId GUID from a storage path of the form
-    /// <c>{orgId}/{clientId}/{analysisId}/...</c>.
+    /// Extracts the clientId GUID and relative path from
+    /// <c>{orgId}/{clientId}/{analysisId}/{relativePath}</c>.
     /// Returns false if the path doesn't conform to the expected layout.
     /// </summary>
-    private static bool TryExtractClientId(
+    private static bool TryExtractClientAndRelativePath(
         string storagePath,
         Guid organizationId,
         Guid analysisId,
-        out Guid clientId)
+        out Guid clientId,
+        out string relativePath)
     {
         clientId = Guid.Empty;
+        relativePath = string.Empty;
 
         var segments = storagePath.Split('/');
         if (segments.Length < 4)
@@ -192,36 +203,57 @@ public sealed class ListAnalysisPackagesQueryHandler
         if (!Guid.TryParse(segments[2], out var pathAnalysisId) || pathAnalysisId != analysisId)
             return false;
 
+        relativePath = string.Join("/", segments.Skip(3)).Trim('/');
+        if (string.IsNullOrWhiteSpace(relativePath))
+            return false;
+
         clientId = pathClientId;
         return true;
     }
 
     /// <summary>
-    /// Derives a format key from a row's <c>Filename</c>.
-    /// Carousel slides have filename like <c>slide_1.png</c> but live under a
-    /// <c>carousel/</c> directory, which is reflected in their StoragePath.
-    /// We detect carousel by checking if the storage path segment after analysisId is "carousel".
-    /// For all other formats the filename stem IS the format key (e.g. <c>flyer.png</c> → <c>flyer</c>).
+    /// Derives a format key from a relative asset path.
+    /// Examples:
+    /// <list type="bullet">
+    ///   <item><c>carousel/slide_1.png</c> → <c>carousel</c></item>
+    ///   <item><c>flyer.png</c> → <c>flyer</c></item>
+    ///   <item><c>reel-script.txt</c> → <c>reel-script</c></item>
+    /// </list>
     /// </summary>
-    private static string DeriveFormatKey(string filename)
+    private static string DeriveFormatKey(string relativePath)
     {
-        // filename for carousel slides is "slide_N.png" (the Filename field stores only the leaf name).
-        // We rely on the FormatResultId grouping + AssetIndex, but we need to distinguish
-        // carousel by the fact that rows share a FormatResultId. However, at this grouping stage
-        // we don't have that context — we derive from the storage path indirectly.
-        //
-        // Simpler: the Filename stored in the DB for non-carousel assets is the full relative filename
-        // set by the pipeline (e.g. "flyer.png", "reel-script.txt"), while carousel slide rows
-        // have Filename = "slide_N.png". We detect carousel by the naming pattern.
-        if (System.Text.RegularExpressions.Regex.IsMatch(filename, @"^slide_\d+\.png$",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        var firstSegment = relativePath.Split('/')[0];
+        if (string.Equals(firstSegment, "carousel", StringComparison.OrdinalIgnoreCase))
         {
             return "carousel";
         }
 
-        // For all others: strip extension from the leaf filename to get the format key.
-        // E.g. "flyer.png" → "flyer", "reel-script.txt" → "reel-script"
-        var dotIndex = filename.LastIndexOf('.');
-        return dotIndex > 0 ? filename[..dotIndex] : filename;
+        var dotIndex = firstSegment.LastIndexOf('.');
+        return dotIndex > 0 ? firstSegment[..dotIndex] : firstSegment;
     }
+
+    private static IReadOnlyList<ParsedFormatAsset> SelectLatestRowsPerClientFormat(
+        IReadOnlyList<ParsedFormatAsset> parsedRows)
+    {
+        return parsedRows
+            .GroupBy(r => new { r.ClientId, r.FormatKey })
+            .SelectMany(group =>
+            {
+                var latestVersion = group
+                    .GroupBy(r => r.Row.FormatResultId)
+                    .OrderByDescending(version => version.Max(v => v.Row.JobCreatedAtUtc))
+                    .ThenByDescending(version => version.Max(v => v.Row.UpdatedAt))
+                    .ThenByDescending(version => version.Key)
+                    .First();
+
+                return latestVersion;
+            })
+            .ToList();
+    }
+
+    private sealed record ParsedFormatAsset(
+        Guid ClientId,
+        string RelativePath,
+        string FormatKey,
+        FormatAssetRow Row);
 }

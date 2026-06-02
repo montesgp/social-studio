@@ -51,12 +51,26 @@ public sealed class EfContentGenerationFormatAssetRepository : IContentGeneratio
 
     public async Task<IReadOnlyList<FormatAssetRow>> ListByJobAsync(Guid jobId, CancellationToken ct)
     {
-        var entities = await _db.ContentGenerationFormatAssets
+        var rows = await _db.ContentGenerationFormatAssets
             .AsNoTracking()
             .Where(x => x.FormatResult != null && x.FormatResult.JobId == jobId)
+            .Select(x => new FormatAssetRow(
+                Id: x.Id,
+                FormatResultId: x.FormatResultId,
+                AssetIndex: x.AssetIndex,
+                StoragePath: x.StoragePath,
+                Filename: x.Filename,
+                MimeType: x.MimeType,
+                SizeBytes: x.SizeBytes,
+                ContentHash: x.ContentHash,
+                CreatedAt: x.CreatedAt,
+                UpdatedAt: x.UpdatedAt,
+                JobCreatedAtUtc: x.FormatResult != null && x.FormatResult.Job != null
+                    ? x.FormatResult.Job.CreatedAt
+                    : x.CreatedAt))
             .ToListAsync(ct);
 
-        return entities.Select(Map).ToList();
+        return rows;
     }
 
     public async Task<IReadOnlyList<FormatAssetRow>> ListByAnalysisClientAsync(
@@ -64,15 +78,29 @@ public sealed class EfContentGenerationFormatAssetRepository : IContentGeneratio
         Guid analysisId,
         CancellationToken ct)
     {
-        var entities = await _db.ContentGenerationFormatAssets
+        var rows = await _db.ContentGenerationFormatAssets
             .AsNoTracking()
             .Where(x => x.FormatResult != null
                 && x.FormatResult.Job != null
                 && x.FormatResult.Job.OrganizationId == organizationId
                 && x.FormatResult.Job.AnalysisId == analysisId)
+            .Select(x => new FormatAssetRow(
+                Id: x.Id,
+                FormatResultId: x.FormatResultId,
+                AssetIndex: x.AssetIndex,
+                StoragePath: x.StoragePath,
+                Filename: x.Filename,
+                MimeType: x.MimeType,
+                SizeBytes: x.SizeBytes,
+                ContentHash: x.ContentHash,
+                CreatedAt: x.CreatedAt,
+                UpdatedAt: x.UpdatedAt,
+                JobCreatedAtUtc: x.FormatResult != null && x.FormatResult.Job != null
+                    ? x.FormatResult.Job.CreatedAt
+                    : x.CreatedAt))
             .ToListAsync(ct);
 
-        return entities.Select(Map).ToList();
+        return rows;
     }
 
     public async Task DeleteByFormatResultIdAsync(Guid formatResultId, CancellationToken ct)
@@ -112,5 +140,6 @@ public sealed class EfContentGenerationFormatAssetRepository : IContentGeneratio
         SizeBytes: e.SizeBytes,
         ContentHash: e.ContentHash,
         CreatedAt: e.CreatedAt,
-        UpdatedAt: e.UpdatedAt);
+        UpdatedAt: e.UpdatedAt,
+        JobCreatedAtUtc: e.FormatResult?.Job?.CreatedAt ?? e.CreatedAt);
 }

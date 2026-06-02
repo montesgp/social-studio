@@ -22,7 +22,13 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
     private static readonly Guid ResultId3 = Guid.Parse("11111111-2222-3333-4444-555555555555");
 
     private static FormatAssetRow MakeRow(
-        Guid formatResultId, int index, string storagePath, string filename, string mime = "image/png") =>
+        Guid formatResultId,
+        int index,
+        string storagePath,
+        string filename,
+        string mime = "image/png",
+        DateTime? updatedAtUtc = null,
+        DateTime? jobCreatedAtUtc = null) =>
         new(
             Id: Guid.NewGuid(),
             FormatResultId: formatResultId,
@@ -33,7 +39,8 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
             SizeBytes: 100,
             ContentHash: "abc123",
             CreatedAt: DateTime.UtcNow,
-            UpdatedAt: DateTime.UtcNow);
+            UpdatedAt: updatedAtUtc ?? DateTime.UtcNow,
+            JobCreatedAtUtc: jobCreatedAtUtc ?? DateTime.UtcNow);
 
     private static ListAnalysisPackagesQueryHandler BuildHandler(
         IReadOnlyList<FormatAssetRow> rows,
@@ -131,6 +138,44 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
         Assert.Equal("slide_1.png", format.Assets[0].Filename);
         Assert.Equal(2, format.Assets[1].Index);
         Assert.Equal(3, format.Assets[2].Index);
+    }
+
+    // ─── T6.1.3b — Multiple format versions keep only the latest result ───────
+
+    [Fact]
+    public async Task Handle_MultipleCarouselVersions_ReturnsOnlyLatestSlides()
+    {
+        var oldResultId = Guid.Parse("99999999-9999-9999-9999-999999999999");
+        var newResultId = Guid.Parse("88888888-8888-8888-8888-888888888888");
+        var oldJobCreatedAt = DateTime.UtcNow.AddMinutes(-15);
+        var newJobCreatedAt = DateTime.UtcNow.AddMinutes(-5);
+
+        var rows = new List<FormatAssetRow>
+        {
+            // Older carousel had 5 slides.
+            MakeRow(oldResultId, 1, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png", "slide_1.png", jobCreatedAtUtc: oldJobCreatedAt),
+            MakeRow(oldResultId, 2, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png", "slide_2.png", jobCreatedAtUtc: oldJobCreatedAt),
+            MakeRow(oldResultId, 3, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_3.png", "slide_3.png", jobCreatedAtUtc: oldJobCreatedAt),
+            MakeRow(oldResultId, 4, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_4.png", "slide_4.png", jobCreatedAtUtc: oldJobCreatedAt),
+            MakeRow(oldResultId, 5, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_5.png", "slide_5.png", jobCreatedAtUtc: oldJobCreatedAt),
+
+            // Latest carousel replaced it with 3 slides.
+            MakeRow(newResultId, 1, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png", "slide_1.png", jobCreatedAtUtc: newJobCreatedAt),
+            MakeRow(newResultId, 2, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png", "slide_2.png", jobCreatedAtUtc: newJobCreatedAt),
+            MakeRow(newResultId, 3, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_3.png", "slide_3.png", jobCreatedAtUtc: newJobCreatedAt),
+        };
+
+        var handler = BuildHandler(rows, OrgId, AnalysisId);
+        var result = await handler.Handle(
+            new ListAnalysisPackagesQuery(AnalysisId, OrgId),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var client = Assert.Single(result.Value.Clients);
+        var carousel = Assert.Single(client.Formats, f => f.FormatKey == "carousel");
+        Assert.Equal(3, carousel.Assets.Count);
+        Assert.Equal([1, 2, 3], carousel.Assets.Select(a => a.Index).ToArray());
+        Assert.DoesNotContain(carousel.Assets, asset => asset.Filename == "slide_4.png" || asset.Filename == "slide_5.png");
     }
 
     // ─── T6.1.4 — Cross-org access → NotFound (tenant isolation) ─────────────

@@ -48,4 +48,5 @@ public sealed record FormatAssetRow(
     long SizeBytes,
     string ContentHash,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    DateTime JobCreatedAtUtc = default);

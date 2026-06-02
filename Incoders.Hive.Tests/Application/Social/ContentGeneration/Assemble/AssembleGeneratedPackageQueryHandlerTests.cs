@@ -21,7 +21,13 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
     private static readonly Guid ClientId2 = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
     private static FormatAssetRow MakeRow(
-        Guid formatResultId, int index, string storagePath, string filename, string mime = "image/png") =>
+        Guid formatResultId,
+        int index,
+        string storagePath,
+        string filename,
+        string mime = "image/png",
+        DateTime? updatedAtUtc = null,
+        DateTime? jobCreatedAtUtc = null) =>
         new(
             Id: Guid.NewGuid(),
             FormatResultId: formatResultId,
@@ -32,7 +38,8 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
             SizeBytes: 100,
             ContentHash: "abc123",
             CreatedAt: DateTime.UtcNow,
-            UpdatedAt: DateTime.UtcNow);
+            UpdatedAt: updatedAtUtc ?? DateTime.UtcNow,
+            JobCreatedAtUtc: jobCreatedAtUtc ?? DateTime.UtcNow);
 
     private static AssembleGeneratedPackageQueryHandler BuildHandler(
         Dictionary<string, byte[]> storageFiles,
@@ -174,6 +181,62 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         Assert.Contains($"{ClientId1}/carousel/slide_1.png", entries);
         Assert.Contains($"{ClientId1}/carousel/slide_2.png", entries);
         Assert.DoesNotContain($"{ClientId1}/slide_1.png", entries);
+    }
+
+    // ─── T4.1.4b — Older carousel rows are excluded from assembled ZIP ────────
+
+    [Fact]
+    public async Task Handle_MultipleCarouselVersions_UsesLatestVersionOnly()
+    {
+        var oldResultId = Guid.Parse("99999999-9999-9999-9999-999999999999");
+        var newResultId = Guid.Parse("88888888-8888-8888-8888-888888888888");
+        var oldJobCreatedAt = DateTime.UtcNow.AddMinutes(-20);
+        var newJobCreatedAt = DateTime.UtcNow.AddMinutes(-2);
+
+        var rows = new List<FormatAssetRow>
+        {
+            // Older render had five slides.
+            MakeRow(oldResultId, 1, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png", "slide_1.png", jobCreatedAtUtc: oldJobCreatedAt),
+            MakeRow(oldResultId, 2, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png", "slide_2.png", jobCreatedAtUtc: oldJobCreatedAt),
+            MakeRow(oldResultId, 3, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_3.png", "slide_3.png", jobCreatedAtUtc: oldJobCreatedAt),
+            MakeRow(oldResultId, 4, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_4.png", "slide_4.png", jobCreatedAtUtc: oldJobCreatedAt),
+            MakeRow(oldResultId, 5, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_5.png", "slide_5.png", jobCreatedAtUtc: oldJobCreatedAt),
+
+            // Latest render replaced it with three slides.
+            MakeRow(newResultId, 1, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png", "slide_1.png", jobCreatedAtUtc: newJobCreatedAt),
+            MakeRow(newResultId, 2, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png", "slide_2.png", jobCreatedAtUtc: newJobCreatedAt),
+            MakeRow(newResultId, 3, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_3.png", "slide_3.png", jobCreatedAtUtc: newJobCreatedAt),
+        };
+
+        var files = new Dictionary<string, byte[]>
+        {
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png"] = "new-slide-1"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png"] = "new-slide-2"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_3.png"] = "new-slide-3"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_4.png"] = "stale-slide-4"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_5.png"] = "stale-slide-5"u8.ToArray(),
+        };
+
+        var handler = BuildHandler(files, rows, OrgId, AnalysisId);
+        var selection = new AssembleSelection([new ClientSelection(ClientId1, null)]);
+        var result = await handler.Handle(
+            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read);
+        var entries = zip.Entries.Select(e => e.FullName).OrderBy(e => e).ToList();
+
+        Assert.Equal(3, entries.Count);
+        Assert.Equal(
+            [
+                $"{ClientId1}/carousel/slide_1.png",
+                $"{ClientId1}/carousel/slide_2.png",
+                $"{ClientId1}/carousel/slide_3.png",
+            ],
+            entries);
+        Assert.DoesNotContain($"{ClientId1}/carousel/slide_4.png", entries);
+        Assert.DoesNotContain($"{ClientId1}/carousel/slide_5.png", entries);
     }
 
     // ─── T4.1.5 — Empty storage → valid empty ZIP ────────────────────────────
