@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Incoders.Hive.ApiService.BackgroundServices;
+using Incoders.Hive.Infrastructure.Social.Workflow;
 using Incoders.Hive.ApiService.Endpoints.Admin;
 using Incoders.Hive.ApiService.Endpoints.Auth;
 using Incoders.Hive.ApiService.Endpoints.Common;
@@ -72,6 +73,9 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 // Consumes queued single-analysis jobs off the request thread (async/poll pipeline).
 builder.Services.AddHostedService<SingleAnalysisBackgroundWorker>();
+
+// Consumes queued profile-analysis jobs (async scrape + AI pipeline — Mundo 2).
+builder.Services.AddHostedService<ProfileAnalysisBackgroundWorker>();
 
 // Consumes queued content-generation jobs (async multi-step orchestration pipeline).
 builder.Services.AddHostedService<ContentGenerationBackgroundWorker>();
