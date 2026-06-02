@@ -213,6 +213,22 @@ internal sealed class ApifySocialContentExtractor : ISocialContentExtractor
             var candidates = mappings
                 .Where(x => !string.IsNullOrWhiteSpace(x.ActorId) && Matches(x.NetworkKey, platformKey))
                 .ToList();
+
+            // YouTube guard: the channel-based "*youtube-shorts-scraper" cannot resolve an individual
+            // video by URL (it requires a "channels" input), so a single Shorts/video URL must always
+            // route to the generic youtube-scraper. Drop shorts-scraper candidates unless they are the
+            // only ones configured. The generic actor handles both Shorts and regular videos by URL.
+            if (Matches(platformKey, "youtube"))
+            {
+                var generic = candidates
+                    .Where(x => !x.ActorId.Contains("shorts", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (generic.Count > 0)
+                {
+                    candidates = generic;
+                }
+            }
+
             var match = candidates.FirstOrDefault(x => Matches(x.VariantKey, capabilityKey))
                 ?? candidates.FirstOrDefault(x => Matches(x.VariantKey, "default"))
                 ?? candidates.FirstOrDefault();

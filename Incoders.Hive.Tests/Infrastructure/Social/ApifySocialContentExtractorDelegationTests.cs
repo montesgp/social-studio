@@ -73,6 +73,46 @@ public sealed class ApifySocialContentExtractorDelegationTests
         Assert.True(defaultSpy.BuildActorInputCalled, "Default adapter BuildActorInput should have been called");
     }
 
+    // ─── YouTube guard: never route a single URL to the channel shorts-scraper ──
+
+    [Fact]
+    public async Task ExtractAsync_RoutesYouTubeToGenericActor_WhenShortsScraperConfiguredFirst()
+    {
+        // Both actors configured (shorts-scraper listed FIRST), both with the default variant —
+        // exactly how the integrations UI persists them. A single Shorts/video URL must still hit
+        // the generic youtube-scraper, because youtube-shorts-scraper only accepts a "channels" input.
+        var credential = new ResolvedProviderCredential(
+            Guid.NewGuid(),
+            "apify",
+            IntegrationConnectionMode.BringYourOwnKey,
+            new Dictionary<string, string>
+            {
+                ["api_key"] = "test-token",
+                ["actor_mappings_json"] =
+                    "[{\"networkKey\":\"youtube\",\"variantKey\":\"default\",\"actorId\":\"streamers/youtube-shorts-scraper\"}," +
+                    "{\"networkKey\":\"youtube\",\"variantKey\":\"default\",\"actorId\":\"streamers/youtube-scraper\"}]"
+            },
+            SelectedModel: null);
+
+        var handler = new RecordingHandler("""[{"title":"a short","type":"shorts","url":"https://www.youtube.com/shorts/abc"}]""");
+        var extractor = new ApifySocialContentExtractor(
+            credential,
+            new StaticHttpClientFactory(handler),
+            [new YouTubeApifyScrapeAdapter(), new DefaultApifyScrapeAdapter()]);
+
+        var result = await extractor.ExtractAsync(
+            new SocialContentRequest(Guid.NewGuid(), "https://www.youtube.com/shorts/abc",
+                "https://www.youtube.com/shorts/abc", "youtube", "social-extraction"),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(handler.LastRequestUri);
+        // The actor id travels in the request path (URL-encoded). The generic actor must be targeted,
+        // never the channel-based shorts-scraper.
+        Assert.Contains("youtube-scraper", handler.LastRequestUri, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("youtube-shorts-scraper", handler.LastRequestUri, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ─── No actor ID → ProviderCredentialUnavailable ────────────────────────
 
     [Fact]
@@ -144,6 +184,7 @@ public sealed class ApifySocialContentExtractorDelegationTests
     {
         private readonly string _response;
         public string? LastRequestBody { get; private set; }
+        public string? LastRequestUri { get; private set; }
 
         public RecordingHandler(string response) => _response = response;
 
@@ -151,6 +192,8 @@ public sealed class ApifySocialContentExtractorDelegationTests
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            LastRequestUri = request.RequestUri?.ToString();
+
             if (request.Content is not null)
             {
                 LastRequestBody = await request.Content.ReadAsStringAsync(cancellationToken);

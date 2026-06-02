@@ -50,6 +50,7 @@ Returns `SingleContentAnalysisResponse` (200 OK) with:
 Content extraction uses per-platform Apify adapters. Supported platforms:
 - `tiktok` — actor `GdWCkxBtKWOsKjdch`, input shape `{ postURLs, resultsPerPage, shouldDownload*: false }`
 - `instagram` — actor `shu8hvrXbJbY3Eb9W`, input shape `{ resultsType: "posts", directUrls, resultsLimit: 1, addParentData: false }`
+- `youtube` — generic actor `streamers/youtube-scraper`, input shape `{ startUrls: [{ url }], maxResults: 1, maxResultsShorts: 1, downloadSubtitles: false }`. The same actor resolves both regular videos (`type: "video"`) and Shorts (`type: "shorts"`) from a direct video URL. The channel-based `streamers/youtube-shorts-scraper` is NOT used for single-content analysis: it requires a `channels` input and cannot resolve an individual video by URL. When both YouTube actors are configured, the extractor always routes a single URL to the generic (non-shorts) actor.
 - Adding a new platform requires only a new adapter class and an `actor_mappings_json` entry.
 
 ### AI Provider Selection (per-org)

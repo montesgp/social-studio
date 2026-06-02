@@ -140,6 +140,7 @@ public static class DependencyInjection
         // Per-platform Apify scrape adapters (ISocialPlatformScrapeAdapter)
         services.AddScoped<ISocialPlatformScrapeAdapter, TikTokApifyScrapeAdapter>();
         services.AddScoped<ISocialPlatformScrapeAdapter, InstagramApifyScrapeAdapter>();
+        services.AddScoped<ISocialPlatformScrapeAdapter, YouTubeApifyScrapeAdapter>();
         services.AddScoped<ISocialPlatformScrapeAdapter, DefaultApifyScrapeAdapter>();
 
         // AI provider selection — thin adapter over IIntegrationResolver.ResolveDefaultAiProviderAsync
