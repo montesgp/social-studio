@@ -1,0 +1,298 @@
+using Incoders.Hive.Application.Abstractions;
+using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
+using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Integrations;
+using Incoders.Hive.Domain.Social.ProfileAnalysis;
+using Incoders.Hive.Tests.Common;
+using DomainProfileAnalysis = Incoders.Hive.Domain.Social.ProfileAnalysis.ProfileAnalysis;
+
+namespace Incoders.Hive.Tests.Application.Social.ProfileAnalyzer;
+
+/// <summary>
+/// Unit tests for ProfileAnalyzer orchestrator (IProfileAnalyzer.RunQueuedAsync).
+/// Tests cover: scrape → stats → AI → persist (PA-05, PA-08, PA-10, PA-23).
+/// </summary>
+public sealed class ProfileAnalyzerOrchestratorTests
+{
+    private static readonly DateTime Now = new(2026, 6, 2, 10, 0, 0, DateTimeKind.Utc);
+
+    // ── Happy path: full pipeline ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task RunQueuedAsync_HappyPath_TransitionsFromRequestedToAnalyzed()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        var analysis = CreateFromUrl(orgId);
+        harness.Repository.Store(analysis);
+        harness.ScrapeResolver.SetSuccess(MakeScrapeResult(isPartial: false));
+        harness.AiGateway.SetPayload(MakeAiResult());
+
+        await harness.Orchestrator.RunQueuedAsync(analysis.Id, orgId, CancellationToken.None);
+
+        var stored = harness.Repository.Stored!;
+        Assert.Equal(ProfileAnalysisStatus.Analyzed, stored.Status);
+        Assert.NotNull(stored.AiAnalysisJson);
+        Assert.NotNull(stored.ServerDerivedStatsJson);
+        Assert.NotNull(stored.RawPostsDatasetJson);
+    }
+
+    // ── ProfileScrapedPartial path: partial data still proceeds to AI ─────────
+
+    [Fact]
+    public async Task RunQueuedAsync_PartialScrape_ProceedsToAiStage()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        var analysis = CreateFromUrl(orgId);
+        harness.Repository.Store(analysis);
+        harness.ScrapeResolver.SetSuccess(MakeScrapeResult(isPartial: true));
+        harness.AiGateway.SetPayload(MakeAiResult());
+
+        await harness.Orchestrator.RunQueuedAsync(analysis.Id, orgId, CancellationToken.None);
+
+        var stored = harness.Repository.Stored!;
+        Assert.Equal(ProfileAnalysisStatus.Analyzed, stored.Status);
+    }
+
+    // ── Scrape failure diagnostic recorded ───────────────────────────────────
+
+    [Fact]
+    public async Task RunQueuedAsync_ScrapeFailure_MarksFailedWithDiagnostics()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        var analysis = CreateFromUrl(orgId);
+        harness.Repository.Store(analysis);
+        harness.ScrapeResolver.SetFailure(
+            new Error("integration.apify_not_configured", "Apify not configured", ErrorType.Failure));
+
+        await harness.Orchestrator.RunQueuedAsync(analysis.Id, orgId, CancellationToken.None);
+
+        var stored = harness.Repository.Stored!;
+        Assert.Equal(ProfileAnalysisStatus.Failed, stored.Status);
+        Assert.Equal("integration.apify_not_configured", stored.FailureCode);
+    }
+
+    // ── PA-10: AI provider not configured → Failed + diagnostic ──────────────
+
+    [Fact]
+    public async Task RunQueuedAsync_AiProviderNotConfigured_MarksFailedWithNoProviderDiagnostic()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        harness.DefaultAiSelector.SetFailure(IntegrationErrors.DefaultAiProviderNotConnected);
+        var analysis = CreateFromUrl(orgId);
+        harness.Repository.Store(analysis);
+        harness.ScrapeResolver.SetSuccess(MakeScrapeResult(isPartial: false));
+
+        await harness.Orchestrator.RunQueuedAsync(analysis.Id, orgId, CancellationToken.None);
+
+        var stored = harness.Repository.Stored!;
+        Assert.Equal(ProfileAnalysisStatus.Failed, stored.Status);
+        Assert.Equal(IntegrationErrors.DefaultAiProviderNotConnected.Code, stored.FailureCode);
+    }
+
+    // ── PA-10: Correct flow key used — "profile-analyzer", not "single-analyzer" ─
+
+    [Fact]
+    public async Task RunQueuedAsync_UsesProfileAnalyzerFlowKeyNotSingleAnalyzerKey()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        var analysis = CreateFromUrl(orgId);
+        harness.Repository.Store(analysis);
+        harness.ScrapeResolver.SetSuccess(MakeScrapeResult(isPartial: false));
+        harness.AiGateway.SetPayload(MakeAiResult());
+
+        await harness.Orchestrator.RunQueuedAsync(analysis.Id, orgId, CancellationToken.None);
+
+        Assert.NotNull(harness.AiGateway.LastRequest);
+        Assert.Equal("profile-analyzer.analysis.v1", harness.AiGateway.LastRequest!.PromptVersionKey);
+        Assert.NotEqual("single-analyzer.analysis.v1", harness.AiGateway.LastRequest.PromptVersionKey);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static DomainProfileAnalysis CreateFromUrl(Guid orgId) =>
+        DomainProfileAnalysis.CreateFromUrl(orgId, "https://instagram.com/testbrand", DateTime.UtcNow);
+
+    private static ProfileScrapeResult MakeScrapeResult(bool isPartial) =>
+        new(
+            Profile: new ProfileSnapshot(
+                InstagramId: "12345",
+                Username: "testbrand",
+                FollowersCount: 10_000,
+                PostsCount: 50,
+                ReelsCount: 5,
+                EngagementRate: 3.5,
+                MedianDaysBetweenPosts: 3.0,
+                ProfilePicUrl: null,
+                Biography: null,
+                IsVerified: false,
+                IsBusinessAccount: true,
+                BusinessCategoryName: null),
+            OwnerPosts:
+            [
+                new ProfilePost("p1", "Image", 100, 10, null,
+                    new DateTimeOffset(2026, 5, 1, 12, 0, 0, TimeSpan.Zero),
+                    "12345", "testbrand", false, false, []),
+                new ProfilePost("p2", "Video", 200, 20, 5000,
+                    new DateTimeOffset(2026, 5, 4, 12, 0, 0, TimeSpan.Zero),
+                    "12345", "testbrand", false, false, []),
+            ],
+            Reels: [],
+            ProviderAggregates: new ProfileAggregates(50, 10_000, 200, 2, 2, 0),
+            IsPartial: isPartial,
+            Diagnostics: []);
+
+    private static ProfileAnalysisResult MakeAiResult() =>
+        new(
+            Summary: "Great brand presence",
+            AudienceProfile: "Young professionals",
+            ContentPillars: ["Education", "Inspiration"],
+            TopContentTypes: ["Reels"],
+            PostingDays: ["Mon", "Wed"],
+            DetectedBrandColors: [new ProfileAnalysisColorResult("Blue", "#0057FF")],
+            DetectedFonts: ["Inter"],
+            DetectedBackgroundImages: [],
+            VoiceTone: "Authoritative",
+            RecommendedKpis: ["Engagement Rate"],
+            MonthlyObjectiveSuggestion: "Grow followers by 10%",
+            ContentStrategySuggestion: "Post more reels",
+            Strengths: ["Consistent posting"],
+            Weaknesses: ["Low video views"],
+            Opportunities: ["More hashtags"],
+            Confidence: 0.85,
+            Warnings: []);
+
+    // ── Harness ───────────────────────────────────────────────────────────────
+
+    private sealed class OrchestratorHarness
+    {
+        public OrchestratorHarness(DateTime nowUtc)
+        {
+            Clock = new TestClock(nowUtc);
+            Repository = new FakeProfileAnalysisRepository();
+            UnitOfWork = new TestUnitOfWork();
+            ScrapeResolver = new FakeScrapeResolver();
+            DefaultAiSelector = new FakeDefaultAiSelector();
+            AiGateway = new FakeAiGateway();
+            Calculator = new ProfileMetricCalculator();
+
+            Orchestrator = new ProfileAnalyzerOrchestrator(
+                Repository,
+                UnitOfWork,
+                Clock,
+                ScrapeResolver,
+                Calculator,
+                AiGateway,
+                DefaultAiSelector);
+        }
+
+        public TestClock Clock { get; }
+        public FakeProfileAnalysisRepository Repository { get; }
+        public TestUnitOfWork UnitOfWork { get; }
+        public FakeScrapeResolver ScrapeResolver { get; }
+        public FakeDefaultAiSelector DefaultAiSelector { get; }
+        public FakeAiGateway AiGateway { get; }
+        public ProfileMetricCalculator Calculator { get; }
+        public ProfileAnalyzerOrchestrator Orchestrator { get; }
+    }
+
+    private sealed class FakeProfileAnalysisRepository : IProfileAnalysisRepository
+    {
+        public DomainProfileAnalysis? Stored { get; private set; }
+
+        public void Store(DomainProfileAnalysis analysis) => Stored = analysis;
+
+        public Task AddAsync(DomainProfileAnalysis analysis, CancellationToken cancellationToken = default)
+        {
+            Stored = analysis;
+            return Task.CompletedTask;
+        }
+
+        public Task<DomainProfileAnalysis?> GetByIdAsync(
+            Guid analysisId, Guid organizationId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Stored?.Id == analysisId && Stored.OrganizationId == organizationId
+                ? Stored : null);
+
+        public Task<ProfileAnalysisHistoryPage> GetByOrganizationAsync(
+            Guid organizationId, int page, int pageSize, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ProfileAnalysisHistoryPage([], 0, page, pageSize));
+
+        public Task UpdateAsync(DomainProfileAnalysis analysis, CancellationToken cancellationToken = default)
+        {
+            Stored = analysis;
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> DeleteAsync(
+            Guid analysisId, Guid organizationId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+    }
+
+    private sealed class FakeScrapeResolver : IProfileScrapeResolver
+    {
+        private Result<ProfileScrapeResult> _result =
+            Result.Failure<ProfileScrapeResult>(
+                new Error("test.not_set", "Not configured", ErrorType.Failure));
+
+        public void SetSuccess(ProfileScrapeResult scrapeResult) =>
+            _result = Result.Success(scrapeResult);
+
+        public void SetFailure(Error error) =>
+            _result = Result.Failure<ProfileScrapeResult>(error);
+
+        public Task<Result<ProfileScrapeResult>> ResolveAsync(
+            ProfileScrapeRequest request, CancellationToken ct = default) =>
+            Task.FromResult(_result);
+    }
+
+    private sealed class FakeDefaultAiSelector : IDefaultAiSelector
+    {
+        private Result<DefaultAiSelection> _result =
+            Result.Success(new DefaultAiSelection("openai", "gpt-test"));
+
+        public void SetFailure(Error error) =>
+            _result = Result.Failure<DefaultAiSelection>(error);
+
+        public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
+            Task.FromResult(_result);
+    }
+
+    private sealed class FakeAiGateway : IAiCompletionGateway
+    {
+        private ProfileAnalysisResult? _payload;
+        private Error? _errorOverride;
+
+        public AiJsonCompletionRequest? LastRequest { get; private set; }
+
+        public void SetPayload(ProfileAnalysisResult payload) => _payload = payload;
+        public void SetError(Error error) => _errorOverride = error;
+
+        public Task<Result<AiJsonCompletionResponse<TResponse>>> CompleteJsonAsync<TResponse>(
+            AiJsonCompletionRequest request,
+            CancellationToken cancellationToken = default)
+            where TResponse : notnull
+        {
+            LastRequest = request;
+
+            if (_errorOverride is not null)
+                return Task.FromResult(Result.Failure<AiJsonCompletionResponse<TResponse>>(_errorOverride));
+
+            var payload = (TResponse)(object)_payload!;
+            return Task.FromResult(Result.Success(new AiJsonCompletionResponse<TResponse>(
+                payload, "openai", "gpt-test", [])));
+        }
+    }
+
+    private sealed class TestUnitOfWork : IUnitOfWork
+    {
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
+    }
+}

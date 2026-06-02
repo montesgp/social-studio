@@ -34,4 +34,12 @@ public static class ProfileAnalysisErrors
     public static readonly Error ClientRequired = Error.Validation(
         "social.profile_analysis.client_required",
         "social.profile_analysis.errors.client_required");
+
+    public static readonly Error ProfileSourceMutuallyExclusive = Error.Validation(
+        "social.profile_analysis.profile_source_mutually_exclusive",
+        "social.profile_analysis.errors.profile_source_mutually_exclusive");
+
+    public static readonly Error OwnAccountNotFound = Error.Validation(
+        "social.profile_analysis.own_account_not_found",
+        "social.profile_analysis.errors.own_account_not_found");
 }

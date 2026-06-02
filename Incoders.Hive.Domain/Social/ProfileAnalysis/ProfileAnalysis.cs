@@ -192,6 +192,38 @@ public sealed class ProfileAnalysis
         CompletedAtUtc = failedAtUtc;
     }
 
+    // ── Data-setter methods (called by Application orchestrator after JSON serialisation) ──
+
+    /// <summary>
+    /// Stores the serialised raw posts dataset and server-derived stats JSON.
+    /// Called by the orchestrator after the scrape + metric computation stages.
+    /// The JSON serialisation stays in the Application layer — Domain stays clean.
+    /// </summary>
+    public void SetRawData(string rawPostsJson, string statsJson, string diagnosticsJson)
+    {
+        RawPostsDatasetJson = rawPostsJson;
+        ServerDerivedStatsJson = statsJson;
+        ProviderDiagnosticsJson = diagnosticsJson;
+    }
+
+    /// <summary>
+    /// Stores the serialised AI analysis JSON after the AI stage completes.
+    /// Called by the orchestrator after CompleteAnalysis transitions the status to Analyzed.
+    /// </summary>
+    public void SetAiAnalysis(string aiAnalysisJson, string diagnosticsJson)
+    {
+        AiAnalysisJson = aiAnalysisJson;
+        ProviderDiagnosticsJson = diagnosticsJson;
+    }
+
+    /// <summary>
+    /// Stores the serialised diagnostics JSON on failure paths.
+    /// </summary>
+    public void SetDiagnostics(string diagnosticsJson)
+    {
+        ProviderDiagnosticsJson = diagnosticsJson;
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────
 
     private void EnsureTransition(ProfileAnalysisStatus target, DateTime updatedAtUtc)
