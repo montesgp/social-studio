@@ -139,6 +139,48 @@ public sealed class ProfileAnalysis
         };
     }
 
+    // ── Infrastructure reconstitution factory (mapping from persisted data) ─
+
+    /// <summary>
+    /// Reconstitutes a <see cref="ProfileAnalysis"/> aggregate from persisted column values.
+    /// For use EXCLUSIVELY by Infrastructure persistence mapping — DO NOT call from Application or Domain.
+    /// Bypasses the status-machine guard because data is already in a valid persisted state.
+    /// </summary>
+    public static ProfileAnalysis Reconstitute(
+        Guid id,
+        Guid organizationId,
+        Guid? clientId,
+        Guid? ownAccountId,
+        string profileUrlOrHandle,
+        ProfileAnalysisStatus status,
+        string? rawPostsDatasetJson,
+        string? serverDerivedStatsJson,
+        string? aiAnalysisJson,
+        string? providerDiagnosticsJson,
+        string? failureCode,
+        DateTime createdAtUtc,
+        DateTime updatedAtUtc,
+        DateTime? completedAtUtc)
+    {
+        return new ProfileAnalysis
+        {
+            Id = id,
+            OrganizationId = organizationId,
+            ClientId = clientId,
+            OwnAccountId = ownAccountId,
+            ProfileUrlOrHandle = profileUrlOrHandle,
+            Status = status,
+            RawPostsDatasetJson = rawPostsDatasetJson,
+            ServerDerivedStatsJson = serverDerivedStatsJson,
+            AiAnalysisJson = aiAnalysisJson,
+            ProviderDiagnosticsJson = providerDiagnosticsJson,
+            FailureCode = failureCode,
+            CreatedAtUtc = createdAtUtc,
+            UpdatedAtUtc = updatedAtUtc,
+            CompletedAtUtc = completedAtUtc,
+        };
+    }
+
     // ── Status-transition methods ─────────────────────────────────────────
 
     /// <summary>Transitions the analysis to <see cref="ProfileAnalysisStatus.ScrapingProfile"/>.</summary>

@@ -1381,6 +1381,82 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("organization_user_modules", "platform");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ProfileAnalysisData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AiAnalysisJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("ai_analysis_json");
+
+                    b.Property<Guid?>("ClientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_id");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at_utc");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<Guid?>("OwnAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("own_account_id");
+
+                    b.Property<string>("ProfileUrlOrHandle")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("profile_url_or_handle");
+
+                    b.Property<string>("ProviderDiagnosticsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("provider_diagnostics_json");
+
+                    b.Property<string>("RawPostsDatasetJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("raw_posts_dataset_json");
+
+                    b.Property<string>("ServerDerivedStatsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("server_derived_stats_json");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_profile_analyses");
+
+                    b.HasIndex("OrganizationId", "ClientId")
+                        .HasDatabaseName("ix_profile_analyses_org_client_id");
+
+                    b.HasIndex("OrganizationId", "CreatedAtUtc")
+                        .HasDatabaseName("ix_profile_analyses_org_created_at");
+
+                    b.ToTable("profile_analyses", "social");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ProviderCostRateData", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2378,6 +2454,18 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasConstraintName("fk_organization_user_modules_membership");
 
                     b.Navigation("Module");
+
+                    b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ProfileAnalysisData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_profile_analyses_organizations_organization_id");
 
                     b.Navigation("Organization");
                 });

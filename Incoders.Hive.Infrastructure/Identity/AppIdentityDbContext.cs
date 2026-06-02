@@ -77,6 +77,8 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<ContentGenerationFormatAssetData> ContentGenerationFormatAssets => Set<ContentGenerationFormatAssetData>();
 
+    public DbSet<ProfileAnalysisData> ProfileAnalyses => Set<ProfileAnalysisData>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -547,6 +549,38 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .HasDatabaseName("ix_single_content_analyses_org_status");
             entity.HasIndex(x => new { x.OrganizationId, x.SourcePlatformKey })
                 .HasDatabaseName("ix_single_content_analyses_org_platform");
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ProfileAnalysisData>(entity =>
+        {
+            entity.ToTable("profile_analyses", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id");
+            entity.Property(x => x.OwnAccountId).HasColumnName("own_account_id");
+            entity.Property(x => x.ProfileUrlOrHandle).HasColumnName("profile_url_or_handle").HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.RawPostsDatasetJson).HasColumnName("raw_posts_dataset_json").HasColumnType("jsonb");
+            entity.Property(x => x.ServerDerivedStatsJson).HasColumnName("server_derived_stats_json").HasColumnType("jsonb");
+            entity.Property(x => x.AiAnalysisJson).HasColumnName("ai_analysis_json").HasColumnType("jsonb");
+            entity.Property(x => x.ProviderDiagnosticsJson).HasColumnName("provider_diagnostics_json").HasColumnType("jsonb");
+            entity.Property(x => x.FailureCode).HasColumnName("failure_code").HasMaxLength(128);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            entity.Property(x => x.CompletedAtUtc).HasColumnName("completed_at_utc");
+
+            // Composite index: tenant-scoped queries ordered by creation time (newest first) — PA-15
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedAtUtc })
+                .HasDatabaseName("ix_profile_analyses_org_created_at");
+
+            // Sparse index for client-linked records
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId })
+                .HasDatabaseName("ix_profile_analyses_org_client_id");
 
             entity.HasOne(x => x.Organization)
                 .WithMany()

@@ -1,0 +1,175 @@
+using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Domain.Social.ProfileAnalysis;
+using Incoders.Hive.Infrastructure.Identity;
+using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace Incoders.Hive.Infrastructure.Persistence.Postgres;
+
+/// <summary>
+/// EF implementation of <see cref="IProfileAnalysisRepository"/>.
+/// All queries are scoped to <paramref name="organizationId"/> — the org-scoping invariant.
+/// Maps between <see cref="ProfileAnalysisData"/> (EF entity) and <see cref="ProfileAnalysis"/>
+/// (Domain aggregate). No EF or Npgsql types are exposed outside this class.
+/// Mirrors <see cref="EfSingleContentAnalysisRepository"/> conventions.
+/// </summary>
+public sealed class EfProfileAnalysisRepository : IProfileAnalysisRepository
+{
+    private readonly AppIdentityDbContext _dbContext;
+
+    public EfProfileAnalysisRepository(AppIdentityDbContext dbContext)
+    {
+        _dbContext = dbContext;
+    }
+
+    public Task AddAsync(
+        ProfileAnalysis analysis,
+        CancellationToken cancellationToken = default)
+    {
+        _ = cancellationToken;
+        _dbContext.ProfileAnalyses.Add(ToData(analysis));
+        return Task.CompletedTask;
+    }
+
+    public async Task<ProfileAnalysis?> GetByIdAsync(
+        Guid analysisId,
+        Guid organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        var row = await _dbContext.ProfileAnalyses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.Id == analysisId && x.OrganizationId == organizationId,
+                cancellationToken);
+
+        return row is null ? null : ToDomain(row);
+    }
+
+    public async Task<ProfileAnalysisHistoryPage> GetByOrganizationAsync(
+        Guid organizationId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var safePage = page < 1 ? 1 : page;
+        var safePageSize = pageSize switch
+        {
+            < 1 => 20,
+            > 100 => 100,
+            _ => pageSize,
+        };
+
+        var baseQuery = _dbContext.ProfileAnalyses
+            .AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId);
+
+        var totalCount = await baseQuery.CountAsync(cancellationToken);
+
+        var rows = await baseQuery
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Skip((safePage - 1) * safePageSize)
+            .Take(safePageSize)
+            .Select(x => new ProfileAnalysisHistoryItem(
+                x.Id,
+                x.OrganizationId,
+                x.ClientId,
+                x.OwnAccountId,
+                x.ProfileUrlOrHandle,
+                x.Status,
+                x.FailureCode,
+                x.CreatedAtUtc,
+                x.UpdatedAtUtc,
+                x.CompletedAtUtc))
+            .ToListAsync(cancellationToken);
+
+        return new ProfileAnalysisHistoryPage(rows, totalCount, safePage, safePageSize);
+    }
+
+    public async Task UpdateAsync(
+        ProfileAnalysis analysis,
+        CancellationToken cancellationToken = default)
+    {
+        var row = await _dbContext.ProfileAnalyses
+            .FirstOrDefaultAsync(
+                x => x.Id == analysis.Id && x.OrganizationId == analysis.OrganizationId,
+                cancellationToken);
+
+        if (row is null)
+        {
+            return;
+        }
+
+        row.ClientId = analysis.ClientId;
+        row.OwnAccountId = analysis.OwnAccountId;
+        row.ProfileUrlOrHandle = analysis.ProfileUrlOrHandle;
+        row.Status = analysis.Status.ToString();
+        row.RawPostsDatasetJson = analysis.RawPostsDatasetJson;
+        row.ServerDerivedStatsJson = analysis.ServerDerivedStatsJson;
+        row.AiAnalysisJson = analysis.AiAnalysisJson;
+        row.ProviderDiagnosticsJson = analysis.ProviderDiagnosticsJson;
+        row.FailureCode = analysis.FailureCode;
+        row.UpdatedAtUtc = analysis.UpdatedAtUtc;
+        row.CompletedAtUtc = analysis.CompletedAtUtc;
+    }
+
+    public async Task<bool> DeleteAsync(
+        Guid analysisId,
+        Guid organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        var row = await _dbContext.ProfileAnalyses
+            .FirstOrDefaultAsync(
+                x => x.Id == analysisId && x.OrganizationId == organizationId,
+                cancellationToken);
+
+        if (row is null)
+        {
+            return false;
+        }
+
+        _dbContext.ProfileAnalyses.Remove(row);
+        return true;
+    }
+
+    // ── Mapping helpers ────────────────────────────────────────────────────────
+
+    private static ProfileAnalysisData ToData(ProfileAnalysis analysis) => new()
+    {
+        Id = analysis.Id,
+        OrganizationId = analysis.OrganizationId,
+        ClientId = analysis.ClientId,
+        OwnAccountId = analysis.OwnAccountId,
+        ProfileUrlOrHandle = analysis.ProfileUrlOrHandle,
+        Status = analysis.Status.ToString(),
+        RawPostsDatasetJson = analysis.RawPostsDatasetJson,
+        ServerDerivedStatsJson = analysis.ServerDerivedStatsJson,
+        AiAnalysisJson = analysis.AiAnalysisJson,
+        ProviderDiagnosticsJson = analysis.ProviderDiagnosticsJson,
+        FailureCode = analysis.FailureCode,
+        CreatedAtUtc = analysis.CreatedAtUtc,
+        UpdatedAtUtc = analysis.UpdatedAtUtc,
+        CompletedAtUtc = analysis.CompletedAtUtc,
+    };
+
+    private static ProfileAnalysis ToDomain(ProfileAnalysisData row)
+    {
+        // Reconstruct the aggregate via the internal backdoor constructor used by EF/mapping.
+        // Domain keeps a parameterless private constructor; we use reflection-free mapping through
+        // a dedicated static factory that accepts raw column values — same pattern as the domain aggregate.
+        return ProfileAnalysis.Reconstitute(
+            id: row.Id,
+            organizationId: row.OrganizationId,
+            clientId: row.ClientId,
+            ownAccountId: row.OwnAccountId,
+            profileUrlOrHandle: row.ProfileUrlOrHandle,
+            status: Enum.Parse<ProfileAnalysisStatus>(row.Status),
+            rawPostsDatasetJson: row.RawPostsDatasetJson,
+            serverDerivedStatsJson: row.ServerDerivedStatsJson,
+            aiAnalysisJson: row.AiAnalysisJson,
+            providerDiagnosticsJson: row.ProviderDiagnosticsJson,
+            failureCode: row.FailureCode,
+            createdAtUtc: row.CreatedAtUtc,
+            updatedAtUtc: row.UpdatedAtUtc,
+            completedAtUtc: row.CompletedAtUtc);
+    }
+}

@@ -5,6 +5,7 @@ using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
 using Incoders.Hive.Infrastructure.Ai;
 using Incoders.Hive.Infrastructure.Packaging;
 using Incoders.Hive.Infrastructure.Rendering;
@@ -134,6 +135,9 @@ public static class DependencyInjection
         services.AddScoped<IOrganizationIntegrationCredentialRepository, EfOrganizationIntegrationCredentialRepository>();
         services.AddScoped<IIntegrationExecutionAttemptRepository, EfIntegrationExecutionAttemptRepository>();
         services.AddScoped<ISingleContentAnalysisRepository, EfSingleContentAnalysisRepository>();
+        services.AddScoped<IProfileAnalysisRepository, EfProfileAnalysisRepository>();
+        // Profile analysis orchestrator — Application layer (depends on Infrastructure ports)
+        services.AddScoped<IProfileAnalyzer, ProfileAnalyzerOrchestrator>();
         services.AddScoped<IClientBrandSnapshotLoader, EfClientBrandSnapshotLoader>();
         services.AddScoped<IContentGenerationJobRepository, EfContentGenerationJobRepository>();
         services.AddScoped<IContentGenerationFormatResultRepository, EfContentGenerationFormatResultRepository>();
@@ -203,6 +207,10 @@ public static class DependencyInjection
         // Background job queue for the async single-analyzer pipeline. Singleton: one in-memory
         // bounded channel shared by the POST producer and the hosted worker consumer.
         services.AddSingleton<ISingleAnalysisJobQueue, ChannelSingleAnalysisJobQueue>();
+
+        // Background job queue for the async profile-analysis pipeline.
+        // Singleton: one in-memory bounded channel shared by POST producer and hosted worker consumer.
+        services.AddSingleton<IProfileAnalysisJobQueue, ChannelProfileAnalysisJobQueue>();
 
         // Background job queue for the async content-generation pipeline.
         services.AddSingleton<IContentGenerationJobQueue, ChannelContentGenerationJobQueue>();
