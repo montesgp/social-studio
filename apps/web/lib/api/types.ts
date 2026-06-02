@@ -398,6 +398,61 @@ export interface PagedClientCompetitorAccounts {
   totalCount: number;
 }
 
+export interface ClientOwnAccount {
+  id: string;
+  clientId: string;
+  organizationId: string;
+  socialNetworkId: string;
+  socialNetworkCode: string;
+  socialNetworkDisplayName: string;
+  socialNetworkIconKey: string;
+  profileUrl: string;
+  handle: string | null;
+  label: string | null;
+  notes: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface CreateClientOwnAccountPayload {
+  socialNetworkId: string;
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+}
+
+export interface UpdateClientOwnAccountPayload {
+  socialNetworkId?: string;
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+}
+
+export interface SyncClientOwnAccountPayload {
+  id?: string;
+  socialNetworkId: string;
+  profileUrl: string;
+  handle?: string;
+  label?: string;
+  notes?: string;
+  isActive: boolean;
+}
+
+export interface ListClientOwnAccountsQuery {
+  includeInactive?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PagedClientOwnAccounts {
+  items: ClientOwnAccount[];
+  totalCount: number;
+}
+
 export interface ColorEntry {
   name: string;
   hex: string;

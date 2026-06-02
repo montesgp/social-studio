@@ -9,13 +9,19 @@ import {
   listClientCompetitorAccounts,
   syncClientCompetitorAccounts,
 } from "@/lib/api/client-competitor-accounts";
+import {
+  listClientOwnAccounts,
+  syncClientOwnAccounts,
+} from "@/lib/api/client-own-accounts";
 import { createSocialClient, updateSocialClient } from "@/lib/api/social-clients";
 import {
   ApiError,
   ClientCompetitorAccount,
+  ClientOwnAccount,
   ClientReferentAccount,
   SocialClient,
   SyncClientCompetitorAccountPayload,
+  SyncClientOwnAccountPayload,
   SyncClientReferentAccountPayload,
 } from "@/lib/api/types";
 
@@ -40,12 +46,15 @@ interface UseClientFormReturn {
   referentAccountsLoading: boolean;
   competitorAccounts: ClientCompetitorAccount[];
   competitorAccountsLoading: boolean;
+  ownAccounts: ClientOwnAccount[];
+  ownAccountsLoading: boolean;
   submitting: boolean;
   setName: (value: string) => void;
   setDescription: (value: string) => void;
   setSectorOrNiche: (value: string | null) => void;
   setReferentAccounts: (value: ClientReferentAccount[]) => void;
   setCompetitorAccounts: (value: ClientCompetitorAccount[]) => void;
+  setOwnAccounts: (value: ClientOwnAccount[]) => void;
   openCreate: () => void;
   openEdit: (item: SocialClient) => void;
   closeForm: () => void;
@@ -91,6 +100,18 @@ function toCompetitorAccountPayload(account: ClientCompetitorAccount): SyncClien
   };
 }
 
+function toOwnAccountPayload(account: ClientOwnAccount): SyncClientOwnAccountPayload {
+  return {
+    id: isDraftId(account.id) ? undefined : account.id,
+    socialNetworkId: account.socialNetworkId,
+    profileUrl: account.profileUrl.trim(),
+    handle: account.handle?.trim() || undefined,
+    label: account.label?.trim() || undefined,
+    notes: account.notes?.trim() || undefined,
+    isActive: account.isActive,
+  };
+}
+
 export function useClientForm({
   effectiveToken,
   onSuccess,
@@ -107,6 +128,8 @@ export function useClientForm({
   const [referentAccountsLoading, setReferentAccountsLoading] = useState(false);
   const [competitorAccounts, setCompetitorAccountsState] = useState<ClientCompetitorAccount[]>([]);
   const [competitorAccountsLoading, setCompetitorAccountsLoading] = useState(false);
+  const [ownAccounts, setOwnAccountsState] = useState<ClientOwnAccount[]>([]);
+  const [ownAccountsLoading, setOwnAccountsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   function clearFieldError(field: keyof ClientFormFieldErrors) {
@@ -142,6 +165,10 @@ export function useClientForm({
     setCompetitorAccountsState(value);
   }
 
+  function setOwnAccounts(value: ClientOwnAccount[]) {
+    setOwnAccountsState(value);
+  }
+
   function openCreate() {
     setMode("create");
     setSelected(null);
@@ -151,6 +178,7 @@ export function useClientForm({
     setFieldErrors({});
     setReferentAccountsState([]);
     setCompetitorAccountsState([]);
+    setOwnAccountsState([]);
     setFormOpen(true);
   }
 
@@ -163,9 +191,11 @@ export function useClientForm({
     setFieldErrors({});
     setReferentAccountsState([]);
     setCompetitorAccountsState([]);
+    setOwnAccountsState([]);
     setFormOpen(true);
     void loadReferentAccounts(item.id);
     void loadCompetitorAccounts(item.id);
+    void loadOwnAccounts(item.id);
   }
 
   function closeForm() {
@@ -204,6 +234,23 @@ export function useClientForm({
       onError(message);
     } finally {
       setCompetitorAccountsLoading(false);
+    }
+  }
+
+  async function loadOwnAccounts(clientId: string) {
+    setOwnAccountsLoading(true);
+    try {
+      const result = await listClientOwnAccounts(
+        clientId,
+        { includeInactive: true, page: 1, pageSize: 200 },
+        effectiveToken || undefined,
+      );
+      setOwnAccountsState([...result.items].sort((a, b) => a.sortOrder - b.sortOrder));
+    } catch (err) {
+      const message = (err as ApiError).message ?? "Failed to load own accounts.";
+      onError(message);
+    } finally {
+      setOwnAccountsLoading(false);
     }
   }
 
@@ -274,7 +321,7 @@ export function useClientForm({
             : null;
 
       if (saved && mode === "edit") {
-        const [syncedReferent, syncedCompetitor] = await Promise.all([
+        const [syncedReferent, syncedCompetitor, syncedOwn] = await Promise.all([
           syncClientReferentAccounts(
             saved.id,
             referentAccounts.map(toReferentAccountPayload),
@@ -285,9 +332,15 @@ export function useClientForm({
             competitorAccounts.map(toCompetitorAccountPayload),
             effectiveToken || undefined,
           ),
+          syncClientOwnAccounts(
+            saved.id,
+            ownAccounts.map(toOwnAccountPayload),
+            effectiveToken || undefined,
+          ),
         ]);
         setReferentAccountsState([...syncedReferent].sort((a, b) => a.sortOrder - b.sortOrder));
         setCompetitorAccountsState([...syncedCompetitor].sort((a, b) => a.sortOrder - b.sortOrder));
+        setOwnAccountsState([...syncedOwn].sort((a, b) => a.sortOrder - b.sortOrder));
       }
 
       setFormOpen(false);
@@ -297,6 +350,7 @@ export function useClientForm({
       setFieldErrors({});
       setReferentAccountsState([]);
       setCompetitorAccountsState([]);
+      setOwnAccountsState([]);
 
       if (saved) {
         onSuccess(saved, mode);
@@ -323,12 +377,15 @@ export function useClientForm({
     referentAccountsLoading,
     competitorAccounts,
     competitorAccountsLoading,
+    ownAccounts,
+    ownAccountsLoading,
     submitting,
     setName: updateName,
     setDescription: updateDescription,
     setSectorOrNiche: updateSectorOrNiche,
     setReferentAccounts,
     setCompetitorAccounts,
+    setOwnAccounts,
     openCreate,
     openEdit,
     closeForm,

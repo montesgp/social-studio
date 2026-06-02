@@ -308,7 +308,7 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("client_competitor_accounts", "social");
                 });
 
-            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientMonthlyObjectiveData", b =>
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientOwnAccountData", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -323,49 +323,69 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
 
-                    b.Property<string>("Kpis")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("kpis")
-                        .HasDefaultValueSql("'[]'");
+                    b.Property<string>("Handle")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("handle");
 
-                    b.Property<int>("Month")
-                        .HasColumnType("integer")
-                        .HasColumnName("month");
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
 
-                    b.Property<string>("Objectives")
-                        .IsRequired()
-                        .HasMaxLength(3000)
-                        .HasColumnType("character varying(3000)")
-                        .HasColumnName("objectives");
+                    b.Property<string>("Label")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("notes");
 
                     b.Property<Guid>("OrganizationId")
                         .HasColumnType("uuid")
                         .HasColumnName("organization_id");
 
+                    b.Property<string>("ProfileUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("profile_url");
+
+                    b.Property<Guid>("SocialNetworkId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("social_network_id");
+
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("sort_order");
+
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at_utc");
 
-                    b.Property<int>("Year")
-                        .HasColumnType("integer")
-                        .HasColumnName("year");
-
                     b.HasKey("Id")
-                        .HasName("pk_client_monthly_objectives");
+                        .HasName("pk_client_own_accounts");
 
                     b.HasIndex("ClientId")
-                        .HasDatabaseName("ix_client_monthly_objectives_client_id");
+                        .HasDatabaseName("ix_client_own_accounts_client_id");
 
                     b.HasIndex("OrganizationId")
-                        .HasDatabaseName("ix_client_monthly_objectives_organization_id");
+                        .HasDatabaseName("ix_client_own_accounts_organization_id");
 
-                    b.HasIndex("ClientId", "Year", "Month")
+                    b.HasIndex("SocialNetworkId")
+                        .HasDatabaseName("ix_client_own_accounts_social_network_id");
+
+                    b.HasIndex("ClientId", "SortOrder")
+                        .HasDatabaseName("ix_client_own_accounts_client_sort_order");
+
+                    b.HasIndex("ClientId", "SocialNetworkId", "ProfileUrl")
                         .IsUnique()
-                        .HasDatabaseName("ix_client_monthly_objectives_client_year_month");
+                        .HasDatabaseName("ix_client_own_accounts_client_network_url");
 
-                    b.ToTable("client_monthly_objectives", "social");
+                    b.ToTable("client_own_accounts", "social");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientReferentAccountData", b =>
@@ -446,71 +466,6 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasDatabaseName("ix_client_referent_accounts_client_network_url");
 
                     b.ToTable("client_referent_accounts", "social");
-                });
-
-            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientStrategyData", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("ClientId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("client_id");
-
-                    b.Property<string>("ContentPillars")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("content_pillars")
-                        .HasDefaultValueSql("'[]'");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at_utc");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
-                        .HasColumnName("notes");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("organization_id");
-
-                    b.Property<string>("PostingFrequency")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("posting_frequency");
-
-                    b.Property<string>("TargetAudience")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("target_audience");
-
-                    b.Property<string>("ToneKeywords")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("tone_keywords")
-                        .HasDefaultValueSql("'[]'");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at_utc");
-
-                    b.HasKey("Id")
-                        .HasName("pk_client_strategies");
-
-                    b.HasIndex("ClientId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_client_strategies_one_per_client");
-
-                    b.HasIndex("OrganizationId")
-                        .HasDatabaseName("ix_client_strategies_organization_id");
-
-                    b.ToTable("client_strategies", "social");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationFormatAssetData", b =>
@@ -2174,21 +2129,28 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasConstraintName("fk_client_competitor_accounts_social_networks_social_network_id");
                 });
 
-            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientMonthlyObjectiveData", b =>
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientOwnAccountData", b =>
                 {
                     b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData", null)
                         .WithMany()
                         .HasForeignKey("ClientId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_client_monthly_objectives_clients_client_id");
+                        .HasConstraintName("fk_client_own_accounts_clients_client_id");
 
                     b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", null)
                         .WithMany()
                         .HasForeignKey("OrganizationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_client_monthly_objectives_organizations_organization_id");
+                        .HasConstraintName("fk_client_own_accounts_organizations_organization_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialNetworkData", null)
+                        .WithMany()
+                        .HasForeignKey("SocialNetworkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_client_own_accounts_social_networks_social_network_id");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientReferentAccountData", b =>
@@ -2213,23 +2175,6 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_client_referent_accounts_social_networks_social_network_id");
-                });
-
-            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientStrategyData", b =>
-                {
-                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData", null)
-                        .WithMany()
-                        .HasForeignKey("ClientId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_client_strategies_clients_client_id");
-
-                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", null)
-                        .WithMany()
-                        .HasForeignKey("OrganizationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_client_strategies_organizations_organization_id");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationFormatAssetData", b =>

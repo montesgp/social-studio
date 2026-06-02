@@ -92,12 +92,15 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
     referentAccountsLoading,
     competitorAccounts,
     competitorAccountsLoading,
+    ownAccounts,
+    ownAccountsLoading,
     submitting,
     setName,
     setDescription,
     setSectorOrNiche,
     setReferentAccounts,
     setCompetitorAccounts,
+    setOwnAccounts,
     openCreate,
     openEdit,
     closeForm,
@@ -335,12 +338,15 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
                   referentAccountsLoading={referentAccountsLoading}
                   competitorAccounts={competitorAccounts}
                   competitorAccountsLoading={competitorAccountsLoading}
+                  ownAccounts={ownAccounts}
+                  ownAccountsLoading={ownAccountsLoading}
                   submitting={submitting}
                   onNameChange={setName}
                   onDescriptionChange={setDescription}
                   onSectorOrNicheChange={setSectorOrNiche}
                   onReferentAccountsChange={setReferentAccounts}
                   onCompetitorAccountsChange={setCompetitorAccounts}
+                  onOwnAccountsChange={setOwnAccounts}
                   onSubmit={onSubmit}
                   onCancel={() => {
                     closeForm();
