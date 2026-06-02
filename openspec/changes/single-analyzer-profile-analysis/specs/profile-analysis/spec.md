@@ -596,10 +596,12 @@ before being written. No field MUST be auto-applied. The impute action MUST use 
 write commands only; no new write commands MUST be created. Impute MUST be unavailable
 for ProfileAnalysis records where `client_id` is null.
 
-Eligible impute targets and their write command mappings:
-- Brand manual: ColorPalette, Typography (fonts), BackgroundTemplates, Logos, VoiceAndTone
-- Content plan: ObjectiveText, ObjectiveKpis, ContentStrategyText, Slots (publication days)
-- General strategy: ContentPillars, ToneKeywords, TargetAudience, PostingFrequency
+Eligible impute targets and their write command mappings (11 targets — WU-01 spike finding):
+- Brand manual (4): ColorPalette, Typography (fonts), BackgroundTemplates, VoiceAndTone
+- Content plan (3): ObjectiveText, ObjectiveKpis, ContentStrategyText
+- General strategy (4): ContentPillars, ToneKeywords, TargetAudience, PostingFrequency
+- NOTE: Logos (BrandManual) and Slots (ContentPlan) are NOT impute targets — they are not
+  AI-derivable and must be managed manually. Confirmed via WU-01 spike (obs #518).
 
 #### Scenario: Impute unavailable on URL-only path
 
@@ -617,10 +619,10 @@ Eligible impute targets and their write command mappings:
 
 #### Scenario: Only selected fields written
 
-- GIVEN a user selects 3 of 10 available fields for impute
+- GIVEN a user selects 3 of 11 available fields for impute
 - WHEN the user confirms
-- THEN exactly 3 write commands are dispatched (one per selected field)
-- AND the 7 unselected fields remain unchanged in the client's ABM
+- THEN exactly 3 write commands are dispatched (one per selected field target group)
+- AND the 8 unselected fields remain unchanged in the client's ABM
 
 ---
 

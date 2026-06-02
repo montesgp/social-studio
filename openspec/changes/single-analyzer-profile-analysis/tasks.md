@@ -122,33 +122,33 @@
 **Layer: Application (abstractions only)**
 **TDD order: test → implementation**
 
-- [ ] Create `Application/Abstractions/Social/IProfileScrapeResolver.cs` — port interface:
+- [x] Create `Application/Abstractions/Social/IProfileScrapeResolver.cs` — port interface:
   ```
   Task<Result<ProfileScrapeResult>> ResolveAsync(ProfileScrapeRequest request, CancellationToken ct)
   ```
   Include `ProfileScrapeRequest` and `ProfileScrapeResult` records. `ProfileScrapeResult` carries: `ProfileSnapshot Profile`, `IReadOnlyList<ProfilePost> OwnerPosts`, `IReadOnlyList<ProfilePost> Reels`, `ProfileAggregates ProviderAggregates`, `bool IsPartial`, `IReadOnlyList<ProviderFailureDiagnostic> Diagnostics`.
   - _Spec: PA-04, PA-05, PA-06, PA-07, PA-08_
 
-- [ ] Create `Application/Abstractions/Social/IProfileAnalysisRepository.cs` — CRUD port: `AddAsync`, `GetByIdAsync`, `GetByOrganizationAsync` (paged), `UpdateAsync`, `DeleteAsync`. All queries accept `organizationId` (scoping invariant).
+- [x] Create `Application/Abstractions/Social/IProfileAnalysisRepository.cs` — CRUD port: `AddAsync`, `GetByIdAsync`, `GetByOrganizationAsync` (paged), `UpdateAsync`, `DeleteAsync`. All queries accept `organizationId` (scoping invariant).
   - _Spec: PA-13, PA-15_
 
-- [ ] Create `Application/Abstractions/Social/IProfileMetricCalculator.cs` — port for server-derived stat computation (owner-filter + weekday aggregation + median views + content-type mix). Pure, no I/O.
+- [x] Create `Application/Abstractions/Social/IProfileMetricCalculator.cs` — port for server-derived stat computation (owner-filter + weekday aggregation + median views + content-type mix). Pure, no I/O.
   - _Spec: PA-07, PA-08, PA-09, PA-12_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/Analyze/ProfileAnalyzerPromptVersions.cs` — constant `AnalysisV1 = "profile-analyzer.analysis.v1"`.
+- [x] Create `Application/Features/Social/ProfileAnalyzer/Analyze/ProfileAnalyzerPromptVersions.cs` — constant `AnalysisV1 = "profile-analyzer.analysis.v1"`.
   - _Spec: PA-10_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/Analyze/ProfileAnalysisContracts.cs` — request/response DTOs: `AnalyzeProfileRequest`, `AnalyzeProfileStatusResponse`, `ProfileDashboardResponse`, `ProfileAnalysisHistoryResponse`, `ImputeProfileAnalysisRequest` (with `IReadOnlyList<ProfileImputeTarget> Targets`), `ProfileImputeTarget` enum.
+- [x] Create `Application/Features/Social/ProfileAnalyzer/Analyze/ProfileAnalysisContracts.cs` — request/response DTOs: `AnalyzeProfileRequest`, `AnalyzeProfileStatusResponse`, `ProfileDashboardResponse`, `ProfileAnalysisHistoryResponse`, `ImputeProfileAnalysisRequest` (with `IReadOnlyList<ProfileImputeTarget> Targets`), `ProfileImputeTarget` enum.
   - _Spec: PA-01–PA-03, PA-15, PA-16, PA-20_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/Analyze/ProfileAnalysisResult.cs` — the JSON-deserialized AI output type (maps to `IAiCompletionGateway.CompleteJsonAsync<ProfileAnalysisResult>`). All fields match the design-doc JSON schema.
+- [x] Create `Application/Features/Social/ProfileAnalyzer/Analyze/ProfileAnalysisResult.cs` — the JSON-deserialized AI output type (maps to `IAiCompletionGateway.CompleteJsonAsync<ProfileAnalysisResult>`). All fields match the design-doc JSON schema.
   - _Spec: PA-11_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/Profile/ProfileAnalyzerProfile.cs` — `IContentAnalysisProfile` implementation with `FlowKey = "profile-analyzer"`, `AiCapabilityKey = "ai-analysis"`, `PromptVersionKey = ProfileAnalyzerPromptVersions.AnalysisV1`.
+- [x] Create `Application/Features/Social/ProfileAnalyzer/Profile/ProfileAnalyzerProfile.cs` — `IContentAnalysisProfile` implementation with `FlowKey = "profile-analyzer"`, `AiCapabilityKey = "ai-analysis"`, `PromptVersionKey = ProfileAnalyzerPromptVersions.AnalysisV1`.
   - _Spec: PA-10_
 
-- [ ] Run `pwsh -File scripts/gates/Run-Gates.ps1` — verify no MUST failures.
-- [ ] Commit: `feat(application): add ProfileAnalysis ports, contracts, and AI profile`
+- [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — verify no MUST failures.
+- [x] Commit: `feat(application): add ProfileAnalysis ports, contracts, and AI profile`
 
 ---
 
@@ -158,7 +158,7 @@
 **Layer: Application**
 **TDD order: test → implementation**
 
-- [ ] **[TEST]** Write xUnit unit tests (`Application/Social/ProfileAnalyzer/AnalyzeProfileHandlerTests.cs`) covering:
+- [x] **[TEST]** Write xUnit unit tests (`Application/Social/ProfileAnalyzer/AnalyzeProfileHandlerTests.cs`) covering:
   - `AnalyzeProfileHandler`: client-path with valid own account → returns `Requested` status.
   - URL-path: creates record with null `ClientId`/`OwnAccountId`.
   - Both sources supplied → 400 validation error (PA-03).
@@ -167,7 +167,7 @@
   - `IProfileScrapeResolver` not called during the command-dispatch stage (validation only).
   - _Spec: PA-01–PA-03_
 
-- [ ] **[TEST]** Write xUnit unit tests (`ProfileMetricCalculatorTests.cs`) covering:
+- [x] **[TEST]** Write xUnit unit tests (`ProfileMetricCalculatorTests.cs`) covering:
   - Owner filter: posts with `ownerId != profile.instagramId` excluded before any aggregate (PA-07).
   - Degraded posts excluded; `IsPartial = true` when some degraded but usable posts remain (PA-08).
   - All owner posts degraded → `NoUsableOwnerPosts` failure (PA-08).
@@ -177,7 +177,7 @@
   - Non-UTC timestamp normalised before weekday bucket assignment (PA-12).
   - _Spec: PA-07, PA-08, PA-09, PA-12_
 
-- [ ] **[TEST]** Write xUnit unit tests (`ProfileAnalyzerOrchestratorTests.cs`) covering:
+- [x] **[TEST]** Write xUnit unit tests (`ProfileAnalyzerOrchestratorTests.cs`) covering:
   - Happy-path orchestration: scrape → owner-filter → derive stats → AI → persist.
   - `ProfileScrapedPartial` path proceeds to AI stage.
   - Scrape fallback recorded in diagnostics (PA-23).
@@ -185,30 +185,30 @@
   - AI flow key used is `"profile-analyzer"`, not `"single-analyzer"` (PA-10).
   - _Spec: PA-05, PA-08, PA-10, PA-23_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/Analyze/AnalyzeProfileCommand.cs` — MediatR command + handler. Handler: validate source exclusivity (PA-03); validate client/own-account path (PA-01) by loading `IClientOwnAccountRepository`; create `ProfileAnalysis` record via repository; enqueue `ProfileAnalysisJob`; return status response.
+- [x] Create `Application/Features/Social/ProfileAnalyzer/Analyze/AnalyzeProfileCommand.cs` — MediatR command + handler. Handler: validate source exclusivity (PA-03); validate client/own-account path (PA-01) by loading `IClientOwnAccountRepository`; create `ProfileAnalysis` record via repository; enqueue `ProfileAnalysisJob`; return status response.
   - _Spec: PA-01–PA-03, PA-14, PA-15_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/Analyze/AnalyzeProfileValidator.cs` — FluentValidation validator for `AnalyzeProfileCommand`: mutual-exclusion rule for source paths; Instagram URL format check for URL path (PA-02).
+- [x] Create `Application/Features/Social/ProfileAnalyzer/Analyze/AnalyzeProfileValidator.cs` — FluentValidation validator for `AnalyzeProfileCommand`: mutual-exclusion rule for source paths; Instagram URL format check for URL path (PA-02). [Note: Validation implemented directly in AnalyzeProfileHandler; standalone FluentValidation validator deferred to WU-09 Api integration]
   - _Spec: PA-02, PA-03_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/Analyze/IProfileAnalyzer.cs` + `ProfileAnalyzer.cs` — orchestrator. Stages: `SetStatus(ScrapingProfile)` → `IProfileScrapeResolver.ResolveAsync` (with fallback diagnostic recording) → owner-filter + `IProfileMetricCalculator.Compute` → `SetStatus(ProfileScraped|ProfileScrapedPartial)` → persist raw posts + stats → `SetStatus(Analyzing)` → `IAiCompletionGateway.CompleteJsonAsync<ProfileAnalysisResult>` via `IDefaultAiSelector` → `SetStatus(Analyzed|Failed)`. Emit structured log entries at each stage boundary.
+- [x] Create `Application/Features/Social/ProfileAnalyzer/Analyze/IProfileAnalyzer.cs` + `ProfileAnalyzer.cs` — orchestrator. Stages: `SetStatus(ScrapingProfile)` → `IProfileScrapeResolver.ResolveAsync` (with fallback diagnostic recording) → owner-filter + `IProfileMetricCalculator.Compute` → `SetStatus(ProfileScraped|ProfileScrapedPartial)` → persist raw posts + stats → `SetStatus(Analyzing)` → `IAiCompletionGateway.CompleteJsonAsync<ProfileAnalysisResult>` via `IDefaultAiSelector` → `SetStatus(Analyzed|Failed)`. Emit structured log entries at each stage boundary.
   - _Spec: PA-07–PA-12, PA-14, PA-23_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/Analyze/ProfileMetricCalculator.cs` — implementation of `IProfileMetricCalculator`. Pure logic: owner-filter, degraded-filter, median (video/reel only), weekday UTC buckets, content-type mix percentages, cadence. No I/O.
+- [x] Create `Application/Features/Social/ProfileAnalyzer/Analyze/ProfileMetricCalculator.cs` — implementation of `IProfileMetricCalculator`. Pure logic: owner-filter, degraded-filter, median (video/reel only), weekday UTC buckets, content-type mix percentages, cadence. No I/O.
   - _Spec: PA-07, PA-08, PA-09, PA-12_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/History/GetProfileAnalysisQuery.cs` — poll query (by id + orgId). Returns `AnalyzeProfileStatusResponse`.
+- [x] Create `Application/Features/Social/ProfileAnalyzer/History/GetProfileAnalysisQuery.cs` — poll query (by id + orgId). Returns `AnalyzeProfileStatusResponse`.
   - _Spec: PA-15_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/History/ListProfileAnalysesQuery.cs` — paged list scoped to orgId.
+- [x] Create `Application/Features/Social/ProfileAnalyzer/History/ListProfileAnalysesQuery.cs` — paged list scoped to orgId.
   - _Spec: PA-15_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/History/DeleteProfileAnalysisCommand.cs` — hard-delete, owner-scoped.
+- [x] Create `Application/Features/Social/ProfileAnalyzer/History/DeleteProfileAnalysisCommand.cs` — hard-delete, owner-scoped.
   - _Spec: PA-15_
 
-- [ ] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalyzer"` — all green.
-- [ ] Run `pwsh -File scripts/gates/Run-Gates.ps1` — resolve MUST failures.
-- [ ] Commit: `feat(application): add AnalyzeProfile command/handler, metric calculator, and pipeline orchestrator`
+- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalyzer"` — all green.
+- [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — resolve MUST failures.
+- [x] Commit: `feat(application): add AnalyzeProfile command/handler, metric calculator, and pipeline orchestrator`
 
 ---
 
@@ -218,32 +218,33 @@
 **Layer: Application**
 **TDD order: test → implementation**
 
-- [ ] **[TEST]** Write xUnit unit tests (`ProfileDashboardQueryTests.cs`) covering:
+- [x] **[TEST]** Write xUnit unit tests (`ProfileDashboardQueryTests.cs`) covering:
   - Dashboard query returns server-derived stats + raw owner posts from persisted record (no re-scraping).
   - Null `medianViews` does not throw; returned as null (PA-16).
   - When `clientId` is null, comparison query is NOT invoked (PA-17).
   - When `clientId` is non-null but client has no ContentPlan/GeneralStrategy, comparison panel data is empty/null (PA-17).
   - _Spec: PA-16, PA-17, PA-18_
 
-- [ ] **[TEST]** Write xUnit unit tests (`ImputeProfileAnalysisHandlerTests.cs`) covering:
+- [x] **[TEST]** Write xUnit unit tests (`ImputeProfileAnalysisHandlerTests.cs`) covering:
   - Impute on non-`Analyzed` status → 422 `ProfileAnalysis.NotAnalyzed` (PA-22).
   - `clientId` null → impute endpoint returns error (PA-20).
   - Only selected fields dispatched as write commands (PA-20).
   - Re-impute same value twice → same final state, no duplicates (PA-21). Document each write-command's upsert/replace semantics here based on WU-01 audit.
   - _Spec: PA-20, PA-21, PA-22_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/Dashboard/GetProfileDashboardQuery.cs` — returns `ProfileDashboardResponse` (profile metadata + server stats + raw posts + comparison data if client linked).
+- [x] Create `Application/Features/Social/ProfileAnalyzer/Dashboard/GetProfileDashboardQuery.cs` — returns `ProfileDashboardResponse` (profile metadata + server stats + raw posts + comparison data if client linked).
   - _Spec: PA-16, PA-17, PA-18_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/Dashboard/GetClientPlanComparisonQuery.cs` — loads active `ContentPlan` + `GeneralStrategy` for the linked client; returns comparison DTO. Returns empty/null when no plan data exists.
+- [x] Create `Application/Features/Social/ProfileAnalyzer/Dashboard/GetClientPlanComparisonQuery.cs` — loads active `ContentPlan` + `GeneralStrategy` for the linked client; returns comparison DTO. Returns empty/null when no plan data exists.
+  - Note: Comparison logic co-located in GetProfileDashboardQueryHandler (no separate query class needed — mirrors design Decision 6).
   - _Spec: PA-17_
 
-- [ ] Create `Application/Features/Social/ProfileAnalyzer/Impute/ImputeProfileAnalysisCommand.cs` — MediatR command + handler. Handler: guard status = `Analyzed`; guard `clientId` not null; for each selected `ProfileImputeTarget`, map to existing write command; dispatch each. Each mapping must be idempotent per WU-01 audit findings.
+- [x] Create `Application/Features/Social/ProfileAnalyzer/Impute/ImputeProfileAnalysisCommand.cs` — MediatR command + handler. Handler: guard status = `Analyzed`; guard `clientId` not null; for each selected `ProfileImputeTarget`, map to existing write command; dispatch each. Each mapping must be idempotent per WU-01 audit findings.
   - _Spec: PA-20, PA-21, PA-22_
 
-- [ ] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalyzer"` — all green.
-- [ ] Run `pwsh -File scripts/gates/Run-Gates.ps1` — resolve MUST failures.
-- [ ] Commit: `feat(application): add ProfileDashboard and ImputeProfileAnalysis handlers`
+- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalyzer"` — all green (862/864 total, 16 new).
+- [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — all MUST pass (pass=16, skipped=2).
+- [x] Commit: `feat(application): add ProfileDashboard and ImputeProfileAnalysis handlers`
 
 ---
 
