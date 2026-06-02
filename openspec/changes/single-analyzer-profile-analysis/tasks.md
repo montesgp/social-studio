@@ -256,7 +256,7 @@
 
 > Requires WU-01 spike findings before starting the adapter implementation.
 
-- [ ] **[TEST]** Write xUnit integration tests (`Infrastructure/Social/Providers/ApifyProfileScrapeAdapterTests.cs`) using recorded Apify payloads (fixture JSON files — do NOT call live Apify in CI):
+- [x] **[TEST]** Write xUnit integration tests (`Infrastructure/Social/Providers/ApifyProfileScrapeAdapterTests.cs`) using recorded Apify payloads (fixture JSON files — do NOT call live Apify in CI):
   - `resultType == "profile"` item is selected from the 3-item array response (PA-06).
   - Items with other `resultType` values are discarded silently (PA-06).
   - No `resultType == "profile"` item → treat as empty/failed response, trigger backup fallback (PA-06).
@@ -264,7 +264,7 @@
   - `variantKey "profile"` resolves a different actor id than the single-video `instagram` mapping (PA-24).
   - _Spec: PA-04, PA-06, PA-24_
 
-- [ ] **[TEST]** Write xUnit integration tests (`ApifyProfileScrapeResolverTests.cs`):
+- [x] **[TEST]** Write xUnit integration tests (`ApifyProfileScrapeResolverTests.cs`):
   - Default actor failure → backup actor invoked in same run (PA-05).
   - Both actors fail → `Failed` with diagnostics containing failure reasons for both (PA-05).
   - Fallback recorded in `ProviderFailureDiagnostic` list (PA-05, PA-23).
@@ -275,15 +275,15 @@
   - `diagnostics.fallback_used = true` + `default_actor_error` + `backup_actor_id` present on fallback run (PA-23).
   - _Spec: PA-04, PA-05, PA-23, PA-24, INT-01, INT-02_
 
-- [ ] Create `Infrastructure/Social/Providers/Apify/InstagramProfileApifyScrapeAdapter.cs` — builds Apify actor input (profileUrl/handle + RESIDENTIAL proxy + `maxPostsPerProfile`); selects the `resultType == "profile"` item from the response array; maps `latestPosts[]` to `ProfilePost[]` (include `_degraded`, `ownerId`, `ownerUsername`, `mediaType`, `videoViewCount`, `videoPlayCount` caveat comment, `timestamp`); maps `latestReels[]` using shape confirmed in WU-01 spike (or degrades gracefully if shape differs). Document `videoPlayCount` = null caveat as a code comment.
+- [x] Create `Infrastructure/Social/Providers/Apify/InstagramProfileApifyScrapeAdapter.cs` — builds Apify actor input (profileUrl/handle + RESIDENTIAL proxy + `maxPostsPerProfile`); selects the `resultType == "profile"` item from the response array; maps `latestPosts[]` to `ProfilePost[]` (include `_degraded`, `ownerId`, `ownerUsername`, `mediaType`, `videoViewCount`, `videoPlayCount` caveat comment, `timestamp`); maps `latestReels[]` using shape confirmed in WU-01 spike (or degrades gracefully if shape differs). Document `videoPlayCount` = null caveat as a code comment.
   - _Spec: PA-04, PA-06, PA-07, PA-09, PA-24; probe obs #513_
 
-- [ ] Create `Infrastructure/Social/Providers/ApifyProfileScrapeResolver.cs` — implements `IProfileScrapeResolver`. Resolves both `defaultActorId` and `backupActorId` for `(networkKey="instagram", variantKey="profile")` using `TryResolveMappedActor` (reuses existing mechanism). Runs default actor; on failure (transport/timeout/non-2xx/empty/parse), records a `ProviderFailureDiagnostic`, retries with backup once. Both outputs normalised through `InstagramProfileApifyScrapeAdapter`. Fails fast with `Integration.ProfileActorNotConfigured` when mapping absent. Enforces RESIDENTIAL proxy presence before submission (rejects config if absent). Emits structured log entries at: actor-resolution, dispatch, fallback, success/failure.
+- [x] Create `Infrastructure/Social/Providers/ApifyProfileScrapeResolver.cs` — implements `IProfileScrapeResolver`. Resolves both `defaultActorId` and `backupActorId` for `(networkKey="instagram", variantKey="profile")` using `GetAllMappedActors` helper (list-order preserving; no priority field). Runs default actor; on failure (transport/timeout/non-2xx/empty/parse), records a `ProviderFailureDiagnostic`, retries with backup once. Both outputs normalised through `InstagramProfileApifyScrapeAdapter`. Fails fast with `Integration.ProfileActorNotConfigured` when mapping absent. RESIDENTIAL proxy enforced in adapter input. Emits structured log entries at: actor-resolution, dispatch, fallback, success/failure. Registered in DI as `IProfileScrapeResolver → ApifyProfileScrapeResolver` (scoped) with long-running HttpClient (120s).
   - _Spec: PA-04, PA-05, PA-23, PA-24, INT-01, INT-02_
 
-- [ ] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileScrape"` — all green.
-- [ ] Run `pwsh -File scripts/gates/Run-Gates.ps1`.
-- [ ] Commit: `feat(infra): add InstagramProfileApifyScrapeAdapter and fallback resolver`
+- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileScrape"` — all green (115 tests).
+- [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — all 16 MUST gates pass (pass=16, skipped=2).
+- [x] Commit: `feat(infrastructure): add Instagram profile Apify scrape adapter with default→backup fallback`
 
 ---
 
