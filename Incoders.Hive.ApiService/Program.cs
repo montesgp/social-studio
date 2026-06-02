@@ -143,6 +143,7 @@ app.MapContentPlanEndpoints();
 app.MapSocialIntegrationsEndpoints();
 app.MapSocialContentWorkflowEndpoints();
 app.MapSingleAnalyzerEndpoints();
+app.MapProfileAnalyzerEndpoints();
 app.MapContentGenerationEndpoints();
 app.MapUserPreferencesEndpoints();
 

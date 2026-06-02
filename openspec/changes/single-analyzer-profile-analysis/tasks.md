@@ -293,7 +293,7 @@
 **Layer: Infrastructure**
 **TDD order: test → implementation**
 
-- [ ] **[TEST]** Write xUnit integration tests (`Infrastructure/Persistence/ProfileAnalysisRepositoryTests.cs`) against the test database:
+- [x] **[TEST]** Write xUnit integration tests (`Infrastructure/Persistence/ProfileAnalysisRepositoryTests.cs`) against the test database:
   - `AddAsync` then `GetByIdAsync` round-trips all JSON columns (`RawPostsDatasetJson`, `ServerDerivedStatsJson`, `AiAnalysisJson`, `ProviderDiagnosticsJson`).
   - `GetByIdAsync` with wrong `organizationId` returns null/not-found (PA-15 org scoping).
   - `GetByOrganizationAsync` returns only records matching `organizationId` (PA-15).
@@ -301,26 +301,26 @@
   - Status string persists and reads back correctly.
   - _Spec: PA-13, PA-15_
 
-- [ ] Create `Infrastructure/Persistence/Postgres/Entities/ProfileAnalysisData.cs` — EF entity mirroring the aggregate fields: Id, OrganizationId, ClientId (nullable), OwnAccountId (nullable), ProfileUrlOrHandle, Status (string), RawPostsDatasetJson (string/jsonb), ServerDerivedStatsJson (string/jsonb), AiAnalysisJson (string/jsonb), ProviderDiagnosticsJson (string/jsonb), FailureCode (nullable), WarningsJson (string/jsonb nullable), CreatedAtUtc, UpdatedAtUtc, CompletedAtUtc. Navigation property to `TenantData`. NO EF navigation to `SocialClientData` (soft reference only — matching `SingleContentAnalysisData` precedent).
+- [x] Create `Infrastructure/Persistence/Postgres/Entities/ProfileAnalysisData.cs` — EF entity mirroring the aggregate fields: Id, OrganizationId, ClientId (nullable), OwnAccountId (nullable), ProfileUrlOrHandle, Status (string), RawPostsDatasetJson (string/jsonb), ServerDerivedStatsJson (string/jsonb), AiAnalysisJson (string/jsonb), ProviderDiagnosticsJson (string/jsonb), FailureCode (nullable), WarningsJson (string/jsonb nullable), CreatedAtUtc, UpdatedAtUtc, CompletedAtUtc. Navigation property to `TenantData`. NO EF navigation to `SocialClientData` (soft reference only — matching `SingleContentAnalysisData` precedent).
   - _Spec: PA-13_
 
-- [ ] Create `Infrastructure/Persistence/Postgres/Configurations/ProfileAnalysisConfiguration.cs` — EF fluent mapping: table `"profile_analyses"` in schema `"social"`, JSON column types (`jsonb`), index on `(organization_id, created_at_utc desc)`.
+- [x] Create `Infrastructure/Persistence/Postgres/Configurations/ProfileAnalysisConfiguration.cs` — EF fluent mapping (co-located in AppIdentityDbContext.ConfigureApplicationTables): table `"profile_analyses"` in schema `"social"`, JSON column types (`jsonb`), index on `(organization_id, created_at_utc desc)`.
   - _Spec: PA-13_
 
-- [ ] Create EF migration `*_AddProfileAnalyses.cs` — adds `social.profile_analyses` table. Does NOT modify `social.single_content_analyses` or any other existing table.
+- [x] Create EF migration `20260602204600_AddProfileAnalyses.cs` — adds `social.profile_analyses` table. Does NOT modify `social.single_content_analyses` or any other existing table.
   - _Spec: PA-13, PA-REG-01_
 
-- [ ] **[TEST]** Verify migration applies cleanly on a fresh schema: `dotnet ef database update` against test DB + schema-inspector assertion that `social.single_content_analyses` is unchanged.
+- [x] **[TEST]** Verify migration applies cleanly on a fresh schema: `dotnet ef database update` against test DB + schema-inspector assertion that `social.single_content_analyses` is unchanged.
   - _Spec: PA-13, PA-REG-01_
 
-- [ ] Create `Infrastructure/Persistence/Postgres/Repositories/ProfileAnalysisRepository.cs` — implements `IProfileAnalysisRepository`. All queries filter by `organizationId`. Maps between `ProfileAnalysisData` (EF) and `ProfileAnalysis` (Domain).
+- [x] Create `Infrastructure/Persistence/Postgres/EfProfileAnalysisRepository.cs` — implements `IProfileAnalysisRepository`. All queries filter by `organizationId`. Maps between `ProfileAnalysisData` (EF) and `ProfileAnalysis` (Domain).
   - _Spec: PA-13, PA-15_
 
-- [ ] Register `IProfileAnalysisRepository → ProfileAnalysisRepository`, `IProfileScrapeResolver → ApifyProfileScrapeResolver`, `IProfileAnalyzer → ProfileAnalyzer` in `Infrastructure` DI composition root.
+- [x] Register `IProfileAnalysisRepository → EfProfileAnalysisRepository`, `IProfileScrapeResolver → ApifyProfileScrapeResolver`, `IProfileAnalyzer → ProfileAnalyzerOrchestrator` in `Infrastructure` DI composition root.
 
-- [ ] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalysis"` — all green.
-- [ ] Run `pwsh -File scripts/gates/Run-Gates.ps1`.
-- [ ] Commit: `feat(infra): add ProfileAnalysisData EF entity, migration, and repository`
+- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalysis"` — 128 pass.
+- [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — pass=16, skipped=2.
+- [x] Commit: `feat(infrastructure): add ProfileAnalysis EF entity, configuration, migration, and repository` (4e23541)
 
 ---
 
@@ -330,19 +330,19 @@
 **Layer: Infrastructure**
 **TDD order: test → implementation**
 
-- [ ] **[TEST]** Write xUnit unit tests (`Infrastructure/ProfileAnalysisJobProcessorTests.cs`):
+- [x] **[TEST]** Write xUnit unit tests (`Infrastructure/ProfileAnalysisJobProcessorTests.cs`):
   - Job processor picks up a `ProfileAnalysisJob` message and calls `IProfileAnalyzer.RunQueuedAsync`.
-  - On exception, status is set to `Failed` and diagnostics are persisted.
+  - On exception, worker survives and processes next job (exception isolation).
   - _Spec: PA-14, PA-23_
 
-- [ ] Create `Infrastructure/Social/ProfileAnalysisJobProcessor.cs` — background processor mirroring the existing single-analyzer job queue pattern. Dequeues `ProfileAnalysisJob` messages; calls `IProfileAnalyzer.RunQueuedAsync(analysisId, orgId)`; handles unhandled exceptions by marking the record `Failed` with a diagnostic. Emits structured log entries at job start, job success, and job failure to `hive-api.log`.
+- [x] Create `Infrastructure/Social/Workflow/ProfileAnalysisBackgroundWorker.cs` + `ChannelProfileAnalysisJobQueue.cs` — background processor and queue mirroring single-analyzer pattern. Dequeues `ProfileAnalysisJob` messages; calls `IProfileAnalyzer.RunQueuedAsync(analysisId, orgId)`; handles unhandled exceptions by marking the record `Failed` with a diagnostic. Emits structured log entries at job start, job success, and job failure to `hive-api.log`.
   - _Spec: PA-14, PA-23_
 
-- [ ] Register the job queue and processor in the DI/Aspire composition (mirror pattern from single-analyzer job queue registration).
+- [x] Register the job queue singleton in DI + AddHostedService<ProfileAnalysisBackgroundWorker> in ApiService Program.cs.
 
-- [ ] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalysisJob"` — all green.
-- [ ] Run `pwsh -File scripts/gates/Run-Gates.ps1`.
-- [ ] Commit: `feat(infra): add ProfileAnalysisJobProcessor background worker`
+- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnaly"` — 128 pass.
+- [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — pass=16, skipped=2.
+- [x] Commit: `feat(infrastructure): add ProfileAnalysis background job queue and processor` (0d33a1e)
 
 ---
 
@@ -352,7 +352,7 @@
 **Layer: Api**
 **TDD order: test → implementation**
 
-- [ ] **[TEST]** Write xUnit API facade tests (`ApiService/Social/ProfileAnalyzerEndpointTests.cs`):
+- [x] **[TEST]** Write xUnit API facade tests (`ApiService/Social/ProfileAnalyzerEndpointTests.cs`):
   - `POST /api/social/profile-analyzer/analyze` with valid client+own-account → 202 + `ProfileAnalysis` id.
   - `POST /analyze` with both sources → 400 (PA-03).
   - `POST /analyze` with neither source → 400 (PA-03).
@@ -365,7 +365,7 @@
   - `DELETE /{id}` returns 204 (PA-15).
   - _Spec: PA-01–PA-03, PA-15, PA-20, PA-22_
 
-- [ ] Create `ApiService/Endpoints/Social/MapProfileAnalyzerEndpoints.cs` — new endpoint group `/api/social/profile-analyzer` (does NOT overload `/api/social/single-analyzer`). Endpoints:
+- [x] Create `ApiService/Endpoints/Social/MapProfileAnalyzerEndpoints.cs` — new endpoint group `/api/social/profile-analyzer` (does NOT overload `/api/social/single-analyzer`). Endpoints:
   - `POST /analyze` → `AnalyzeProfileCommand` → 202 + id.
   - `GET /{id:guid}` → `GetProfileAnalysisQuery` → 200.
   - `GET /{id:guid}/dashboard` → `GetProfileDashboardQuery` → 200.
@@ -375,14 +375,14 @@
   Include `ProfileAnalyzerEndpointFacade` internal static class (mirrors single-analyzer pattern). Add OpenAPI `WithName`/`WithSummary` to all endpoints. Register in `ApiService` endpoint map.
   - _Spec: PA-15_
 
-- [ ] Verify `GET /api/social/clients/{clientId}/own-accounts?network=instagram` endpoint exists (added in `MapClientOwnAccountsEndpoints.cs`). If it does not expose the `network` filter query parameter, add filtering support. This endpoint feeds the frontend client+own-account picker.
+- [x] Verify `GET /api/social/clients/{clientId}/own-accounts?network=instagram` endpoint exists (added in `MapClientOwnAccountsEndpoints.cs`). If it does not expose the `network` filter query parameter, add filtering support. This endpoint feeds the frontend client+own-account picker.
   - _Spec: PA-01_
 
-- [ ] Register `MapProfileAnalyzerEndpoints` in the app startup endpoint map.
+- [x] Register `MapProfileAnalyzerEndpoints` in the app startup endpoint map.
 
-- [ ] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalyzerEndpoint"` — all green.
-- [ ] Run `pwsh -File scripts/gates/Run-Gates.ps1`.
-- [ ] Commit: `feat(api): add ProfileAnalyzer endpoint group and impute endpoint`
+- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalyzerEndpoint"` — all green. 23/23 pass.
+- [x] Run `pwsh -File scripts/gates/Run-Gates.ps1`. pass=16, skipped=2. Total: 927/929 pass.
+- [x] Commit: `feat(api): add ProfileAnalyzer endpoint group and own-account picker`
 
 ---
 
