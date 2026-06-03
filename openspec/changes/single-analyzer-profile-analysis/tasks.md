@@ -493,16 +493,19 @@
 **Layer: Infrastructure / Application**
 **Parallel: can run alongside WU-10 once WU-08 is merged**
 
-- [ ] Verify all `IProfileAnalyzer` orchestrator stage boundaries emit structured log entries using `ILogger<ProfileAnalyzer>` with log-level `Information` on progress and `Warning`/`Error` on failure. Required fields per entry: `analysisId`, `organizationId`, `stage`, `actorId` (when applicable), `fallbackUsed` (when applicable), `postsReceived`, `postsProcessed`, `degradedPostCount`.
+- [x] Verify all `IProfileAnalyzer` orchestrator stage boundaries emit structured log entries using `ILogger<ProfileAnalyzer>` with log-level `Information` on progress and `Warning`/`Error` on failure. Required fields per entry: `analysisId`, `organizationId`, `stage`, `actorId` (when applicable), `fallbackUsed` (when applicable), `postsReceived`, `postsProcessed`, `degradedPostCount`.
   - _Spec: PA-23_
+  - VERIFIED + GAPS FILLED: orchestrator log entries updated to include all required structured fields. `ProfileRunDiagnostics` POCO created. `ProfileScrapeResult` enriched with `UsedActorId` and `FallbackUsed`. 3 new PA-23 tests added (930/932 pass).
 
-- [ ] Verify `ApifyProfileScrapeResolver` emits a structured log entry on: actor resolution, Apify dispatch start, Apify dispatch result (success/failure), fallback trigger, final outcome. Confirm entries route to `hive-api.log` (mirrors the single-analyzer logging config).
+- [x] Verify `ApifyProfileScrapeResolver` emits a structured log entry on: actor resolution, Apify dispatch start, Apify dispatch result (success/failure), fallback trigger, final outcome. Confirm entries route to `hive-api.log` (mirrors the single-analyzer logging config).
   - _Spec: PA-23_
+  - VERIFIED: resolver already had all required log entries. hive-api.log routing confirmed via FileLogging.CategoryPrefix="Incoders.Hive" in appsettings.json.
 
-- [ ] Verify `ProfileAnalysisData.ProviderDiagnosticsJson` is populated on ALL terminal paths (Analyzed, Failed, partial). Confirm the JSON shape matches the PA-23 scenario requirements: `actor_id`, `fallback_used`, `posts_received`, `posts_processed`, `degraded_post_count`, `ai_provider_key`, `ai_model`; on fallback: `default_actor_error` + `backup_actor_id`; on failure: both failure reasons.
+- [x] Verify `ProfileAnalysisData.ProviderDiagnosticsJson` is populated on ALL terminal paths (Analyzed, Failed, partial). Confirm the JSON shape matches the PA-23 scenario requirements: `actor_id`, `fallback_used`, `posts_received`, `posts_processed`, `degraded_post_count`, `ai_provider_key`, `ai_model`; on fallback: `default_actor_error` + `backup_actor_id`; on failure: both failure reasons.
   - _Spec: PA-23_
+  - GAPS FILLED: new `ProfileRunDiagnostics` record serialized to ProviderDiagnosticsJson on ALL terminal paths.
 
-- [ ] Commit (if any code changes): `feat(infra): wire structured diagnostics and provider logging to hive-api.log`
+- [x] Commit: `feat(infra): wire structured diagnostics and provider logging to hive-api.log` (aa90c36)
 
 ---
 
@@ -512,7 +515,7 @@
 **Layer: Docs**
 **Parallel: can run alongside frontend WU-11/12**
 
-- [ ] Create `docs/architecture/diagrams/profile-analysis-flow.excalidraw` — Excalidraw source file. Nodes and edges per design.md §Excalidraw Diagram Deliverable:
+- [x] Create `docs/architecture/diagrams/profile-analysis-flow.excalidraw` — Excalidraw source file. Nodes and edges per design.md §Excalidraw Diagram Deliverable:
   ```
   Source (Client+IG own-account | URL paste)
     → AnalyzeProfile (202, record Requested)
@@ -527,20 +530,20 @@
   Color legend: source/enduring nodes = blue, pipeline stages = purple, terminal states = green, decision/fallback = amber. Cross-link to ADR 0003 in a diagram label.
   - _Design: §Excalidraw Diagram Deliverable, ADR 0003 §Related_
 
-- [ ] Create `docs/architecture/diagrams/profile-analysis-flow.md` — Mermaid rendering of the same flow (mirrors `content-plan-flow.md` format). Top note links to `profile-analysis-flow.excalidraw` and to ADR 0003.
+- [x] Create `docs/architecture/diagrams/profile-analysis-flow.md` — Mermaid rendering of the same flow (mirrors `content-plan-flow.md` format). Top note links to `profile-analysis-flow.excalidraw` and to ADR 0003.
   - _Design: §Excalidraw Diagram Deliverable_
 
-- [ ] Update `openspec/specs/integrations/spec.md` (additive delta per `spec-delta.md`) — document:
+- [x] Update `openspec/specs/integrations/spec.md` (additive delta per `spec-delta.md`) — document:
   - Required `actor_mappings_json` entry shape for `(networkKey="instagram", variantKey="profile")` including `defaultActorId` (iMcuOj3FW9xLIbqET) and `backupActorId` (dSCLg0C3YEZ83HzYX).
   - Automatic backup-actor fallback behavior (default fails → backup retried once in the same run; applies ONLY to `variantKey="profile"`; single-video path unaffected).
   - `Integration.ProfileActorNotConfigured` 422 error on missing entries.
   - _Spec: INT-DELTA-01, INT-01, INT-02_
 
-- [ ] Add operator setup documentation comment block to `ApifyProfileScrapeResolver.cs` (or a companion `docs/operators/profile-analysis-setup.md`) specifying the exact required `actor_mappings_json` entries, the fallback behavior, and the consequence of missing entries (clear 422 diagnostic).
-  - _Spec: INT-DELTA-01_
+- [x] Add operator setup documentation comment block to `ApifyProfileScrapeResolver.cs` (or a companion `docs/operators/profile-analysis-setup.md`) specifying the exact required `actor_mappings_json` entries, the fallback behavior, and the consequence of missing entries (clear 422 diagnostic).
+  - _Spec: INT-DELTA-01_ — created `docs/operators/profile-analysis-setup.md`
 
-- [ ] Confirm docs sync: verify `docs/SDD.md` and `docs/PRD.md` are consistent with the new profile analysis capability. Add a brief section under the Social module description if absent.
-  - _AGENTS.md §Documentation Sync_
+- [x] Confirm docs sync: verify `docs/SDD.md` and `docs/PRD.md` are consistent with the new profile analysis capability. Add a brief section under the Social module description if absent.
+  - _AGENTS.md §Documentation Sync_ — added §11 to SDD.md and §10 to PRD.md
 
 - [ ] Run `pwsh -File scripts/gates/Run-Gates.ps1` — final gate run across all layers.
 - [ ] Commit: `docs: add profile-analysis-flow diagram, integrations spec delta, and operator setup notes`
