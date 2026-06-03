@@ -556,20 +556,26 @@
 **Layer: All**
 **Sequential: last task, after all WUs complete**
 
-- [ ] **[TEST]** Run the full test suite: `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj` — all existing Mundo 1 tests (`SingleAnalyzer*`, `ContentAnalysisProfile*`, `SocialContentAnalysis*`) pass unchanged.
+- [x] **[TEST]** Run the full test suite: `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj` — all existing Mundo 1 tests (`SingleAnalyzer*`, `ContentAnalysisProfile*`, `SocialContentAnalysis*`) pass unchanged.
   - _Spec: PA-REG-01_
+  - RESULT: 930/932 pass (2 skipped). 58 Mundo 1 tests all green. 0 failures.
 
-- [ ] **[ARCH TEST]** Confirm architecture test: no type in `ProfileAnalysis` namespace imports from `SingleAnalyzer` namespace (and vice versa). Run architecture gate.
+- [x] **[ARCH TEST]** Confirm architecture test: no type in `ProfileAnalysis` namespace imports from `SingleAnalyzer` namespace (and vice versa). Run architecture gate.
   - _Spec: PA-REG-01_
+  - RESULT: Both arch isolation tests pass (ProfileAnalysis_DoNotReferenceAnyTypeFromSingleAnalyzerNamespace + SingleAnalyzer_DoNotReferenceAnyTypeFromProfileAnalysisNamespace).
 
-- [ ] **[SCHEMA CHECK]** Verify `social.single_content_analyses` table schema is unchanged by running a schema snapshot comparison (or manually inspecting the migration).
+- [x] **[SCHEMA CHECK]** Verify `social.single_content_analyses` table schema is unchanged by running a schema snapshot comparison (or manually inspecting the migration).
   - _Spec: PA-REG-01_
+  - RESULT: Migration 20260602204600_AddProfileAnalyses.Up() only calls CreateTable("profile_analyses", schema:"social"). No ALTER TABLE. social.single_content_analyses untouched.
 
-- [ ] Verify `single-analyzer-client.tsx` diff contains ONLY the mode switch addition — no existing Mundo 1 logic modified.
+- [x] Verify `single-analyzer-client.tsx` diff contains ONLY the mode switch addition — no existing Mundo 1 logic modified.
   - _Spec: PA-REG-01_
+  - RESULT: `git diff dev -- apps/web/components/social/single-analyzer-client.tsx` is EMPTY. Zero modifications to single-analyzer-client.tsx. Mode switch implemented as new AnalyzerModeSwitch.tsx (WU-10).
 
-- [ ] Run `pwsh -File scripts/gates/Run-Gates.ps1` — final green on all MUST gates.
-- [ ] Commit: `test(regression): verify Mundo 1 unchanged after profile analysis feature`
+- [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — final green on all MUST gates.
+  - RESULT: pass=16, skipped=2. PASS — no MUST gate failed.
+
+- [x] Commit: `test(regression): verify Mundo 1 unchanged after profile analysis feature`
 
 ---
 
