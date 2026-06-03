@@ -138,6 +138,7 @@ public static class DependencyInjection
         services.AddScoped<IProfileAnalysisRepository, EfProfileAnalysisRepository>();
         // Profile analysis orchestrator — Application layer (depends on Infrastructure ports)
         services.AddScoped<IProfileAnalyzer, ProfileAnalyzerOrchestrator>();
+        services.AddScoped<IProfileMetricCalculator, ProfileMetricCalculator>();
         services.AddScoped<IClientBrandSnapshotLoader, EfClientBrandSnapshotLoader>();
         services.AddScoped<IContentGenerationJobRepository, EfContentGenerationJobRepository>();
         services.AddScoped<IContentGenerationFormatResultRepository, EfContentGenerationFormatResultRepository>();
