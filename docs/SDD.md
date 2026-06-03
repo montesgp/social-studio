@@ -101,3 +101,46 @@ Use Next.js App Router. Build a workflow dashboard around client selection, cont
 - Integration tests for provider adapters.
 - API contract tests for frontend/backend sync.
 - Optional TestSprite validation for E2E workflow journeys.
+
+---
+
+## 11. Social Module — Profile Analysis (Mundo 2)
+
+> Added by `single-analyzer-profile-analysis`. ADR: [`docs/architecture/adr/0003-profile-analysis-model.md`](architecture/adr/0003-profile-analysis-model.md).
+
+The **Profile Analyzer** is a second, independent analyzer mode in the Social module. A community manager can analyse an entire Instagram profile — by selecting a client's own Instagram account or pasting a profile URL — and receive an expert AI marketing analysis, view a charted dashboard of account metrics, and optionally impute detected fields (brand colors, fonts, voice tone, content pillars, KPIs, etc.) into the client's Brand Manual, Content Plan, and General Strategy.
+
+### Bounded Context Isolation
+
+`ProfileAnalysis` is a **new first-class aggregate** in `Domain/Social/ProfileAnalysis/` with its own table (`social.profile_analyses`) and EF migration. It MUST NOT share domain types with `Domain/Social/SingleAnalyzer/` (PA-REG-01).
+
+### Pipeline Summary
+
+```
+Source (Client+IG own-account | URL paste)
+  → AnalyzeProfile (202, record Requested)
+  → ScrapingProfile  → Apify default actor  → [backup on fail]
+  → ProfileScraped[Partial]  (owner-filter; derive stats)
+  → Analyzing  (org default AI, profile-analyzer.analysis.v1)
+  → Analyzed | Failed
+  → Dashboard (stats + raw posts + comparison-if-client)
+  → Impute (per-field, confirmed) → {Brand Manual, Content Plan, General Strategy}
+```
+
+See `docs/architecture/diagrams/profile-analysis-flow.md` for the full diagram.
+
+### Key Decisions
+
+| Decision | Choice |
+|---|---|
+| Aggregate | `ProfileAnalysis` — new namespace, new table, no EF navigations to `SocialClientData` |
+| Scrape port | `IProfileScrapeResolver` — does NOT route through `ISocialContentExtractor` |
+| Actor routing | `variantKey="profile"` in `actor_mappings_json` — isolated from single-video path |
+| Fallback | Automatic default→backup in the same pipeline run (profile variant only) |
+| AI flow | `profile-analyzer.analysis.v1` — distinct from `single-analyzer.analysis.v1` |
+| Impute | Reuses existing BrandManual/ContentPlan/GeneralStrategy write commands — idempotent |
+| Frontend | Lazy-loaded `ProfileAnalyzerModule` — recharts isolated to this module |
+
+### Operator Setup
+
+See `docs/operators/profile-analysis-setup.md` for the required `actor_mappings_json` entries.

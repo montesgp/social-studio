@@ -121,7 +121,14 @@ public static class ClientOwnAccountsEndpointsExtensions
         CancellationToken cancellationToken,
         [FromQuery] bool includeInactive = false,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] int pageSize = 20,
+        /// <summary>
+        /// Optional social network code filter (e.g. "instagram").
+        /// When supplied, only accounts on that network are returned.
+        /// Used by the ProfileAnalyzer own-account picker (PA-01) to surface
+        /// only the client's Instagram accounts for the source-picker dropdown.
+        /// </summary>
+        [FromQuery] string? network = null)
     {
         if (currentTenant.TenantId is not { } organizationId)
         {
@@ -137,7 +144,22 @@ public static class ClientOwnAccountsEndpointsExtensions
                 pageSize),
             cancellationToken);
 
-        return result.Match(r => (IResult)TypedResults.Ok(r));
+        if (result.IsFailure)
+            return result.Error.ToProblem();
+
+        // Apply thin network filter at the endpoint layer (PA-01 own-account picker).
+        // This keeps the Application query unchanged and the filter logic trivially thin.
+        var items = network is null
+            ? result.Value.Items
+            : result.Value.Items
+                .Where(a => a.SocialNetworkCode.Equals(network, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+        var filteredResponse = network is null
+            ? result.Value
+            : new PagedClientOwnAccountsResponse(items, items.Count);
+
+        return TypedResults.Ok(filteredResponse);
     }
 
     private static async Task<IResult> GetByIdAsync(

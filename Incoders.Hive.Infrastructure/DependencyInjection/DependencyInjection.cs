@@ -5,6 +5,7 @@ using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
 using Incoders.Hive.Infrastructure.Ai;
 using Incoders.Hive.Infrastructure.Packaging;
 using Incoders.Hive.Infrastructure.Rendering;
@@ -20,6 +21,7 @@ using Incoders.Hive.Infrastructure.PlatformConfiguration;
 using Incoders.Hive.Infrastructure.Persistence;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Repositories;
+using Incoders.Hive.Infrastructure.Social.Providers;
 using Incoders.Hive.Infrastructure.Social.Providers.Apify;
 using Incoders.Hive.Infrastructure.Social.Workflow;
 using Incoders.Hive.Infrastructure.Tenancy;
@@ -133,6 +135,9 @@ public static class DependencyInjection
         services.AddScoped<IOrganizationIntegrationCredentialRepository, EfOrganizationIntegrationCredentialRepository>();
         services.AddScoped<IIntegrationExecutionAttemptRepository, EfIntegrationExecutionAttemptRepository>();
         services.AddScoped<ISingleContentAnalysisRepository, EfSingleContentAnalysisRepository>();
+        services.AddScoped<IProfileAnalysisRepository, EfProfileAnalysisRepository>();
+        // Profile analysis orchestrator — Application layer (depends on Infrastructure ports)
+        services.AddScoped<IProfileAnalyzer, ProfileAnalyzerOrchestrator>();
         services.AddScoped<IClientBrandSnapshotLoader, EfClientBrandSnapshotLoader>();
         services.AddScoped<IContentGenerationJobRepository, EfContentGenerationJobRepository>();
         services.AddScoped<IContentGenerationFormatResultRepository, EfContentGenerationFormatResultRepository>();
@@ -157,6 +162,7 @@ public static class DependencyInjection
         string[] longRunningHttpClients =
         [
             nameof(Incoders.Hive.Infrastructure.Social.Providers.ApifySocialContentExtractor),
+            nameof(Incoders.Hive.Infrastructure.Social.Providers.ApifyProfileScrapeResolver),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.ClaudeModelClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.OpenAiModelClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.GeminiModelClient),
@@ -194,9 +200,17 @@ public static class DependencyInjection
         });
 
         services.AddScoped<ISocialContentResolver, SocialContentResolver>();
+        // Profile scrape resolver — Mundo 2 infrastructure adapter (PA-04, PA-05, Decision 2).
+        // Resolves Apify credentials per-org via IIntegrationResolver; does NOT route through
+        // ApifySocialContentExtractor (Mundo 1 isolation — PA-REG-01).
+        services.AddScoped<IProfileScrapeResolver, ApifyProfileScrapeResolver>();
         // Background job queue for the async single-analyzer pipeline. Singleton: one in-memory
         // bounded channel shared by the POST producer and the hosted worker consumer.
         services.AddSingleton<ISingleAnalysisJobQueue, ChannelSingleAnalysisJobQueue>();
+
+        // Background job queue for the async profile-analysis pipeline.
+        // Singleton: one in-memory bounded channel shared by POST producer and hosted worker consumer.
+        services.AddSingleton<IProfileAnalysisJobQueue, ChannelProfileAnalysisJobQueue>();
 
         // Background job queue for the async content-generation pipeline.
         services.AddSingleton<IContentGenerationJobQueue, ChannelContentGenerationJobQueue>();

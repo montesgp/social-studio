@@ -74,3 +74,30 @@ Content operators repeatedly research viral content, interpret why it worked, id
 - Each organization can configure its own third-party integration credentials (AI, Canva, Blotato, etc.) without relying only on appsettings.
 - The frontend shows workflow state and errors clearly.
 - Backend use cases are provider-agnostic.
+- **Profile Analyzer (Mundo 2)**: A CM can analyse an entire Instagram account by selecting a client+own-account or pasting a profile URL. The system scrapes the profile, computes engagement metrics, runs AI marketing analysis, and presents a charted dashboard. Detected fields can be optionally imputed into the client's Brand Manual, Content Plan, and General Strategy. The existing single-video flow (Mundo 1) is untouched.
+
+---
+
+## 10. Social Module — Profile Analysis (Mundo 2)
+
+> Added by `single-analyzer-profile-analysis` (2026-06-02).
+
+### User Story
+
+As a community manager, I want to analyse an Instagram account (my client's own account or any public account) and receive an expert AI marketing analysis, so I can understand the account's strengths and weaknesses and optionally apply the detected insights to the client's content strategy.
+
+### MVP Acceptance Criteria
+
+- CM can initiate a profile analysis by selecting a client + own Instagram account, or by pasting a profile URL.
+- Analysis runs in the background; CM polls for status via a progress indicator.
+- On completion, a dashboard shows: engagement metrics, weekday performance charts, content type mix, AI narrative (summary, strengths, weaknesses, opportunities, recommendations).
+- When a client is linked, a comparison panel shows detected account state vs. stated objectives.
+- CM can select individual detected fields and impute them into the client's Brand Manual, Content Plan, or General Strategy (per-field, opt-in, confirmed before applying).
+- Diagnostics (actor ids, fallback indicator, posts counts, AI provider) are persisted per run.
+- Operator must configure two Apify actor entries with `variantKey="profile"` (see `docs/operators/profile-analysis-setup.md`).
+
+### Non-Goals
+
+- Scheduling or automating repeated profile analyses.
+- Comparing multiple accounts head-to-head.
+- Real-time metrics (all data is from a single Apify snapshot).
