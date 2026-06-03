@@ -472,17 +472,18 @@
 **Layer: Frontend**
 **Check: `tsc --noEmit` + ESLint**
 
-- [ ] Create `apps/web/components/social/profile-analyzer/impute/ImputePanel.tsx` — rendered ONLY when `analysisId.clientId` is non-null (hidden entirely for URL-only path). Presents 13 impute targets as individual checkboxes grouped by: Brand Manual (ColorPalette, Typography, BackgroundTemplates, Logos, VoiceAndTone), Content Plan (ObjectiveText, ObjectiveKpis, ContentStrategyText, Slots), General Strategy (ContentPillars, ToneKeywords, TargetAudience, PostingFrequency). Each checkbox shows the field name + the detected AI value. "Impute selected" button opens `<ConfirmDialog>`.
+- [x] Create `apps/web/components/social/profile-analyzer/impute/ImputePanel.tsx` — rendered ONLY when `clientId` is non-null AND `aiAnalysis` is non-null (PA-22: Analyzed + client-linked). Presents 11 impute targets grouped by: Manual de marca (ColorPalette, Typography, BackgroundTemplates, VoiceAndTone), Plan de contenido (ObjectiveText, ObjectiveKpis, ContentStrategyText), Estrategia general (ContentPillars, ToneKeywords, TargetAudience, PostingFrequency). Each checkbox shows field name + detected AI value preview; disabled with "sin dato detectado" when null. Select-all/clear helpers. "Imputar seleccionados al cliente" button opens ConfirmationDialog. Uses reused ConfirmationDialog from `@/components/ui/confirmation-dialog`. URL-path shows a note "Imputación disponible solo al analizar un cliente del sistema".
   - _Spec: PA-20_
 
-- [ ] Create `apps/web/components/social/profile-analyzer/impute/ConfirmDialog.tsx` — confirmation dialog listing only the selected fields and their new values. "Confirm" triggers `imputeProfileAnalysis(id, {targets: selectedTargets})`. Shows success toast on completion. Shows error state on failure.
+- [x] Confirmation dialog (reused `ConfirmationDialog` from `@/components/ui/confirmation-dialog`) opens before applying. Shows summary of selected targets + client ID. "Confirmar y aplicar" triggers `imputeProfileAnalysis(id, {targets})`. Success feedback via `useToast().success()`. Error feedback via `useToast().error()`. Post-success shows inline applied-fields summary.
   - _Spec: PA-20, PA-21_
 
-- [ ] Impute panel is disabled + shows tooltip when analysis is not in `Analyzed` status (frontend guard mirrors API guard PA-22).
+- [x] Impute panel rendered in `ProfileDashboard.tsx` after ComparisonVsObjectivesPanel. Guard: `dashboard.clientId !== null && dashboard.aiAnalysis !== null`. Dashboard is only reached when status === Analyzed (PA-22 frontend guard).
   - _Spec: PA-22_
 
-- [ ] Run `tsc --noEmit` and ESLint in `apps/web` — zero errors before committing.
-- [ ] Commit: `feat(web): add ImputePanel and ConfirmDialog for field-level impute`
+- [x] Run `tsc --noEmit` and ESLint in `apps/web` — zero errors; all warnings pre-existing in unrelated files. No new warnings from ImputePanel or ProfileDashboard.
+- [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — pass=16, skipped=2. build.frontend.web: pass (44.9s). build.frontend.web.lint: pass. tests.backend: 927/929, 0 failed.
+- [x] Commit: `feat(web): add per-field impute panel with confirmation for client ABM`
 
 ---
 

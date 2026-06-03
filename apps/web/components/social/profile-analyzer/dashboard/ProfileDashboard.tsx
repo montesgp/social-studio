@@ -18,6 +18,7 @@ import { ContentTypeMixChart } from "@/components/social/profile-analyzer/dashbo
 import { EngagementTrendChart } from "@/components/social/profile-analyzer/dashboard/EngagementTrendChart";
 import { AiNarrativePanel } from "@/components/social/profile-analyzer/dashboard/AiNarrativePanel";
 import { ComparisonVsObjectivesPanel } from "@/components/social/profile-analyzer/dashboard/ComparisonVsObjectivesPanel";
+import { ImputePanel } from "@/components/social/profile-analyzer/impute/ImputePanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -150,6 +151,22 @@ export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboar
             />
           </CardContent>
         </Card>
+      )}
+
+      {/* Impute panel — PA-20/21/22: only when Analyzed (guaranteed by caller) + clientId non-null */}
+      {dashboard.clientId !== null && dashboard.aiAnalysis !== null ? (
+        <ImputePanel
+          analysisId={analysisId}
+          clientId={dashboard.clientId}
+          aiAnalysis={dashboard.aiAnalysis}
+          token={token}
+        />
+      ) : (
+        <div className="flex items-center justify-center h-10 rounded-md border border-border/20 border-dashed">
+          <p className="text-xs text-muted-foreground/50">
+            Imputación disponible solo al analizar un cliente del sistema
+          </p>
+        </div>
       )}
 
       {/* Graceful empty state: no data at all (PA-18) */}
