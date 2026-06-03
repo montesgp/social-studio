@@ -59,13 +59,17 @@ public sealed record ProfileScrapeRequest(
 /// Per-attempt provider failure records. Populated even on success when fallback was used
 /// (primary actor failure + backup actor success).
 /// </param>
+/// <param name="UsedActorId">The actor id that actually produced the successful result.</param>
+/// <param name="FallbackUsed">True when the backup actor was used (primary failed).</param>
 public sealed record ProfileScrapeResult(
     ProfileSnapshot Profile,
     IReadOnlyList<ProfilePost> OwnerPosts,
     IReadOnlyList<ProfilePost> Reels,
     ProfileAggregates ProviderAggregates,
     bool IsPartial,
-    IReadOnlyList<ProviderFailureDiagnostic> Diagnostics);
+    IReadOnlyList<ProviderFailureDiagnostic> Diagnostics,
+    string UsedActorId = "",
+    bool FallbackUsed = false);
 
 /// <summary>
 /// Provider-level aggregate fields from the Apify profile actor response.

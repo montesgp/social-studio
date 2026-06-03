@@ -115,10 +115,97 @@ public sealed class ProfileAnalyzerOrchestratorTests
         Assert.NotEqual("single-analyzer.analysis.v1", harness.AiGateway.LastRequest.PromptVersionKey);
     }
 
+    // ── PA-23: Diagnostics populated on successful run ────────────────────────
+
+    [Fact]
+    public async Task RunQueuedAsync_HappyPath_DiagnosticsContainActorIdAndAiProviderKey()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        var analysis = CreateFromUrl(orgId);
+        harness.Repository.Store(analysis);
+        harness.ScrapeResolver.SetSuccess(MakeScrapeResultWithActor("actor-abc", fallback: false));
+        harness.AiGateway.SetPayload(MakeAiResult());
+
+        await harness.Orchestrator.RunQueuedAsync(analysis.Id, orgId, CancellationToken.None);
+
+        var stored = harness.Repository.Stored!;
+        Assert.Equal(ProfileAnalysisStatus.Analyzed, stored.Status);
+        Assert.NotNull(stored.ProviderDiagnosticsJson);
+        // PA-23: diagnostics must contain actor_id, ai provider info
+        var diagJson = stored.ProviderDiagnosticsJson!;
+        Assert.Contains("actor-abc", diagJson);
+        Assert.Contains("openai", diagJson);
+        Assert.Contains("gpt-test", diagJson);
+    }
+
+    // ── PA-23: Diagnostics populated on fallback run ──────────────────────────
+
+    [Fact]
+    public async Task RunQueuedAsync_FallbackRun_DiagnosticsContainFallbackTrueAndDefaultActorError()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        var analysis = CreateFromUrl(orgId);
+        harness.Repository.Store(analysis);
+
+        // Simulate a fallback: IsPartial=true, FallbackUsed=true, with one failure diagnostic
+        harness.ScrapeResolver.SetSuccess(MakeScrapeResultWithFallback("backup-actor-xyz"));
+        harness.AiGateway.SetPayload(MakeAiResult());
+
+        await harness.Orchestrator.RunQueuedAsync(analysis.Id, orgId, CancellationToken.None);
+
+        var stored = harness.Repository.Stored!;
+        Assert.Equal(ProfileAnalysisStatus.Analyzed, stored.Status);
+        Assert.NotNull(stored.ProviderDiagnosticsJson);
+        var diagJson = stored.ProviderDiagnosticsJson!;
+        // PA-23: fallback_used, default_actor_error, backup_actor_id present
+        Assert.Contains("backup-actor-xyz", diagJson);
+        Assert.Contains("\"fallbackUsed\":true", diagJson.Replace(" ", ""));
+    }
+
+    // ── PA-23: Diagnostics populated on failed run ────────────────────────────
+
+    [Fact]
+    public async Task RunQueuedAsync_ScrapeFailure_DiagnosticsContainFailureReasons()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        var analysis = CreateFromUrl(orgId);
+        harness.Repository.Store(analysis);
+        harness.ScrapeResolver.SetFailure(
+            new Error("integration.profile_actor_not_configured", "No actor configured", ErrorType.Failure));
+
+        await harness.Orchestrator.RunQueuedAsync(analysis.Id, orgId, CancellationToken.None);
+
+        var stored = harness.Repository.Stored!;
+        Assert.Equal(ProfileAnalysisStatus.Failed, stored.Status);
+        Assert.NotNull(stored.ProviderDiagnosticsJson);
+        Assert.Contains("integration.profile_actor_not_configured", stored.ProviderDiagnosticsJson!);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static DomainProfileAnalysis CreateFromUrl(Guid orgId) =>
         DomainProfileAnalysis.CreateFromUrl(orgId, "https://instagram.com/testbrand", DateTime.UtcNow);
+
+    private static ProfileScrapeResult MakeScrapeResultWithActor(string actorId, bool fallback) =>
+        MakeScrapeResult(isPartial: fallback) with { UsedActorId = actorId, FallbackUsed = fallback };
+
+    private static ProfileScrapeResult MakeScrapeResultWithFallback(string backupActorId)
+    {
+        var failureDiag = ProviderFailureDiagnostic.Create(
+            "profile", "default-actor-id", 1,
+            "integration.default_actor_failed", "Default actor failed",
+            isRetryable: false, fallbackAllowed: true, elapsedMs: 100, DateTime.UtcNow);
+
+        return MakeScrapeResult(isPartial: true) with
+        {
+            UsedActorId = backupActorId,
+            FallbackUsed = true,
+            Diagnostics = failureDiag.IsSuccess ? [failureDiag.Value] : [],
+        };
+    }
 
     private static ProfileScrapeResult MakeScrapeResult(bool isPartial) =>
         new(

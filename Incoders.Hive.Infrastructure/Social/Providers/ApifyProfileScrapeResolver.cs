@@ -210,7 +210,7 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
                     request.OrganizationId,
                     request.AnalysisId);
 
-                return BuildResult(attemptResult.Value, diagnostics, isFallback);
+                return BuildResult(attemptResult.Value, diagnostics, isFallback, actorId);
             }
 
             // Record diagnostic for this failed attempt
@@ -350,7 +350,8 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
     private static Result<ProfileScrapeResult> BuildResult(
         ProfileMappingResult mapped,
         IReadOnlyList<ProviderFailureDiagnostic> diagnostics,
-        bool isFallback)
+        bool isFallback,
+        string usedActorId)
     {
         // The owner filter (ownerId == instagramId) is applied downstream in ProfileMetricCalculator.
         // We return ALL posts raw so the calculator can apply the filter (PA-07).
@@ -368,7 +369,9 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
             Reels: mapped.Reels,
             ProviderAggregates: providerAggregates,
             IsPartial: isFallback || mapped.AllPosts.Any(p => p.IsDegraded),
-            Diagnostics: diagnostics));
+            Diagnostics: diagnostics,
+            UsedActorId: usedActorId,
+            FallbackUsed: isFallback));
     }
 
     /// <summary>
