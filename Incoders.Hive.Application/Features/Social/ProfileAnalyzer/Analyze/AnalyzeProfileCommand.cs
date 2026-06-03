@@ -16,7 +16,3 @@ public sealed record AnalyzeProfileCommand(
     Guid? OwnAccountId,
     string? ProfileUrl) : IRequest<Result<AnalyzeProfileStatusResponse>>;
 
-/// <summary>Reads the current status/result of a profile analysis (for polling).</summary>
-public sealed record GetProfileAnalysisQuery(
-    Guid AnalysisId,
-    Guid OrganizationId) : IRequest<Result<AnalyzeProfileStatusResponse>>;

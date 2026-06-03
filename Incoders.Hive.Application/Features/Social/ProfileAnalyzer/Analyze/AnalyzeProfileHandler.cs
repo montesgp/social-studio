@@ -114,29 +114,3 @@ public sealed class AnalyzeProfileHandler
         return Result.Success(AnalyzeProfileStatusResponse.FromRecord(analysis));
     }
 }
-
-/// <summary>Reads the current status/result of a profile analysis for polling (PA-15).</summary>
-public sealed class GetProfileAnalysisHandler
-    : IRequestHandler<GetProfileAnalysisQuery, Result<AnalyzeProfileStatusResponse>>
-{
-    private readonly IProfileAnalysisRepository _repository;
-
-    public GetProfileAnalysisHandler(IProfileAnalysisRepository repository)
-    {
-        _repository = repository;
-    }
-
-    public async Task<Result<AnalyzeProfileStatusResponse>> Handle(
-        GetProfileAnalysisQuery request,
-        CancellationToken cancellationToken)
-    {
-        var analysis = await _repository.GetByIdAsync(
-            request.AnalysisId,
-            request.OrganizationId,
-            cancellationToken);
-
-        return analysis is null
-            ? Result.Failure<AnalyzeProfileStatusResponse>(ProfileAnalysisErrors.NotFound)
-            : Result.Success(AnalyzeProfileStatusResponse.FromRecord(analysis));
-    }
-}
