@@ -69,14 +69,14 @@
       "locked": false,
       "fontSize": 14,
       "fontFamily": 1,
-      "text": "ADR 0003 — profile-analysis-model (docs/architecture/adr/0003-profile-analysis-model.md)",
+      "text": "ADR 0003 — profile-analysis-model",
       "textAlign": "left",
       "verticalAlign": "top",
       "containerId": null,
-      "originalText": "ADR 0003 — profile-analysis-model (docs/architecture/adr/0003-profile-analysis-model.md)",
+      "originalText": "ADR 0003 — profile-analysis-model",
       "lineHeight": 1.25,
       "baseline": 12,
-      "index": "a0b",
+      "index": "a1",
       "autoResize": true
     },
     {
@@ -96,16 +96,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2003,
       "version": 2,
       "versionNonce": 2003001,
       "isDeleted": false,
-      "boundElements": [{ "type": "text", "id": "tx_src" }, { "type": "arrow", "id": "ar_src_analyze" }],
+      "boundElements": [],
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "index": "a1"
+      "index": "a2"
     },
     {
       "type": "text",
@@ -142,7 +144,7 @@
       "originalText": "Source: Client+IG own-account | URL paste",
       "lineHeight": 1.25,
       "baseline": 14,
-      "index": "a2",
+      "index": "a3",
       "autoResize": true
     },
     {
@@ -162,20 +164,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2004,
       "version": 2,
       "versionNonce": 2004001,
       "isDeleted": false,
-      "boundElements": [
-        { "type": "text", "id": "tx_analyze" },
-        { "type": "arrow", "id": "ar_src_analyze" },
-        { "type": "arrow", "id": "ar_analyze_scraping" }
-      ],
+      "boundElements": [],
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "index": "a3"
+      "index": "a4"
     },
     {
       "type": "text",
@@ -212,7 +212,7 @@
       "originalText": "AnalyzeProfile — 202, record Requested",
       "lineHeight": 1.25,
       "baseline": 14,
-      "index": "a4",
+      "index": "a5",
       "autoResize": true
     },
     {
@@ -232,20 +232,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2005,
       "version": 2,
       "versionNonce": 2005001,
       "isDeleted": false,
-      "boundElements": [
-        { "type": "text", "id": "tx_scraping" },
-        { "type": "arrow", "id": "ar_analyze_scraping" },
-        { "type": "arrow", "id": "ar_scraping_apify" }
-      ],
+      "boundElements": [],
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "index": "a5"
+      "index": "a6"
     },
     {
       "type": "text",
@@ -282,7 +280,7 @@
       "originalText": "ScrapingProfile",
       "lineHeight": 1.25,
       "baseline": 14,
-      "index": "a6",
+      "index": "a7",
       "autoResize": true
     },
     {
@@ -302,20 +300,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2006,
       "version": 2,
       "versionNonce": 2006001,
       "isDeleted": false,
-      "boundElements": [
-        { "type": "text", "id": "tx_fallback" },
-        { "type": "arrow", "id": "ar_scraping_apify" },
-        { "type": "arrow", "id": "ar_fallback_backup" }
-      ],
+      "boundElements": [],
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "index": "a7"
+      "index": "a8"
     },
     {
       "type": "text",
@@ -352,7 +348,7 @@
       "originalText": "Apify default actor",
       "lineHeight": 1.25,
       "baseline": 12,
-      "index": "a8",
+      "index": "a9",
       "autoResize": true
     },
     {
@@ -372,19 +368,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2007,
       "version": 2,
       "versionNonce": 2007001,
       "isDeleted": false,
-      "boundElements": [
-        { "type": "text", "id": "tx_backup" },
-        { "type": "arrow", "id": "ar_fallback_backup" }
-      ],
+      "boundElements": [],
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "index": "a9"
+      "index": "aA"
     },
     {
       "type": "text",
@@ -421,7 +416,7 @@
       "originalText": "backup actor (on fail)",
       "lineHeight": 1.25,
       "baseline": 11,
-      "index": "a10",
+      "index": "aB",
       "autoResize": true
     },
     {
@@ -441,19 +436,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2008,
       "version": 2,
       "versionNonce": 2008001,
       "isDeleted": false,
-      "boundElements": [
-        { "type": "text", "id": "tx_scraped" },
-        { "type": "arrow", "id": "ar_scraped_analyzing" }
-      ],
+      "boundElements": [],
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "index": "a11"
+      "index": "aC"
     },
     {
       "type": "text",
@@ -490,7 +484,7 @@
       "originalText": "ProfileScraped[Partial]",
       "lineHeight": 1.25,
       "baseline": 14,
-      "index": "a12",
+      "index": "aD",
       "autoResize": true
     },
     {
@@ -510,21 +504,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2009,
       "version": 2,
       "versionNonce": 2009001,
       "isDeleted": false,
-      "boundElements": [
-        { "type": "text", "id": "tx_analyzing" },
-        { "type": "arrow", "id": "ar_scraped_analyzing" },
-        { "type": "arrow", "id": "ar_analyzing_analyzed" },
-        { "type": "arrow", "id": "ar_analyzing_failed" }
-      ],
+      "boundElements": [],
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "index": "a13"
+      "index": "aE"
     },
     {
       "type": "text",
@@ -561,7 +552,7 @@
       "originalText": "Analyzing (profile-analyzer.analysis.v1)",
       "lineHeight": 1.25,
       "baseline": 14,
-      "index": "a14",
+      "index": "aF",
       "autoResize": true
     },
     {
@@ -581,20 +572,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2010,
       "version": 2,
       "versionNonce": 2010001,
       "isDeleted": false,
-      "boundElements": [
-        { "type": "text", "id": "tx_analyzed" },
-        { "type": "arrow", "id": "ar_analyzing_analyzed" },
-        { "type": "arrow", "id": "ar_analyzed_dashboard" }
-      ],
+      "boundElements": [],
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "index": "a15"
+      "index": "aG"
     },
     {
       "type": "text",
@@ -631,7 +620,7 @@
       "originalText": "Analyzed",
       "lineHeight": 1.25,
       "baseline": 14,
-      "index": "a16",
+      "index": "aH",
       "autoResize": true
     },
     {
@@ -642,8 +631,8 @@
       "width": 200,
       "height": 60,
       "angle": 0,
-      "strokeColor": "#22c55e",
-      "backgroundColor": "#b2f2bb",
+      "strokeColor": "#ef4444",
+      "backgroundColor": "#ffc9c9",
       "fillStyle": "solid",
       "strokeWidth": 2,
       "strokeStyle": "solid",
@@ -651,19 +640,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2011,
       "version": 2,
       "versionNonce": 2011001,
       "isDeleted": false,
-      "boundElements": [
-        { "type": "text", "id": "tx_failed" },
-        { "type": "arrow", "id": "ar_analyzing_failed" }
-      ],
+      "boundElements": [],
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "index": "a17"
+      "index": "aI"
     },
     {
       "type": "text",
@@ -700,7 +688,7 @@
       "originalText": "Failed",
       "lineHeight": 1.25,
       "baseline": 14,
-      "index": "a18",
+      "index": "aJ",
       "autoResize": true
     },
     {
@@ -720,20 +708,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2012,
       "version": 2,
       "versionNonce": 2012001,
       "isDeleted": false,
-      "boundElements": [
-        { "type": "text", "id": "tx_dashboard" },
-        { "type": "arrow", "id": "ar_analyzed_dashboard" },
-        { "type": "arrow", "id": "ar_dashboard_impute" }
-      ],
+      "boundElements": [],
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "index": "a19"
+      "index": "aK"
     },
     {
       "type": "text",
@@ -770,7 +756,7 @@
       "originalText": "Dashboard (stats + posts + comparison-if-client)",
       "lineHeight": 1.25,
       "baseline": 12,
-      "index": "a20",
+      "index": "aL",
       "autoResize": true
     },
     {
@@ -790,20 +776,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2013,
       "version": 2,
       "versionNonce": 2013001,
       "isDeleted": false,
-      "boundElements": [
-        { "type": "text", "id": "tx_impute" },
-        { "type": "arrow", "id": "ar_dashboard_impute" },
-        { "type": "arrow", "id": "ar_impute_targets" }
-      ],
+      "boundElements": [],
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "index": "a21"
+      "index": "aM"
     },
     {
       "type": "text",
@@ -840,7 +824,7 @@
       "originalText": "Impute (per-field, confirmed)",
       "lineHeight": 1.25,
       "baseline": 12,
-      "index": "a22",
+      "index": "aN",
       "autoResize": true
     },
     {
@@ -860,19 +844,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2014,
       "version": 2,
       "versionNonce": 2014001,
       "isDeleted": false,
-      "boundElements": [
-        { "type": "text", "id": "tx_targets" },
-        { "type": "arrow", "id": "ar_impute_targets" }
-      ],
+      "boundElements": [],
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "index": "a23"
+      "index": "aO"
     },
     {
       "type": "text",
@@ -909,12 +892,12 @@
       "originalText": "Brand Manual\nContent Plan\nGeneral Strategy",
       "lineHeight": 1.25,
       "baseline": 12,
-      "index": "a24",
+      "index": "aP",
       "autoResize": true
     },
     {
       "type": "arrow",
-      "id": "ar_src_analyze",
+      "id": "ar1",
       "x": 210,
       "y": 160,
       "width": 0,
@@ -929,7 +912,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 3001,
       "version": 2,
       "versionNonce": 3001001,
@@ -938,17 +923,20 @@
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [0, 60]],
+      "points": [
+        [0, 0],
+        [0, 60]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "src", "focus": 0, "gap": 0 },
-      "endBinding": { "elementId": "analyze", "focus": 0, "gap": 0 },
+      "startBinding": null,
+      "endBinding": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "index": "b1"
+      "index": "aQ"
     },
     {
       "type": "arrow",
-      "id": "ar_analyze_scraping",
+      "id": "ar2",
       "x": 210,
       "y": 280,
       "width": 0,
@@ -963,7 +951,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 3002,
       "version": 2,
       "versionNonce": 3002001,
@@ -972,17 +962,20 @@
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [0, 60]],
+      "points": [
+        [0, 0],
+        [0, 60]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "analyze", "focus": 0, "gap": 0 },
-      "endBinding": { "elementId": "scraping", "focus": 0, "gap": 0 },
+      "startBinding": null,
+      "endBinding": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "index": "b2"
+      "index": "aR"
     },
     {
       "type": "arrow",
-      "id": "ar_scraping_apify",
+      "id": "ar3",
       "x": 360,
       "y": 370,
       "width": 80,
@@ -997,7 +990,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 3003,
       "version": 2,
       "versionNonce": 3003001,
@@ -1006,17 +1001,20 @@
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [80, 0]],
+      "points": [
+        [0, 0],
+        [80, 0]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "scraping", "focus": 0, "gap": 0 },
-      "endBinding": { "elementId": "fallback", "focus": 0, "gap": 0 },
+      "startBinding": null,
+      "endBinding": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "index": "b3"
+      "index": "aS"
     },
     {
       "type": "arrow",
-      "id": "ar_fallback_backup",
+      "id": "ar4",
       "x": 530,
       "y": 400,
       "width": 0,
@@ -1031,7 +1029,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 3004,
       "version": 2,
       "versionNonce": 3004001,
@@ -1040,17 +1040,20 @@
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [0, 60]],
+      "points": [
+        [0, 0],
+        [0, 60]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "fallback", "focus": 0, "gap": 0 },
-      "endBinding": { "elementId": "backup", "focus": 0, "gap": 0 },
+      "startBinding": null,
+      "endBinding": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "index": "b4"
+      "index": "aT"
     },
     {
       "type": "arrow",
-      "id": "ar_scraped_analyzing",
+      "id": "ar5",
       "x": 210,
       "y": 520,
       "width": 0,
@@ -1065,7 +1068,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 3005,
       "version": 2,
       "versionNonce": 3005001,
@@ -1074,17 +1079,20 @@
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [0, 60]],
+      "points": [
+        [0, 0],
+        [0, 60]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "scraped", "focus": 0, "gap": 0 },
-      "endBinding": { "elementId": "analyzing", "focus": 0, "gap": 0 },
+      "startBinding": null,
+      "endBinding": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "index": "b5"
+      "index": "aU"
     },
     {
       "type": "arrow",
-      "id": "ar_analyzing_analyzed",
+      "id": "ar6",
       "x": 150,
       "y": 640,
       "width": -250,
@@ -1099,7 +1107,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 3006,
       "version": 2,
       "versionNonce": 3006001,
@@ -1108,17 +1118,20 @@
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [-250, 60]],
+      "points": [
+        [0, 0],
+        [-250, 60]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "analyzing", "focus": 0, "gap": 0 },
-      "endBinding": { "elementId": "analyzed", "focus": 0, "gap": 0 },
+      "startBinding": null,
+      "endBinding": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "index": "b6"
+      "index": "aV"
     },
     {
       "type": "arrow",
-      "id": "ar_analyzing_failed",
+      "id": "ar7",
       "x": 270,
       "y": 640,
       "width": 110,
@@ -1133,7 +1146,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 3007,
       "version": 2,
       "versionNonce": 3007001,
@@ -1142,17 +1157,20 @@
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [110, 60]],
+      "points": [
+        [0, 0],
+        [110, 60]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "analyzing", "focus": 0, "gap": 0 },
-      "endBinding": { "elementId": "failed", "focus": 0, "gap": 0 },
+      "startBinding": null,
+      "endBinding": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "index": "b7"
+      "index": "aW"
     },
     {
       "type": "arrow",
-      "id": "ar_analyzed_dashboard",
+      "id": "ar8",
       "x": 0,
       "y": 760,
       "width": 0,
@@ -1167,7 +1185,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 3008,
       "version": 2,
       "versionNonce": 3008001,
@@ -1176,17 +1196,20 @@
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [0, 60]],
+      "points": [
+        [0, 0],
+        [0, 60]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "analyzed", "focus": 0, "gap": 0 },
-      "endBinding": { "elementId": "dashboard", "focus": 0, "gap": 0 },
+      "startBinding": null,
+      "endBinding": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "index": "b8"
+      "index": "aX"
     },
     {
       "type": "arrow",
-      "id": "ar_dashboard_impute",
+      "id": "ar9",
       "x": 50,
       "y": 880,
       "width": 0,
@@ -1201,7 +1224,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 3009,
       "version": 2,
       "versionNonce": 3009001,
@@ -1210,17 +1235,20 @@
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [0, 60]],
+      "points": [
+        [0, 0],
+        [0, 60]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "dashboard", "focus": 0, "gap": 0 },
-      "endBinding": { "elementId": "impute", "focus": 0, "gap": 0 },
+      "startBinding": null,
+      "endBinding": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "index": "b9"
+      "index": "aY"
     },
     {
       "type": "arrow",
-      "id": "ar_impute_targets",
+      "id": "ar10",
       "x": 200,
       "y": 970,
       "width": 80,
@@ -1235,7 +1263,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 3010,
       "version": 2,
       "versionNonce": 3010001,
@@ -1244,13 +1274,16 @@
       "updated": 1780336848134,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [80, 0]],
+      "points": [
+        [0, 0],
+        [80, 0]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "impute", "focus": 0, "gap": 0 },
-      "endBinding": { "elementId": "targets", "focus": 0, "gap": 0 },
+      "startBinding": null,
+      "endBinding": null,
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "index": "b10"
+      "index": "aZ"
     },
     {
       "type": "text",
@@ -1280,14 +1313,14 @@
       "locked": false,
       "fontSize": 13,
       "fontFamily": 1,
-      "text": "Leyenda:\n  ■ azul    — fuente / nodo perdurable\n  ■ morado  — etapas del pipeline\n  ■ verde   — estados terminales\n  ■ ámbar   — decisión / fallback\n  --- dashed — path de fallback (backup actor)\n  → rojo    — transición Failed",
+      "text": "Leyenda:\n  azul    — fuente / nodo perdurable\n  morado  — etapas del pipeline\n  verde   — estados terminales OK\n  rojo    — estado terminal Failed\n  ambar   — decision / fallback\n  dashed  — path de fallback (backup actor)",
       "textAlign": "left",
       "verticalAlign": "top",
       "containerId": null,
-      "originalText": "Leyenda:\n  ■ azul    — fuente / nodo perdurable\n  ■ morado  — etapas del pipeline\n  ■ verde   — estados terminales\n  ■ ámbar   — decisión / fallback\n  --- dashed — path de fallback (backup actor)\n  → rojo    — transición Failed",
+      "originalText": "Leyenda:\n  azul    — fuente / nodo perdurable\n  morado  — etapas del pipeline\n  verde   — estados terminales OK\n  rojo    — estado terminal Failed\n  ambar   — decision / fallback\n  dashed  — path de fallback (backup actor)",
       "lineHeight": 1.25,
       "baseline": 11,
-      "index": "c1",
+      "index": "aZ0",
       "autoResize": true
     }
   ],
