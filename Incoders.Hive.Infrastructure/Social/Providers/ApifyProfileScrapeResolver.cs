@@ -33,15 +33,19 @@ namespace Incoders.Hive.Infrastructure.Social.Providers;
 ///   It never touches the single-video pipeline (PA-REG-01, Design Decision 2).
 ///
 /// OPERATOR SETUP (INT-01, INT-02):
-///   actor_mappings_json must contain (in order):
-///     { "networkKey": "instagram", "variantKey": "profile", "actorId": "get-leads~all-in-one-instagram-scraper" }
-///     { "networkKey": "instagram", "variantKey": "profile", "actorId": "apify~instagram-profile-scraper" }
-///   Missing entries → 422 Integration.ProfileActorNotConfigured / Integration.ApifyNotConfigured.
+///   actor_mappings_json must contain two Instagram actors (in order):
+///     [0] default:  { "networkKey": "instagram", "actorId": "get-leads~all-in-one-instagram-scraper" }
+///     [1] backup:   { "networkKey": "instagram", "actorId": "apify~instagram-profile-scraper" }
+///   Actors configured via the integrations UI (which stores variantKey "default") are used
+///   as-is — the resolver PREFERS variantKey "profile" but FALLS BACK to "default" for the
+///   same network. No special variant key is required when using the integrations UI.
+///   Missing entries for both "profile" and "default" → 422 Integration.ProfileActorNotConfigured.
 /// </summary>
 public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
 {
     private const string CapabilityKey = "profile";
     private const string NetworkKey = "instagram";
+    private const string DefaultVariantKey = "default";
     private const string HttpClientName = nameof(ApifyProfileScrapeResolver);
     private const string ApifyProviderKey = "apify";
 
@@ -379,6 +383,13 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
     /// List&lt;T&gt; deserialisation preserves JSON array order → [0] = default, [1] = backup.
     /// DO NOT add a priority field — ordering is contractually guaranteed by JSON array position.
     /// This is the GetAllMappedActors helper required by WU-06 design (obs #518).
+    ///
+    /// FALLBACK: if no entries match the requested <paramref name="variantKey"/> for the
+    /// given network, the method falls back to entries whose variantKey == "default" for the
+    /// same network. This mirrors the single-video extractor's fallback (TryResolveMappedActor)
+    /// and allows actors configured via the integrations UI (which always stores variantKey
+    /// "default") to be used for profile scraping without any manual reconfiguration.
+    /// Explicit "profile" entries always take precedence over "default" ones.
     /// </summary>
     internal static IReadOnlyList<string> GetAllMappedActors(
         string actorMappingsJson,
@@ -390,11 +401,27 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
             var mappings = JsonSerializer.Deserialize<List<ApifyActorMappingEntry>>(
                 actorMappingsJson, JsonOptions) ?? [];
 
-            return mappings
+            // Prefer entries that explicitly match the requested variantKey.
+            var preferred = mappings
                 .Where(m =>
                     !string.IsNullOrWhiteSpace(m.ActorId)
                     && Matches(m.NetworkKey, networkKey)
                     && Matches(m.VariantKey, variantKey))
+                .Select(m => m.ActorId.Trim())
+                .ToList();
+
+            if (preferred.Count > 0)
+            {
+                return preferred;
+            }
+
+            // Fall back to the UI-persisted "default" variant for the same network
+            // (the integrations UI hardcodes variantKey="default" for every mapping).
+            return mappings
+                .Where(m =>
+                    !string.IsNullOrWhiteSpace(m.ActorId)
+                    && Matches(m.NetworkKey, networkKey)
+                    && Matches(m.VariantKey, DefaultVariantKey))
                 .Select(m => m.ActorId.Trim())
                 .ToList();
         }

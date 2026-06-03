@@ -9,8 +9,8 @@ This guide tells an operator exactly what to configure so the Profile Analyzer f
 ## Quick path
 
 1. Go to **Settings → Integrations → Apify** and open the credential editor.
-2. Locate the `actor_mappings_json` field.
-3. Add the two profile entries shown below to the existing JSON array. Do NOT remove or change existing entries.
+2. Add two Instagram actor entries using the **Add actor** button (select network = Instagram, paste the actor slug).
+3. Make sure the order is: `get-leads~all-in-one-instagram-scraper` first, `apify~instagram-profile-scraper` second.
 4. Save and test the connection.
 5. Run a Profile Analysis to confirm the scrape resolves without errors.
 
@@ -18,22 +18,24 @@ This guide tells an operator exactly what to configure so the Profile Analyzer f
 
 ## Required actor_mappings_json entries
 
-Add these two objects to the existing `actor_mappings_json` array, in this exact order:
+Use the **Apify connector UI** (Settings → Integrations → Apify → actor mappings) to add two Instagram actor entries. The UI stores `variantKey: "default"` automatically — no manual JSON editing is needed.
+
+If you do edit the JSON directly, add these two objects to the existing `actor_mappings_json` array in this exact order:
 
 ```json
 [
   {
     "networkKey": "instagram",
-    "variantKey": "profile",
     "actorId": "get-leads~all-in-one-instagram-scraper"
   },
   {
     "networkKey": "instagram",
-    "variantKey": "profile",
     "actorId": "apify~instagram-profile-scraper"
   }
 ]
 ```
+
+> `variantKey` is optional when using the UI. The UI persists `"default"` automatically and the resolver accepts it. If you prefer an explicit override, you may set `"variantKey": "profile"` — the resolver prefers it over `"default"` when both exist.
 
 | Position | Role | Actor slug | Apify actor id |
 |---|---|---|---|
@@ -48,10 +50,10 @@ Add these two objects to the existing `actor_mappings_json` array, in this exact
 
 | Topic | Decision |
 |---|---|
-| **variantKey** | Must be exactly `"profile"` (case-sensitive match). This isolates the profile actor from the single-video actor which uses no `variantKey`. |
+| **variantKey** | The integrations UI stores `"default"` for every actor mapping. The resolver first looks for an explicit `"profile"` entry; if none exists it accepts `"default"` entries for the same network. A manual `"profile"` entry (if present) always wins over `"default"`. |
 | **Automatic backup fallback** | If the default actor fails (transport error, HTTP error, empty dataset, or no `resultType=="profile"` item in the response), the system automatically retries with the backup actor once in the same pipeline run. No user action needed. |
 | **Fallback scope** | Fallback applies ONLY to `variantKey="profile"`. The single-video scrape path is unaffected. |
-| **Missing entries** | If no entry with `variantKey="profile"` exists, every profile analysis request fails immediately with HTTP 422 and code `Integration.ProfileActorNotConfigured`. No Apify call is made. |
+| **Missing entries** | If no entry with `networkKey="instagram"` exists (neither `variantKey="profile"` nor `"default"`), every profile analysis request fails immediately with HTTP 422 and code `Integration.ProfileActorNotConfigured`. No Apify call is made. |
 | **Diagnostics** | Every completed run (success or failure) stores `ProviderDiagnosticsJson` with `actor_id`, `fallback_used`, `posts_received`, `posts_processed`, `degraded_post_count`, `ai_provider_key`, and `ai_model`. Inspect this field via the GET `/api/social/profile-analyzer/{id}` endpoint. |
 | **Proxy** | The adapter enforces RESIDENTIAL proxy (`apifyProxyGroups: ["RESIDENTIAL"]`) for all profile scrapes. Instagram blocks datacenter IPs. Ensure your Apify subscription includes residential proxy credits. |
 
@@ -59,8 +61,8 @@ Add these two objects to the existing `actor_mappings_json` array, in this exact
 
 ## Checklist
 
-- [ ] `actor_mappings_json` contains entry `[0]` with `variantKey="profile"` and `actorId="get-leads~all-in-one-instagram-scraper"`.
-- [ ] `actor_mappings_json` contains entry `[1]` with `variantKey="profile"` and `actorId="apify~instagram-profile-scraper"`.
+- [ ] `actor_mappings_json` contains entry `[0]` with `networkKey="instagram"` and `actorId="get-leads~all-in-one-instagram-scraper"` (variantKey `"default"` or `"profile"`).
+- [ ] `actor_mappings_json` contains entry `[1]` with `networkKey="instagram"` and `actorId="apify~instagram-profile-scraper"` (variantKey `"default"` or `"profile"`).
 - [ ] Array order is preserved (default first, backup second).
 - [ ] Existing single-video entries are untouched.
 - [ ] Apify subscription includes RESIDENTIAL proxy credits.

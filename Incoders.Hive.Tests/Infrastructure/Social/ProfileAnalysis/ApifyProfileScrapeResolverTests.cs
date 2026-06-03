@@ -342,6 +342,107 @@ public sealed class ApifyProfileScrapeResolverTests
             capturingHandler.CapturedUri?.ToString() ?? string.Empty);
     }
 
+    // ── GetAllMappedActors — default-variant fallback (regression guard for UI bug fix) ──
+
+    /// <summary>
+    /// Regression test: the integrations UI always stores variantKey="default".
+    /// GetAllMappedActors must return both actorIds when the JSON uses "default"
+    /// even though the resolver requests variantKey="profile".
+    /// Without the fallback fix this returned an empty list → ProfileActorNotConfigured.
+    /// </summary>
+    [Fact]
+    public void GetAllMappedActors_DefaultVariantOnly_ReturnsActorsForUiConfiguredMappings()
+    {
+        // Arrange — exactly what the integrations UI persists (variantKey: "default" hardcoded)
+        var json = JsonSerializer.Serialize(new[]
+        {
+            new { networkKey = "instagram", variantKey = "default", actorId = "get-leads~all-in-one-instagram-scraper" },
+            new { networkKey = "instagram", variantKey = "default", actorId = "apify~instagram-profile-scraper" }
+        });
+
+        // Act
+        var result = ApifyProfileScrapeResolver.GetAllMappedActors(json, "instagram", "profile");
+
+        // Assert — both actors returned in JSON array order
+        Assert.Equal(2, result.Count);
+        Assert.Equal("get-leads~all-in-one-instagram-scraper", result[0]);
+        Assert.Equal("apify~instagram-profile-scraper", result[1]);
+    }
+
+    /// <summary>
+    /// Explicit "profile" entries take precedence over "default" entries for the same network.
+    /// </summary>
+    [Fact]
+    public void GetAllMappedActors_BothProfileAndDefault_ProfileWins()
+    {
+        // Arrange — mix of profile-specific and default entries
+        var json = JsonSerializer.Serialize(new[]
+        {
+            new { networkKey = "instagram", variantKey = "default",  actorId = "default-actor-1" },
+            new { networkKey = "instagram", variantKey = "default",  actorId = "default-actor-2" },
+            new { networkKey = "instagram", variantKey = "profile",  actorId = "profile-actor-1" },
+            new { networkKey = "instagram", variantKey = "profile",  actorId = "profile-actor-2" }
+        });
+
+        // Act
+        var result = ApifyProfileScrapeResolver.GetAllMappedActors(json, "instagram", "profile");
+
+        // Assert — profile-specific entries win; default entries are NOT returned
+        Assert.Equal(2, result.Count);
+        Assert.Equal("profile-actor-1", result[0]);
+        Assert.Equal("profile-actor-2", result[1]);
+    }
+
+    /// <summary>
+    /// No Instagram entries at all (neither "profile" nor "default") → empty list →
+    /// upstream caller returns ProfileActorNotConfigured.
+    /// </summary>
+    [Fact]
+    public void GetAllMappedActors_NoInstagramEntries_ReturnsEmpty()
+    {
+        var json = JsonSerializer.Serialize(new[]
+        {
+            new { networkKey = "tiktok", variantKey = "default", actorId = "tiktok-actor" }
+        });
+
+        var result = ApifyProfileScrapeResolver.GetAllMappedActors(json, "instagram", "profile");
+
+        Assert.Empty(result);
+    }
+
+    /// <summary>
+    /// End-to-end: when actor_mappings_json contains UI-style entries (variantKey="default"),
+    /// ResolveAsync successfully dispatches to both actors and returns the profile result.
+    /// This is the PRIMARY regression guard for the UI-persists-"default" bug.
+    /// </summary>
+    [Fact]
+    public async Task ResolveAsync_UiDefaultVariantMappings_ResolvesProfileSuccessfully()
+    {
+        // Arrange — JSON exactly as the integrations UI writes it (variantKey: "default")
+        var uiMappingsJson = JsonSerializer.Serialize(new[]
+        {
+            new { networkKey = "instagram", variantKey = "default", actorId = "get-leads~all-in-one-instagram-scraper" },
+            new { networkKey = "instagram", variantKey = "default", actorId = "apify~instagram-profile-scraper" }
+        });
+
+        var handler = new ProgrammableHandler();
+        handler.EnqueueSuccess(GoldenFixture);
+
+        var resolver = new ApifyProfileScrapeResolver(
+            MakeCredential(mappingsJson: uiMappingsJson),
+            new StaticHttpClientFactory(handler));
+
+        // Act
+        var result = await resolver.ResolveAsync(
+            MakeRequest(Guid.NewGuid(), Guid.NewGuid()),
+            CancellationToken.None);
+
+        // Assert — profile scrape must succeed (no ProfileActorNotConfigured)
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.Code : "n/a")}");
+        Assert.Equal(1, handler.CallCount); // default actor called exactly once
+        Assert.Equal("testbrand", result.Value.Profile.Username);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private sealed class ProgrammableHandler : HttpMessageHandler
