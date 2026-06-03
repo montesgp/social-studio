@@ -435,29 +435,34 @@
 **Layer: Frontend**
 **Check: `tsc --noEmit` + ESLint**
 
-- [ ] Create `apps/web/components/social/profile-analyzer/dashboard/OverviewCards.tsx` — metric cards: followers count, posts count, engagement rate, median views (shows "N/A" when null), posting cadence (avg days between posts). All values sourced from `ProfileDashboardResponse.stats` (no re-computation).
+- [x] Create `apps/web/components/social/profile-analyzer/dashboard/OverviewCards.tsx` — metric cards: posts count, engagement rate, median views (shows "N/A" when null), posting cadence, content type mix top 2, profile handle. Sourced from `ProfileDashboardResponse.stats`. Followers not shown (ProfileSnapshot not persisted separately — see risks in apply-progress).
   - _Spec: PA-16, PA-18_
 
-- [ ] Create `apps/web/components/social/profile-analyzer/dashboard/AvgViewsByWeekdayChart.tsx` — recharts `BarChart`. X-axis = Mon–Sun (UTC weekday from `avgViewsByWeekday`). Y-axis = average views. Graceful render when data is empty/null (no-data placeholder).
+- [x] Create `apps/web/components/social/profile-analyzer/dashboard/AvgViewsByWeekdayChart.tsx` — recharts `BarChart`. X-axis = Mon–Sun (UTC weekday from `avgViewsByWeekday`). Y-axis = average views. Graceful render when data is empty/null (no-data placeholder).
   - _Spec: PA-12, PA-16_
 
-- [ ] Create `apps/web/components/social/profile-analyzer/dashboard/EngagementTrendChart.tsx` — recharts `LineChart` or `AreaChart`. Plots avg likes and avg comments by weekday. Graceful empty state.
+- [x] Create `apps/web/components/social/profile-analyzer/dashboard/EngagementTrendChart.tsx` — recharts `AreaChart`. Plots avg likes and avg comments by weekday. Graceful empty state.
   - _Spec: PA-12, PA-16_
 
-- [ ] Create `apps/web/components/social/profile-analyzer/dashboard/ContentTypeMixChart.tsx` — recharts `PieChart` (donut). Segments: Image, Video, Carousel percentages from `contentTypeMix`. Shows percentages as labels. Graceful empty state.
+- [x] Create `apps/web/components/social/profile-analyzer/dashboard/ContentTypeMixChart.tsx` — recharts `PieChart` (donut). Segments: Image, Video, Carousel percentages from `contentTypeMix`. Shows percentages as labels. Graceful empty state.
   - _Spec: PA-16_
 
-- [ ] Create `apps/web/components/social/profile-analyzer/dashboard/AiNarrativePanel.tsx` — displays: summary, strengths, weaknesses, opportunities, audience profile, content pillars, voice/tone. Shows absent-data indicator for any null field (PA-18). Shows warning banner when `ProfileAnalysis.Warnings` contains low-confidence or sparse-data warnings (PA-11).
+- [x] Create `apps/web/components/social/profile-analyzer/dashboard/AiNarrativePanel.tsx` — displays: summary, strengths, weaknesses, opportunities, audience profile, content pillars, posting days, voice/tone, brand colors, fonts, KPIs, monthly objective, content strategy. Shows absent-data indicator for any null field (PA-18). Shows warning banner when `aiAnalysis.warnings` contains low-confidence or sparse-data warnings (PA-11).
   - _Spec: PA-11, PA-16, PA-18_
 
-- [ ] Create `apps/web/components/social/profile-analyzer/dashboard/ComparisonVsObjectivesPanel.tsx` — shows detected account state (from AI analysis) vs client's stated objectives (from `ContentPlan`/`GeneralStrategy`). Renders ONLY when `clientId` is non-null AND `comparison` data is non-empty in `ProfileDashboardResponse`. Omitted entirely (not an empty panel) when `clientId` is null or plan data is absent (PA-17).
+- [x] Create `apps/web/components/social/profile-analyzer/dashboard/ComparisonVsObjectivesPanel.tsx` — shows detected account state (from AI analysis) vs client's stated objectives (from `ContentPlan`/`GeneralStrategy`). Renders ONLY when `clientId` is non-null AND `comparison` data is non-empty in `ProfileDashboardResponse`. Omitted entirely (not an empty panel) when `clientId` is null or plan data is absent (PA-17).
   - _Spec: PA-17_
 
-- [ ] Create `apps/web/components/social/profile-analyzer/ProfileDashboard.tsx` — assembles all dashboard sub-components. Calls `getProfileDashboard(id)`. Passes comparison data to `ComparisonVsObjectivesPanel` only when available. Renders gracefully when optional fields are null (PA-18).
+- [x] Create `apps/web/components/social/profile-analyzer/dashboard/ProfileDashboard.tsx` — assembles all dashboard sub-components. Calls `getProfileDashboard(id)`. Passes comparison data to `ComparisonVsObjectivesPanel` only when available. Renders gracefully when optional fields are null (PA-18).
   - _Spec: PA-16, PA-17, PA-18_
 
-- [ ] Run `tsc --noEmit` and ESLint in `apps/web` — zero errors before committing.
-- [ ] Commit: `feat(web): add ProfileDashboard with recharts metric charts`
+- [x] Wire `ProfileAnalyzerModule.tsx`: on Analyzed, render `<ProfileDashboard/>` instead of the placeholder.
+
+- [x] Backend gap-fill: add `ProfileAiAnalysisDto` + `DetectedBrandColorDto` to `ProfileAnalysisContracts.cs`; add `AiAnalysis` field to `ProfileDashboardResponse`; update `GetProfileDashboardQueryHandler` to deserialize and project `AiAnalysisJson`. Update `MakeDashboardResponse` in endpoint tests for new parameter.
+
+- [x] Run `tsc --noEmit` and ESLint in `apps/web` — zero errors; all pre-existing warnings only.
+- [x] Gates: 16 MUST pass, 2 skipped. build.frontend.web pass (43s). No regressions (927/929 pass).
+- [x] Commit: `feat(web): add profile analysis dashboard with recharts charts and AI narrative`
 
 ---
 

@@ -1,0 +1,165 @@
+"use client";
+
+// ProfileDashboard — PA-16, PA-17, PA-18 top-level dashboard assembler.
+// Fetches getProfileDashboard(id), composes all sub-components.
+// Renders gracefully when optional sections are null or missing (PA-18).
+// recharts imports are confined to the chart sub-components, all within
+// the ProfileAnalyzerModule lazy boundary (Design Decision 7).
+
+import { useCallback, useEffect, useState } from "react";
+import { RefreshCw, AlertCircle } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { getProfileDashboard } from "@/lib/api/profile-analyzer";
+import type { ProfileDashboardResponse } from "@/lib/api/types/profile-analyzer";
+import { OverviewCards } from "@/components/social/profile-analyzer/dashboard/OverviewCards";
+import { AvgViewsByWeekdayChart } from "@/components/social/profile-analyzer/dashboard/AvgViewsByWeekdayChart";
+import { ContentTypeMixChart } from "@/components/social/profile-analyzer/dashboard/ContentTypeMixChart";
+import { EngagementTrendChart } from "@/components/social/profile-analyzer/dashboard/EngagementTrendChart";
+import { AiNarrativePanel } from "@/components/social/profile-analyzer/dashboard/AiNarrativePanel";
+import { ComparisonVsObjectivesPanel } from "@/components/social/profile-analyzer/dashboard/ComparisonVsObjectivesPanel";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface ProfileDashboardProps {
+  analysisId: string;
+  token: string | undefined;
+  /** Called when user requests a new analysis from this view. */
+  onReset: () => void;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboardProps) {
+  const [dashboard, setDashboard] = useState<ProfileDashboardResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchDashboard = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getProfileDashboard(analysisId, token);
+      setDashboard(data);
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message: unknown }).message)
+          : "Error al cargar el dashboard";
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [analysisId, token]);
+
+  useEffect(() => {
+    void fetchDashboard();
+  }, [fetchDashboard]);
+
+  // ── Loading state ──────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground/60">
+        <RefreshCw className="h-4 w-4 animate-spin" />
+        <span className="text-sm">Cargando dashboard…</span>
+      </div>
+    );
+  }
+
+  // ── Error state ────────────────────────────────────────────────────────────
+
+  if (error || !dashboard) {
+    return (
+      <Card className="border-destructive/30 bg-destructive/5">
+        <CardContent className="pt-4 pb-4 space-y-3">
+          <div className="flex items-center gap-2 text-destructive">
+            <AlertCircle className="h-4 w-4" />
+            <p className="text-sm font-medium">No se pudo cargar el dashboard</p>
+          </div>
+          {error && <p className="text-xs text-muted-foreground">{error}</p>}
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => void fetchDashboard()}>
+              Reintentar
+            </Button>
+            <Button variant="ghost" size="sm" className="text-xs" onClick={onReset}>
+              Nuevo análisis
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ── Dashboard ──────────────────────────────────────────────────────────────
+
+  const hasChartData = dashboard.stats !== null;
+  const hasAiAnalysis = dashboard.aiAnalysis !== null;
+  const hasComparison = dashboard.clientId !== null;
+
+  return (
+    <div className="space-y-6">
+      {/* Profile header */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">
+            Análisis de perfil
+          </h2>
+          <p className="text-xs text-muted-foreground/70 font-mono mt-0.5">
+            {dashboard.profileUrlOrHandle}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" className="text-xs shrink-0" onClick={onReset}>
+          Nuevo análisis
+        </Button>
+      </div>
+
+      {/* Overview metrics cards */}
+      <OverviewCards dashboard={dashboard} />
+
+      {/* Charts section — only when stats are available */}
+      {hasChartData && (
+        <Card className="border-border/40 bg-background/60">
+          <CardContent className="pt-4 pb-4 space-y-5">
+            <div className="grid gap-5 lg:grid-cols-2">
+              <AvgViewsByWeekdayChart stats={dashboard.stats} />
+              <ContentTypeMixChart stats={dashboard.stats} />
+            </div>
+            <EngagementTrendChart stats={dashboard.stats} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* AI narrative */}
+      {hasAiAnalysis && (
+        <Card className="border-border/40 bg-background/60">
+          <CardContent className="pt-4 pb-4">
+            <AiNarrativePanel aiAnalysis={dashboard.aiAnalysis} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Comparison vs objectives — only for client-linked analyses */}
+      {hasComparison && (
+        <Card className="border-border/40 bg-background/60">
+          <CardContent className="pt-4 pb-4">
+            <ComparisonVsObjectivesPanel
+              clientId={dashboard.clientId}
+              comparison={dashboard.comparison}
+              aiAnalysis={dashboard.aiAnalysis}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Graceful empty state: no data at all (PA-18) */}
+      {!hasChartData && !hasAiAnalysis && (
+        <div className="flex items-center justify-center h-20 rounded-md border border-border/30 border-dashed">
+          <p className="text-xs text-muted-foreground/60">
+            No hay datos disponibles para este análisis
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}

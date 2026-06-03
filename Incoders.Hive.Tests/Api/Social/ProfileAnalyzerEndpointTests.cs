@@ -444,7 +444,7 @@ public sealed class ProfileAnalyzerEndpointTests
 
     private static ProfileDashboardResponse MakeDashboardResponse(Guid id, Guid orgId) =>
         new(id, orgId, null, "@handle", "Analyzed",
-            null, null, [], null, DateTime.UtcNow, null);
+            null, null, [], null, null, DateTime.UtcNow, null);
 
     private static ClientOwnAccountResponse MakeOwnAccountResponse(
         Guid id, Guid clientId, string networkCode) =>

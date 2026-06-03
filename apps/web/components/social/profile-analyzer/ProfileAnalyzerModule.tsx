@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProfileSourcePicker } from "@/components/social/profile-analyzer/ProfileSourcePicker";
 import { AnalysisProgress } from "@/components/social/profile-analyzer/AnalysisProgress";
+import { ProfileDashboard } from "@/components/social/profile-analyzer/dashboard/ProfileDashboard";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import {
   analyzeProfile,
@@ -198,35 +199,22 @@ export function ProfileAnalyzerModule() {
         </div>
       )}
 
-      {flow.stage === "done" && (
-        <Card className="border-green-500/20 bg-green-500/5">
+      {flow.stage === "done" && flow.response.status === "Analyzed" && (
+        <ProfileDashboard
+          analysisId={flow.response.id}
+          token={token}
+          onReset={handleReset}
+        />
+      )}
+
+      {flow.stage === "done" && flow.response.status !== "Analyzed" && (
+        <Card className="border-destructive/20 bg-destructive/5">
           <CardContent className="pt-4 pb-4 space-y-3">
-            {flow.response.status === "Analyzed" ? (
-              <>
-                <p className="text-sm font-medium text-green-600 dark:text-green-400">
-                  Análisis completado
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Perfil:{" "}
-                  <span className="font-mono">{flow.response.profileUrlOrHandle}</span>
-                </p>
-                {/* WU-11 placeholder — ProfileDashboard will be rendered here */}
-                <div className="rounded-md border border-border/40 border-dashed p-6 text-center text-xs text-muted-foreground/60">
-                  Dashboard disponible en la siguiente versión (WU-11).
-                  <br />
-                  ID del análisis:{" "}
-                  <span className="font-mono text-foreground/70">{flow.response.id}</span>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-medium text-destructive">El análisis falló</p>
-                {flow.response.failureCode && (
-                  <p className="text-xs text-muted-foreground">
-                    Código: <span className="font-mono">{flow.response.failureCode}</span>
-                  </p>
-                )}
-              </>
+            <p className="text-sm font-medium text-destructive">El análisis falló</p>
+            {flow.response.failureCode && (
+              <p className="text-xs text-muted-foreground">
+                Código: <span className="font-mono">{flow.response.failureCode}</span>
+              </p>
             )}
             <Button variant="outline" size="sm" onClick={handleReset} className="text-xs">
               Nuevo análisis

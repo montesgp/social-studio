@@ -90,6 +90,33 @@ export interface ProfileComparisonDto {
   generalStrategyPostingFrequency: string | null;
 }
 
+// ── AI analysis narrative (PA-16, PA-18) ──────────────────────────────────────
+
+export interface DetectedBrandColorDto {
+  name: string;
+  hex: string;
+}
+
+export interface ProfileAiAnalysisDto {
+  summary: string | null;
+  audienceProfile: string | null;
+  contentPillars: string[];
+  topContentTypes: string[];
+  postingDays: string[];
+  detectedBrandColors: DetectedBrandColorDto[];
+  detectedFonts: string[];
+  detectedBackgroundImages: string[];
+  voiceTone: string | null;
+  recommendedKpis: string[];
+  monthlyObjectiveSuggestion: string | null;
+  contentStrategySuggestion: string | null;
+  strengths: string[];
+  weaknesses: string[];
+  opportunities: string[];
+  confidence: number;
+  warnings: string[];
+}
+
 export interface ProfileDashboardResponse {
   id: string;
   organizationId: string;
@@ -101,6 +128,8 @@ export interface ProfileDashboardResponse {
   ownerPosts: ProfilePostDto[];
   /** Null for URL-path analyses or when no plan data exists (PA-17). */
   comparison: ProfileComparisonDto | null;
+  /** AI narrative analysis. Null until the Analyzed stage completes (PA-16, PA-18). */
+  aiAnalysis: ProfileAiAnalysisDto | null;
   createdAtUtc: string;
   completedAtUtc: string | null;
 }

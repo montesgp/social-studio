@@ -107,6 +107,10 @@ public sealed record ProfileDashboardResponse(
     /// Null for URL-path analyses or when no plan data exists (PA-17).
     /// </summary>
     ProfileComparisonDto? Comparison,
+    /// <summary>
+    /// AI narrative analysis output. Null until the Analyzed stage completes (PA-16, PA-18).
+    /// </summary>
+    ProfileAiAnalysisDto? AiAnalysis,
     DateTime CreatedAtUtc,
     DateTime? CompletedAtUtc);
 
@@ -165,6 +169,32 @@ public sealed record ProfileComparisonDto(
     IReadOnlyList<string> GeneralStrategyPillars,
     string? GeneralStrategyAudience,
     string? GeneralStrategyPostingFrequency);
+
+/// <summary>
+/// AI narrative analysis DTO for dashboard responses (PA-16, PA-18).
+/// All list fields default to empty to survive partial AI output; callers must handle null strings.
+/// </summary>
+public sealed record ProfileAiAnalysisDto(
+    string? Summary,
+    string? AudienceProfile,
+    IReadOnlyList<string> ContentPillars,
+    IReadOnlyList<string> TopContentTypes,
+    IReadOnlyList<string> PostingDays,
+    IReadOnlyList<DetectedBrandColorDto> DetectedBrandColors,
+    IReadOnlyList<string> DetectedFonts,
+    IReadOnlyList<string> DetectedBackgroundImages,
+    string? VoiceTone,
+    IReadOnlyList<string> RecommendedKpis,
+    string? MonthlyObjectiveSuggestion,
+    string? ContentStrategySuggestion,
+    IReadOnlyList<string> Strengths,
+    IReadOnlyList<string> Weaknesses,
+    IReadOnlyList<string> Opportunities,
+    double Confidence,
+    IReadOnlyList<string> Warnings);
+
+/// <summary>A detected brand colour in the AI analysis output.</summary>
+public sealed record DetectedBrandColorDto(string Name, string Hex);
 
 /// <summary>Paged history response for the list endpoint (PA-15).</summary>
 public sealed record ProfileAnalysisHistoryResponse(

@@ -86,12 +86,11 @@ public sealed class GetProfileDashboardQueryHandler
         // ── Project raw owner posts for client-side dynamism (PA-16) ─────────
         var ownerPosts = DeserializeOwnerPosts(analysis.RawPostsDatasetJson);
 
-        // ── Project profile snapshot ──────────────────────────────────────────
-        ProfileSnapshotDto? snapshotDto = null;
+        // ── Project AI analysis (PA-16, PA-18) ───────────────────────────────
+        ProfileAiAnalysisDto? aiAnalysisDto = null;
         if (analysis.AiAnalysisJson is not null)
         {
-            // Profile snapshot is embedded in the AI analysis JSON (for now derive from stats)
-            // We emit a minimal snapshot from available persisted data
+            aiAnalysisDto = DeserializeAiAnalysis(analysis.AiAnalysisJson);
         }
 
         // ── Comparison query — only when client is linked (PA-17) ────────────
@@ -110,10 +109,11 @@ public sealed class GetProfileDashboardQueryHandler
             analysis.ClientId,
             analysis.ProfileUrlOrHandle,
             analysis.Status.ToString(),
-            snapshotDto,
+            null,   // ProfileSnapshotDto: not separately persisted (profile snapshot stored in AI input only)
             statsDto,
             ownerPosts,
             comparison,
+            aiAnalysisDto,
             analysis.CreatedAtUtc,
             analysis.CompletedAtUtc);
 
@@ -155,6 +155,39 @@ public sealed class GetProfileDashboardQueryHandler
             strategy?.ContentPillars ?? [],
             strategy?.TargetAudience,
             strategy?.PostingFrequency);
+    }
+
+    private ProfileAiAnalysisDto? DeserializeAiAnalysis(string json)
+    {
+        try
+        {
+            var raw = JsonSerializer.Deserialize<RawAiAnalysisJson>(json, JsonOpts);
+            if (raw is null) return null;
+            return new ProfileAiAnalysisDto(
+                raw.Summary,
+                raw.AudienceProfile,
+                raw.ContentPillars ?? [],
+                raw.TopContentTypes ?? [],
+                raw.PostingDays ?? [],
+                (raw.DetectedBrandColors ?? [])
+                    .Select(c => new DetectedBrandColorDto(c.Name ?? string.Empty, c.Hex ?? string.Empty))
+                    .ToList(),
+                raw.DetectedFonts ?? [],
+                raw.DetectedBackgroundImages ?? [],
+                raw.VoiceTone,
+                raw.RecommendedKpis ?? [],
+                raw.MonthlyObjectiveSuggestion,
+                raw.ContentStrategySuggestion,
+                raw.Strengths ?? [],
+                raw.Weaknesses ?? [],
+                raw.Opportunities ?? [],
+                raw.Confidence,
+                raw.Warnings ?? []);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private ProfileStats? DeserializeStats(string json)
@@ -202,4 +235,26 @@ public sealed class GetProfileDashboardQueryHandler
         string? Timestamp,
         bool IsPaidPartnership,
         IReadOnlyList<string>? Hashtags);
+
+    // Internal records for deserializing AI analysis JSON (stored as ProfileAnalysisResult shape).
+    private sealed record RawAiAnalysisJson(
+        string? Summary,
+        string? AudienceProfile,
+        IReadOnlyList<string>? ContentPillars,
+        IReadOnlyList<string>? TopContentTypes,
+        IReadOnlyList<string>? PostingDays,
+        IReadOnlyList<RawColorJson>? DetectedBrandColors,
+        IReadOnlyList<string>? DetectedFonts,
+        IReadOnlyList<string>? DetectedBackgroundImages,
+        string? VoiceTone,
+        IReadOnlyList<string>? RecommendedKpis,
+        string? MonthlyObjectiveSuggestion,
+        string? ContentStrategySuggestion,
+        IReadOnlyList<string>? Strengths,
+        IReadOnlyList<string>? Weaknesses,
+        IReadOnlyList<string>? Opportunities,
+        double Confidence,
+        IReadOnlyList<string>? Warnings);
+
+    private sealed record RawColorJson(string? Name, string? Hex);
 }
