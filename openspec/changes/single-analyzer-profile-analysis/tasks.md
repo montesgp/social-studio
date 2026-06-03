@@ -392,10 +392,10 @@
 **Layer: Frontend**
 **Check: `tsc --noEmit` + ESLint (no test runner)**
 
-- [ ] Add `recharts` to `apps/web/package.json`. Import restricted to the `profile-analyzer` lazy module.
+- [x] Add `recharts` to `apps/web/package.json`. Import restricted to the `profile-analyzer` lazy module.
   - _Design: Decision 7_
 
-- [ ] Create `apps/web/lib/api/profile-analyzer.ts` — typed API client functions:
+- [x] Create `apps/web/lib/api/profile-analyzer.ts` — typed API client functions:
   - `analyzeProfile(payload: AnalyzeProfilePayload, token?: string): Promise<ProfileAnalysisStatusResponse>`
   - `getProfileAnalysis(id: string, token?: string): Promise<ProfileAnalysisStatusResponse>`
   - `getProfileDashboard(id: string, token?: string): Promise<ProfileDashboardResponse>`
@@ -406,26 +406,26 @@
   - All functions use the existing `apiRequest` helper. Mirror structure of `apps/web/lib/api/single-analyzer.ts`.
   - _Spec: PA-15_
 
-- [ ] Create `apps/web/lib/api/types/profile-analyzer.ts` (or add to existing types file) — TypeScript interfaces matching backend DTOs: `ProfileAnalysisStatusResponse`, `ProfileDashboardResponse`, `ProfileStats`, `ProfileAiAnalysis`, `ProfileAnalysisHistoryResponse`, `ImputeProfileAnalysisRequest`, `ProfileImputeTarget` union type, `OwnAccountItem`.
+- [x] Create `apps/web/lib/api/types/profile-analyzer.ts` (or add to existing types file) — TypeScript interfaces matching backend DTOs: `ProfileAnalysisStatusResponse`, `ProfileDashboardResponse`, `ProfileStats`, `ProfileAiAnalysis`, `ProfileAnalysisHistoryResponse`, `ImputeProfileAnalysisRequest`, `ProfileImputeTarget` union type, `OwnAccountItem`.
   - _Spec: PA-01, PA-15, PA-16, PA-20_
 
-- [ ] Modify `apps/web/components/social/single-analyzer-client.tsx` — add ONLY the top-level mode switch (`ModeSwitch` component: "Contenido" | "Perfil"). "Contenido" keeps current view; "Perfil" renders `<ProfileAnalyzerModule>` lazily. NO other modification to existing Mundo 1 logic.
-  - _Spec: PA-19, PA-REG-01_
+- [x] Modify `apps/web/components/social/single-analyzer-client.tsx` — add ONLY the top-level mode switch (`ModeSwitch` component: "Contenido" | "Perfil"). "Contenido" keeps current view; "Perfil" renders `<ProfileAnalyzerModule>` lazily. NO other modification to existing Mundo 1 logic.
+  - _Spec: PA-19, PA-REG-01_ — Implemented as a NEW `AnalyzerModeSwitch.tsx` component; page.tsx updated to use it. single-analyzer-client.tsx is untouched.
 
-- [ ] Create `apps/web/components/social/profile-analyzer/ProfileAnalyzerModule.tsx` — `React.lazy` boundary. Imports `recharts` only inside this boundary. Composes: `<ProfileSourcePicker>` (step 1), `<AnalysisProgress>` (step 2 — polling), `<ProfileDashboard>` (step 3 — shown when `Analyzed`), `<ImputePanel>` (step 4 — shown when `Analyzed` + `clientId` non-null). Manages routing state (analysisId, status, pollingInterval).
+- [x] Create `apps/web/components/social/profile-analyzer/ProfileAnalyzerModule.tsx` — `React.lazy` boundary. Imports `recharts` only inside this boundary. Composes: `<ProfileSourcePicker>` (step 1), `<AnalysisProgress>` (step 2 — polling), `<ProfileDashboard>` (step 3 — shown when `Analyzed`), `<ImputePanel>` (step 4 — shown when `Analyzed` + `clientId` non-null). Manages routing state (analysisId, status, pollingInterval).
   - _Spec: PA-19_
 
-- [ ] Create `apps/web/components/social/profile-analyzer/ProfileSourcePicker.tsx` — two mutually-exclusive sub-paths:
+- [x] Create `apps/web/components/social/profile-analyzer/ProfileSourcePicker.tsx` — two mutually-exclusive sub-paths:
   - **Client path**: `<ClientSelect>` (reuse existing client picker) → `<OwnAccountMultiSelect>` filtered to `network=instagram`. Auto-resolves if exactly one own account. Shows picker only when multiple accounts exist. Validates: no qualifying account → show error, disable submit (PA-01).
   - **URL path**: `<ProfileUrlInput>` (paste field with Instagram URL format validation). Mutually exclusive with client path — selecting one hides the other (PA-03).
   - Submit button disabled until exactly one source is configured (PA-03).
   - _Spec: PA-01, PA-02, PA-03_
 
-- [ ] Create `apps/web/components/social/profile-analyzer/AnalysisProgress.tsx` — polls `getProfileAnalysis(id)` on a configurable interval. Maps status values to human-readable step labels. Shows spinner during polling. Stops polling on `Analyzed` or `Failed`. On `Failed`, shows error message with diagnostics.
+- [x] Create `apps/web/components/social/profile-analyzer/AnalysisProgress.tsx` — polls `getProfileAnalysis(id)` on a configurable interval. Maps status values to human-readable step labels. Shows spinner during polling. Stops polling on `Analyzed` or `Failed`. On `Failed`, shows error message with diagnostics.
   - _Spec: PA-14, PA-15_
 
-- [ ] Run `tsc --noEmit` and ESLint in `apps/web` — zero errors before committing.
-- [ ] Commit: `feat(web): add ProfileAnalyzer module, source picker, mode switch, and API client`
+- [x] Run `tsc --noEmit` and ESLint in `apps/web` — zero errors before committing. (tsc: clean; ESLint: warnings pre-existing, no new errors)
+- [x] Commit: `feat(web): add profile analyzer mode switch, source picker, API client, and polling` (c1a0a61)
 
 ---
 
