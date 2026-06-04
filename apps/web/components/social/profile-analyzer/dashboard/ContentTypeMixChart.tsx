@@ -12,6 +12,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { ProfileChartTooltip } from "@/components/social/profile-analyzer/dashboard/ProfileChartTooltip";
 import type { ProfileStatsDto } from "@/lib/api/types/profile-analyzer";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -25,13 +26,12 @@ const SEGMENT_COLORS: string[] = [
   "hsl(0 84% 60%)",     // red-500 equivalent
 ];
 
-// Spanish display labels for known content types
 const CONTENT_TYPE_LABELS: Record<string, string> = {
-  Image: "Imagen",
+  Image: "Image",
   Video: "Video",
-  Carousel: "Carrusel",
+  Carousel: "Carousel",
   Reel: "Reel",
-  Story: "Historia",
+  Story: "Story",
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -98,10 +98,10 @@ export function ContentTypeMixChart({ stats }: ContentTypeMixChartProps) {
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-medium text-foreground/80">Mezcla de contenido</p>
+      <p className="text-xs font-medium text-foreground/80">Content mix</p>
       {data.length === 0 ? (
         <div className="flex items-center justify-center h-32 rounded-md border border-border/30 border-dashed">
-          <p className="text-xs text-muted-foreground/60">Sin datos de tipo de contenido</p>
+          <p className="text-xs text-muted-foreground/60">No content type data</p>
         </div>
       ) : (
         <div className="h-48">
@@ -125,14 +125,12 @@ export function ContentTypeMixChart({ stats }: ContentTypeMixChartProps) {
                 ))}
               </Pie>
               <Tooltip
-                contentStyle={{
-                  fontSize: 12,
-                  borderRadius: 8,
-                  border: "1px solid hsl(var(--border))",
-                  backgroundColor: "hsl(var(--popover))",
-                  color: "hsl(var(--popover-foreground))",
-                }}
-                formatter={(value: number, name: string) => [`${value}%`, name]}
+                wrapperStyle={{ outline: "none", zIndex: 50 }}
+                content={
+                  <ProfileChartTooltip
+                    valueFormatter={(value) => `${Number(value).toLocaleString("en-US")}%`}
+                  />
+                }
               />
               <Legend
                 iconSize={10}

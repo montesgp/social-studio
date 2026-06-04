@@ -21,9 +21,10 @@ public sealed class AnalyzeProfileValidator : AbstractValidator<AnalyzeProfileCo
     // Instagram profile URL patterns:
     // - https://www.instagram.com/username/
     // - https://instagram.com/username
+    // - Instagram share URLs with ?utm_source=... or other tracking query strings
     // - http variants (less common but valid)
     private static readonly System.Text.RegularExpressions.Regex InstagramProfileUrlPattern =
-        new(@"^https?://(www\.)?instagram\.com/[\w._]+/?$",
+        new(@"^https?://(www\.)?instagram\.com/[\w._]+/?([?#].*)?$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
     public AnalyzeProfileValidator()

@@ -581,6 +581,7 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         IReadOnlyList<Domain.Social.ProfileAnalysis.ProfilePost> ownerPosts) =>
         new(
             "Analyze this Instagram profile and respond with ONLY the raw JSON object matching the expected schema. " +
+            "All user-facing string values MUST be written in English for now. " +
             "Do not wrap it in markdown code fences and do not add any text before or after the JSON.",
             profile,
             stats,

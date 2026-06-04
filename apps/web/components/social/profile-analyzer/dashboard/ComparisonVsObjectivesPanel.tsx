@@ -29,11 +29,11 @@ function ComparisonRow({
   return (
     <div className="grid grid-cols-[1fr_1fr] gap-3 py-2 border-b border-border/20 last:border-0">
       <div className="space-y-0.5">
-        <p className="text-xs text-muted-foreground/70 font-medium">{label} (detectado)</p>
+        <p className="text-xs text-muted-foreground/70 font-medium">{label} (detected)</p>
         <div className="text-sm text-foreground/80">{detected}</div>
       </div>
       <div className="space-y-0.5">
-        <p className="text-xs text-muted-foreground/70 font-medium">{label} (objetivo)</p>
+        <p className="text-xs text-muted-foreground/70 font-medium">{label} (target)</p>
         <div className="text-sm text-foreground/80">{stated}</div>
       </div>
     </div>
@@ -75,7 +75,7 @@ export function ComparisonVsObjectivesPanel({
     // clientId is set but no plan data: show subtle message
     return (
       <p className="text-xs text-muted-foreground/60 italic">
-        Sin objetivos definidos — crea un Plan de Contenido o Estrategia General para este cliente para ver la comparación.
+        No objectives defined — create a Content Plan or General Strategy for this client to see the comparison.
       </p>
     );
   }
@@ -88,35 +88,35 @@ export function ComparisonVsObjectivesPanel({
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <h3 className="text-sm font-semibold">Comparación con objetivos</h3>
-        <Badge variant="info" className="text-xs">Cliente vinculado</Badge>
+        <h3 className="text-sm font-semibold">Objective comparison</h3>
+        <Badge variant="info" className="text-xs">Linked client</Badge>
       </div>
 
       <div className="rounded-md border border-border/40 bg-background/60 p-3 divide-y divide-border/20">
         {/* Audience */}
         <ComparisonRow
-          label="Audiencia"
+          label="Audience"
           detected={<TextOrDash text={detectedAudience} />}
           stated={<TextOrDash text={comparison.generalStrategyAudience} />}
         />
 
         {/* Content pillars */}
         <ComparisonRow
-          label="Pilares"
+          label="Pillars"
           detected={<TagGroup items={detectedPillars} />}
           stated={<TagGroup items={comparison.generalStrategyPillars} />}
         />
 
         {/* Posting frequency */}
         <ComparisonRow
-          label="Frecuencia de publicación"
+          label="Posting frequency"
           detected={<TextOrDash text={detectedPosting} />}
           stated={<TextOrDash text={comparison.generalStrategyPostingFrequency} />}
         />
 
         {/* Content strategy */}
         <ComparisonRow
-          label="Estrategia de contenido"
+          label="Content strategy"
           detected={<TextOrDash text={detectedStrategy} />}
           stated={<TextOrDash text={comparison.contentPlanStrategy} />}
         />
@@ -124,7 +124,7 @@ export function ComparisonVsObjectivesPanel({
         {/* Objective */}
         {comparison.contentPlanObjective && (
           <ComparisonRow
-            label="Objetivo del plan"
+            label="Plan objective"
             detected={<span className="text-xs text-muted-foreground/50">—</span>}
             stated={<TextOrDash text={comparison.contentPlanObjective} />}
           />
@@ -133,7 +133,7 @@ export function ComparisonVsObjectivesPanel({
         {/* KPIs */}
         {comparison.contentPlanKpis.length > 0 && (
           <ComparisonRow
-            label="KPIs del plan"
+            label="Plan KPIs"
             detected={<TagGroup items={aiAnalysis?.recommendedKpis ?? []} />}
             stated={<TagGroup items={comparison.contentPlanKpis} />}
           />

@@ -227,6 +227,7 @@ public sealed class ApifyProfileScrapeAdapterTests
     [Theory]
     [InlineData("https://www.instagram.com/testbrand/", "testbrand")]
     [InlineData("https://www.instagram.com/testbrand", "testbrand")]
+    [InlineData("https://www.instagram.com/testbrand?utm_source=ig_web_button_share_sheet&igsh=abc", "testbrand")]
     [InlineData("https://instagram.com/testbrand/", "testbrand")]
     [InlineData("testbrand", "testbrand")]
     [InlineData("@testbrand", "testbrand")]

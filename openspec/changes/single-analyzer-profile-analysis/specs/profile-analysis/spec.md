@@ -91,6 +91,14 @@ and the resulting ProfileAnalysis record MUST have no linked client or own accou
 - THEN the system accepts the request and starts scraping
 - AND the resulting ProfileAnalysis record has null clientId and null ownAccountId
 
+#### Scenario: Instagram share URL is sanitized before scraping
+
+- GIVEN a user pastes an Instagram profile share URL containing tracking query parameters
+- WHEN the analysis is submitted
+- THEN the system accepts the request
+- AND the persisted scrape target is canonicalized to `https://www.instagram.com/{username}/`
+- AND Apify receives the profile-only target, not the tracking query string
+
 #### Scenario: Non-Instagram or malformed URL rejected
 
 - GIVEN a user pastes a URL that is not a valid Instagram profile URL
@@ -490,6 +498,9 @@ absent), average views and average engagement by weekday as a chart, content-typ
 (Image/Video/Carousel percentages), posting cadence (average days between posts), and
 the AI narrative analysis. All values MUST be sourced from the persisted server-derived
 stats or AI analysis fields — no re-scraping or live computation at render time.
+Until the product i18n layer is introduced, Profile Analyzer UI copy and future AI
+report string output MUST remain in English to avoid mixed-language dashboard states.
+Chart hover tooltips MUST remain readable in both light and dark themes.
 
 #### Scenario: Dashboard hydrated from persisted record
 
@@ -563,24 +574,24 @@ indicator or be hidden) without throwing rendering errors.
 
 ---
 
-### Requirement: PA-19 — Mode Switch: Contenido | Perfil
+### Requirement: PA-19 — Mode Switch: Content | Profile
 
-The single-analyzer entry point MUST expose a top-level mode switch between "Contenido"
-(Mundo 1) and "Perfil" (Mundo 2). Selecting "Perfil" MUST navigate to the new Profile
-Analyzer module/route. Selecting "Contenido" MUST navigate to or remain on the existing
+The single-analyzer entry point MUST expose a top-level mode switch between "Content"
+(Mundo 1) and "Profile" (Mundo 2). Selecting "Profile" MUST navigate to the new Profile
+Analyzer module/route. Selecting "Content" MUST navigate to or remain on the existing
 single-analyzer view. The Mundo 1 component (`single-analyzer-client.tsx` and its handler
 tree) MUST NOT be modified as part of this change.
 
 #### Scenario: Mode switch navigates to Profile Analyzer
 
-- GIVEN the user is on the single-analyzer entry and selects "Perfil"
+- GIVEN the user is on the single-analyzer entry and selects "Profile"
 - WHEN the mode switch fires
 - THEN the user is navigated to the Profile Analyzer route
 - AND the Mundo 1 component is not rendered or modified
 
-#### Scenario: Mode switch returns to Contenido
+#### Scenario: Mode switch returns to Content
 
-- GIVEN the user is in the Profile Analyzer route and selects "Contenido"
+- GIVEN the user is in the Profile Analyzer route and selects "Content"
 - WHEN the mode switch fires
 - THEN the user is navigated back to the Mundo 1 single-analyzer view
 - AND no Profile Analyzer state is carried into Mundo 1

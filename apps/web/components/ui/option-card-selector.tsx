@@ -22,6 +22,7 @@ interface OptionCardSelectorProps {
   emptyLabel?: string;
   selectionLabel?: string;
   className?: string;
+  optionsGridClassName?: string;
 }
 
 export function OptionCardSelector({
@@ -35,6 +36,7 @@ export function OptionCardSelector({
   emptyLabel = "No options available",
   selectionLabel = "Single selection",
   className,
+  optionsGridClassName,
 }: OptionCardSelectorProps) {
   const visibleOptions = noneOption ? [noneOption, ...options] : options;
 
@@ -44,7 +46,10 @@ export function OptionCardSelector({
         <label className="text-xs font-medium text-muted-foreground">{label}</label>
         {value ? <span className="text-[10px] text-muted-foreground/70">{selectionLabel}</span> : null}
       </div>
-      <div className="grid max-h-44 grid-cols-1 gap-2 overflow-y-auto rounded-md border border-border bg-background/40 p-2 sm:grid-cols-2">
+      <div className={cn(
+        "grid max-h-44 grid-cols-1 gap-2 overflow-y-auto rounded-md border border-border bg-background/40 p-2 sm:grid-cols-2",
+        optionsGridClassName
+      )}>
         {loading ? (
           <Button type="button" variant="outline" disabled className="h-auto min-h-14 justify-start px-3 py-2 text-left">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

@@ -46,7 +46,7 @@ export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboar
       const message =
         err && typeof err === "object" && "message" in err
           ? String((err as { message: unknown }).message)
-          : "Error al cargar el dashboard";
+          : "Could not load the dashboard";
       setError(message);
     } finally {
       setLoading(false);
@@ -63,7 +63,7 @@ export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboar
     return (
       <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground/60">
         <RefreshCw className="h-4 w-4 animate-spin" />
-        <span className="text-sm">Cargando dashboard…</span>
+        <span className="text-sm">Loading dashboard…</span>
       </div>
     );
   }
@@ -76,15 +76,15 @@ export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboar
         <CardContent className="pt-4 pb-4 space-y-3">
           <div className="flex items-center gap-2 text-destructive">
             <AlertCircle className="h-4 w-4" />
-            <p className="text-sm font-medium">No se pudo cargar el dashboard</p>
+            <p className="text-sm font-medium">Could not load the dashboard</p>
           </div>
           {error && <p className="text-xs text-muted-foreground">{error}</p>}
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="text-xs" onClick={() => void fetchDashboard()}>
-              Reintentar
+              Retry
             </Button>
             <Button variant="ghost" size="sm" className="text-xs" onClick={onReset}>
-              Nuevo análisis
+              New analysis
             </Button>
           </div>
         </CardContent>
@@ -101,18 +101,15 @@ export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboar
   return (
     <div className="space-y-6">
       {/* Profile header */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start gap-3">
         <div>
           <h2 className="text-base font-semibold text-foreground">
-            Análisis de perfil
+            Profile analysis
           </h2>
           <p className="text-xs text-muted-foreground/70 font-mono mt-0.5">
             {dashboard.profileUrlOrHandle}
           </p>
         </div>
-        <Button variant="outline" size="sm" className="text-xs shrink-0" onClick={onReset}>
-          Nuevo análisis
-        </Button>
       </div>
 
       {/* Overview metrics cards */}
@@ -164,7 +161,7 @@ export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboar
       ) : (
         <div className="flex items-center justify-center h-10 rounded-md border border-border/20 border-dashed">
           <p className="text-xs text-muted-foreground/50">
-            Imputación disponible solo al analizar un cliente del sistema
+            Client field updates are available only for analyses linked to a system client
           </p>
         </div>
       )}
@@ -173,7 +170,7 @@ export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboar
       {!hasChartData && !hasAiAnalysis && (
         <div className="flex items-center justify-center h-20 rounded-md border border-border/30 border-dashed">
           <p className="text-xs text-muted-foreground/60">
-            No hay datos disponibles para este análisis
+            No data available for this analysis
           </p>
         </div>
       )}

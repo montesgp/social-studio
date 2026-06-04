@@ -20,13 +20,13 @@ import type { ProfileStatsDto } from "@/lib/api/types/profile-analyzer";
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const WEEKDAY_LABELS: Record<string, string> = {
-  "0": "Lun",
-  "1": "Mar",
-  "2": "Mié",
-  "3": "Jue",
-  "4": "Vie",
-  "5": "Sáb",
-  "6": "Dom",
+  "0": "Mon",
+  "1": "Tue",
+  "2": "Wed",
+  "3": "Thu",
+  "4": "Fri",
+  "5": "Sat",
+  "6": "Sun",
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ interface ChartEntry {
   day: string;
   weekdayKey: number;
   likes: number;
-  comentarios: number;
+  comments: number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ function buildChartData(stats: ProfileStatsDto | null): ChartEntry[] {
         day: WEEKDAY_LABELS[key] ?? `D${key}`,
         weekdayKey: parseInt(key, 10),
         likes: Math.round(likesMetric?.avgLikes ?? 0),
-        comentarios: Math.round(commentsMetric?.avgComments ?? 0),
+        comments: Math.round(commentsMetric?.avgComments ?? 0),
       };
     })
     .sort((a, b) => a.weekdayKey - b.weekdayKey);
@@ -77,12 +77,12 @@ export function EngagementTrendChart({ stats }: EngagementTrendChartProps) {
   return (
     <div className="space-y-2">
       <p className="text-xs font-medium text-foreground/80">
-        Engagement promedio por día
+        Average engagement by day
       </p>
       {data.length === 0 ? (
         <div className="flex items-center justify-center h-32 rounded-md border border-border/30 border-dashed">
           <p className="text-xs text-muted-foreground/60">
-            Sin datos de engagement por día
+            No engagement data by day
           </p>
         </div>
       ) : (
@@ -128,7 +128,7 @@ export function EngagementTrendChart({ stats }: EngagementTrendChartProps) {
                 wrapperStyle={{ fontSize: 11 }}
                 formatter={(value) => (
                   <span style={{ color: "hsl(var(--foreground))", opacity: 0.75 }}>
-                    {value === "likes" ? "Me gusta" : "Comentarios"}
+                    {value === "likes" ? "Likes" : "Comments"}
                   </span>
                 )}
               />
@@ -142,7 +142,7 @@ export function EngagementTrendChart({ stats }: EngagementTrendChartProps) {
               />
               <Area
                 type="monotone"
-                dataKey="comentarios"
+                dataKey="comments"
                 stroke="hsl(142 71% 45%)"
                 strokeWidth={2}
                 fill="url(#gradComments)"

@@ -3,7 +3,7 @@
 // ImputePanel — PA-20, PA-21, PA-22
 // Presents the 11 actionable AI-detected fields grouped by destination ABM section.
 // Shown ONLY when status === "Analyzed" AND clientId is non-null (PA-22).
-// Each target shows a PREVIEW of the detected value; disabled with "sin dato detectado"
+// Each target shows a PREVIEW of the detected value; disabled when no value is detected
 // when the underlying AI value is null/empty.
 // Includes select-all / clear helpers and opens a ConfirmationDialog before writing.
 
@@ -27,16 +27,16 @@ import type { ProfileImputeTarget, ProfileAiAnalysisDto } from "@/lib/api/types/
 interface TargetDescriptor {
   target: ProfileImputeTarget;
   label: string;
-  group: "Manual de marca" | "Plan de contenido" | "Estrategia general";
+  group: "Brand manual" | "Content plan" | "General strategy";
   getPreview: (ai: ProfileAiAnalysisDto) => string | null;
 }
 
 const TARGET_DESCRIPTORS: TargetDescriptor[] = [
-  // ── Manual de marca ──────────────────────────────────────────────────────────
+  // ── Brand manual ─────────────────────────────────────────────────────────────
   {
     target: "ColorPalette",
-    label: "Paleta de colores",
-    group: "Manual de marca",
+    label: "Color palette",
+    group: "Brand manual",
     getPreview: (ai) =>
       ai.detectedBrandColors.length > 0
         ? ai.detectedBrandColors.map((c) => `${c.name} (${c.hex})`).join(", ")
@@ -44,15 +44,15 @@ const TARGET_DESCRIPTORS: TargetDescriptor[] = [
   },
   {
     target: "Typography",
-    label: "Tipografías",
-    group: "Manual de marca",
+    label: "Typography",
+    group: "Brand manual",
     getPreview: (ai) =>
       ai.detectedFonts.length > 0 ? ai.detectedFonts.join(", ") : null,
   },
   {
     target: "BackgroundTemplates",
-    label: "Imágenes de fondo",
-    group: "Manual de marca",
+    label: "Background images",
+    group: "Brand manual",
     getPreview: (ai) =>
       ai.detectedBackgroundImages.length > 0
         ? ai.detectedBackgroundImages.join(", ")
@@ -60,65 +60,65 @@ const TARGET_DESCRIPTORS: TargetDescriptor[] = [
   },
   {
     target: "VoiceAndTone",
-    label: "Voz y tono",
-    group: "Manual de marca",
+    label: "Voice and tone",
+    group: "Brand manual",
     getPreview: (ai) => ai.voiceTone ?? null,
   },
-  // ── Plan de contenido ─────────────────────────────────────────────────────────
+  // ── Content plan ──────────────────────────────────────────────────────────────
   {
     target: "ObjectiveText",
-    label: "Objetivo mensual",
-    group: "Plan de contenido",
+    label: "Monthly objective",
+    group: "Content plan",
     getPreview: (ai) => ai.monthlyObjectiveSuggestion ?? null,
   },
   {
     target: "ObjectiveKpis",
     label: "KPIs",
-    group: "Plan de contenido",
+    group: "Content plan",
     getPreview: (ai) =>
       ai.recommendedKpis.length > 0 ? ai.recommendedKpis.join(", ") : null,
   },
   {
     target: "ContentStrategyText",
-    label: "Estrategia de contenido",
-    group: "Plan de contenido",
+    label: "Content strategy",
+    group: "Content plan",
     getPreview: (ai) => ai.contentStrategySuggestion ?? null,
   },
-  // ── Estrategia general ────────────────────────────────────────────────────────
+  // ── General strategy ──────────────────────────────────────────────────────────
   {
     target: "ContentPillars",
-    label: "Pilares de contenido",
-    group: "Estrategia general",
+    label: "Content pillars",
+    group: "General strategy",
     getPreview: (ai) =>
       ai.contentPillars.length > 0 ? ai.contentPillars.join(", ") : null,
   },
   {
     target: "ToneKeywords",
-    label: "Keywords de tono",
-    group: "Estrategia general",
+    label: "Tone keywords",
+    group: "General strategy",
     getPreview: (ai) =>
       // voiceTone is also the source for tone keywords (split by comma/slash in backend)
       ai.voiceTone ?? null,
   },
   {
     target: "TargetAudience",
-    label: "Audiencia objetivo",
-    group: "Estrategia general",
+    label: "Target audience",
+    group: "General strategy",
     getPreview: (ai) => ai.audienceProfile ?? null,
   },
   {
     target: "PostingFrequency",
-    label: "Frecuencia de publicación",
-    group: "Estrategia general",
+    label: "Posting frequency",
+    group: "General strategy",
     getPreview: (ai) =>
       ai.postingDays.length > 0 ? ai.postingDays.join(", ") : null,
   },
 ];
 
-const GROUPS: Array<"Manual de marca" | "Plan de contenido" | "Estrategia general"> = [
-  "Manual de marca",
-  "Plan de contenido",
-  "Estrategia general",
+const GROUPS: Array<"Brand manual" | "Content plan" | "General strategy"> = [
+  "Brand manual",
+  "Content plan",
+  "General strategy",
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -203,8 +203,8 @@ export function ImputePanel({ analysisId, clientId, aiAnalysis, token }: ImputeP
       await imputeProfileAnalysis(analysisId, { targets }, token);
       setLastImputedTargets(targets);
       toast.success(
-        "Campos imputados correctamente",
-        `Se aplicaron ${targets.length} campo${targets.length !== 1 ? "s" : ""} al cliente.`
+        "Fields applied",
+        `${targets.length} field${targets.length !== 1 ? "s" : ""} applied to the client.`
       );
       // Clear selection after successful impute
       setSelected(new Set());
@@ -212,8 +212,8 @@ export function ImputePanel({ analysisId, clientId, aiAnalysis, token }: ImputeP
       const msg =
         err && typeof err === "object" && "message" in err
           ? String((err as { message: unknown }).message)
-          : "No se pudo imputar. Verificá el estado del análisis y que el cliente esté vinculado.";
-      toast.error("Error al imputar", msg);
+          : "Could not apply fields. Check the analysis status and linked client.";
+      toast.error("Could not apply fields", msg);
     } finally {
       setIsImputing(false);
     }
@@ -230,7 +230,7 @@ export function ImputePanel({ analysisId, clientId, aiAnalysis, token }: ImputeP
   const confirmDescription =
     selected.size === 0
       ? ""
-      : `Se escribirán los siguientes ${selected.size} campo${selected.size !== 1 ? "s" : ""} al ABM del cliente (ID: ${clientId}):\n${selectedDescriptors.map((d) => `• ${d.label}`).join("\n")}`;
+      : `The following ${selected.size} field${selected.size !== 1 ? "s" : ""} will be written to the client records (ID: ${clientId}):\n${selectedDescriptors.map((d) => `• ${d.label}`).join("\n")}`;
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -241,29 +241,33 @@ export function ImputePanel({ analysisId, clientId, aiAnalysis, token }: ImputeP
           <div className="flex items-center justify-between gap-3">
             <CardTitle className="text-sm flex items-center gap-2">
               <Download className="h-4 w-4 text-muted-foreground/60" />
-              Imputar al cliente
+              Apply to client
             </CardTitle>
             {/* Select-all / clear helpers */}
             <div className="flex items-center gap-2">
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={selectAll}
                 disabled={availableTargets.size === 0}
-                className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="h-auto px-0 py-0 text-xs text-muted-foreground/70 hover:bg-transparent hover:text-foreground disabled:opacity-40"
               >
                 <CheckSquare className="h-3.5 w-3.5" />
-                Seleccionar todos
-              </button>
+                Select all
+              </Button>
               <span className="text-border/60 text-xs">|</span>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={clearAll}
                 disabled={selected.size === 0}
-                className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="h-auto px-0 py-0 text-xs text-muted-foreground/70 hover:bg-transparent hover:text-foreground disabled:opacity-40"
               >
                 <Square className="h-3.5 w-3.5" />
-                Limpiar
-              </button>
+                Clear
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -309,9 +313,9 @@ export function ImputePanel({ analysisId, clientId, aiAnalysis, token }: ImputeP
                             <p className="mt-0.5 text-xs text-muted-foreground/70 break-words">
                               {truncatePreview(preview!)}
                             </p>
-                          ) : (
+                            ) : (
                             <p className="mt-0.5 text-xs text-muted-foreground/40 italic">
-                              sin dato detectado
+                              no detected value
                             </p>
                           )}
                         </div>
@@ -327,8 +331,8 @@ export function ImputePanel({ analysisId, clientId, aiAnalysis, token }: ImputeP
           <div className="flex items-center justify-between gap-3 pt-1">
             <p className="text-xs text-muted-foreground/60">
               {selected.size > 0
-                ? `${selected.size} campo${selected.size !== 1 ? "s" : ""} seleccionado${selected.size !== 1 ? "s" : ""}`
-                : "Seleccioná los campos a imputar"}
+                ? `${selected.size} field${selected.size !== 1 ? "s" : ""} selected`
+                : "Select the fields to apply"}
             </p>
             <Button
               size="sm"
@@ -336,7 +340,7 @@ export function ImputePanel({ analysisId, clientId, aiAnalysis, token }: ImputeP
               onClick={handleImputeClick}
               className="text-xs"
             >
-              {isImputing ? "Imputando…" : "Imputar seleccionados al cliente"}
+              {isImputing ? "Applying…" : "Apply selected fields"}
             </Button>
           </div>
 
@@ -344,7 +348,7 @@ export function ImputePanel({ analysisId, clientId, aiAnalysis, token }: ImputeP
           {lastImputedTargets !== null && lastImputedTargets.length > 0 && (
             <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
               <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                Última imputación aplicada
+                Last applied update
               </p>
               <p className="mt-0.5 text-xs text-emerald-800/80 dark:text-emerald-200/80">
                 {lastImputedTargets
@@ -361,10 +365,10 @@ export function ImputePanel({ analysisId, clientId, aiAnalysis, token }: ImputeP
       {/* Confirmation dialog — opened before writing to client ABM */}
       <ConfirmationDialog
         open={dialogOpen}
-        title="Confirmar imputación al cliente"
+        title="Confirm client update"
         description={confirmDescription}
-        confirmLabel="Confirmar y aplicar"
-        cancelLabel="Cancelar"
+        confirmLabel="Confirm and apply"
+        cancelLabel="Cancel"
         confirmVariant="default"
         disableDismiss={isImputing}
         onConfirm={() => void handleConfirm()}

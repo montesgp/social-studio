@@ -116,6 +116,25 @@ public sealed class ProfileAnalyzerOrchestratorTests
         Assert.NotEqual("single-analyzer.analysis.v1", harness.AiGateway.LastRequest.PromptVersionKey);
     }
 
+    [Fact]
+    public async Task RunQueuedAsync_ProfileAiInput_InstructsEnglishOutput()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        var analysis = CreateFromUrl(orgId);
+        harness.Repository.Store(analysis);
+        harness.ScrapeResolver.SetSuccess(MakeScrapeResult(isPartial: false));
+        harness.AiGateway.SetPayload(MakeAiResult());
+
+        await harness.Orchestrator.RunQueuedAsync(analysis.Id, orgId, CancellationToken.None);
+
+        Assert.NotNull(harness.AiGateway.LastRequest);
+        Assert.Contains(
+            "All user-facing string values MUST be written in English",
+            harness.AiGateway.LastRequest!.InputJson,
+            StringComparison.Ordinal);
+    }
+
     // ── PA-23: Diagnostics populated on successful run ────────────────────────
 
     [Fact]

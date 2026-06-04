@@ -19,7 +19,7 @@ interface OverviewCardsProps {
 
 function fmt(value: number | null | undefined, decimals = 0): string {
   if (value === null || value === undefined) return "—";
-  return value.toLocaleString("es-AR", {
+  return value.toLocaleString("en-US", {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
@@ -27,7 +27,7 @@ function fmt(value: number | null | undefined, decimals = 0): string {
 
 function fmtPct(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
-  return `${value.toLocaleString("es-AR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%`;
+  return `${value.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%`;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -41,29 +41,29 @@ export function OverviewCards({ dashboard }: OverviewCardsProps) {
 
   const cards = [
     {
-      label: "Publicaciones analizadas",
+      label: "Analyzed posts",
       value: stats ? fmt(stats.ownerPostCount) : "—",
       sub: stats && stats.degradedPostCount > 0
-        ? `${stats.degradedPostCount} degradadas`
+        ? `${stats.degradedPostCount} degraded`
         : null,
     },
     {
-      label: "Tasa de engagement",
+      label: "Engagement rate",
       value: stats ? fmtPct(stats.engagementRate) : "—",
-      sub: "por publicación (promedio)",
+      sub: "per post (average)",
     },
     {
-      label: "Vistas medianas",
+      label: "Median views",
       value: stats ? (stats.medianViews !== null ? fmt(stats.medianViews) : "N/A") : "—",
-      sub: stats?.medianViews === null ? "sin datos de video" : "videos / reels",
+      sub: stats?.medianViews === null ? "no video data" : "videos / reels",
     },
     {
-      label: "Cadencia de publicación",
-      value: stats ? `${fmt(stats.postingCadenceDays, 1)} días` : "—",
-      sub: "entre publicaciones (promedio)",
+      label: "Posting cadence",
+      value: stats ? `${fmt(stats.postingCadenceDays, 1)} days` : "—",
+      sub: "between posts (average)",
     },
     {
-      label: "Tipos de contenido",
+      label: "Content types",
       value: stats
         ? Object.keys(stats.contentTypeMix).length > 0
           ? Object.entries(stats.contentTypeMix)
@@ -73,12 +73,12 @@ export function OverviewCards({ dashboard }: OverviewCardsProps) {
               .join(" · ")
           : "—"
         : "—",
-      sub: "mezcla principal",
+      sub: "main mix",
     },
     {
-      label: "Perfil analizado",
+      label: "Analyzed profile",
       value: dashboard.profileUrlOrHandle,
-      sub: isPartial ? "análisis parcial" : null,
+      sub: isPartial ? "partial analysis" : null,
       mono: true,
     },
   ];
@@ -86,10 +86,10 @@ export function OverviewCards({ dashboard }: OverviewCardsProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-foreground/80">Resumen</h3>
+        <h3 className="text-sm font-medium text-foreground/80">Overview</h3>
         {isPartial && (
           <Badge variant="warning" className="text-xs">
-            Datos parciales
+            Partial data
           </Badge>
         )}
       </div>

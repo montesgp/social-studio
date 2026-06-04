@@ -79,8 +79,8 @@ public sealed class AnalyzeProfileHandler
                     ProfileAnalysisErrors.OwnAccountNotFound);
             }
 
-            var profileUrlOrHandle = ownAccount.Handle
-                ?? ownAccount.ProfileUrl;
+            var profileUrlOrHandle = InstagramProfileTargetNormalizer.Normalize(
+                ownAccount.Handle ?? ownAccount.ProfileUrl);
 
             analysis = ProfileAnalysis.CreateFromClient(
                 request.OrganizationId,
@@ -92,9 +92,11 @@ public sealed class AnalyzeProfileHandler
         else
         {
             // ── PA-02: URL path ────────────────────────────────────────────────
+            var normalizedProfileUrl = InstagramProfileTargetNormalizer.Normalize(request.ProfileUrl!);
+
             analysis = ProfileAnalysis.CreateFromUrl(
                 request.OrganizationId,
-                request.ProfileUrl!,
+                normalizedProfileUrl,
                 now);
         }
 

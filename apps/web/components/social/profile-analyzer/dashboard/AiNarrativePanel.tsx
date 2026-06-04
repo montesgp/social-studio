@@ -58,7 +58,7 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
     pct >= 80 ? "success" : pct >= 50 ? "warning" : "destructive";
   return (
     <Badge variant={variant} className="text-xs">
-      Confianza: {pct}%
+      Confidence: {pct}%
     </Badge>
   );
 }
@@ -70,7 +70,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
     return (
       <div className="flex items-center justify-center h-20 rounded-md border border-border/30 border-dashed">
         <p className="text-xs text-muted-foreground/60">
-          Análisis de IA no disponible
+          AI analysis unavailable
         </p>
       </div>
     );
@@ -80,7 +80,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
     <div className="space-y-4">
       {/* Header row with confidence */}
       <div className="flex items-start justify-between gap-3">
-        <h3 className="text-sm font-semibold">Análisis de IA</h3>
+        <h3 className="text-sm font-semibold">AI analysis</h3>
         <ConfidenceBadge confidence={aiAnalysis.confidence} />
       </div>
 
@@ -88,7 +88,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
       {aiAnalysis.warnings && aiAnalysis.warnings.length > 0 && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
           <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
-            Advertencias del análisis
+            Analysis warnings
           </p>
           {aiAnalysis.warnings.map((w, i) => (
             <p key={i} className="text-xs text-amber-800 dark:text-amber-200">
@@ -101,7 +101,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
       {/* Summary */}
       {aiAnalysis.summary && (
         <div>
-          <SectionTitle>Resumen</SectionTitle>
+          <SectionTitle>Summary</SectionTitle>
           <p className="text-sm text-foreground/80 leading-relaxed">{aiAnalysis.summary}</p>
         </div>
       )}
@@ -109,7 +109,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
       {/* Audience profile */}
       {aiAnalysis.audienceProfile && (
         <div>
-          <SectionTitle>Perfil de audiencia</SectionTitle>
+          <SectionTitle>Audience profile</SectionTitle>
           <p className="text-sm text-foreground/80">{aiAnalysis.audienceProfile}</p>
         </div>
       )}
@@ -117,7 +117,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
       {/* Voice / tone */}
       {aiAnalysis.voiceTone && (
         <div>
-          <SectionTitle>Voz y tono</SectionTitle>
+          <SectionTitle>Voice and tone</SectionTitle>
           <p className="text-sm text-foreground/80">{aiAnalysis.voiceTone}</p>
         </div>
       )}
@@ -125,7 +125,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
       {/* Content pillars */}
       {aiAnalysis.contentPillars.length > 0 && (
         <div>
-          <SectionTitle>Pilares de contenido</SectionTitle>
+          <SectionTitle>Content pillars</SectionTitle>
           <TagList items={aiAnalysis.contentPillars} />
         </div>
       )}
@@ -133,7 +133,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
       {/* Top content types */}
       {aiAnalysis.topContentTypes.length > 0 && (
         <div>
-          <SectionTitle>Tipos de contenido destacados</SectionTitle>
+          <SectionTitle>Top content types</SectionTitle>
           <TagList items={aiAnalysis.topContentTypes} />
         </div>
       )}
@@ -141,7 +141,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
       {/* Posting days */}
       {aiAnalysis.postingDays.length > 0 && (
         <div>
-          <SectionTitle>Días de publicación recomendados</SectionTitle>
+          <SectionTitle>Recommended posting days</SectionTitle>
           <TagList items={aiAnalysis.postingDays} />
         </div>
       )}
@@ -150,19 +150,19 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
       <div className="grid gap-3 sm:grid-cols-3">
         {aiAnalysis.strengths.length > 0 && (
           <div>
-            <SectionTitle>Fortalezas</SectionTitle>
+            <SectionTitle>Strengths</SectionTitle>
             <BulletList items={aiAnalysis.strengths} />
           </div>
         )}
         {aiAnalysis.weaknesses.length > 0 && (
           <div>
-            <SectionTitle>Debilidades</SectionTitle>
+            <SectionTitle>Weaknesses</SectionTitle>
             <BulletList items={aiAnalysis.weaknesses} />
           </div>
         )}
         {aiAnalysis.opportunities.length > 0 && (
           <div>
-            <SectionTitle>Oportunidades</SectionTitle>
+            <SectionTitle>Opportunities</SectionTitle>
             <BulletList items={aiAnalysis.opportunities} />
           </div>
         )}
@@ -171,7 +171,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
       {/* Recommended KPIs */}
       {aiAnalysis.recommendedKpis.length > 0 && (
         <div>
-          <SectionTitle>KPIs recomendados</SectionTitle>
+          <SectionTitle>Recommended KPIs</SectionTitle>
           <TagList items={aiAnalysis.recommendedKpis} />
         </div>
       )}
@@ -179,7 +179,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
       {/* Monthly objective suggestion */}
       {aiAnalysis.monthlyObjectiveSuggestion && (
         <div>
-          <SectionTitle>Objetivo mensual sugerido</SectionTitle>
+          <SectionTitle>Suggested monthly objective</SectionTitle>
           <p className="text-sm text-foreground/80">{aiAnalysis.monthlyObjectiveSuggestion}</p>
         </div>
       )}
@@ -187,7 +187,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
       {/* Content strategy suggestion */}
       {aiAnalysis.contentStrategySuggestion && (
         <div>
-          <SectionTitle>Estrategia de contenido sugerida</SectionTitle>
+          <SectionTitle>Suggested content strategy</SectionTitle>
           <p className="text-sm text-foreground/80">{aiAnalysis.contentStrategySuggestion}</p>
         </div>
       )}
@@ -195,7 +195,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
       {/* Detected brand assets */}
       {aiAnalysis.detectedBrandColors.length > 0 && (
         <div>
-          <SectionTitle>Colores de marca detectados</SectionTitle>
+          <SectionTitle>Detected brand colors</SectionTitle>
           <div className="flex flex-wrap gap-2">
             {aiAnalysis.detectedBrandColors.map((color, i) => (
               <div key={i} className="flex items-center gap-1.5">
@@ -213,7 +213,7 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
 
       {aiAnalysis.detectedFonts.length > 0 && (
         <div>
-          <SectionTitle>Tipografías detectadas</SectionTitle>
+          <SectionTitle>Detected fonts</SectionTitle>
           <TagList items={aiAnalysis.detectedFonts} />
         </div>
       )}

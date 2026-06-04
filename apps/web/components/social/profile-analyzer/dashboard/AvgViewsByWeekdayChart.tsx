@@ -14,18 +14,19 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { ProfileChartTooltip } from "@/components/social/profile-analyzer/dashboard/ProfileChartTooltip";
 import type { ProfileStatsDto } from "@/lib/api/types/profile-analyzer";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const WEEKDAY_LABELS: Record<string, string> = {
-  "0": "Lun",
-  "1": "Mar",
-  "2": "Mié",
-  "3": "Jue",
-  "4": "Vie",
-  "5": "Sáb",
-  "6": "Dom",
+  "0": "Mon",
+  "1": "Tue",
+  "2": "Wed",
+  "3": "Thu",
+  "4": "Fri",
+  "5": "Sat",
+  "6": "Sun",
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -36,7 +37,7 @@ interface AvgViewsByWeekdayChartProps {
 
 interface ChartEntry {
   day: string;
-  vistas: number;
+  views: number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,7 +56,7 @@ function buildChartData(stats: ProfileStatsDto | null): ChartEntry[] {
   return entries
     .map(([key, metric]) => ({
       day: WEEKDAY_LABELS[key] ?? `D${key}`,
-      vistas: Math.round(metric.avgViews ?? 0),
+      views: Math.round(metric.avgViews ?? 0),
     }))
     .sort((a, b) => {
       // Sort by weekday key 0–6
@@ -77,12 +78,12 @@ export function AvgViewsByWeekdayChart({ stats }: AvgViewsByWeekdayChartProps) {
   return (
     <div className="space-y-2">
       <p className="text-xs font-medium text-foreground/80">
-        Vistas promedio por día de la semana
+        Average views by weekday
       </p>
       {data.length === 0 ? (
         <div className="flex items-center justify-center h-32 rounded-md border border-border/30 border-dashed">
           <p className="text-xs text-muted-foreground/60">
-            Sin datos de vistas por día
+            No view data by weekday
           </p>
         </div>
       ) : (
@@ -105,20 +106,17 @@ export function AvgViewsByWeekdayChart({ stats }: AvgViewsByWeekdayChartProps) {
                 }
               />
               <Tooltip
-                contentStyle={{
-                  fontSize: 12,
-                  borderRadius: 8,
-                  border: "1px solid hsl(var(--border))",
-                  backgroundColor: "hsl(var(--popover))",
-                  color: "hsl(var(--popover-foreground))",
-                }}
-                formatter={(value: number) => [
-                  value.toLocaleString("es-AR"),
-                  "Vistas promedio",
-                ]}
+                cursor={{ fill: "hsl(var(--muted))", opacity: 0.25 }}
+                wrapperStyle={{ outline: "none", zIndex: 50 }}
+                content={
+                  <ProfileChartTooltip
+                    nameFormatter={() => "Average views"}
+                    valueFormatter={(value) => Number(value).toLocaleString("en-US")}
+                  />
+                }
               />
               <Bar
-                dataKey="vistas"
+                dataKey="views"
                 fill="hsl(var(--primary))"
                 radius={[3, 3, 0, 0]}
                 maxBarSize={40}

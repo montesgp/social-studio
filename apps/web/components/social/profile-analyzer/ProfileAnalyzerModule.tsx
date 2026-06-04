@@ -38,10 +38,10 @@ const TERMINAL_STATUSES: ProfileAnalysisStatus[] = ["Analyzed", "Failed"];
 // ── Profile pipeline steps (shared component) ─────────────────────────────────
 
 const PROFILE_STEPS = [
-  { key: "queued", label: "En cola" },
-  { key: "scraping", label: "Escaneando perfil" },
-  { key: "scraped", label: "Perfil obtenido" },
-  { key: "analyzing", label: "Analizando con IA" },
+  { key: "queued", label: "Queued" },
+  { key: "scraping", label: "Scraping profile" },
+  { key: "scraped", label: "Profile scraped" },
+  { key: "analyzing", label: "AI analysis" },
 ];
 
 function profileStatusToPercent(status: ProfileAnalysisStatus | null): number {
@@ -82,12 +82,12 @@ type FlowState =
 
 function statusLabel(status: ProfileAnalysisStatus): string {
   switch (status) {
-    case "Requested": return "En cola";
-    case "ScrapingProfile": return "Escaneando";
-    case "ProfileScraped": return "Perfil obtenido";
-    case "ProfileScrapedPartial": return "Parcial";
-    case "Analyzing": return "Analizando";
-    case "Analyzed": return "Analizado";
+    case "Requested": return "Queued";
+    case "ScrapingProfile": return "Scraping";
+    case "ProfileScraped": return "Profile scraped";
+    case "ProfileScrapedPartial": return "Partial";
+    case "Analyzing": return "Analyzing";
+    case "Analyzed": return "Analyzed";
     case "Failed": return "Error";
     default: return status;
   }
@@ -109,12 +109,13 @@ function statusBadgeVariant(
 /** Show date AND time so same-day analyses are distinguishable (#2). */
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleString("es-AR", {
+  return d.toLocaleString("en-US", {
     day: "2-digit",
     month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
 }
 
@@ -210,7 +211,7 @@ export function ProfileAnalyzerModule() {
         const message =
           err && typeof err === "object" && "message" in err
             ? String((err as { message: unknown }).message)
-            : "Error al iniciar el análisis";
+            : "Could not start the analysis";
         setSubmitError(message);
       } finally {
         setIsSubmitting(false);
@@ -234,7 +235,7 @@ export function ProfileAnalyzerModule() {
         const message =
           err && typeof err === "object" && "message" in err
             ? String((err as { message: unknown }).message)
-            : "No se pudo reintentar el análisis";
+            : "Could not retry the analysis";
         setRetryError(message);
       } finally {
         setIsRetrying(false);
@@ -364,8 +365,6 @@ export function ProfileAnalyzerModule() {
           onHelp={handleHelp}
           onSave={handleSave}
           onNew={handleReset}
-          newLabel="Nuevo análisis"
-          saveLabel="Guardar"
         />
       </div>
 
@@ -378,25 +377,25 @@ export function ProfileAnalyzerModule() {
         isDone={pollStatus === "Analyzed"}
         isFailed={pollStatus === "Failed" || pollTimedOut}
         isPartial={pollIsPartial}
-        runningTitle="Analizando perfil…"
-        doneTitle="Análisis completado"
-        failedTitle="El análisis falló"
-        description="Esto suele tardar 30–60 segundos. Mantené esta pestaña abierta."
+        runningTitle="Analyzing profile…"
+        doneTitle="Analysis complete"
+        failedTitle="Analysis failed"
+        description="This usually takes 30–60 seconds. Keep this tab open."
         failureDetail={
           pollTimedOut
-            ? "El análisis tardó demasiado. Podés reintentar desde el historial."
+            ? "The analysis took too long. You can retry it from history."
             : pollFailureCode
-            ? `Código de error: ${pollFailureCode}`
+            ? `Error code: ${pollFailureCode}`
             : null
         }
-        ariaLabel="Analizando perfil"
+        ariaLabel="Analyzing profile"
       />
 
       {/* Source picker or progress (inline cancel) or done state */}
       {flow.stage === "pick" && (
         <Card className="border-border/40 bg-background/60">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Configurar análisis de perfil</CardTitle>
+            <CardTitle className="text-sm">Configure profile analysis</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <ProfileSourcePicker
@@ -415,7 +414,7 @@ export function ProfileAnalyzerModule() {
       {flow.stage === "polling" && (
         <div className="pt-2">
           <Button variant="ghost" size="sm" onClick={handleReset} className="text-xs">
-            Cancelar y volver
+            Cancel and go back
           </Button>
         </div>
       )}
@@ -440,10 +439,10 @@ export function ProfileAnalyzerModule() {
       {flow.stage === "done" && flow.response.status !== "Analyzed" && (
         <Card className="border-destructive/20 bg-destructive/5">
           <CardContent className="pt-4 pb-4 space-y-3">
-            <p className="text-sm font-medium text-destructive">El análisis falló</p>
+            <p className="text-sm font-medium text-destructive">Analysis failed</p>
             {flow.response.failureCode && (
               <p className="text-xs text-muted-foreground">
-                Código: <span className="font-mono">{flow.response.failureCode}</span>
+                Code: <span className="font-mono">{flow.response.failureCode}</span>
               </p>
             )}
             {retryError && (
@@ -462,10 +461,10 @@ export function ProfileAnalyzerModule() {
                 ) : (
                   <RefreshCw className="h-3.5 w-3.5" />
                 )}
-                Reintentar análisis
+                Retry analysis
               </Button>
               <Button variant="ghost" size="sm" onClick={handleReset} className="text-xs">
-                Nuevo análisis
+                New analysis
               </Button>
             </div>
           </CardContent>
@@ -474,22 +473,24 @@ export function ProfileAnalyzerModule() {
 
       {/* History section */}
       <div className="space-y-2">
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={handleHistoryToggle}
-          className="flex items-center gap-2 text-xs text-muted-foreground/70 hover:text-foreground transition-colors"
+          className="h-auto px-0 py-0 text-xs text-muted-foreground/70 hover:bg-transparent hover:text-foreground"
         >
           <History className="h-3.5 w-3.5" />
-          {historyLoaded ? "Historial de análisis" : "Ver historial"}
-        </button>
+          {historyLoaded ? "Analysis history" : "View history"}
+        </Button>
 
         {historyLoaded && (
           <>
             {historyLoading && (
-              <p className="text-xs text-muted-foreground/60">Cargando historial…</p>
+              <p className="text-xs text-muted-foreground/60">Loading history…</p>
             )}
             {!historyLoading && historyItems.length === 0 && (
-              <p className="text-xs text-muted-foreground/60">No hay análisis previos.</p>
+              <p className="text-xs text-muted-foreground/60">No previous analyses.</p>
             )}
             {historyItems.length > 0 && (
               <Card className="border-border/40 bg-background/60">
@@ -529,7 +530,7 @@ export function ProfileAnalyzerModule() {
                             className="h-7 px-2 text-muted-foreground hover:text-foreground"
                             disabled={openingId === item.id}
                             onClick={() => void handleOpenFromHistory(item)}
-                            title="Abrir dashboard"
+                            title="Open dashboard"
                           >
                             {openingId === item.id ? (
                               <RefreshCw className="h-3.5 w-3.5 animate-spin" />
@@ -545,7 +546,7 @@ export function ProfileAnalyzerModule() {
                             className="h-7 px-2 text-muted-foreground hover:text-amber-500"
                             disabled={isRetrying}
                             onClick={() => void handleRetry(item.id)}
-                            title="Reintentar análisis"
+                            title="Retry analysis"
                           >
                             {isRetrying ? (
                               <RefreshCw className="h-3.5 w-3.5 animate-spin" />
@@ -560,7 +561,7 @@ export function ProfileAnalyzerModule() {
                           className="h-7 px-2 text-muted-foreground hover:text-destructive"
                           disabled={deletingId === item.id}
                           onClick={() => void handleDelete(item.id)}
-                          title="Eliminar análisis"
+                          title="Delete analysis"
                         >
                           {deletingId === item.id ? (
                             <RefreshCw className="h-3.5 w-3.5 animate-spin" />

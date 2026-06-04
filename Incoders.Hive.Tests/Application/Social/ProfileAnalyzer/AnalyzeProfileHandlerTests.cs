@@ -111,6 +111,42 @@ public sealed class AnalyzeProfileHandlerTests
         Assert.Null(result.Value.OwnAccountId);
     }
 
+    [Fact]
+    public async Task Handle_UrlPathWithInstagramShareQuery_SanitizesStoredProfileUrl()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new HandlerHarness(Now);
+
+        var result = await harness.Handler.Handle(
+            new AnalyzeProfileCommand(
+                orgId,
+                Guid.NewGuid(),
+                ClientId: null,
+                OwnAccountId: null,
+                ProfileUrl: "https://www.instagram.com/demo.creator?utm_source=ig_web_button_share_sheet&igsh=ZDNlZDc0MzIxNw=="),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("https://www.instagram.com/demo.creator/", result.Value.ProfileUrlOrHandle);
+        Assert.Equal("https://www.instagram.com/demo.creator/", harness.Repository.Stored!.ProfileUrl);
+    }
+
+    [Fact]
+    public void Validator_ProfileUrlWithInstagramShareQuery_IsAccepted()
+    {
+        var validator = new AnalyzeProfileValidator();
+
+        var result = validator.Validate(
+            new AnalyzeProfileCommand(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                ClientId: null,
+                OwnAccountId: null,
+                ProfileUrl: "https://www.instagram.com/demo.creator?utm_source=ig_web_button_share_sheet&igsh=ZDNlZDc0MzIxNw=="));
+
+        Assert.True(result.IsValid, string.Join(", ", result.Errors.Select(e => e.ErrorMessage)));
+    }
+
     // ── PA-01: Client path with no own Instagram account → validation error ───
 
     [Fact]
