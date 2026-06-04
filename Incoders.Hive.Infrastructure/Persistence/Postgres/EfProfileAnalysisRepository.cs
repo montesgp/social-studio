@@ -105,6 +105,7 @@ public sealed class EfProfileAnalysisRepository : IProfileAnalysisRepository
         row.Status = analysis.Status.ToString();
         row.RawPostsDatasetJson = analysis.RawPostsDatasetJson;
         row.ServerDerivedStatsJson = analysis.ServerDerivedStatsJson;
+        row.ProfileSnapshotJson = analysis.ProfileSnapshotJson;
         row.AiAnalysisJson = analysis.AiAnalysisJson;
         row.ProviderDiagnosticsJson = analysis.ProviderDiagnosticsJson;
         row.FailureCode = analysis.FailureCode;
@@ -143,6 +144,7 @@ public sealed class EfProfileAnalysisRepository : IProfileAnalysisRepository
         Status = analysis.Status.ToString(),
         RawPostsDatasetJson = analysis.RawPostsDatasetJson,
         ServerDerivedStatsJson = analysis.ServerDerivedStatsJson,
+        ProfileSnapshotJson = analysis.ProfileSnapshotJson,
         AiAnalysisJson = analysis.AiAnalysisJson,
         ProviderDiagnosticsJson = analysis.ProviderDiagnosticsJson,
         FailureCode = analysis.FailureCode,
@@ -165,6 +167,7 @@ public sealed class EfProfileAnalysisRepository : IProfileAnalysisRepository
             status: Enum.Parse<ProfileAnalysisStatus>(row.Status),
             rawPostsDatasetJson: row.RawPostsDatasetJson,
             serverDerivedStatsJson: row.ServerDerivedStatsJson,
+            profileSnapshotJson: row.ProfileSnapshotJson,
             aiAnalysisJson: row.AiAnalysisJson,
             providerDiagnosticsJson: row.ProviderDiagnosticsJson,
             failureCode: row.FailureCode,

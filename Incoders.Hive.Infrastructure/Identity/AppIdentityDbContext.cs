@@ -567,6 +567,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
             entity.Property(x => x.RawPostsDatasetJson).HasColumnName("raw_posts_dataset_json").HasColumnType("jsonb");
             entity.Property(x => x.ServerDerivedStatsJson).HasColumnName("server_derived_stats_json").HasColumnType("jsonb");
+            entity.Property(x => x.ProfileSnapshotJson).HasColumnName("profile_snapshot_json").HasColumnType("jsonb");
             entity.Property(x => x.AiAnalysisJson).HasColumnName("ai_analysis_json").HasColumnType("jsonb");
             entity.Property(x => x.ProviderDiagnosticsJson).HasColumnName("provider_diagnostics_json").HasColumnType("jsonb");
             entity.Property(x => x.FailureCode).HasColumnName("failure_code").HasMaxLength(128);

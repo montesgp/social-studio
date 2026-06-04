@@ -268,6 +268,79 @@ public sealed class ProfileAnalysisDomainTests
         Assert.Equal(0.85, aiAnalysis.Confidence);
     }
 
+    // ── RestartAnalysis (retry-AI domain guard) ────────────────────────────
+
+    [Fact]
+    public void RestartAnalysis_OnFailedRecordWithScrapeData_TransitionsToAnalyzing()
+    {
+        var analysis = CreateClientAnalysis();
+        // Bring to Failed via scrape → partial path then ai failure
+        analysis.StartScraping(UtcNow);
+        analysis.CompleteScrape(isPartial: false, UtcNow);
+        analysis.SetRawData("[]", "{}", "{}");
+        analysis.SetProfileSnapshot("{\"instagramId\":\"12345\"}");
+        analysis.StartAnalyzing(UtcNow);
+        analysis.MarkFailed("ai.failed", null, UtcNow);
+
+        var later = UtcNow.AddMinutes(5);
+        analysis.RestartAnalysis(later);
+
+        Assert.Equal(ProfileAnalysisStatus.Analyzing, analysis.Status);
+        Assert.Null(analysis.FailureCode);
+        Assert.Null(analysis.CompletedAtUtc);
+        Assert.Equal(later, analysis.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void RestartAnalysis_OnFailedRecordWithoutScrapeData_ThrowsInvalidOperation()
+    {
+        var analysis = CreateClientAnalysis();
+        analysis.StartScraping(UtcNow);
+        // Never reached ProfileScraped — scrape itself failed
+        analysis.MarkFailed("scrape.failed", null, UtcNow);
+
+        Assert.Throws<InvalidOperationException>(() => analysis.RestartAnalysis(UtcNow));
+    }
+
+    [Fact]
+    public void RestartAnalysis_OnAnalyzedRecord_ThrowsInvalidOperation()
+    {
+        var analysis = CreateClientAnalysis();
+        analysis.StartScraping(UtcNow);
+        analysis.CompleteScrape(false, UtcNow);
+        analysis.SetRawData("[]", "{}", "{}");
+        analysis.SetProfileSnapshot("{\"instagramId\":\"12345\"}");
+        analysis.StartAnalyzing(UtcNow);
+        analysis.CompleteAnalysis(BuildAiAnalysis(), UtcNow);
+
+        Assert.Throws<InvalidOperationException>(() => analysis.RestartAnalysis(UtcNow));
+    }
+
+    [Fact]
+    public void RestartAnalysis_OnRequestedRecord_ThrowsInvalidOperation()
+    {
+        var analysis = CreateClientAnalysis();
+        Assert.Throws<InvalidOperationException>(() => analysis.RestartAnalysis(UtcNow));
+    }
+
+    [Fact]
+    public void RestartAnalysis_ClearsFailureCodeAndResetsCompletedAt()
+    {
+        var analysis = CreateClientAnalysis();
+        analysis.StartScraping(UtcNow);
+        analysis.CompleteScrape(false, UtcNow);
+        analysis.SetRawData("[]", "{}", "{}");
+        analysis.SetProfileSnapshot("{\"instagramId\":\"12345\"}");
+        analysis.StartAnalyzing(UtcNow);
+        analysis.MarkFailed("ai.provider_error", "provider down", UtcNow);
+
+        var retryTime = UtcNow.AddMinutes(10);
+        analysis.RestartAnalysis(retryTime);
+
+        Assert.Null(analysis.FailureCode);
+        Assert.Null(analysis.CompletedAtUtc);
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────
 
     private static DomainProfileAnalysis CreateClientAnalysis() =>

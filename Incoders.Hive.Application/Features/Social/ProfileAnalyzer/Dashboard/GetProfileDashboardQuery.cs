@@ -135,15 +135,13 @@ public sealed class GetProfileDashboardQueryHandler
         var periodResult = Period.Monthly(now.Year, now.Month);
         if (periodResult.IsFailure) return null;
 
-        var planTask = _contentPlanRepo.GetByClientAndPeriodAsync(
+        // EF Core's DbContext is NOT thread-safe and both repositories share the same scoped
+        // DbContext — these queries MUST run sequentially. Task.WhenAll here caused
+        // "A second operation was started on this context instance before a previous operation completed."
+        var plan = await _contentPlanRepo.GetByClientAndPeriodAsync(
             organizationId, clientId, periodResult.Value, ct);
-        var strategyTask = _generalStrategyRepo.GetByClientIdAsync(
+        var strategy = await _generalStrategyRepo.GetByClientIdAsync(
             clientId, organizationId, ct);
-
-        await Task.WhenAll(planTask, strategyTask);
-
-        var plan = await planTask;
-        var strategy = await strategyTask;
 
         // PA-17: omit comparison entirely when no plan data exists
         if (plan is null && strategy is null) return null;

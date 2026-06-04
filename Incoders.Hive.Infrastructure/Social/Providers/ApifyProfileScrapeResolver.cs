@@ -15,17 +15,15 @@ namespace Incoders.Hive.Infrastructure.Social.Providers;
 
 /// <summary>
 /// Infrastructure implementation of <see cref="IProfileScrapeResolver"/>.
-/// Resolves both the default and backup actor ids for
-/// (networkKey="instagram", variantKey="profile") using the encrypted
-/// <c>actor_mappings_json</c> credential — LIST ordering is deterministic
-/// (List&lt;T&gt; deserialisation preserves JSON array order); [0] = default, [1] = backup.
-/// NO <c>priority</c> field is needed. The WU-01 spike confirmed this (obs #518).
+/// Resolves all actor ids for (networkKey="instagram", variantKey="profile") using the
+/// encrypted <c>actor_mappings_json</c> credential. The primary actor (IsPrimary == true)
+/// is placed first; remaining actors follow in JSON array order as backups.
 ///
 /// FALLBACK BEHAVIOUR (PA-05, Decision 3):
-///   1. Run default actor.
+///   1. Run primary actor (IsPrimary == true, or first in array if none marked primary).
 ///   2. On failure (transport / HTTP error / empty dataset / no profile-result item in array):
-///      record a ProviderFailureDiagnostic, retry with backup actor once.
-///   3. If both fail → Result.Failure with diagnostics.
+///      record a ProviderFailureDiagnostic, retry with each backup actor in order.
+///   3. All exhausted → Result.Failure with diagnostics.
 ///   4. Backup success → IsPartial = true (PA-08 precedent: partial data path).
 ///
 /// MUNDO 1 ISOLATION:
@@ -33,19 +31,16 @@ namespace Incoders.Hive.Infrastructure.Social.Providers;
 ///   It never touches the single-video pipeline (PA-REG-01, Design Decision 2).
 ///
 /// OPERATOR SETUP (INT-01, INT-02):
-///   actor_mappings_json must contain two Instagram actors (in order):
-///     [0] default:  { "networkKey": "instagram", "actorId": "get-leads~all-in-one-instagram-scraper" }
-///     [1] backup:   { "networkKey": "instagram", "actorId": "apify~instagram-profile-scraper" }
-///   Actors configured via the integrations UI (which stores variantKey "default") are used
-///   as-is — the resolver PREFERS variantKey "profile" but FALLS BACK to "default" for the
-///   same network. No special variant key is required when using the integrations UI.
-///   Missing entries for both "profile" and "default" → 422 Integration.ProfileActorNotConfigured.
+///   actor_mappings_json must contain Instagram actors tagged variantKey="profile".
+///   The startup backfill (ApifyActorMappingBackfill) re-tags legacy "default" entries
+///   to "profile"/"social-extraction" at startup. After backfill, the UI-persisted JSON
+///   always has explicit variant keys.
+///   Missing "profile" entries → 422 Integration.ProfileActorNotConfigured.
 /// </summary>
 public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
 {
     private const string CapabilityKey = "profile";
     private const string NetworkKey = "instagram";
-    private const string DefaultVariantKey = "default";
     private const string HttpClientName = nameof(ApifyProfileScrapeResolver);
     private const string ApifyProviderKey = "apify";
 
@@ -379,17 +374,17 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
     }
 
     /// <summary>
-    /// Returns ALL actor ids whose (networkKey, variantKey) pair matches the request.
-    /// List&lt;T&gt; deserialisation preserves JSON array order → [0] = default, [1] = backup.
-    /// DO NOT add a priority field — ordering is contractually guaranteed by JSON array position.
-    /// This is the GetAllMappedActors helper required by WU-06 design (obs #518).
+    /// Returns ALL actor ids whose (networkKey, variantKey) pair matches the request,
+    /// with the primary actor (IsPrimary == true) returned first, followed by the remaining
+    /// matches in JSON array order (backups).
     ///
-    /// FALLBACK: if no entries match the requested <paramref name="variantKey"/> for the
-    /// given network, the method falls back to entries whose variantKey == "default" for the
-    /// same network. This mirrors the single-video extractor's fallback (TryResolveMappedActor)
-    /// and allows actors configured via the integrations UI (which always stores variantKey
-    /// "default") to be used for profile scraping without any manual reconfiguration.
-    /// Explicit "profile" entries always take precedence over "default" ones.
+    /// There is NO "default" fallback. Entries with variantKey == "default" are NOT used
+    /// for profile resolution. The startup backfill (ApifyActorMappingBackfill) is responsible
+    /// for re-tagging "default" entries to "profile" and "social-extraction" before this method
+    /// is called in production. If no "profile" entries exist → returns empty → caller returns
+    /// ProfileActorNotConfigured (clear 4xx).
+    ///
+    /// Tolerates JSON entries that are missing the isPrimary field (defaults to false).
     /// </summary>
     internal static IReadOnlyList<string> GetAllMappedActors(
         string actorMappingsJson,
@@ -401,27 +396,22 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
             var mappings = JsonSerializer.Deserialize<List<ApifyActorMappingEntry>>(
                 actorMappingsJson, JsonOptions) ?? [];
 
-            // Prefer entries that explicitly match the requested variantKey.
-            var preferred = mappings
+            var matches = mappings
                 .Where(m =>
                     !string.IsNullOrWhiteSpace(m.ActorId)
                     && Matches(m.NetworkKey, networkKey)
                     && Matches(m.VariantKey, variantKey))
-                .Select(m => m.ActorId.Trim())
                 .ToList();
 
-            if (preferred.Count > 0)
+            if (matches.Count == 0)
             {
-                return preferred;
+                return [];
             }
 
-            // Fall back to the UI-persisted "default" variant for the same network
-            // (the integrations UI hardcodes variantKey="default" for every mapping).
-            return mappings
-                .Where(m =>
-                    !string.IsNullOrWhiteSpace(m.ActorId)
-                    && Matches(m.NetworkKey, networkKey)
-                    && Matches(m.VariantKey, DefaultVariantKey))
+            // Primary first, then the remaining in original array order.
+            // OrderBy is stable: non-primary entries preserve their relative JSON order.
+            return matches
+                .OrderByDescending(m => m.IsPrimary)
                 .Select(m => m.ActorId.Trim())
                 .ToList();
         }
@@ -459,7 +449,11 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
     private static bool Matches(string? value, string expected) =>
         string.Equals(value?.Trim(), expected.Trim(), StringComparison.OrdinalIgnoreCase);
 
-    private sealed record ApifyActorMappingEntry(string NetworkKey, string VariantKey, string ActorId);
+    private sealed record ApifyActorMappingEntry(
+        string NetworkKey,
+        string VariantKey,
+        string ActorId,
+        bool IsPrimary = false);
 
     // ── Test helpers ──────────────────────────────────────────────────────────
 

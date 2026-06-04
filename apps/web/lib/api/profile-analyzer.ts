@@ -131,6 +131,23 @@ export async function deleteProfileAnalysis(
 }
 
 /**
+ * Re-run ONLY the AI stage of an existing profile analysis. Reuses the persisted
+ * scrape snapshot — does NOT re-scrape the profile. Returns immediately with
+ * status=Analyzing; poll {@link getProfileAnalysis} until Analyzed or Failed.
+ * (POST /api/social/profile-analyzer/analyze/{id}/retry-ai)
+ */
+export async function retryProfileAnalysis(
+  id: string,
+  token?: string
+): Promise<ProfileAnalysisStatusResponse> {
+  return apiRequest<ProfileAnalysisStatusResponse>(
+    `/api/social/profile-analyzer/analyze/${encodeURIComponent(id)}/retry-ai`,
+    { method: "POST" },
+    token
+  );
+}
+
+/**
  * List a client's own accounts filtered to Instagram
  * (GET /api/social/clients/{clientId}/own-accounts?network=instagram).
  * Used by the ProfileSourcePicker to show the own-account selector.

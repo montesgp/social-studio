@@ -93,17 +93,33 @@ interface ModalState {
 interface ApifyActorMappingDraft {
   id: string;
   networkKey: string;
+  variantKey: string;
   actorId: string;
+  isPrimary: boolean;
 }
 
 const apifyActorMappingsCredentialKey = "actor_mappings_json";
+
+const WORKFLOW_OPTIONS: { value: string; label: string }[] = [
+  { value: "social-extraction", label: "Análisis de contenido" },
+  { value: "profile", label: "Análisis de perfil" }
+];
 
 function newApifyActorMapping(defaultNetworkKey: string): ApifyActorMappingDraft {
   return {
     id: crypto.randomUUID(),
     networkKey: defaultNetworkKey,
-    actorId: ""
+    variantKey: "social-extraction",
+    actorId: "",
+    isPrimary: false
   };
+}
+
+interface RawActorMapping {
+  networkKey?: unknown;
+  variantKey?: unknown;
+  actorId?: unknown;
+  isPrimary?: unknown;
 }
 
 function parseApifyActorMappings(value: string | undefined): ApifyActorMappingDraft[] {
@@ -112,35 +128,66 @@ function parseApifyActorMappings(value: string | undefined): ApifyActorMappingDr
   }
 
   try {
-    const parsed = JSON.parse(value) as Array<Partial<ApifyActorMappingDraft>>;
+    const parsed = JSON.parse(value) as RawActorMapping[];
     if (!Array.isArray(parsed)) {
       return [];
     }
 
-    return parsed
+    const rows = parsed
       .map((item) => {
         const networkKey = typeof item.networkKey === "string" ? item.networkKey.trim() : "";
-        return {
-          id: crypto.randomUUID(),
-          networkKey,
-          actorId: item.actorId?.trim() || ""
-        };
+        const rawVariant = typeof item.variantKey === "string" ? item.variantKey.trim() : "";
+        // Legacy entries with variantKey missing or "default" → treat as social-extraction
+        const variantKey = rawVariant === "" || rawVariant === "default" ? "social-extraction" : rawVariant;
+        const actorId = typeof item.actorId === "string" ? item.actorId.trim() : "";
+        const isPrimary = item.isPrimary === true;
+        return { id: crypto.randomUUID(), networkKey, variantKey, actorId, isPrimary };
       })
       .filter((item) => item.networkKey.length > 0 && item.actorId.length > 0);
+
+    return rows;
   } catch {
     return [];
   }
 }
 
+function normalizePrimaries(mappings: ApifyActorMappingDraft[]): ApifyActorMappingDraft[] {
+  // Group by (networkKey, variantKey). Ensure exactly one isPrimary per group.
+  // If a group has a primary already, keep only the first one found as primary.
+  // If a group has no primary, promote the first row in that group.
+  const groupPrimary = new Map<string, string>(); // groupKey → first primary id
+
+  for (const m of mappings) {
+    const key = `${m.networkKey}::${m.variantKey}`;
+    if (m.isPrimary && !groupPrimary.has(key)) {
+      groupPrimary.set(key, m.id);
+    }
+  }
+
+  return mappings.map((m) => {
+    const key = `${m.networkKey}::${m.variantKey}`;
+    if (!groupPrimary.has(key)) {
+      // No primary assigned for this group — promote the first row of the group
+      const firstInGroup = mappings.find((r) => `${r.networkKey}::${r.variantKey}` === key);
+      if (firstInGroup) {
+        groupPrimary.set(key, firstInGroup.id);
+      }
+    }
+    return { ...m, isPrimary: groupPrimary.get(key) === m.id };
+  });
+}
+
 function serializeApifyActorMappings(mappings: ApifyActorMappingDraft[]) {
+  const normalized = normalizePrimaries(mappings);
   return JSON.stringify(
-    mappings
+    normalized
+      .filter((item) => item.networkKey.length > 0 && item.actorId.trim().length > 0)
       .map((item) => ({
         networkKey: item.networkKey,
-        variantKey: "default",
-        actorId: item.actorId.trim()
+        variantKey: item.variantKey,
+        actorId: item.actorId.trim(),
+        isPrimary: item.isPrimary
       }))
-      .filter((item) => item.actorId.length > 0)
   );
 }
 
@@ -409,6 +456,23 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
           }
         : prev
     );
+  }
+
+  function setPrimaryActorMapping(id: string) {
+    setModal((prev) => {
+      if (!prev) return prev;
+      const target = prev.apifyActorMappings.find((m) => m.id === id);
+      if (!target) return prev;
+      const groupKey = `${target.networkKey}::${target.variantKey}`;
+      return {
+        ...prev,
+        apifyActorMappings: prev.apifyActorMappings.map((m) => {
+          const mKey = `${m.networkKey}::${m.variantKey}`;
+          if (mKey !== groupKey) return m;
+          return { ...m, isPrimary: m.id === id };
+        })
+      };
+    });
   }
 
   async function openConfigure(integration: OrganizationIntegration) {
@@ -906,11 +970,18 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                     </p>
                   ) : (
                     <div className="space-y-2">
+                      <div className="hidden md:grid gap-2 px-2 md:grid-cols-[1fr_1fr_1fr_auto_auto]">
+                        <span className="text-xs font-medium text-muted-foreground">Red social</span>
+                        <span className="text-xs font-medium text-muted-foreground">Workflow / Área</span>
+                        <span className="text-xs font-medium text-muted-foreground">Actor ID</span>
+                        <span className="text-xs font-medium text-muted-foreground">Principal</span>
+                        <span />
+                      </div>
                       {modal.apifyActorMappings.map((mapping) => {
                         const isKnownNetwork = socialNetworkOptions.some((option) => option.value === mapping.networkKey);
 
                         return (
-                          <div key={mapping.id} className="grid gap-2 rounded-lg border border-border/70 p-2 md:grid-cols-[1fr_1fr_auto]">
+                          <div key={mapping.id} className="grid gap-2 rounded-lg border border-border/70 p-2 md:grid-cols-[1fr_1fr_1fr_auto_auto]">
                             <Select
                               value={mapping.networkKey}
                               onChange={(event) =>
@@ -928,6 +999,20 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                                 </option>
                               ))}
                             </Select>
+                            <Select
+                              value={mapping.variantKey}
+                              onChange={(event) =>
+                                patchApifyActorMapping(mapping.id, {
+                                  variantKey: event.target.value
+                                })
+                              }
+                            >
+                              {WORKFLOW_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </Select>
                             <Input
                               value={mapping.actorId}
                               onChange={(event) =>
@@ -935,6 +1020,18 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                               }
                               placeholder="Apify actor ID"
                             />
+                            <label
+                              className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none whitespace-nowrap"
+                              title="Marcar como actor principal para esta red y área"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={mapping.isPrimary}
+                                onChange={() => setPrimaryActorMapping(mapping.id)}
+                                className="accent-primary"
+                              />
+                              Principal
+                            </label>
                             <Button
                               type="button"
                               variant="ghost"

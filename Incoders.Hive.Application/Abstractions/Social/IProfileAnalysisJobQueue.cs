@@ -5,7 +5,16 @@ namespace Incoders.Hive.Application.Abstractions.Social;
 /// </summary>
 public enum ProfileAnalysisJobKind
 {
+    /// <summary>Full pipeline: scrape + AI stages.</summary>
     Full = 0,
+
+    /// <summary>
+    /// AI-only retry: skips the scrape stage and re-runs only the AI stages using
+    /// the persisted scrape data (<see cref="ProfileAnalysisJob.AnalysisId"/> must
+    /// refer to a record already in <c>Analyzing</c> status with non-null
+    /// ProfileSnapshotJson, RawPostsDatasetJson, and ServerDerivedStatsJson).
+    /// </summary>
+    RetryAi = 1,
 }
 
 /// <summary>

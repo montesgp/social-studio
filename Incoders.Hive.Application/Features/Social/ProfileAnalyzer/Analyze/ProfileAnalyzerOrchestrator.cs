@@ -2,6 +2,7 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
 using Microsoft.Extensions.Logging;
@@ -35,6 +36,7 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
     private readonly IAiCompletionGateway _aiGateway;
     private readonly IDefaultAiSelector _defaultAiSelector;
     private readonly ILogger<ProfileAnalyzerOrchestrator> _logger;
+    private readonly ProviderCallContext? _providerCallContext;
 
     public ProfileAnalyzerOrchestrator(
         IProfileAnalysisRepository repository,
@@ -44,7 +46,8 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         IProfileMetricCalculator calculator,
         IAiCompletionGateway aiGateway,
         IDefaultAiSelector defaultAiSelector,
-        ILogger<ProfileAnalyzerOrchestrator>? logger = null)
+        ILogger<ProfileAnalyzerOrchestrator>? logger = null,
+        ProviderCallContext? providerCallContext = null)
     {
         _repository = repository;
         _unitOfWork = unitOfWork;
@@ -54,6 +57,7 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         _aiGateway = aiGateway;
         _defaultAiSelector = defaultAiSelector;
         _logger = logger ?? NullLogger<ProfileAnalyzerOrchestrator>.Instance;
+        _providerCallContext = providerCallContext;
     }
 
     public async Task RunQueuedAsync(
@@ -207,6 +211,7 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
             rawPostsJson: JsonSerializer.Serialize(scrape.OwnerPosts, JsonOptions),
             statsJson: JsonSerializer.Serialize(stats, JsonOptions),
             diagnosticsJson: JsonSerializer.Serialize(intermediateDiagnostics, JsonOptions));
+        analysis.SetProfileSnapshot(JsonSerializer.Serialize(scrape.Profile, JsonOptions));
         await PersistAsync(analysis, cancellationToken);
 
         _logger.LogInformation(
@@ -222,6 +227,103 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
             stats.OwnerPostCount,
             stats.DegradedPostCount);
 
+        // ── Stages 5-7: AI provider selection + analysis + persist ───────────
+        await RunAiStagesAsync(analysis, orgId, scrape.UsedActorId, scrape.FallbackUsed,
+            scrape.ProviderAggregates.PostsReceived, stats.OwnerPostCount, stats.DegradedPostCount,
+            scrape.Diagnostics.Select(d => d.FailureCode).ToList(),
+            scrape.Profile, stats, scrape.OwnerPosts, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public async Task RunAnalysisOnlyAsync(
+        Guid analysisId,
+        Guid organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        var analysis = await _repository.GetByIdAsync(analysisId, organizationId, cancellationToken);
+        if (analysis is null)
+        {
+            _logger.LogWarning(
+                "Profile Analyzer retry-AI: analysis {AnalysisId} not found for org {OrganizationId}.",
+                analysisId,
+                organizationId);
+            return;
+        }
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(analysis.RawPostsDatasetJson) ||
+                string.IsNullOrWhiteSpace(analysis.ServerDerivedStatsJson) ||
+                string.IsNullOrWhiteSpace(analysis.ProfileSnapshotJson))
+            {
+                _logger.LogWarning(
+                    "Profile Analyzer retry-AI: analysis {AnalysisId} missing persisted scrape data; cannot retry AI without re-scraping. " +
+                    "This should have been caught by the command handler pre-flight. Status={Status}",
+                    analysisId,
+                    analysis.Status);
+                // The command handler (RetryProfileAnalysisHandler) validates this pre-condition before enqueueing.
+                // If we reach here, the status is already Failed — do NOT attempt Failed→Failed transition.
+                // Just return; the record is already in the correct terminal state.
+                return;
+            }
+
+            // Deserialise persisted scrape data — no Apify call.
+            var profile = JsonSerializer.Deserialize<ProfileSnapshot>(analysis.ProfileSnapshotJson!, JsonOptions)!;
+            var stats = JsonSerializer.Deserialize<ProfileStats>(analysis.ServerDerivedStatsJson!, JsonOptions)!;
+            var ownerPosts = JsonSerializer.Deserialize<List<ProfilePost>>(analysis.RawPostsDatasetJson!, JsonOptions)
+                ?? [];
+
+            _logger.LogInformation(
+                "Profile Analyzer retry-AI: re-running AI stages only " +
+                "analysisId={AnalysisId} organizationId={OrgId} — NO scrape call.",
+                analysisId,
+                organizationId);
+
+            await RunAiStagesAsync(analysis, organizationId,
+                actorId: string.Empty, fallbackUsed: false,
+                postsReceived: stats.OwnerPostCount, postsProcessed: stats.OwnerPostCount,
+                degradedPostCount: stats.DegradedPostCount,
+                priorFailureCodes: [],
+                profile: profile, stats: stats, ownerPosts: ownerPosts,
+                cancellationToken: cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogError(
+                ex,
+                "Profile Analyzer retry-AI: unexpected exception " +
+                "analysisId={AnalysisId} organizationId={OrganizationId}.",
+                analysisId,
+                organizationId);
+            await PersistFailureWithDiagnosticsAsync(
+                analysis,
+                "profile_analysis.unexpected_error",
+                $"Unexpected error during retry-AI: {ex.Message}",
+                BuildFailureDiagnostics(string.Empty, false, 0, 0, 0, null, null,
+                    ["profile_analysis.unexpected_error"]),
+                CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// Shared stages 5-7: AI provider selection → AI completion → persist Analyzed|Failed.
+    /// Used by both the full pipeline (RunCoreAsync) and the retry-AI path (RunAnalysisOnlyAsync).
+    /// The caller is responsible for ensuring the record is in Analyzing or ProfileScraped/Partial state.
+    /// </summary>
+    private async Task RunAiStagesAsync(
+        ProfileAnalysis analysis,
+        Guid orgId,
+        string actorId,
+        bool fallbackUsed,
+        int postsReceived,
+        int postsProcessed,
+        int degradedPostCount,
+        IReadOnlyList<string> priorFailureCodes,
+        ProfileSnapshot profile,
+        ProfileStats stats,
+        IReadOnlyList<ProfilePost> ownerPosts,
+        CancellationToken cancellationToken)
+    {
         // ── Stage 5: AI provider selection ────────────────────────────────────
         var aiSelection = await _defaultAiSelector.SelectAsync(orgId, cancellationToken);
         if (aiSelection.IsFailure)
@@ -238,21 +340,25 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
                 aiSelection.Error.Code,
                 null,
                 BuildFailureDiagnostics(
-                    actorId: scrape.UsedActorId,
-                    fallbackUsed: scrape.FallbackUsed,
-                    postsReceived: scrape.ProviderAggregates.PostsReceived,
-                    postsProcessed: stats.OwnerPostCount,
-                    degradedPostCount: stats.DegradedPostCount,
+                    actorId: actorId,
+                    fallbackUsed: fallbackUsed,
+                    postsReceived: postsReceived,
+                    postsProcessed: postsProcessed,
+                    degradedPostCount: degradedPostCount,
                     aiProviderKey: null,
                     aiModel: null,
-                    failureReasons: [.. scrape.Diagnostics.Select(d => d.FailureCode), aiSelection.Error.Code]),
+                    failureReasons: [.. priorFailureCodes, aiSelection.Error.Code]),
                 cancellationToken);
             return;
         }
 
         // ── Stage 6: Analyzing ─────────────────────────────────────────────────
-        analysis.StartAnalyzing(_clock.UtcNow);
-        await PersistAsync(analysis, cancellationToken);
+        // Only transition if not already Analyzing (retry path already set this via RestartAnalysis)
+        if (analysis.Status != ProfileAnalysisStatus.Analyzing)
+        {
+            analysis.StartAnalyzing(_clock.UtcNow);
+            await PersistAsync(analysis, cancellationToken);
+        }
 
         _logger.LogInformation(
             "Profile Analyzer: running AI analysis " +
@@ -263,7 +369,18 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
             aiSelection.Value.ProviderKey,
             aiSelection.Value.Model ?? "(provider default)");
 
-        var aiInput = CreateAiInput(scrape.Profile, stats, scrape.OwnerPosts);
+        var aiInput = CreateAiInput(profile, stats, ownerPosts);
+
+        // The instrumented AI gateway decorator (AiCompletionGatewayInstrumentationDecorator) requires an
+        // active ProviderCallContext; without it, it throws "ProviderCallContext.Current is null".
+        // Mirror SingleContentAnalyzer. Null-safe: in unit tests no context/decorator is wired.
+        using var aiCallScope = _providerCallContext?.Begin(
+            orgId,
+            analysis.ClientId,
+            workflowKey: "profile-analyzer",
+            pipelineStepKey: "profile-analysis",
+            promptVersion: ProfileAnalyzerPromptVersions.AnalysisV1,
+            analysis.Id);
 
         var aiResult = await _aiGateway.CompleteJsonAsync<ProfileAnalysisResult>(
             new AiJsonCompletionRequest(
@@ -284,8 +401,8 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
                 "actorId={ActorId} fallbackUsed={FallbackUsed} aiProviderKey={ProviderKey} errorCode={ErrorCode}.",
                 analysis.Id,
                 orgId,
-                scrape.UsedActorId,
-                scrape.FallbackUsed,
+                actorId,
+                fallbackUsed,
                 aiSelection.Value.ProviderKey,
                 aiResult.Error.Code);
 
@@ -294,25 +411,29 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
                 aiResult.Error.Code,
                 null,
                 BuildFailureDiagnostics(
-                    actorId: scrape.UsedActorId,
-                    fallbackUsed: scrape.FallbackUsed,
-                    postsReceived: scrape.ProviderAggregates.PostsReceived,
-                    postsProcessed: stats.OwnerPostCount,
-                    degradedPostCount: stats.DegradedPostCount,
+                    actorId: actorId,
+                    fallbackUsed: fallbackUsed,
+                    postsReceived: postsReceived,
+                    postsProcessed: postsProcessed,
+                    degradedPostCount: degradedPostCount,
                     aiProviderKey: aiSelection.Value.ProviderKey,
                     aiModel: aiSelection.Value.Model,
-                    failureReasons: [.. scrape.Diagnostics.Select(d => d.FailureCode), aiResult.Error.Code]),
+                    failureReasons: [.. priorFailureCodes, aiResult.Error.Code]),
                 cancellationToken);
             return;
         }
 
         // ── Stage 7: Analyzed ──────────────────────────────────────────────────
-        var finalDiagnostics = BuildFinalDiagnostics(
-            scrape,
-            stats.OwnerPostCount,
-            stats.DegradedPostCount,
-            aiSelection.Value.ProviderKey,
-            aiSelection.Value.Model);
+        var finalDiagnostics = new ProfileRunDiagnostics
+        {
+            ActorId = actorId,
+            FallbackUsed = fallbackUsed,
+            PostsReceived = postsReceived,
+            PostsProcessed = postsProcessed,
+            DegradedPostCount = degradedPostCount,
+            AiProviderKey = aiSelection.Value.ProviderKey,
+            AiModel = aiSelection.Value.Model,
+        };
 
         var aiAnalysis = MapAiAnalysis(aiResult.Value.Payload);
         var completedAt = _clock.UtcNow;
@@ -330,11 +451,11 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
             "aiProviderKey={ProviderKey} aiModel={Model}.",
             analysis.Id,
             orgId,
-            scrape.UsedActorId,
-            scrape.FallbackUsed,
-            scrape.ProviderAggregates.PostsReceived,
-            stats.OwnerPostCount,
-            stats.DegradedPostCount,
+            actorId,
+            fallbackUsed,
+            postsReceived,
+            postsProcessed,
+            degradedPostCount,
             aiSelection.Value.ProviderKey,
             aiSelection.Value.Model ?? "(provider default)");
     }

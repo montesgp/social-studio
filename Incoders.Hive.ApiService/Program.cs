@@ -101,6 +101,9 @@ if (app.Configuration.GetValue("StartupTasks:SeedData", true))
     await app.Services.SeedPlatformEmailTemplatesAsync();
     await app.Services.SeedIdentityRolesAsync();
     await app.Services.SeedSysAdminUserAsync();
+    // Idempotent backfill: re-tags legacy "default" actor_mappings_json entries
+    // to "profile" / "social-extraction" with isPrimary flags.
+    await app.Services.RunApifyActorMappingBackfillAsync();
 }
 
 // Configure the HTTP request pipeline.

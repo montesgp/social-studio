@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { clearAuthSession } from "@/lib/auth/client-session";
+import { beginSignOut } from "@/lib/auth/sign-out-store";
 
 export function SignOutButton() {
   const [pending, setPending] = useState(false);
@@ -13,6 +14,7 @@ export function SignOutButton() {
   function onSignOut() {
     if (pending) return;
     setPending(true);
+    beginSignOut();
     clearAuthSession();
     router.replace("/login");
   }

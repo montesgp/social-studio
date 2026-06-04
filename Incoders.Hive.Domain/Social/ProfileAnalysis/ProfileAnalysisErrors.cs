@@ -42,4 +42,13 @@ public static class ProfileAnalysisErrors
     public static readonly Error OwnAccountNotFound = Error.Validation(
         "social.profile_analysis.own_account_not_found",
         "social.profile_analysis.errors.own_account_not_found");
+
+    /// <summary>
+    /// The analysis cannot be retried with AI-only because the scrape data was not persisted
+    /// (the scrape itself failed). A full re-run is required.
+    /// Maps to 422 Unprocessable Entity at the API layer.
+    /// </summary>
+    public static readonly Error NotResumable = Error.Validation(
+        "social.profile_analysis.not_resumable",
+        "social.profile_analysis.errors.not_resumable");
 }

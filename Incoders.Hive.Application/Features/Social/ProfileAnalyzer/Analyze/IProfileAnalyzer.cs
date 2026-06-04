@@ -19,4 +19,16 @@ public interface IProfileAnalyzer
         Guid analysisId,
         Guid organizationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Re-runs ONLY the AI stage (stages 5-7) of a previously-failed analysis using the
+    /// already-persisted scrape data. Does NOT call IProfileScrapeResolver — no Apify cost.
+    /// Requires that the record is in <see cref="Domain.Social.ProfileAnalysis.ProfileAnalysisStatus.Analyzing"/>
+    /// state (the command handler calls RestartAnalysis before enqueuing the job) and that
+    /// the persisted scrape data is complete (ProfileSnapshotJson, RawPostsDatasetJson, ServerDerivedStatsJson).
+    /// </summary>
+    Task RunAnalysisOnlyAsync(
+        Guid analysisId,
+        Guid organizationId,
+        CancellationToken cancellationToken = default);
 }

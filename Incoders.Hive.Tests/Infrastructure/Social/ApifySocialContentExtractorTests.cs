@@ -23,7 +23,7 @@ public sealed class ApifySocialContentExtractorTests
                 {
                     ["api_key"] = "test-token",
                     ["actor_mappings_json"] =
-                        "[{\"networkKey\":\"tiktok\",\"variantKey\":\"single-video\",\"actorId\":\"clockworks/tiktok-scraper\"}]",
+                        "[{\"networkKey\":\"tiktok\",\"variantKey\":\"social-extraction\",\"actorId\":\"clockworks/tiktok-scraper\",\"isPrimary\":true}]",
                     ["actor_id"] = "legacy/default-actor"
                 },
                 SelectedModel: null),

@@ -1417,6 +1417,10 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("own_account_id");
 
+                    b.Property<string>("ProfileSnapshotJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("profile_snapshot_json");
+
                     b.Property<string>("ProfileUrlOrHandle")
                         .IsRequired()
                         .HasMaxLength(2048)

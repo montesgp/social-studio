@@ -11,6 +11,7 @@ using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Impute;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using ICurrentUser = Incoders.Hive.Application.Abstractions.ICurrentUser;
 
 namespace Incoders.Hive.ApiService.Endpoints.Social;
 
@@ -70,6 +71,16 @@ public static class ProfileAnalyzerEndpointsExtensions
             .WithName("ListProfileAnalyses")
             .WithSummary("List profile analyses for the active organization (paged, newest first)")
             .Produces<ProfileAnalysisHistoryResponse>(StatusCodes.Status200OK);
+
+        // Retry-AI: re-runs only AI stages (5-7) using persisted scrape data. NO Apify call.
+        // 202 Accepted (+ status) when enqueued; 404 when not found or wrong org;
+        // 422 when the record is not resumable (scrape never completed, or not Failed).
+        group.MapPost("/analyze/{id:guid}/retry-ai", ProfileAnalyzerEndpointFacade.RetryAiAsync)
+            .WithName("RetryProfileAnalysisAi")
+            .WithSummary("Re-run only the AI stage of a failed profile analysis (reusing persisted scrape data — no Apify call)")
+            .Produces<AnalyzeProfileStatusResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
         // Delete: hard-delete a profile analysis, org-scoped.
         group.MapDelete("/analyze/{id:guid}", ProfileAnalyzerEndpointFacade.DeleteAsync)
@@ -199,6 +210,24 @@ internal static class ProfileAnalyzerEndpointFacade
             cancellationToken);
 
         return result.Match(() => (IResult)TypedResults.NoContent());
+    }
+
+    internal static async Task<IResult> RetryAiAsync(
+        Guid id,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+            return ProfileAnalysisErrors.OrganizationRequired.ToProblem();
+
+        var result = await sender.Send(
+            new RetryProfileAnalysisCommand(id, tenantId.Value),
+            cancellationToken);
+
+        return result.Match(status =>
+            (IResult)TypedResults.Accepted(
+                $"/api/social/profile-analyzer/analyze/{status.Id}", status));
     }
 }
 

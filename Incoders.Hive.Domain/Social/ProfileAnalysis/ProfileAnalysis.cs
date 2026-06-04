@@ -57,6 +57,13 @@ public sealed class ProfileAnalysis
     /// <summary>JSON snapshot of the server-derived stats (populated after metric computation).</summary>
     public string? ServerDerivedStatsJson { get; private set; }
 
+    /// <summary>
+    /// JSON snapshot of the profile-level data (ProfileSnapshot) used to reconstruct AI input for a retry.
+    /// Populated at the same time as <see cref="RawPostsDatasetJson"/> (after the scrape stage).
+    /// Without this, a retry-AI operation cannot reconstruct the AI input without re-scraping.
+    /// </summary>
+    public string? ProfileSnapshotJson { get; private set; }
+
     /// <summary>JSON snapshot of the AI analysis result (populated after AI step).</summary>
     public string? AiAnalysisJson { get; private set; }
 
@@ -155,6 +162,7 @@ public sealed class ProfileAnalysis
         ProfileAnalysisStatus status,
         string? rawPostsDatasetJson,
         string? serverDerivedStatsJson,
+        string? profileSnapshotJson,
         string? aiAnalysisJson,
         string? providerDiagnosticsJson,
         string? failureCode,
@@ -172,6 +180,7 @@ public sealed class ProfileAnalysis
             Status = status,
             RawPostsDatasetJson = rawPostsDatasetJson,
             ServerDerivedStatsJson = serverDerivedStatsJson,
+            ProfileSnapshotJson = profileSnapshotJson,
             AiAnalysisJson = aiAnalysisJson,
             ProviderDiagnosticsJson = providerDiagnosticsJson,
             FailureCode = failureCode,
@@ -246,6 +255,52 @@ public sealed class ProfileAnalysis
         RawPostsDatasetJson = rawPostsJson;
         ServerDerivedStatsJson = statsJson;
         ProviderDiagnosticsJson = diagnosticsJson;
+    }
+
+    /// <summary>
+    /// Stores the serialised ProfileSnapshot JSON required to reconstruct AI input for a retry.
+    /// Called by the orchestrator at the same time as <see cref="SetRawData"/>.
+    /// </summary>
+    public void SetProfileSnapshot(string profileSnapshotJson)
+    {
+        ProfileSnapshotJson = profileSnapshotJson;
+    }
+
+    /// <summary>
+    /// Re-opens a <see cref="ProfileAnalysisStatus.Failed"/> record to
+    /// <see cref="ProfileAnalysisStatus.Analyzing"/> so the AI stage can be re-run
+    /// using the already-persisted scrape data (no re-scrape required).
+    /// </summary>
+    /// <remarks>
+    /// Guard invariants:
+    /// - The record MUST be in <see cref="ProfileAnalysisStatus.Failed"/> state.
+    /// - The record MUST have persisted scrape data (<see cref="RawPostsDatasetJson"/>,
+    ///   <see cref="ServerDerivedStatsJson"/>, and <see cref="ProfileSnapshotJson"/> all non-null).
+    ///   A Failed record without scrape data means the scrape itself failed — a full re-run is required.
+    /// </remarks>
+    public void RestartAnalysis(DateTime nowUtc)
+    {
+        if (Status != ProfileAnalysisStatus.Failed)
+        {
+            throw new InvalidOperationException(
+                $"RestartAnalysis is only valid on a Failed record. " +
+                $"Current status: {Status}. AnalysisId={Id}");
+        }
+
+        if (string.IsNullOrWhiteSpace(RawPostsDatasetJson) ||
+            string.IsNullOrWhiteSpace(ServerDerivedStatsJson) ||
+            string.IsNullOrWhiteSpace(ProfileSnapshotJson))
+        {
+            throw new InvalidOperationException(
+                $"RestartAnalysis requires persisted scrape data (RawPostsDatasetJson, " +
+                $"ServerDerivedStatsJson, ProfileSnapshotJson). " +
+                $"The scrape stage did not complete for AnalysisId={Id}. Use a full re-run instead.");
+        }
+
+        Status = ProfileAnalysisStatus.Analyzing;
+        FailureCode = null;
+        CompletedAtUtc = null;
+        UpdatedAtUtc = nowUtc;
     }
 
     /// <summary>

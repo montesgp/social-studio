@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
@@ -184,10 +185,149 @@ public sealed class ProfileAnalyzerOrchestratorTests
         Assert.Contains("integration.profile_actor_not_configured", stored.ProviderDiagnosticsJson!);
     }
 
+    // ── RunAnalysisOnlyAsync: retry-AI path ────────────────────────────────────
+
+    [Fact]
+    public async Task RunAnalysisOnlyAsync_WithPersistedScrapeData_ReachesAnalyzedWithoutCallingScrapeResolver()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        // Build a Failed-with-scrape-data record via Reconstitute (mirrors production DB state)
+        var analysis = MakeFailedWithScrapeData(orgId, Guid.NewGuid());
+        harness.Repository.Store(analysis);
+        harness.AiGateway.SetPayload(MakeAiResult());
+
+        // RestartAnalysis sets it to Analyzing — command handler does this before enqueuing
+        analysis.RestartAnalysis(Now);
+
+        await harness.Orchestrator.RunAnalysisOnlyAsync(analysis.Id, orgId, CancellationToken.None);
+
+        var stored = harness.Repository.Stored!;
+        Assert.Equal(ProfileAnalysisStatus.Analyzed, stored.Status);
+        Assert.NotNull(stored.AiAnalysisJson);
+        // Scrape resolver MUST NOT be called — it is not invoked by RunAnalysisOnlyAsync
+        // (there is no way to call it from the implementation path; verified structurally)
+        Assert.Equal(0, harness.ScrapeResolver.CallCount);
+    }
+
+    [Fact]
+    public async Task RunAnalysisOnlyAsync_WhenAiFailsAgain_LeavesRecordFailedWithScrapeDataIntact()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        var analysis = MakeFailedWithScrapeData(orgId, Guid.NewGuid());
+        harness.Repository.Store(analysis);
+        analysis.RestartAnalysis(Now);
+        harness.AiGateway.SetError(new Error("ai.provider_error", "provider down", ErrorType.Failure));
+
+        await harness.Orchestrator.RunAnalysisOnlyAsync(analysis.Id, orgId, CancellationToken.None);
+
+        var stored = harness.Repository.Stored!;
+        Assert.Equal(ProfileAnalysisStatus.Failed, stored.Status);
+        Assert.Equal("ai.provider_error", stored.FailureCode);
+        // Scrape data must survive a second failure
+        Assert.NotNull(stored.RawPostsDatasetJson);
+        Assert.NotNull(stored.ServerDerivedStatsJson);
+        Assert.NotNull(stored.ProfileSnapshotJson);
+    }
+
+    [Fact]
+    public async Task RunAnalysisOnlyAsync_WithMissingScrapeData_MarksFailedWithoutCallingAi()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        // A record that failed BEFORE scrape completed — no scrape data at all
+        var analysis = MakeFailedNoScrapeData(orgId, Guid.NewGuid());
+        harness.Repository.Store(analysis);
+
+        await harness.Orchestrator.RunAnalysisOnlyAsync(analysis.Id, orgId, CancellationToken.None);
+
+        var stored = harness.Repository.Stored!;
+        Assert.Equal(ProfileAnalysisStatus.Failed, stored.Status);
+        Assert.Null(harness.AiGateway.LastRequest);
+    }
+
+    [Fact]
+    public async Task RunAnalysisOnlyAsync_ReconstructsAiInputFromPersistedData_NotFromScraper()
+    {
+        var orgId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(Now);
+        var analysis = MakeFailedWithScrapeData(orgId, Guid.NewGuid());
+        harness.Repository.Store(analysis);
+        analysis.RestartAnalysis(Now);
+        harness.AiGateway.SetPayload(MakeAiResult());
+
+        await harness.Orchestrator.RunAnalysisOnlyAsync(analysis.Id, orgId, CancellationToken.None);
+
+        // AI gateway was called with the correct prompt version key
+        Assert.NotNull(harness.AiGateway.LastRequest);
+        Assert.Equal("profile-analyzer.analysis.v1", harness.AiGateway.LastRequest!.PromptVersionKey);
+        // Scrape resolver was NEVER invoked
+        Assert.Equal(0, harness.ScrapeResolver.CallCount);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static DomainProfileAnalysis CreateFromUrl(Guid orgId) =>
         DomainProfileAnalysis.CreateFromUrl(orgId, "https://instagram.com/testbrand", DateTime.UtcNow);
+
+    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// Creates a Failed record that HAS persisted scrape data — simulates a real AI-failure DB state.
+    /// Uses Reconstitute to bypass the status machine (same as EF mapping does).
+    /// </summary>
+    private static DomainProfileAnalysis MakeFailedWithScrapeData(Guid orgId, Guid id)
+    {
+        var profile = new ProfileSnapshot("12345", "testbrand", 10_000, 50, 5, 3.5, 3.0, null, null, false, true, null);
+        var posts = new List<ProfilePost>
+        {
+            new("p1", "Image", 100, 10, null, new DateTimeOffset(2026, 5, 1, 12, 0, 0, TimeSpan.Zero),
+                "12345", "testbrand", false, false, []),
+        };
+        var stats = new ProfileStats(3.5, 10000,
+            new Dictionary<int, WeekdayMetric>(),
+            new Dictionary<int, WeekdayMetric>(),
+            new Dictionary<int, WeekdayMetric>(),
+            new Dictionary<string, double> { ["Image"] = 1.0 },
+            3.0, 1, 0);
+
+        return DomainProfileAnalysis.Reconstitute(
+            id: id,
+            organizationId: orgId,
+            clientId: null,
+            ownAccountId: null,
+            profileUrlOrHandle: "https://instagram.com/testbrand",
+            status: ProfileAnalysisStatus.Failed,
+            rawPostsDatasetJson: JsonSerializer.Serialize(posts, JsonOpts),
+            serverDerivedStatsJson: JsonSerializer.Serialize(stats, JsonOpts),
+            profileSnapshotJson: JsonSerializer.Serialize(profile, JsonOpts),
+            aiAnalysisJson: null,
+            providerDiagnosticsJson: "{}",
+            failureCode: "ai.provider_error",
+            createdAtUtc: Now,
+            updatedAtUtc: Now,
+            completedAtUtc: Now);
+    }
+
+    /// <summary>Creates a Failed record WITHOUT scrape data — simulates scrape-stage failure.</summary>
+    private static DomainProfileAnalysis MakeFailedNoScrapeData(Guid orgId, Guid id) =>
+        DomainProfileAnalysis.Reconstitute(
+            id: id,
+            organizationId: orgId,
+            clientId: null,
+            ownAccountId: null,
+            profileUrlOrHandle: "https://instagram.com/testbrand",
+            status: ProfileAnalysisStatus.Failed,
+            rawPostsDatasetJson: null,
+            serverDerivedStatsJson: null,
+            profileSnapshotJson: null,
+            aiAnalysisJson: null,
+            providerDiagnosticsJson: "{}",
+            failureCode: "integration.apify_not_configured",
+            createdAtUtc: Now,
+            updatedAtUtc: Now,
+            completedAtUtc: Now);
 
     private static ProfileScrapeResult MakeScrapeResultWithActor(string actorId, bool fallback) =>
         MakeScrapeResult(isPartial: fallback) with { UsedActorId = actorId, FallbackUsed = fallback };
@@ -328,6 +468,8 @@ public sealed class ProfileAnalyzerOrchestratorTests
             Result.Failure<ProfileScrapeResult>(
                 new Error("test.not_set", "Not configured", ErrorType.Failure));
 
+        public int CallCount { get; private set; }
+
         public void SetSuccess(ProfileScrapeResult scrapeResult) =>
             _result = Result.Success(scrapeResult);
 
@@ -335,8 +477,11 @@ public sealed class ProfileAnalyzerOrchestratorTests
             _result = Result.Failure<ProfileScrapeResult>(error);
 
         public Task<Result<ProfileScrapeResult>> ResolveAsync(
-            ProfileScrapeRequest request, CancellationToken ct = default) =>
-            Task.FromResult(_result);
+            ProfileScrapeRequest request, CancellationToken ct = default)
+        {
+            CallCount++;
+            return Task.FromResult(_result);
+        }
     }
 
     private sealed class FakeDefaultAiSelector : IDefaultAiSelector

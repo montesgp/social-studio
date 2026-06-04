@@ -216,6 +216,7 @@ public static class DependencyInjection
         // Background job queue for the async content-generation pipeline.
         services.AddSingleton<IContentGenerationJobQueue, ChannelContentGenerationJobQueue>();
         services.AddScoped<IntegrationCatalogSeeder>();
+        services.AddScoped<ApifyActorMappingBackfill>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 
         return services;

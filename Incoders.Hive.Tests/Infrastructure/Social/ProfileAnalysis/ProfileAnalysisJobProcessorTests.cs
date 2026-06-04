@@ -82,6 +82,86 @@ public sealed class ProfileAnalysisJobProcessorTests
         Assert.Equal(orgId, callOid);
     }
 
+    // ── Retry-AI job routing ──────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Processor_RetryAiJob_CallsRunAnalysisOnlyAsync_NotRunQueuedAsync()
+    {
+        var analysisId = Guid.NewGuid();
+        var orgId = Guid.NewGuid();
+        var jobCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var analyzer = new FakeProfileAnalyzerWithRouting(onRunQueued: (_, _) =>
+        {
+            // Should NEVER be called for a RetryAi job
+        }, onRunAnalysisOnly: (_, _) =>
+        {
+            jobCompleted.TrySetResult(true);
+        });
+
+        var job = new ProfileAnalysisJob(analysisId, orgId, ProfileAnalysisJobKind.RetryAi);
+        var queue = new ChannelProfileAnalysisJobQueue();
+        await queue.EnqueueAsync(job);
+
+        var scopeFactory = BuildScopeFactory(analyzer);
+        var worker = new ProfileAnalysisBackgroundWorker(
+            queue,
+            scopeFactory,
+            NullLogger<ProfileAnalysisBackgroundWorker>.Instance);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var _ = worker.StartAsync(cts.Token);
+
+        await Task.WhenAny(
+            jobCompleted.Task,
+            Task.Delay(TimeSpan.FromSeconds(5), CancellationToken.None));
+        cts.Cancel();
+
+        Assert.True(jobCompleted.Task.IsCompletedSuccessfully,
+            "RunAnalysisOnlyAsync was not called for a RetryAi job.");
+        Assert.Equal(0, analyzer.RunQueuedCallCount);
+        Assert.Equal(1, analyzer.RunAnalysisOnlyCallCount);
+    }
+
+    [Fact]
+    public async Task Processor_FullJob_CallsRunQueuedAsync_NotRunAnalysisOnlyAsync()
+    {
+        var analysisId = Guid.NewGuid();
+        var orgId = Guid.NewGuid();
+        var jobCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var analyzer = new FakeProfileAnalyzerWithRouting(onRunQueued: (_, _) =>
+        {
+            jobCompleted.TrySetResult(true);
+        }, onRunAnalysisOnly: (_, _) =>
+        {
+            // Should NOT be called for a Full job
+        });
+
+        var job = new ProfileAnalysisJob(analysisId, orgId, ProfileAnalysisJobKind.Full);
+        var queue = new ChannelProfileAnalysisJobQueue();
+        await queue.EnqueueAsync(job);
+
+        var scopeFactory = BuildScopeFactory(analyzer);
+        var worker = new ProfileAnalysisBackgroundWorker(
+            queue,
+            scopeFactory,
+            NullLogger<ProfileAnalysisBackgroundWorker>.Instance);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var _ = worker.StartAsync(cts.Token);
+
+        await Task.WhenAny(
+            jobCompleted.Task,
+            Task.Delay(TimeSpan.FromSeconds(5), CancellationToken.None));
+        cts.Cancel();
+
+        Assert.True(jobCompleted.Task.IsCompletedSuccessfully,
+            "RunQueuedAsync was not called for a Full job.");
+        Assert.Equal(1, analyzer.RunQueuedCallCount);
+        Assert.Equal(0, analyzer.RunAnalysisOnlyCallCount);
+    }
+
     // ── Exception isolation ──────────────────────────────────────────────────
 
     [Fact]
@@ -143,6 +223,7 @@ public sealed class ProfileAnalysisJobProcessorTests
 
     // ── Fakes ─────────────────────────────────────────────────────────────────
 
+    /// <summary>Simple fake where both methods share the same callback (for order/exception tests).</summary>
     private sealed class FakeProfileAnalyzer : IProfileAnalyzer
     {
         private readonly Action<Guid, Guid> _onRun;
@@ -155,6 +236,59 @@ public sealed class ProfileAnalysisJobProcessorTests
             CancellationToken cancellationToken = default)
         {
             _onRun(analysisId, organizationId);
+            return Task.CompletedTask;
+        }
+
+        public Task RunAnalysisOnlyAsync(
+            Guid analysisId,
+            Guid organizationId,
+            CancellationToken cancellationToken = default)
+        {
+            _onRun(analysisId, organizationId);
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Routing-aware fake: separate callbacks + call counters to verify the worker
+    /// routes <see cref="ProfileAnalysisJobKind.Full"/> to <see cref="IProfileAnalyzer.RunQueuedAsync"/>
+    /// and <see cref="ProfileAnalysisJobKind.RetryAi"/> to <see cref="IProfileAnalyzer.RunAnalysisOnlyAsync"/>.
+    /// </summary>
+    private sealed class FakeProfileAnalyzerWithRouting : IProfileAnalyzer
+    {
+        private readonly Action<Guid, Guid> _onRunQueued;
+        private readonly Action<Guid, Guid> _onRunAnalysisOnly;
+        private int _runQueuedCallCount;
+        private int _runAnalysisOnlyCallCount;
+
+        public int RunQueuedCallCount => _runQueuedCallCount;
+        public int RunAnalysisOnlyCallCount => _runAnalysisOnlyCallCount;
+
+        public FakeProfileAnalyzerWithRouting(
+            Action<Guid, Guid> onRunQueued,
+            Action<Guid, Guid> onRunAnalysisOnly)
+        {
+            _onRunQueued = onRunQueued;
+            _onRunAnalysisOnly = onRunAnalysisOnly;
+        }
+
+        public Task RunQueuedAsync(
+            Guid analysisId,
+            Guid organizationId,
+            CancellationToken cancellationToken = default)
+        {
+            System.Threading.Interlocked.Increment(ref _runQueuedCallCount);
+            _onRunQueued(analysisId, organizationId);
+            return Task.CompletedTask;
+        }
+
+        public Task RunAnalysisOnlyAsync(
+            Guid analysisId,
+            Guid organizationId,
+            CancellationToken cancellationToken = default)
+        {
+            System.Threading.Interlocked.Increment(ref _runAnalysisOnlyCallCount);
+            _onRunAnalysisOnly(analysisId, organizationId);
             return Task.CompletedTask;
         }
     }

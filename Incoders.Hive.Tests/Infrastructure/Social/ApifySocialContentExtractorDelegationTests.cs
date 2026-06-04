@@ -20,7 +20,7 @@ public sealed class ApifySocialContentExtractorDelegationTests
             {
                 ["api_key"] = "test-token",
                 ["actor_mappings_json"] =
-                    $"[{{\"networkKey\":\"{platformKey}\",\"variantKey\":\"single-video\",\"actorId\":\"actor/{platformKey}\"}}]"
+                    $"[{{\"networkKey\":\"{platformKey}\",\"variantKey\":\"social-extraction\",\"actorId\":\"actor/{platformKey}\",\"isPrimary\":true}}]"
             },
             SelectedModel: null);
 
@@ -78,9 +78,10 @@ public sealed class ApifySocialContentExtractorDelegationTests
     [Fact]
     public async Task ExtractAsync_RoutesYouTubeToGenericActor_WhenShortsScraperConfiguredFirst()
     {
-        // Both actors configured (shorts-scraper listed FIRST), both with the default variant —
-        // exactly how the integrations UI persists them. A single Shorts/video URL must still hit
-        // the generic youtube-scraper, because youtube-shorts-scraper only accepts a "channels" input.
+        // Both actors configured (shorts-scraper listed FIRST), both with the social-extraction variant —
+        // exactly how the integrations UI persists them after the backfill seed. A single Shorts/video
+        // URL must still hit the generic youtube-scraper, because youtube-shorts-scraper only accepts
+        // a "channels" input.
         var credential = new ResolvedProviderCredential(
             Guid.NewGuid(),
             "apify",
@@ -89,8 +90,8 @@ public sealed class ApifySocialContentExtractorDelegationTests
             {
                 ["api_key"] = "test-token",
                 ["actor_mappings_json"] =
-                    "[{\"networkKey\":\"youtube\",\"variantKey\":\"default\",\"actorId\":\"streamers/youtube-shorts-scraper\"}," +
-                    "{\"networkKey\":\"youtube\",\"variantKey\":\"default\",\"actorId\":\"streamers/youtube-scraper\"}]"
+                    "[{\"networkKey\":\"youtube\",\"variantKey\":\"social-extraction\",\"actorId\":\"streamers/youtube-shorts-scraper\",\"isPrimary\":true}," +
+                    "{\"networkKey\":\"youtube\",\"variantKey\":\"social-extraction\",\"actorId\":\"streamers/youtube-scraper\",\"isPrimary\":false}]"
             },
             SelectedModel: null);
 
@@ -111,6 +112,107 @@ public sealed class ApifySocialContentExtractorDelegationTests
         // never the channel-based shorts-scraper.
         Assert.Contains("youtube-scraper", handler.LastRequestUri, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("youtube-shorts-scraper", handler.LastRequestUri, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ─── Content actor routing: social-extraction + primary-first ──────────────
+
+    [Fact]
+    public async Task ExtractAsync_Instagram_SocialExtractionActor_Resolves()
+    {
+        // Instagram content actor tagged "social-extraction" must resolve successfully
+        var credential = new ResolvedProviderCredential(
+            Guid.NewGuid(),
+            "apify",
+            IntegrationConnectionMode.BringYourOwnKey,
+            new Dictionary<string, string>
+            {
+                ["api_key"] = "test-token",
+                ["actor_mappings_json"] =
+                    "[{\"networkKey\":\"instagram\",\"variantKey\":\"social-extraction\",\"actorId\":\"apify~instagram-scraper\",\"isPrimary\":true}]"
+            },
+            SelectedModel: null);
+
+        var handler = new RecordingHandler("""[{"title":"ig post","shortCode":"abc","displayUrl":"https://cdn.example.com/img.jpg","likesCount":10,"commentsCount":2,"videoUrl":null,"caption":"test","timestamp":"2024-01-01T00:00:00Z","ownerUsername":"brand","url":"https://www.instagram.com/p/abc/"}]""");
+        var extractor = new ApifySocialContentExtractor(
+            credential,
+            new StaticHttpClientFactory(handler),
+            [new InstagramApifyScrapeAdapter(), new DefaultApifyScrapeAdapter()]);
+
+        var result = await extractor.ExtractAsync(
+            new SocialContentRequest(Guid.NewGuid(), "https://www.instagram.com/p/abc/",
+                "https://www.instagram.com/p/abc/", "instagram", "social-extraction"),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(handler.LastRequestUri);
+        Assert.Contains("instagram-scraper", handler.LastRequestUri, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_TikTok_SocialExtractionActor_Resolves()
+    {
+        // TikTok content actor tagged "social-extraction" must resolve successfully
+        var credential = new ResolvedProviderCredential(
+            Guid.NewGuid(),
+            "apify",
+            IntegrationConnectionMode.BringYourOwnKey,
+            new Dictionary<string, string>
+            {
+                ["api_key"] = "test-token",
+                ["actor_mappings_json"] =
+                    "[{\"networkKey\":\"tiktok\",\"variantKey\":\"social-extraction\",\"actorId\":\"clockworks/tiktok-scraper\",\"isPrimary\":true}]"
+            },
+            SelectedModel: null);
+
+        var handler = new RecordingHandler("""[{"text":"test","authorMeta":{"nickName":"brand"},"videoMeta":{"duration":30,"coverUrl":"https://cdn.example.com/cover.jpg"},"playCount":1,"diggCount":1,"commentCount":0,"shareCount":0,"collectCount":0,"webVideoUrl":"https://www.tiktok.com/@brand/video/1","isSlideshow":false}]""");
+        var extractor = new ApifySocialContentExtractor(
+            credential,
+            new StaticHttpClientFactory(handler),
+            [new TikTokApifyScrapeAdapter(), new DefaultApifyScrapeAdapter()]);
+
+        var result = await extractor.ExtractAsync(
+            new SocialContentRequest(Guid.NewGuid(), "https://www.tiktok.com/@brand/video/1",
+                "https://www.tiktok.com/@brand/video/1", "tiktok", "social-extraction"),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(handler.LastRequestUri);
+        Assert.Contains("tiktok-scraper", handler.LastRequestUri, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_SocialExtraction_PrimaryActorUsedFirst()
+    {
+        // When two social-extraction actors configured, the primary must be called first
+        var credential = new ResolvedProviderCredential(
+            Guid.NewGuid(),
+            "apify",
+            IntegrationConnectionMode.BringYourOwnKey,
+            new Dictionary<string, string>
+            {
+                ["api_key"] = "test-token",
+                ["actor_mappings_json"] =
+                    "[{\"networkKey\":\"tiktok\",\"variantKey\":\"social-extraction\",\"actorId\":\"backup-actor\",\"isPrimary\":false}," +
+                    "{\"networkKey\":\"tiktok\",\"variantKey\":\"social-extraction\",\"actorId\":\"primary-actor\",\"isPrimary\":true}]"
+            },
+            SelectedModel: null);
+
+        var handler = new RecordingHandler("""[{"text":"test","authorMeta":{"nickName":"brand"},"videoMeta":{"duration":30,"coverUrl":"https://cdn.example.com/cover.jpg"},"playCount":1,"diggCount":1,"commentCount":0,"shareCount":0,"collectCount":0,"webVideoUrl":"https://www.tiktok.com/@brand/video/1","isSlideshow":false}]""");
+        var extractor = new ApifySocialContentExtractor(
+            credential,
+            new StaticHttpClientFactory(handler),
+            [new TikTokApifyScrapeAdapter(), new DefaultApifyScrapeAdapter()]);
+
+        var result = await extractor.ExtractAsync(
+            new SocialContentRequest(Guid.NewGuid(), "https://www.tiktok.com/@brand/video/1",
+                "https://www.tiktok.com/@brand/video/1", "tiktok", "social-extraction"),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        // The primary actor must appear in the URL, not the backup
+        Assert.NotNull(handler.LastRequestUri);
+        Assert.Contains("primary-actor", handler.LastRequestUri, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("backup-actor", handler.LastRequestUri, StringComparison.OrdinalIgnoreCase);
     }
 
     // ─── No actor ID → ProviderCredentialUnavailable ────────────────────────

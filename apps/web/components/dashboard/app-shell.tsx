@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { BlockingLoader } from "@/components/ui/blocking-loader";
 import { subscribe as subscribeHttpLoading, getSnapshot as getHttpLoadingSnapshot } from "@/lib/loading/http-loading-store";
+import { subscribe as subscribeSignOut, getSnapshot as getSignOutSnapshot } from "@/lib/auth/sign-out-store";
 
 function NavGroupSection({
   group,
@@ -153,6 +154,7 @@ export function AppShell({
   const [routeSawHttpPending, setRouteSawHttpPending] = useState(false);
   const routeLoadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isHttpLoading = useSyncExternalStore(subscribeHttpLoading, getHttpLoadingSnapshot, () => false);
+  const isSigningOut = useSyncExternalStore(subscribeSignOut, getSignOutSnapshot, () => false);
   const isAdminArea = pathname.startsWith("/admin");
   const activeArea = isAdminArea ? "admin" : "workspace";
   const moduleOptions = useMemo(
@@ -263,13 +265,21 @@ export function AppShell({
       <ProgressBar />
       <BlockingLoader
         visible={waitingForInitialShellData || routeLoading}
-        title={waitingForInitialShellData ? "Preparing workspace" : "Loading tool"}
+        title={
+          isSigningOut
+            ? "Cerrando sesión…"
+            : waitingForInitialShellData
+            ? "Preparing workspace"
+            : "Loading tool"
+        }
         description={
-          waitingForInitialShellData
+          isSigningOut
+            ? undefined
+            : waitingForInitialShellData
             ? "Loading modules, permissions and menu context..."
             : "Fetching data required to render this view..."
         }
-        mode={waitingForInitialShellData ? "progress" : "spinner"}
+        mode={isSigningOut ? "spinner" : waitingForInitialShellData ? "progress" : "spinner"}
       />
       <div className="min-h-screen bg-background">
         <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[220px_1fr]">

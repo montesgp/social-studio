@@ -68,25 +68,35 @@ public sealed class ProfileAnalysisBackgroundWorker : BackgroundService
             // Fresh scope per job — prevents DbContext poisoning on failure (obs #518 incident note).
             using var scope = _scopeFactory.CreateScope();
             var analyzer = scope.ServiceProvider.GetRequiredService<IProfileAnalyzer>();
-            await analyzer.RunQueuedAsync(job.AnalysisId, job.OrganizationId, cancellationToken);
+
+            if (job.Kind == ProfileAnalysisJobKind.RetryAi)
+            {
+                await analyzer.RunAnalysisOnlyAsync(job.AnalysisId, job.OrganizationId, cancellationToken);
+            }
+            else
+            {
+                await analyzer.RunQueuedAsync(job.AnalysisId, job.OrganizationId, cancellationToken);
+            }
 
             stopwatch.Stop();
             _logger.LogInformation(
-                "Profile Analyzer worker: FINISHED job {AnalysisId} (org {OrganizationId}) in {ElapsedMs} ms.",
+                "Profile Analyzer worker: FINISHED job {AnalysisId} kind={Kind} (org {OrganizationId}) in {ElapsedMs} ms.",
                 job.AnalysisId,
+                job.Kind,
                 job.OrganizationId,
                 stopwatch.ElapsedMilliseconds);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             stopwatch.Stop();
-            // RunQueuedAsync persists Failed on its own errors; this guards the worker loop itself.
+            // RunQueuedAsync / RunAnalysisOnlyAsync persists Failed on its own errors; this guards the worker loop itself.
             // A failing job MUST NOT crash the worker — the loop continues to the next job.
             _logger.LogError(
                 ex,
-                "Profile Analyzer worker: UNHANDLED EXCEPTION on job {AnalysisId} (org {OrganizationId}) after {ElapsedMs} ms. " +
+                "Profile Analyzer worker: UNHANDLED EXCEPTION on job {AnalysisId} kind={Kind} (org {OrganizationId}) after {ElapsedMs} ms. " +
                 "ExceptionType={ExceptionType} Message={Message} InnerType={InnerType} InnerMessage={InnerMessage}",
                 job.AnalysisId,
+                job.Kind,
                 job.OrganizationId,
                 stopwatch.ElapsedMilliseconds,
                 ex.GetType().FullName,

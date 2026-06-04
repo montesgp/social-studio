@@ -372,6 +372,77 @@ public sealed class ProfileAnalyzerEndpointTests
         Assert.Equal(AnalysisId, cmd.AnalysisId);
     }
 
+    // ─── POST /{id}/retry-ai — re-runs AI-only stage ─────────────────────────────────
+
+    [Fact]
+    public async Task RetryAi_Returns202WithStatus_WhenResumable()
+    {
+        var expected = MakeStatusResponse(AnalysisId, OrgId, null) with { Status = "Analyzing" };
+        var sender = new FakeMultiSender();
+        sender.Register<RetryProfileAnalysisCommand, Result<AnalyzeProfileStatusResponse>>(
+            Result.Success(expected));
+
+        var result = await EndpointHandler.RetryAiAsync(
+            AnalysisId, sender, new FakeTenant(OrgId));
+
+        var accepted = Assert.IsType<Accepted<AnalyzeProfileStatusResponse>>(result);
+        Assert.NotNull(accepted.Value);
+        Assert.Equal(AnalysisId, accepted.Value!.Id);
+        Assert.Equal("Analyzing", accepted.Value.Status);
+    }
+
+    [Fact]
+    public async Task RetryAi_Returns404_WhenAnalysisNotFound()
+    {
+        var sender = new FakeMultiSender();
+        sender.Register<RetryProfileAnalysisCommand, Result<AnalyzeProfileStatusResponse>>(
+            Result.Failure<AnalyzeProfileStatusResponse>(ProfileAnalysisErrors.NotFound));
+
+        var result = await EndpointHandler.RetryAiAsync(
+            AnalysisId, sender, new FakeTenant(OrgId));
+
+        Assert.IsNotType<Accepted<AnalyzeProfileStatusResponse>>(result);
+    }
+
+    [Fact]
+    public async Task RetryAi_Returns422_WhenAnalysisNotResumable()
+    {
+        var sender = new FakeMultiSender();
+        sender.Register<RetryProfileAnalysisCommand, Result<AnalyzeProfileStatusResponse>>(
+            Result.Failure<AnalyzeProfileStatusResponse>(ProfileAnalysisErrors.NotResumable));
+
+        var result = await EndpointHandler.RetryAiAsync(
+            AnalysisId, sender, new FakeTenant(OrgId));
+
+        Assert.IsNotType<Accepted<AnalyzeProfileStatusResponse>>(result);
+    }
+
+    [Fact]
+    public async Task RetryAi_SendsCorrectOrgScopeAndAnalysisId()
+    {
+        var sender = new FakeMultiSender();
+        sender.Register<RetryProfileAnalysisCommand, Result<AnalyzeProfileStatusResponse>>(
+            Result.Success(MakeStatusResponse(AnalysisId, OrgId, null)));
+
+        await EndpointHandler.RetryAiAsync(
+            AnalysisId, sender, new FakeTenant(OrgId));
+
+        var cmd = Assert.IsType<RetryProfileAnalysisCommand>(sender.LastSent);
+        Assert.Equal(OrgId, cmd.OrganizationId);
+        Assert.Equal(AnalysisId, cmd.AnalysisId);
+    }
+
+    [Fact]
+    public async Task RetryAi_ReturnsProblem_WhenTenantNotResolved()
+    {
+        var sender = new FakeMultiSender();
+        var result = await EndpointHandler.RetryAiAsync(
+            AnalysisId, sender, new FakeTenant(null));
+
+        Assert.IsNotType<Accepted<AnalyzeProfileStatusResponse>>(result);
+        Assert.Null(sender.LastSent);
+    }
+
     // ─── Own-account picker — filters to Instagram network (PA-01) ─────────────────
 
     [Fact]
@@ -588,6 +659,28 @@ public sealed class ProfileAnalyzerEndpointTests
                 CancellationToken.None);
 
             return result.IsSuccess ? (IResult)TypedResults.NoContent() : MapError(result.Error);
+        }
+
+        internal static async Task<IResult> RetryAiAsync(
+            Guid id,
+            FakeMultiSender sender,
+            ICurrentTenant tenant)
+        {
+            if (tenant.TenantId is not { } tenantId)
+                return TypedResults.Problem(
+                    title: "Validation failed",
+                    detail: ProfileAnalysisErrors.OrganizationRequired.MessageKey,
+                    statusCode: StatusCodes.Status400BadRequest,
+                    extensions: new Dictionary<string, object?> { ["code"] = ProfileAnalysisErrors.OrganizationRequired.Code });
+
+            var result = await sender.SendTyped<RetryProfileAnalysisCommand, Result<AnalyzeProfileStatusResponse>>(
+                new RetryProfileAnalysisCommand(id, tenantId.Value),
+                CancellationToken.None);
+
+            return result.IsSuccess
+                ? (IResult)TypedResults.Accepted(
+                    $"/api/social/profile-analyzer/analyze/{result.Value.Id}", result.Value)
+                : MapError(result.Error);
         }
 
         internal static async Task<IResult> ListOwnAccountsAsync(

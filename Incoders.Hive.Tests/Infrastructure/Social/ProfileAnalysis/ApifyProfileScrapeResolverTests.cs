@@ -26,8 +26,8 @@ public sealed class ApifyProfileScrapeResolverTests
 
     private static readonly string ActorMappingsJson = JsonSerializer.Serialize(new[]
     {
-        new { networkKey = "instagram", variantKey = "profile", actorId = "get-leads~all-in-one-instagram-scraper" },
-        new { networkKey = "instagram", variantKey = "profile", actorId = "apify~instagram-profile-scraper" }
+        new { networkKey = "instagram", variantKey = "profile", actorId = "get-leads~all-in-one-instagram-scraper", isPrimary = true },
+        new { networkKey = "instagram", variantKey = "profile", actorId = "apify~instagram-profile-scraper", isPrimary = false }
     });
 
     private static ProfileScrapeRequest MakeRequest(Guid orgId, Guid analysisId) =>
@@ -342,67 +342,98 @@ public sealed class ApifyProfileScrapeResolverTests
             capturingHandler.CapturedUri?.ToString() ?? string.Empty);
     }
 
-    // ── GetAllMappedActors — default-variant fallback (regression guard for UI bug fix) ──
+    // ── GetAllMappedActors — primary-first ordering ──────────────────────────────
 
     /// <summary>
-    /// Regression test: the integrations UI always stores variantKey="default".
-    /// GetAllMappedActors must return both actorIds when the JSON uses "default"
-    /// even though the resolver requests variantKey="profile".
-    /// Without the fallback fix this returned an empty list → ProfileActorNotConfigured.
+    /// When two "profile" entries exist and the second has isPrimary=true,
+    /// GetAllMappedActors returns the primary entry FIRST, then the backup.
     /// </summary>
     [Fact]
-    public void GetAllMappedActors_DefaultVariantOnly_ReturnsActorsForUiConfiguredMappings()
+    public void GetAllMappedActors_SecondEntryIsPrimary_ReturnsPrimaryFirst()
     {
-        // Arrange — exactly what the integrations UI persists (variantKey: "default" hardcoded)
+        // Arrange — second entry marked as primary (user designated it after registration)
         var json = JsonSerializer.Serialize(new[]
         {
-            new { networkKey = "instagram", variantKey = "default", actorId = "get-leads~all-in-one-instagram-scraper" },
-            new { networkKey = "instagram", variantKey = "default", actorId = "apify~instagram-profile-scraper" }
+            new { networkKey = "instagram", variantKey = "profile", actorId = "actor-a", isPrimary = false },
+            new { networkKey = "instagram", variantKey = "profile", actorId = "actor-b", isPrimary = true }
         });
 
         // Act
         var result = ApifyProfileScrapeResolver.GetAllMappedActors(json, "instagram", "profile");
 
-        // Assert — both actors returned in JSON array order
+        // Assert — primary first, backup second
         Assert.Equal(2, result.Count);
-        Assert.Equal("get-leads~all-in-one-instagram-scraper", result[0]);
-        Assert.Equal("apify~instagram-profile-scraper", result[1]);
+        Assert.Equal("actor-b", result[0]); // primary
+        Assert.Equal("actor-a", result[1]); // backup
     }
 
     /// <summary>
-    /// Explicit "profile" entries take precedence over "default" entries for the same network.
+    /// When the first entry has isPrimary=true, array order is preserved (primary is already first).
     /// </summary>
     [Fact]
-    public void GetAllMappedActors_BothProfileAndDefault_ProfileWins()
+    public void GetAllMappedActors_FirstEntryIsPrimary_ReturnsInArrayOrder()
     {
-        // Arrange — mix of profile-specific and default entries
         var json = JsonSerializer.Serialize(new[]
         {
-            new { networkKey = "instagram", variantKey = "default",  actorId = "default-actor-1" },
-            new { networkKey = "instagram", variantKey = "default",  actorId = "default-actor-2" },
-            new { networkKey = "instagram", variantKey = "profile",  actorId = "profile-actor-1" },
-            new { networkKey = "instagram", variantKey = "profile",  actorId = "profile-actor-2" }
+            new { networkKey = "instagram", variantKey = "profile", actorId = "actor-primary", isPrimary = true },
+            new { networkKey = "instagram", variantKey = "profile", actorId = "actor-backup", isPrimary = false }
+        });
+
+        var result = ApifyProfileScrapeResolver.GetAllMappedActors(json, "instagram", "profile");
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("actor-primary", result[0]);
+        Assert.Equal("actor-backup", result[1]);
+    }
+
+    /// <summary>
+    /// Entries missing isPrimary (old JSON, pre-backfill) are tolerated — all treated as non-primary,
+    /// returned in JSON array order.
+    /// </summary>
+    [Fact]
+    public void GetAllMappedActors_MissingIsPrimary_ToleratedReturnedInArrayOrder()
+    {
+        // Arrange — old JSON format without isPrimary field
+        var json = "[{\"networkKey\":\"instagram\",\"variantKey\":\"profile\",\"actorId\":\"actor-1\"},{\"networkKey\":\"instagram\",\"variantKey\":\"profile\",\"actorId\":\"actor-2\"}]";
+
+        var result = ApifyProfileScrapeResolver.GetAllMappedActors(json, "instagram", "profile");
+
+        // Both returned; no crash; order preserved
+        Assert.Equal(2, result.Count);
+        Assert.Equal("actor-1", result[0]);
+        Assert.Equal("actor-2", result[1]);
+    }
+
+    /// <summary>
+    /// "default" variant entries are NOT used as fallback anymore — profile resolver
+    /// requires explicit "profile" variant entries only. Empty result → ProfileActorNotConfigured.
+    /// </summary>
+    [Fact]
+    public void GetAllMappedActors_OnlyDefaultVariant_ReturnsEmpty_NoFallback()
+    {
+        // Arrange — only "default" entries (no "profile" entries)
+        var json = JsonSerializer.Serialize(new[]
+        {
+            new { networkKey = "instagram", variantKey = "default", actorId = "actor-default-1", isPrimary = false },
+            new { networkKey = "instagram", variantKey = "default", actorId = "actor-default-2", isPrimary = false }
         });
 
         // Act
         var result = ApifyProfileScrapeResolver.GetAllMappedActors(json, "instagram", "profile");
 
-        // Assert — profile-specific entries win; default entries are NOT returned
-        Assert.Equal(2, result.Count);
-        Assert.Equal("profile-actor-1", result[0]);
-        Assert.Equal("profile-actor-2", result[1]);
+        // Assert — no fallback to "default"; empty list → caller will return ProfileActorNotConfigured
+        Assert.Empty(result);
     }
 
     /// <summary>
-    /// No Instagram entries at all (neither "profile" nor "default") → empty list →
-    /// upstream caller returns ProfileActorNotConfigured.
+    /// No Instagram entries at all → empty list → upstream caller returns ProfileActorNotConfigured.
     /// </summary>
     [Fact]
     public void GetAllMappedActors_NoInstagramEntries_ReturnsEmpty()
     {
         var json = JsonSerializer.Serialize(new[]
         {
-            new { networkKey = "tiktok", variantKey = "default", actorId = "tiktok-actor" }
+            new { networkKey = "tiktok", variantKey = "profile", actorId = "tiktok-actor", isPrimary = true }
         });
 
         var result = ApifyProfileScrapeResolver.GetAllMappedActors(json, "instagram", "profile");
@@ -411,25 +442,54 @@ public sealed class ApifyProfileScrapeResolverTests
     }
 
     /// <summary>
-    /// End-to-end: when actor_mappings_json contains UI-style entries (variantKey="default"),
-    /// ResolveAsync successfully dispatches to both actors and returns the profile result.
-    /// This is the PRIMARY regression guard for the UI-persists-"default" bug.
+    /// End-to-end: "default" entries alone (no "profile" entries) → ProfileActorNotConfigured.
+    /// The seed/backfill is responsible for re-tagging "default" to "profile"; after seed this
+    /// test no longer applies to production data, but it validates the guard works pre-seed.
     /// </summary>
     [Fact]
-    public async Task ResolveAsync_UiDefaultVariantMappings_ResolvesProfileSuccessfully()
+    public async Task ResolveAsync_OnlyDefaultVariant_ReturnsProfileActorNotConfigured()
     {
-        // Arrange — JSON exactly as the integrations UI writes it (variantKey: "default")
-        var uiMappingsJson = JsonSerializer.Serialize(new[]
+        var defaultOnlyMappingsJson = JsonSerializer.Serialize(new[]
         {
-            new { networkKey = "instagram", variantKey = "default", actorId = "get-leads~all-in-one-instagram-scraper" },
-            new { networkKey = "instagram", variantKey = "default", actorId = "apify~instagram-profile-scraper" }
+            new { networkKey = "instagram", variantKey = "default", actorId = "actor-default", isPrimary = false }
+        });
+
+        var handler = new ProgrammableHandler();
+        var resolver = new ApifyProfileScrapeResolver(
+            MakeCredential(mappingsJson: defaultOnlyMappingsJson),
+            new StaticHttpClientFactory(handler));
+
+        var result = await resolver.ResolveAsync(
+            MakeRequest(Guid.NewGuid(), Guid.NewGuid()),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(0, handler.CallCount); // no HTTP call made
+        Assert.Contains("profile_actor_not_configured", result.Error.Code,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// After the backfill seed runs, UI-style "default" entries become "profile" entries.
+    /// When actor_mappings_json contains seeded "profile" entries (variantKey="profile"),
+    /// ResolveAsync successfully dispatches and returns the profile result.
+    /// This is the regression guard for correctly seeded production data.
+    /// </summary>
+    [Fact]
+    public async Task ResolveAsync_SeededProfileVariantMappings_ResolvesProfileSuccessfully()
+    {
+        // Arrange — JSON as written by the backfill seeder (variantKey: "profile", isPrimary on first)
+        var seededMappingsJson = JsonSerializer.Serialize(new[]
+        {
+            new { networkKey = "instagram", variantKey = "profile", actorId = "get-leads~all-in-one-instagram-scraper", isPrimary = true },
+            new { networkKey = "instagram", variantKey = "profile", actorId = "apify~instagram-profile-scraper", isPrimary = false }
         });
 
         var handler = new ProgrammableHandler();
         handler.EnqueueSuccess(GoldenFixture);
 
         var resolver = new ApifyProfileScrapeResolver(
-            MakeCredential(mappingsJson: uiMappingsJson),
+            MakeCredential(mappingsJson: seededMappingsJson),
             new StaticHttpClientFactory(handler));
 
         // Act
@@ -437,9 +497,9 @@ public sealed class ApifyProfileScrapeResolverTests
             MakeRequest(Guid.NewGuid(), Guid.NewGuid()),
             CancellationToken.None);
 
-        // Assert — profile scrape must succeed (no ProfileActorNotConfigured)
+        // Assert — profile scrape must succeed
         Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.Code : "n/a")}");
-        Assert.Equal(1, handler.CallCount); // default actor called exactly once
+        Assert.Equal(1, handler.CallCount); // primary actor called exactly once
         Assert.Equal("testbrand", result.Value.Profile.Username);
     }
 

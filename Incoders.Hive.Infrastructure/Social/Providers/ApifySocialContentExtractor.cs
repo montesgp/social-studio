@@ -210,9 +210,19 @@ internal sealed class ApifySocialContentExtractor : ISocialContentExtractor
         try
         {
             var mappings = JsonSerializer.Deserialize<List<ApifyActorMapping>>(json, JsonOptions) ?? [];
+
+            // Filter by network and capability key — no "default" fallback.
             var candidates = mappings
-                .Where(x => !string.IsNullOrWhiteSpace(x.ActorId) && Matches(x.NetworkKey, platformKey))
+                .Where(x =>
+                    !string.IsNullOrWhiteSpace(x.ActorId)
+                    && Matches(x.NetworkKey, platformKey)
+                    && Matches(x.VariantKey, capabilityKey))
                 .ToList();
+
+            if (candidates.Count == 0)
+            {
+                return false;
+            }
 
             // YouTube guard: the channel-based "*youtube-shorts-scraper" cannot resolve an individual
             // video by URL (it requires a "channels" input), so a single Shorts/video URL must always
@@ -229,11 +239,12 @@ internal sealed class ApifySocialContentExtractor : ISocialContentExtractor
                 }
             }
 
-            var match = candidates.FirstOrDefault(x => Matches(x.VariantKey, capabilityKey))
-                ?? candidates.FirstOrDefault(x => Matches(x.VariantKey, "default"))
-                ?? candidates.FirstOrDefault();
+            // Primary first (stable sort — non-primary entries preserve their relative array order).
+            var match = candidates
+                .OrderByDescending(x => x.IsPrimary)
+                .First();
 
-            actorId = match?.ActorId?.Trim() ?? string.Empty;
+            actorId = match.ActorId.Trim();
             return !string.IsNullOrWhiteSpace(actorId);
         }
         catch (JsonException)
@@ -248,5 +259,6 @@ internal sealed class ApifySocialContentExtractor : ISocialContentExtractor
     private sealed record ApifyActorMapping(
         string NetworkKey,
         string VariantKey,
-        string ActorId);
+        string ActorId,
+        bool IsPrimary = false);
 }

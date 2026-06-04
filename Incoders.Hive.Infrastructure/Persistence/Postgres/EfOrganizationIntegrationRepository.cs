@@ -1,12 +1,13 @@
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Infrastructure.Identity;
+using Incoders.Hive.Infrastructure.Integrations;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace Incoders.Hive.Infrastructure.Persistence.Postgres;
 
-public sealed class EfOrganizationIntegrationRepository : IOrganizationIntegrationRepository
+public sealed class EfOrganizationIntegrationRepository : IOrganizationIntegrationRepository, IApifyIntegrationScanner
 {
     private readonly AppIdentityDbContext _dbContext;
 
@@ -91,6 +92,20 @@ public sealed class EfOrganizationIntegrationRepository : IOrganizationIntegrati
                      ?? _dbContext.OrganizationIntegrations.First(x => x.Id == integration.Id.Value);
 
         _dbContext.OrganizationIntegrations.Remove(entity);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<OrganizationIntegrationId>> ListApifyIntegrationIdsAsync(
+        IntegrationProviderId providerId,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = await _dbContext.OrganizationIntegrations
+            .AsNoTracking()
+            .Where(x => x.ProviderId == providerId.Value)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        return ids.Select(id => new OrganizationIntegrationId(id)).ToList();
     }
 
     private static OrganizationIntegration ToDomain(OrganizationIntegrationData row) =>

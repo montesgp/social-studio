@@ -15,10 +15,6 @@ import {
   Megaphone,
   CheckCircle2,
   ChevronRight,
-  Wrench,
-  LifeBuoy,
-  Save,
-  Plus,
   Sparkles,
   Package,
   Trash2,
@@ -80,6 +76,8 @@ import { InferredFieldsDisclosure } from "@/components/social/single-analyzer/in
 import { PartialCompletionBanner } from "@/components/social/single-analyzer/partial-completion-banner";
 import { SupportError } from "@/components/support/support-error";
 import { openWhatsAppSupport } from "@/lib/support/support";
+import { AnalysisOverlay } from "@/components/social/analysis-overlay";
+import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
 
 // ── Async/poll constants ───────────────────────────────────────────────────────
 
@@ -373,81 +371,6 @@ function InlineProgress({ value }: { value: number }) {
   );
 }
 
-function AnalysisOverlay({ status }: { status: SingleContentAnalysisStatus | null }) {
-  if (!status) return null;
-  const percent = statusToPercent(status);
-  const currentStep = statusToStepIndex(status);
-  const currentLabel = ANALYSIS_STEPS[Math.min(currentStep, ANALYSIS_STEPS.length - 1)]?.label ?? "Working…";
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Analyzing content"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
-    >
-      <div className="w-full max-w-md rounded-2xl border border-border/50 bg-card p-6 shadow-2xl space-y-5">
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-purple-500/10 p-2">
-            <ScanSearch className="h-5 w-5 text-purple-400 animate-pulse" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">Analyzing content</h3>
-            <p className="text-xs text-muted-foreground">
-              This usually takes 30–60 seconds. Keep this tab open.
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">{currentLabel}</span>
-            <span className="font-medium text-foreground tabular-nums">{percent}%</span>
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-500 ease-out"
-              style={{ width: `${percent}%` }}
-            />
-          </div>
-        </div>
-
-        <ol className="space-y-2">
-          {ANALYSIS_STEPS.map((step, i) => {
-            const state = i < currentStep ? "done" : i === currentStep ? "active" : "pending";
-            return (
-              <li key={step.key} className="flex items-center gap-2.5 text-xs">
-                <span
-                  className={cn(
-                    "flex h-5 w-5 items-center justify-center rounded-full border",
-                    state === "done" && "border-green-500/50 bg-green-500/15 text-green-500",
-                    state === "active" && "border-purple-500/50 bg-purple-500/15 text-purple-400",
-                    state === "pending" && "border-border/50 bg-muted/40 text-muted-foreground/50"
-                  )}
-                >
-                  {state === "done" ? (
-                    <CheckCircle2 className="h-3 w-3" />
-                  ) : state === "active" ? (
-                    <RefreshCw className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" />
-                  )}
-                </span>
-                <span
-                  className={cn(
-                    state === "pending" ? "text-muted-foreground/50" : "text-foreground/90"
-                  )}
-                >
-                  {step.label}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
-      </div>
-    </div>
-  );
-}
 
 function PackageGenerationOverlay({
   visible,
@@ -857,7 +780,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [regenerationObjectionTarget, setRegenerationObjectionTarget] =
     useState<RegenerationTarget | null>(null);
   const [isSavedAnalysisView, setIsSavedAnalysisView] = useState(false);
-  const [isToolboxOpen, setIsToolboxOpen] = useState(true);
 
   // Live-detected network from the URL the user is typing (frontend hint; backend is authoritative).
   const detectedPlatform = useMemo(() => detectPlatformFromUrl(urlInput), [urlInput]);
@@ -2080,55 +2002,15 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
             </Select>
           )}
 
-          <div className="flex items-center gap-1.5">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 w-8 p-0"
-              onClick={() => setIsToolboxOpen((open) => !open)}
-              aria-label={isToolboxOpen ? "Hide analyzer tools" : "Show analyzer tools"}
-              title={isToolboxOpen ? "Hide analyzer tools" : "Show analyzer tools"}
-            >
-              <Wrench className="h-3.5 w-3.5" />
-            </Button>
-            {isToolboxOpen && (
-              <div className="flex items-center gap-1.5 rounded-md border border-border/40 bg-background/60 p-1">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 text-xs"
-                  onClick={openAnalyzerHelp}
-                >
-                  <LifeBuoy className="h-3.5 w-3.5" />
-                  Help
-                </Button>
-                {shouldShowSavedAnalysisActions && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-xs"
-                      onClick={saveCurrentWork}
-                      disabled={isLoading || packageGenerationIsRunning}
-                    >
-                      <Save className="h-3.5 w-3.5" />
-                      Save work
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-xs"
-                      onClick={startNewAnalysis}
-                      disabled={isLoading || packageGenerationIsRunning}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      New analysis
-                    </Button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+          <AnalyzerToolsToolbar
+            showResultActions={shouldShowSavedAnalysisActions}
+            onHelp={openAnalyzerHelp}
+            onSave={saveCurrentWork}
+            onNew={startNewAnalysis}
+            actionsDisabled={isLoading || packageGenerationIsRunning}
+            saveLabel="Save work"
+            newLabel="New analysis"
+          />
         </div>
       </div>
 
@@ -2150,7 +2032,19 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         }
         mode="progress"
       />
-      <AnalysisOverlay status={analysisStatus} />
+      <AnalysisOverlay
+        visible={analysisStatus !== null}
+        steps={ANALYSIS_STEPS}
+        currentStep={statusToStepIndex(analysisStatus)}
+        percent={statusToPercent(analysisStatus)}
+        isDone={analysisStatus === "Analyzed"}
+        isFailed={analysisStatus === "Failed"}
+        runningTitle="Analyzing content"
+        doneTitle="Analysis complete"
+        failedTitle="Analysis failed"
+        description="This usually takes 30–60 seconds. Keep this tab open."
+        ariaLabel="Analyzing content"
+      />
       <PackageGenerationOverlay
         visible={packageGenerationIsRunning}
         status={packageUiStatus}

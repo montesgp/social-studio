@@ -39,6 +39,13 @@ public sealed class ProfileAnalysisData
     public string? ServerDerivedStatsJson { get; set; }
 
     /// <summary>
+    /// Profile-level snapshot (ProfileSnapshot) serialised as JSON.
+    /// Populated together with <see cref="RawPostsDatasetJson"/> after the scrape stage.
+    /// Required to reconstruct AI input for a retry-AI without re-scraping.
+    /// </summary>
+    public string? ProfileSnapshotJson { get; set; }
+
+    /// <summary>
     /// AI analysis result serialised as JSON.
     /// Populated after the AI stage. Stored as jsonb.
     /// </summary>
