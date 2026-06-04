@@ -66,20 +66,29 @@ public sealed class EfProfileAnalysisRepository : IProfileAnalysisRepository
         var totalCount = await baseQuery.CountAsync(cancellationToken);
 
         var rows = await baseQuery
-            .OrderByDescending(x => x.CreatedAtUtc)
+            .GroupJoin(
+                _dbContext.SocialClients.AsNoTracking(),
+                analysis => analysis.ClientId,
+                client => (Guid?)client.Id,
+                (analysis, clients) => new { analysis, clients })
+            .SelectMany(
+                item => item.clients.DefaultIfEmpty(),
+                (item, client) => new { item.analysis, client })
+            .OrderByDescending(x => x.analysis.CreatedAtUtc)
             .Skip((safePage - 1) * safePageSize)
             .Take(safePageSize)
             .Select(x => new ProfileAnalysisHistoryItem(
-                x.Id,
-                x.OrganizationId,
-                x.ClientId,
-                x.OwnAccountId,
-                x.ProfileUrlOrHandle,
-                x.Status,
-                x.FailureCode,
-                x.CreatedAtUtc,
-                x.UpdatedAtUtc,
-                x.CompletedAtUtc))
+                x.analysis.Id,
+                x.analysis.OrganizationId,
+                x.analysis.ClientId,
+                x.analysis.OwnAccountId,
+                x.client == null ? null : x.client.Name,
+                x.analysis.ProfileUrlOrHandle,
+                x.analysis.Status,
+                x.analysis.FailureCode,
+                x.analysis.CreatedAtUtc,
+                x.analysis.UpdatedAtUtc,
+                x.analysis.CompletedAtUtc))
             .ToListAsync(cancellationToken);
 
         return new ProfileAnalysisHistoryPage(rows, totalCount, safePage, safePageSize);

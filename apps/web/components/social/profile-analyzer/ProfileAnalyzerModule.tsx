@@ -5,7 +5,7 @@
 // This file is the React.lazy target from page.tsx (see AnalyzerPageWithModeSwitch).
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { History, Trash2, RefreshCw, FolderOpen } from "lucide-react";
+import { History, Trash2, RefreshCw, BarChart3 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { AnalysisOverlay } from "@/components/social/analysis-overlay";
 import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
 import { ProfileDashboard } from "@/components/social/profile-analyzer/dashboard/ProfileDashboard";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { exportElementToPdf } from "@/lib/export/pdf-export";
 import { openWhatsAppSupport } from "@/lib/support/support";
 import {
   analyzeProfile,
@@ -123,9 +124,12 @@ function formatDateTime(iso: string): string {
 
 export function ProfileAnalyzerModule() {
   const token = useAccessToken() || undefined;
+  const profileExportRef = useRef<HTMLDivElement>(null);
   const [flow, setFlow] = useState<FlowState>({ stage: "pick" });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   // In-progress poll state (active while flow.stage === "polling")
   const [pollStatus, setPollStatus] = useState<ProfileAnalysisStatus | null>(null);
@@ -250,6 +254,7 @@ export function ProfileAnalyzerModule() {
     setFlow({ stage: "pick" });
     setSubmitError(null);
     setRetryError(null);
+    setExportError(null);
   }, []);
 
   // ── Open from history (#1) ───────────────────────────────────────────────────
@@ -323,13 +328,39 @@ export function ProfileAnalyzerModule() {
 
   // ── Toolbar actions ─────────────────────────────────────────────────────────
 
-  // "Save" for the profile analyzer: the analysis is always auto-persisted server-side.
-  // There is no unsaved in-memory draft (unlike the content analyzer which has locally
-  // drafted regeneration objections). We map Save to a silent history refresh so the
-  // user gets immediate confirmation that the record is up-to-date in the list.
-  const handleSave = useCallback(() => {
-    void loadHistory({ silent: true });
-  }, [loadHistory]);
+  const handleExportPdf = useCallback(async () => {
+    if (isExportingPdf) return;
+    const element = profileExportRef.current;
+    if (
+      !element ||
+      !element.querySelector('[data-profile-dashboard-ready="true"]')
+    ) {
+      setExportError("Wait until the dashboard is visible before exporting.");
+      return;
+    }
+
+    setIsExportingPdf(true);
+    setExportError(null);
+    try {
+      const analysisId =
+        flow.stage === "done"
+          ? flow.response.id
+          : flow.stage === "viewing"
+          ? flow.analysisId
+          : "profile";
+      await exportElementToPdf(element, {
+        filename: `profile-analysis-${analysisId}.pdf`,
+      });
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message: unknown }).message)
+          : "Could not export the profile analysis PDF.";
+      setExportError(message);
+    } finally {
+      setIsExportingPdf(false);
+    }
+  }, [flow, isExportingPdf]);
 
   function handleHelp() {
     openWhatsAppSupport({
@@ -356,17 +387,22 @@ export function ProfileAnalyzerModule() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
+    <div className="w-full space-y-6">
       {/* Header with toolbar — mirrors single-analyzer-client header area */}
       <div className="flex items-center justify-between">
         <div />
         <AnalyzerToolsToolbar
           showResultActions={isViewingResult}
           onHelp={handleHelp}
-          onSave={handleSave}
+          onSave={() => void handleExportPdf()}
           onNew={handleReset}
+          actionsDisabled={isExportingPdf}
+          saveLabel={isExportingPdf ? "Exporting…" : "Export"}
         />
       </div>
+      {exportError && (
+        <p className="text-right text-xs text-destructive">{exportError}</p>
+      )}
 
       {/* Progress overlay — full-screen blocking, same as content analyzer (#3) */}
       <AnalysisOverlay
@@ -393,7 +429,7 @@ export function ProfileAnalyzerModule() {
 
       {/* Source picker or progress (inline cancel) or done state */}
       {flow.stage === "pick" && (
-        <Card className="border-border/40 bg-background/60">
+        <Card className="w-full max-w-2xl mx-auto border-border/40 bg-background/60">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm">Configure profile analysis</CardTitle>
           </CardHeader>
@@ -420,20 +456,24 @@ export function ProfileAnalyzerModule() {
       )}
 
       {flow.stage === "done" && flow.response.status === "Analyzed" && (
-        <ProfileDashboard
-          analysisId={flow.response.id}
-          token={token}
-          onReset={handleReset}
-        />
+        <div ref={profileExportRef}>
+          <ProfileDashboard
+            analysisId={flow.response.id}
+            token={token}
+            onReset={handleReset}
+          />
+        </div>
       )}
 
       {/* Viewing a dashboard opened from history (#1) */}
       {flow.stage === "viewing" && (
-        <ProfileDashboard
-          analysisId={flow.analysisId}
-          token={token}
-          onReset={handleReset}
-        />
+        <div ref={profileExportRef}>
+          <ProfileDashboard
+            analysisId={flow.analysisId}
+            token={token}
+            onReset={handleReset}
+          />
+        </div>
       )}
 
       {flow.stage === "done" && flow.response.status !== "Analyzed" && (
@@ -513,6 +553,7 @@ export function ProfileAnalyzerModule() {
                           </p>
                           {/* #2: date + time so same-day analyses are distinguishable */}
                           <p className="text-xs text-muted-foreground/60">
+                            {item.clientName ? `Client: ${item.clientName} · ` : ""}
                             {formatDateTime(item.createdAtUtc)}
                           </p>
                         </div>
@@ -535,7 +576,7 @@ export function ProfileAnalyzerModule() {
                             {openingId === item.id ? (
                               <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                             ) : (
-                              <FolderOpen className="h-3.5 w-3.5" />
+                              <BarChart3 className="h-3.5 w-3.5" />
                             )}
                           </Button>
                         )}

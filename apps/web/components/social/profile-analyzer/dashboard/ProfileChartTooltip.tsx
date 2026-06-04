@@ -39,7 +39,7 @@ export function ProfileChartTooltip({
               <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: item.color ?? "hsl(var(--primary))" }}
+                  style={{ backgroundColor: (item.payload as Record<string, string> | undefined)?.fill ?? item.color ?? "hsl(var(--primary))" }}
                 />
                 <span className="truncate">{displayName}</span>
               </span>

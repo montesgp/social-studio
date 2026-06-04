@@ -48,6 +48,7 @@ public sealed record ProfileAnalysisHistoryItem(
     Guid OrganizationId,
     Guid? ClientId,
     Guid? OwnAccountId,
+    string? ClientName,
     string ProfileUrlOrHandle,
     string Status,
     string? FailureCode,

@@ -300,7 +300,7 @@ public sealed class ProfileAnalyzerEndpointTests
     {
         var expected = new ProfileAnalysisHistoryResponse(
             [new ProfileAnalysisHistoryItemDto(
-                AnalysisId, ClientId, "@handle", "Analyzed", null,
+                AnalysisId, ClientId, "Demo Client", "@handle", "Analyzed", null,
                 DateTime.UtcNow, DateTime.UtcNow)],
             TotalCount: 1, Page: 1, PageSize: 20);
 

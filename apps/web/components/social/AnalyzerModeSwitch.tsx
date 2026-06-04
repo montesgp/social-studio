@@ -67,9 +67,9 @@ export function AnalyzerModeSwitch({ isPlatformAdmin }: AnalyzerModeSwitchProps)
             </div>
           }
         >
-          {/* ProfileAnalyzerModule is wrapped in a padding container that mirrors
-              the SingleAnalyzerClient layout (p-6 max-w-screen-xl mx-auto). */}
-          <div className="flex flex-col gap-6 p-6 max-w-[92rem] mx-auto">
+          {/* ProfileAnalyzerModule is wrapped in a full-width padding container that mirrors
+              the SingleAnalyzerClient layout while keeping a wider max width for long URLs. */}
+          <div className="flex w-full flex-col gap-6 p-6 max-w-[92rem] mx-auto">
             <ProfileAnalyzerModule />
           </div>
         </Suspense>

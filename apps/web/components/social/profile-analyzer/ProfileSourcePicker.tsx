@@ -218,95 +218,97 @@ export function ProfileSourcePicker({
         </Button>
       </div>
 
-      {/* Client-path inputs */}
-      {sourceMode === "client" && (
-        <div className="space-y-3">
-          {/* Client selector */}
-          <OptionCardSelector
-            label="Client"
-            value={selectedClientId}
-            options={clientOptions}
-            onChange={(value) => {
-              setSelectedClientId(value);
-              setSelectedOwnAccountId("");
-            }}
-            noneOption={{
-              value: "",
-              label: "No client",
-              description: "Profile-only analysis",
-              icon: <Building2 className="h-4 w-4" />,
-            }}
-            loading={clientsLoading}
-            loadingLabel="Loading clients…"
-            emptyLabel="No active clients"
-            selectionLabel="Single selection"
-            optionsGridClassName="xl:grid-cols-3"
-          />
+      <div className="min-h-[12rem]">
+        {/* Client-path inputs */}
+        {sourceMode === "client" && (
+          <div className="space-y-3">
+            {/* Client selector */}
+            <OptionCardSelector
+              label="Client"
+              value={selectedClientId}
+              options={clientOptions}
+              onChange={(value) => {
+                setSelectedClientId(value);
+                setSelectedOwnAccountId("");
+              }}
+              noneOption={{
+                value: "",
+                label: "No client",
+                description: "Profile-only analysis",
+                icon: <Building2 className="h-4 w-4" />,
+              }}
+              loading={clientsLoading}
+              loadingLabel="Loading clients…"
+              emptyLabel="No active clients"
+              selectionLabel="Single selection"
+              optionsGridClassName="xl:grid-cols-3"
+            />
 
-          {/* Own Instagram account selector — shown once a client is selected */}
-          {selectedClientId && (
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground font-medium">
-                Own Instagram account
-              </label>
-              {ownAccountsLoading ? (
-                <p className="text-xs text-muted-foreground/60">Loading accounts…</p>
-              ) : ownAccounts.length === 0 ? (
-                <p className="text-xs text-destructive">
-                  This client has no active own Instagram accounts. Add one in the
-                  clients section.
-                </p>
-              ) : ownAccounts.length === 1 ? (
-                <p className="text-xs text-muted-foreground/70">
-                  {formatHandle(ownAccounts[0].handle) ?? ownAccounts[0].profileUrl}{" "}
-                  <span className="text-green-600 dark:text-green-400">(selected automatically)</span>
-                </p>
-              ) : (
-                <Select
-                  value={selectedOwnAccountId}
-                  onChange={(e) => setSelectedOwnAccountId(e.target.value)}
-                  disabled={isSubmitting}
-                  className="w-full"
-                >
-                  <option value="">— Select an account —</option>
-                  {ownAccounts.map((acc) => (
-                    <option key={acc.id} value={acc.id}>
-                      {acc.label ?? (formatHandle(acc.handle) ?? acc.profileUrl)}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+            {/* Own Instagram account selector — shown once a client is selected */}
+            {selectedClientId && (
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground font-medium">
+                  Own Instagram account
+                </label>
+                {ownAccountsLoading ? (
+                  <p className="text-xs text-muted-foreground/60">Loading accounts…</p>
+                ) : ownAccounts.length === 0 ? (
+                  <p className="text-xs text-destructive">
+                    This client has no active own Instagram accounts. Add one in the
+                    clients section.
+                  </p>
+                ) : ownAccounts.length === 1 ? (
+                  <p className="text-xs text-muted-foreground/70">
+                    {formatHandle(ownAccounts[0].handle) ?? ownAccounts[0].profileUrl}{" "}
+                    <span className="text-green-600 dark:text-green-400">(selected automatically)</span>
+                  </p>
+                ) : (
+                  <Select
+                    value={selectedOwnAccountId}
+                    onChange={(e) => setSelectedOwnAccountId(e.target.value)}
+                    disabled={isSubmitting}
+                    className="w-full"
+                  >
+                    <option value="">— Select an account —</option>
+                    {ownAccounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.label ?? (formatHandle(acc.handle) ?? acc.profileUrl)}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
-      {/* URL-path input */}
-      {sourceMode === "url" && (
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground font-medium">
-            Instagram profile URL
-          </label>
-          <Input
-            type="url"
-            placeholder="https://www.instagram.com/username"
-            value={profileUrl}
-            onChange={(e) => setProfileUrl(e.target.value)}
-            disabled={isSubmitting}
-            className="w-full"
-            title={
-              profileUrl.trim().length > 0 && !isValidInstagramUrl(profileUrl)
-                ? "This profile analyzer does not support that URL."
-                : "Enter the public Instagram profile URL you want to analyze."
-            }
-          />
-          {profileUrl.trim().length > 0 && !isValidInstagramUrl(profileUrl) && (
-            <p className="text-xs text-destructive">
-              Enter a valid Instagram profile URL (for example: https://www.instagram.com/username)
-            </p>
-          )}
-        </div>
-      )}
+        {/* URL-path input */}
+        {sourceMode === "url" && (
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground font-medium">
+              Instagram profile URL
+            </label>
+            <Input
+              type="url"
+              placeholder="https://www.instagram.com/username"
+              value={profileUrl}
+              onChange={(e) => setProfileUrl(e.target.value)}
+              disabled={isSubmitting}
+              className="w-full"
+              title={
+                profileUrl.trim().length > 0 && !isValidInstagramUrl(profileUrl)
+                  ? "This profile analyzer does not support that URL."
+                  : "Enter the public Instagram profile URL you want to analyze."
+              }
+            />
+            {profileUrl.trim().length > 0 && !isValidInstagramUrl(profileUrl) && (
+              <p className="text-xs text-destructive">
+                Enter a valid Instagram profile URL (for example: https://www.instagram.com/username)
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Submit */}
       <Button

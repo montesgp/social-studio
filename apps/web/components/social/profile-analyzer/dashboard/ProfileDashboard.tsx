@@ -99,7 +99,7 @@ export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboar
   const hasComparison = dashboard.clientId !== null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-profile-dashboard-ready="true">
       {/* Profile header */}
       <div className="flex items-start gap-3">
         <div>
@@ -151,20 +151,22 @@ export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboar
       )}
 
       {/* Impute panel — PA-20/21/22: only when Analyzed (guaranteed by caller) + clientId non-null */}
-      {dashboard.clientId !== null && dashboard.aiAnalysis !== null ? (
-        <ImputePanel
-          analysisId={analysisId}
-          clientId={dashboard.clientId}
-          aiAnalysis={dashboard.aiAnalysis}
-          token={token}
-        />
-      ) : (
-        <div className="flex items-center justify-center h-10 rounded-md border border-border/20 border-dashed">
-          <p className="text-xs text-muted-foreground/50">
-            Client field updates are available only for analyses linked to a system client
-          </p>
-        </div>
-      )}
+      <div data-pdf-exclude="true">
+        {dashboard.clientId !== null && dashboard.aiAnalysis !== null ? (
+          <ImputePanel
+            analysisId={analysisId}
+            clientId={dashboard.clientId}
+            aiAnalysis={dashboard.aiAnalysis}
+            token={token}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-10 rounded-md border border-border/20 border-dashed">
+            <p className="text-xs text-muted-foreground/50">
+              Client field updates are available only for analyses linked to a system client
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Graceful empty state: no data at all (PA-18) */}
       {!hasChartData && !hasAiAnalysis && (

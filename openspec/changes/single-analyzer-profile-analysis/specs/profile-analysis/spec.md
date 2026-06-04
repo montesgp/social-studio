@@ -488,6 +488,14 @@ the authenticated principal, never from the request body.
 - THEN exactly 3 records are returned
 - AND no record from another organization is included
 
+#### Scenario: History identifies linked own-account client
+
+- GIVEN a ProfileAnalysis was created through the client + own-account path
+- WHEN the history list endpoint returns the analysis row
+- THEN the response includes the linked client's display name
+- AND the frontend history row shows that client context alongside the analyzed account
+- AND URL-only analyses show no client label
+
 ---
 
 ### Requirement: PA-16 — Dashboard: Overview and Core Metrics
@@ -501,6 +509,9 @@ stats or AI analysis fields — no re-scraping or live computation at render tim
 Until the product i18n layer is introduced, Profile Analyzer UI copy and future AI
 report string output MUST remain in English to avoid mixed-language dashboard states.
 Chart hover tooltips MUST remain readable in both light and dark themes.
+Completed Profile Analyzer dashboards MUST expose a toolbar PDF export action that
+downloads a PDF from the visible dashboard content, including charts when chart data is
+available.
 
 #### Scenario: Dashboard hydrated from persisted record
 
@@ -523,6 +534,13 @@ Chart hover tooltips MUST remain readable in both light and dark themes.
 - WHEN the dashboard renders
 - THEN available metrics are displayed normally
 - AND a warning indicator is shown for any metric that could not be computed
+
+#### Scenario: Dashboard exports to PDF
+
+- GIVEN a completed ProfileAnalysis dashboard is visible
+- WHEN the user selects Export from the tool area
+- THEN the browser downloads a PDF
+- AND the exported PDF includes the visible dashboard sections and generated charts
 
 ---
 

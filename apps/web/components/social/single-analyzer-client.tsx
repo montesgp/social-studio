@@ -78,6 +78,7 @@ import { SupportError } from "@/components/support/support-error";
 import { openWhatsAppSupport } from "@/lib/support/support";
 import { AnalysisOverlay } from "@/components/social/analysis-overlay";
 import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
+import { exportElementToPdf } from "@/lib/export/pdf-export";
 
 // ── Async/poll constants ───────────────────────────────────────────────────────
 
@@ -313,6 +314,22 @@ function formatDuration(seconds: number | null | undefined): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.round(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+function formatListForPlaceholder(items: string[]): string {
+  const unique = Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
+  if (unique.length === 0) return "";
+  if (unique.length === 1) return unique[0];
+  if (unique.length === 2) return `${unique[0]} or ${unique[1]}`;
+  return `${unique.slice(0, -1).join(", ")} or ${unique[unique.length - 1]}`;
+}
+
+function slugForFilename(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "content-analysis";
 }
 
 // ── Local sub-components ───────────────────────────────────────────────────────
@@ -696,6 +713,7 @@ function isSameRegenerationTarget(
 export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientProps) {
   const router = useRouter();
   const toast = useToast();
+  const contentExportRef = useRef<HTMLDivElement>(null);
   const { orgId: activeOrgId } = useActiveOrg();
   const token = useAccessToken();
   const effectiveToken = token ?? undefined;
@@ -743,6 +761,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const allowNavigationRef = useRef(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDownloadingPackage, setIsDownloadingPackage] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isHydratingHistory, setIsHydratingHistory] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadResult, setDownloadResult] = useState<{ fileName: string; downloadUrl: string } | null>(null);
@@ -1018,6 +1037,20 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   // Derived — always in sync with API data
   const networkOptions = socialNetworks.map((n) => ({ value: n.code, label: n.displayName }));
+  const urlSupportedPlatformNames = useMemo(() => {
+    const supportedCodes = new Set(["tiktok", "instagram", "youtube", "x", "facebook", "linkedin"]);
+    const activeSupportedNames = socialNetworks
+      .filter((network) => supportedCodes.has(network.code.toLowerCase()))
+      .map((network) => network.displayName);
+    return activeSupportedNames.length > 0
+      ? activeSupportedNames
+      : ["TikTok", "Instagram", "YouTube", "LinkedIn"];
+  }, [socialNetworks]);
+  const urlSupportedPlatformsLabel = useMemo(
+    () => formatListForPlaceholder(urlSupportedPlatformNames),
+    [urlSupportedPlatformNames]
+  );
+  const urlInputPlaceholder = `Paste a URL from ${urlSupportedPlatformsLabel}…`;
   const selectedClient = useMemo(
     () => clients.find((client) => client.id === selectedClientId) ?? null,
     [clients, selectedClientId]
@@ -1153,12 +1186,22 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     pollCancelRef.current = false;
   }
 
-  function saveCurrentWork() {
-    setRegenerationObjection("");
-    setRegenerationChoiceTarget(null);
-    setRegenerationObjectionTarget(null);
-    void loadHistory({ silent: true });
-    toast.success("Work saved", "The current analysis and generated assets are persisted.");
+  async function exportCurrentAnalysisPdf() {
+    if (!videoResult || !contentExportRef.current || isExportingPdf) return;
+    setIsExportingPdf(true);
+    try {
+      await exportElementToPdf(contentExportRef.current, {
+        filename: `${slugForFilename(videoResult.title)}-content-analysis.pdf`,
+      });
+      toast.success("Print dialog opened", "Use your browser's Save as PDF option to download the analysis.");
+    } catch (e) {
+      const err = e as { message?: string };
+      setError({
+        message: err?.message ?? "Failed to export this analysis as PDF.",
+      });
+    } finally {
+      setIsExportingPdf(false);
+    }
   }
 
   function changeClientContext(clientId: string) {
@@ -1191,7 +1234,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setError({
         code: "social.single_analyzer.invalid_url_input",
         message:
-          "We can only analyze valid social URLs from TikTok, Instagram, YouTube, X, Facebook, or LinkedIn.",
+          `We can only analyze valid social URLs from ${urlSupportedPlatformsLabel}.`,
       });
       return;
     }
@@ -1941,7 +1984,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const allFormatsRegenerationTarget: RegenerationTarget = { kind: "all" };
   const hasExistingFormatForCurrentMode =
     getExistingGeneratedFormats([selectedFormatKey]).length > 0;
-  const shouldShowSavedAnalysisActions = isSavedAnalysisView && isAnalyzed && Boolean(videoResult);
+  const shouldShowSavedAnalysisActions = isAnalyzed && Boolean(videoResult);
   const isSelectedFormatChoiceOpen =
     isSameRegenerationTarget(regenerationChoiceTarget, selectedFormatRegenerationTarget);
   const isAllFormatsChoiceOpen =
@@ -1976,7 +2019,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-screen-xl mx-auto">
+    <div ref={contentExportRef} className="flex flex-col gap-6 p-6 max-w-screen-xl mx-auto">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
@@ -1988,7 +2031,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
             <p className="text-sm text-muted-foreground">Load any video · analyze · convert</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" data-pdf-exclude="true">
           {isPlatformAdmin && organizations.length > 0 && (
             <Select
               size="sm"
@@ -2005,21 +2048,23 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
           <AnalyzerToolsToolbar
             showResultActions={shouldShowSavedAnalysisActions}
             onHelp={openAnalyzerHelp}
-            onSave={saveCurrentWork}
+            onSave={() => void exportCurrentAnalysisPdf()}
             onNew={startNewAnalysis}
-            actionsDisabled={isLoading || packageGenerationIsRunning}
-            saveLabel="Save work"
+            actionsDisabled={isLoading || packageGenerationIsRunning || isExportingPdf}
+            saveLabel={isExportingPdf ? "Exporting…" : "Export"}
             newLabel="New analysis"
           />
         </div>
       </div>
 
       {/* Error banner with built-in support actions */}
-      <SupportError
-        error={error}
-        context={{ feature: "single-analyzer", organizationId: selectedOrganizationId }}
-        onDismiss={() => setError(null)}
-      />
+      <div data-pdf-exclude="true">
+        <SupportError
+          error={error}
+          context={{ feature: "single-analyzer", organizationId: selectedOrganizationId }}
+          onDismiss={() => setError(null)}
+        />
+      </div>
 
       {/* Screen-blocking overlay shown while the backend analysis is in flight. */}
       <BlockingLoader
@@ -2053,7 +2098,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       />
 
       {/* Main 2-col grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" data-pdf-main-grid>
         {/* ── LEFT PANEL ── */}
         <div className="flex flex-col gap-4">
           {/* Input card */}
@@ -2082,7 +2127,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                   <div className="space-y-1.5">
                     <div className="flex gap-2">
                       <Input
-                        placeholder="Paste a URL from TikTok, Instagram, YouTube, X, Facebook…"
+                        placeholder={urlInputPlaceholder}
                         value={urlInput}
                         onChange={(e) => setUrlInput(e.target.value)}
                         onKeyDown={(e) => {
@@ -2362,7 +2407,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
           {/* Download */}
           {isAnalyzed && videoResult && (
-            <Card className="border-border/40 bg-background/60">
+            <Card className="border-border/40 bg-background/60" data-pdf-exclude="true">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Download className="h-4 w-4" />
@@ -2404,7 +2449,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         </div>
 
         {/* ── RIGHT PANEL ── */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4" data-pdf-exclude="true">
           {isAnalyzed ? (
             <Card className="border-border/40 bg-background/60 flex-1">
                 <CardHeader className="pb-3 space-y-3">
@@ -2809,7 +2854,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       {/* History — saved analyses owned by the current user. Click to reload everything as if
           the run just finished (snapshot + analysis + any existing content-generation job). */}
       {historyItems.length > 0 && (
-        <Card className="border-border/40 bg-background/60">
+        <Card className="border-border/40 bg-background/60" data-pdf-exclude="true">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
               <Clock className="h-4 w-4" />

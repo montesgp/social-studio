@@ -5,28 +5,28 @@
 //
 // Visibility logic (mirrors single-analyzer-client):
 //   - On "new analysis" screen (showResultActions=false) → Help only.
-//   - When viewing a result (fresh or from history) → New, Save, Help.
+//   - When viewing a result (fresh or from history) → New, Export, Help.
 //
 // The wrench toggle button hides/shows the action group with a tooltip.
 
 import { useState } from "react";
-import { Wrench, LifeBuoy, Save, Plus } from "lucide-react";
+import { Wrench, LifeBuoy, Download, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export interface AnalyzerToolsToolbarProps {
-  /** When true, Save and New buttons are visible (result is being viewed). */
+  /** When true, Export and New buttons are visible (result is being viewed). */
   showResultActions: boolean;
-  /** Called when Save is clicked. */
+  /** Called when Export is clicked. Kept as onSave for backward-compatible callers. */
   onSave: () => void;
   /** Called when New / New analysis is clicked. */
   onNew: () => void;
   /** Called when Help is clicked. */
   onHelp: () => void;
-  /** Disable Save and New while operations are in flight. */
+  /** Disable Export and New while operations are in flight. */
   actionsDisabled?: boolean;
   /** Label for the New action button (default: "New analysis"). */
   newLabel?: string;
-  /** Label for the Save action button (default: "Save"). */
+  /** Label for the Export action button (default: "Export"). */
   saveLabel?: string;
 }
 
@@ -37,12 +37,12 @@ export function AnalyzerToolsToolbar({
   onHelp,
   actionsDisabled = false,
   newLabel = "New analysis",
-  saveLabel = "Save",
+  saveLabel = "Export",
 }: AnalyzerToolsToolbarProps) {
   const [isOpen, setIsOpen] = useState(true);
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5" data-pdf-exclude="true">
       <Button
         size="sm"
         variant="outline"
@@ -73,7 +73,7 @@ export function AnalyzerToolsToolbar({
                 onClick={onSave}
                 disabled={actionsDisabled}
               >
-                <Save className="h-3.5 w-3.5" />
+                <Download className="h-3.5 w-3.5" />
                 {saveLabel}
               </Button>
               <Button

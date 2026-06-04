@@ -139,6 +139,7 @@ export interface ProfileDashboardResponse {
 export interface ProfileAnalysisHistoryItemDto {
   id: string;
   clientId: string | null;
+  clientName: string | null;
   profileUrlOrHandle: string;
   status: ProfileAnalysisStatus;
   failureCode: string | null;

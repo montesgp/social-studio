@@ -207,6 +207,7 @@ public sealed record ProfileAnalysisHistoryResponse(
 public sealed record ProfileAnalysisHistoryItemDto(
     Guid Id,
     Guid? ClientId,
+    string? ClientName,
     string ProfileUrlOrHandle,
     string Status,
     string? FailureCode,

@@ -4,15 +4,14 @@
 // Segments: Image / Video / Carousel percentages from stats.contentTypeMix.
 // Graceful empty state when contentTypeMix is absent or empty (PA-18).
 
+import { useState } from "react";
 import {
   PieChart,
   Pie,
   Cell,
-  Tooltip,
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { ProfileChartTooltip } from "@/components/social/profile-analyzer/dashboard/ProfileChartTooltip";
 import type { ProfileStatsDto } from "@/lib/api/types/profile-analyzer";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -95,6 +94,7 @@ function renderLabel({
 
 export function ContentTypeMixChart({ stats }: ContentTypeMixChartProps) {
   const data = buildPieData(stats);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   return (
     <div className="space-y-2">
@@ -104,9 +104,28 @@ export function ContentTypeMixChart({ stats }: ContentTypeMixChartProps) {
           <p className="text-xs text-muted-foreground/60">No content type data</p>
         </div>
       ) : (
-        <div className="h-48">
+        <div
+          className="relative h-48"
+          onMouseLeave={() => setActiveIndex(null)}
+        >
+          {activeIndex !== null && data[activeIndex] && (
+            <div className="pointer-events-none absolute right-0 top-0 z-50 min-w-[120px] rounded-md border border-border/60 bg-popover/95 px-3 py-2 shadow-md backdrop-blur-sm">
+              <div className="flex items-center gap-2">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: SEGMENT_COLORS[activeIndex % SEGMENT_COLORS.length] }}
+                />
+                <span className="text-xs font-medium text-foreground">
+                  {data[activeIndex].name}
+                </span>
+              </div>
+              <p className="mt-0.5 pl-[18px] text-xs text-muted-foreground">
+                {data[activeIndex].value}%
+              </p>
+            </div>
+          )}
           <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
+            <PieChart onMouseLeave={() => setActiveIndex(null)}>
               <Pie
                 data={data}
                 cx="50%"
@@ -116,6 +135,7 @@ export function ContentTypeMixChart({ stats }: ContentTypeMixChartProps) {
                 dataKey="value"
                 labelLine={false}
                 label={renderLabel}
+                onMouseEnter={(_, i) => setActiveIndex(i)}
               >
                 {data.map((_, i) => (
                   <Cell
@@ -124,14 +144,6 @@ export function ContentTypeMixChart({ stats }: ContentTypeMixChartProps) {
                   />
                 ))}
               </Pie>
-              <Tooltip
-                wrapperStyle={{ outline: "none", zIndex: 50 }}
-                content={
-                  <ProfileChartTooltip
-                    valueFormatter={(value) => `${Number(value).toLocaleString("en-US")}%`}
-                  />
-                }
-              />
               <Legend
                 iconSize={10}
                 wrapperStyle={{ fontSize: 11 }}

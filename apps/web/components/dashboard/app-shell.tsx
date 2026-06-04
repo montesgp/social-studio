@@ -153,6 +153,7 @@ export function AppShell({
   const [routeLoading, setRouteLoading] = useState(true);
   const [routeSawHttpPending, setRouteSawHttpPending] = useState(false);
   const routeLoadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modulesLoadedRef = useRef(false);
   const isHttpLoading = useSyncExternalStore(subscribeHttpLoading, getHttpLoadingSnapshot, () => false);
   const isSigningOut = useSyncExternalStore(subscribeSignOut, getSignOutSnapshot, () => false);
   const isAdminArea = pathname.startsWith("/admin");
@@ -168,6 +169,10 @@ export function AppShell({
     !accessToken || !modulesLoaded || (!isPlatformAdmin && !isOrgInitialized);
 
   useEffect(() => {
+    modulesLoadedRef.current = modulesLoaded;
+  }, [modulesLoaded]);
+
+  useEffect(() => {
     if (!accessToken) {
       setAvailableModules([]);
       setModulesLoaded(false);
@@ -179,7 +184,12 @@ export function AppShell({
     }
 
     let cancelled = false;
-    setModulesLoaded(false);
+    // Token refreshes publish a new access token, which re-runs this effect.
+    // Do NOT drop the shell back to the initial blocking loader after the first
+    // module load; refresh permissions in the background instead.
+    if (!modulesLoadedRef.current) {
+      setModulesLoaded(false);
+    }
 
     void (async () => {
       try {

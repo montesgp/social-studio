@@ -84,7 +84,8 @@ Content extraction uses per-platform Apify adapters. Supported platforms:
 - In the Single Analyzer convert panel, the objection text area MUST be hidden by default and shown only after the user chooses a regenerate-with-objections path for already generated content.
 - Regenerate controls MUST use one primary regenerate action per target and then let the user choose plain regeneration or regeneration with objections.
 - The Single Analyzer generation action panel MUST remain hidden while Client context is "No client context"; format selection and generate/regenerate actions become available only after a client is selected.
-- Saved single-content analyses MUST expose a compact tool area with help, save work, and new analysis actions; save work must clear local unsent drafts while preserving the already persisted analysis/generation state, and new analysis must reset the analyzer to its initial input state.
+- Completed or resumed single-content analyses MUST expose a compact tool area with help, PDF export, and new analysis actions; export MUST generate a browser-downloaded PDF from the visible analysis content, including thumbnail and generated chart/visual sections when present, and new analysis must reset the analyzer to its initial input state.
+- The analyze-by-URL placeholder MUST be based on active system social networks when available; inactive networks MUST NOT be advertised in the placeholder.
 - The leave-without-saving confirmation MUST appear only for local user changes that have not been sent to the API, not merely because a persisted analysis is visible or the user expanded/collapsed UI sections.
 - When a saved analysis is opened from history, the Video Analysis section MUST be collapsed by default.
 - Long scraped descriptions MAY be collapsed in the snapshot card, but the UI MUST allow the user to expand and collapse the full description.
@@ -113,7 +114,7 @@ Content extraction uses per-platform Apify adapters. Supported platforms:
 - A CM only sees the objections field after selecting a regenerate-with-objections option for content that already exists.
 - A CM sees no format or generation actions while "No client context" is selected.
 - A CM can leave a persisted analysis without an unsaved-work warning unless they have local notes or changes that have not been sent to the API.
-- A CM can save the current historical review state or reset the analyzer to start a new analysis from the saved-analysis tool area.
+- A CM can export the visible analysis as a PDF or reset the analyzer to start a new analysis from the tool area.
 - A CM can expand and collapse a truncated scraped description from the video snapshot card.
 - A CM sees hashtags in the video description only, without a duplicate hashtags block under live metrics.
 - A CM sees a placeholder thumbnail (and no description text block) when the scraper does not provide a valid image.

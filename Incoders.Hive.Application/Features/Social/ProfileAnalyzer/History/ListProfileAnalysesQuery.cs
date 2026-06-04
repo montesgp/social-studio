@@ -35,6 +35,7 @@ public sealed class ListProfileAnalysesQueryHandler
             .Select(item => new ProfileAnalysisHistoryItemDto(
                 item.Id,
                 item.ClientId,
+                item.ClientName,
                 item.ProfileUrlOrHandle,
                 item.Status,
                 item.FailureCode,

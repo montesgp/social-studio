@@ -86,12 +86,12 @@ export function AiNarrativePanel({ aiAnalysis }: AiNarrativePanelProps) {
 
       {/* Low-confidence or sparse-data warnings (PA-11) */}
       {aiAnalysis.warnings && aiAnalysis.warnings.length > 0 && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
-          <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-1 print:bg-amber-50 print:border-amber-600/50">
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-300 print:!text-amber-900">
             Analysis warnings
           </p>
           {aiAnalysis.warnings.map((w, i) => (
-            <p key={i} className="text-xs text-amber-800 dark:text-amber-200">
+            <p key={i} className="text-xs text-amber-800 dark:text-amber-200 print:!text-amber-900">
               {w}
             </p>
           ))}
