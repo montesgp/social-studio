@@ -246,8 +246,15 @@ public static class DependencyInjection
 
     private static IServiceCollection AddRenderingAndPackaging(this IServiceCollection services, IConfiguration configuration)
     {
-        // v1 PNG renderer (SkiaSharp) — no PDF, no external rendering service
-        services.AddScoped<IContentRenderer, LocalSvgContentRenderer>();
+        // Rendering engine is a GLOBAL application setting, bound from the "Rendering" config section.
+        // Default: Chromium (HTML/CSS via Playwright) with SkiaSharp fallback inside the renderer;
+        // override Rendering:Engine to "Skia" to fall back to the slot-raster renderer entirely.
+        //
+        // B1b: registers the configured IContentRenderer (Chromium + pooled browser, or Skia) and the
+        // real OpusVisualDesigner (IVisualDesigner, IsActive=true) — REPLACING the Application-layer
+        // NoOpVisualDesigner and any default LocalSvgContentRenderer. This is what makes the
+        // flyer/carousel designer pipeline genuinely ACTIVE in production.
+        services.AddB1bRenderingAndDesigner(configuration);
 
         // Null adapters for future providers (v1 not supported)
         services.AddScoped<IImageGenerationClient, NullImageGenerationClient>();
