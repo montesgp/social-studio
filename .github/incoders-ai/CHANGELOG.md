@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.0
+- **New skill: `skills/frontend/ux-focus-management.skill.md`** — Formalizes mandatory UX focus management for all interactive frontend surfaces: auto-focus on form/dialog/panel mount, viewport scroll-into-view on route navigation (with `prefers-reduced-motion` guard), and focus-first-error fallback chain on failed form submit.
+- **`skills/frontend/forms-and-validation.skill.md` §Procedure** — Added step 11: apply `ux-focus-management` focus-first-error chain after a failed submit. Error messages alone are not sufficient.
+- **`skills/shared/reuse-before-create.skill.md` §Procedure step 3** — Added explicit variant-via-props boundary: same behavior + different configuration → extend via prop; different interaction contract → new registered primitive with documented justification.
+- **`core/reuse-before-create.rules.md`** — Added "multi-step progress indicator" to protected primitive list; added MUST rule against creating parallel UI components for configuration variants; cross-referenced `core/ui-primitives.rules.md` §Extending primitives.
+- **`profiles/frontend.profile.md`** — Registered `skills/frontend/ux-focus-management.skill.md` in the default frontend skill loadout.
+- **`VERSION.md`** — Synced to 1.7.0 (was stale at 1.4.0; latest released was 1.6.0).
+
 ## 1.6.0
 - **`core/best-practice.rules.md` §7 — external-provider write authorization moved to PR approval.** Removed the per-query "show the exact SQL and request authorization" gate. Schema/data changes (incl. EF migrations) are now authorized by PR approval — the PR review IS the verification — and run on merge/deploy without separate confirmation. This repo applies migrations on startup via `Database.Migrate()`, so an approved+merged change auto-applies pending migrations on the next deploy. Destructive AD-HOC operations outside a reviewed PR still require explicit authorization.
 

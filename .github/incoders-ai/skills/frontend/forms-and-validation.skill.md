@@ -29,6 +29,7 @@ Pure backend or pure infrastructure repos.
 8. Use shared async-button (or equivalent) for submit; prevent duplicate submissions; expose loading/submitting/success/error states.
 9. Use translation keys for every visible label, placeholder, hint, and tooltip.
 10. Use semantic design tokens for state styles; no hardcoded colors.
+11. Apply focus-first-error on failed submit: after a submit attempt with validation errors, apply the focus-management fallback chain defined in `skills/frontend/ux-focus-management.skill.md` §Procedure-3. Error messages and toasts alone are not sufficient — the cursor must land on the first invalid field.
 
 ## Output Expectations
 - Forms across the app feel like one design system, not separate experiments.
