@@ -2,7 +2,7 @@ namespace Incoders.Hive.Domain.Social.ContentGeneration;
 
 /// <summary>
 /// Signals to the renderer whether the composition should be emitted as
-/// a raster image (PNG) or as a plain-text document (.txt).
+/// a raster image (PNG), a plain-text document (.txt), or a Markdown document (.md).
 /// The renderer dispatches on this enum and MUST NOT branch on format key names.
 /// </summary>
 public enum CompositionOutputKind
@@ -12,6 +12,12 @@ public enum CompositionOutputKind
 
     /// <summary>Plain-text output. Renderer emits UTF-8 .txt bytes from <see cref="VisualCompositionSpec.TextBody"/>.</summary>
     Text,
+
+    /// <summary>
+    /// Markdown output. Renderer emits UTF-8 .md bytes from <see cref="VisualCompositionSpec.TextBody"/>
+    /// with MIME type <c>text/markdown; charset=utf-8</c> and filename <c>{FormatKey}.md</c>.
+    /// </summary>
+    Markdown,
 }
 
 /// <summary>
@@ -29,7 +35,7 @@ public sealed record VisualCompositionSpec(
     CompositionDimensions Dimensions)
 {
     /// <summary>
-    /// Signals the renderer to emit a .txt file instead of a .png.
+    /// Signals the renderer to emit a .txt or .md file instead of a .png.
     /// Defaults to <see cref="CompositionOutputKind.Raster"/> for backward compatibility.
     /// </summary>
     public CompositionOutputKind OutputKind { get; init; } = CompositionOutputKind.Raster;

@@ -152,6 +152,27 @@ public sealed class VisualCompositionSpecTests
         Assert.Equal("Hook text body", spec.TextBody);
     }
 
+    // -------------------------------------------------------------------
+    // A-1 [RS-01] — CompositionOutputKind enum has Markdown member
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public void CompositionOutputKind_HasMarkdownMember()
+    {
+        // RS-01 scenario: "Markdown member exists"
+        Assert.True(
+            Enum.IsDefined(typeof(CompositionOutputKind), "Markdown"),
+            "CompositionOutputKind must define a 'Markdown' member (RS-01).");
+    }
+
+    [Fact]
+    public void OutputKind_WhenSetToMarkdown_IsPreserved()
+    {
+        var spec = BuildValid() with { OutputKind = CompositionOutputKind.Markdown };
+
+        Assert.Equal(CompositionOutputKind.Markdown, spec.OutputKind);
+    }
+
     [Fact]
     public void ExistingSpecConstruction_WithoutOutputKind_DefaultsToRaster_BackwardCompat()
     {

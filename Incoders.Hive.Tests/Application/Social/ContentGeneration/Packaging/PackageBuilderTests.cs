@@ -124,17 +124,17 @@ public sealed class PackageBuilderTests
         result.Content.Seek(0, SeekOrigin.Begin);
         using var archive = new ZipArchive(result.Content, ZipArchiveMode.Read, leaveOpen: true);
 
-        // Files live under the client folder
-        Assert.Contains(archive.Entries, e => e.FullName == "acme-corp/flyer.png");
-        Assert.Contains(archive.Entries, e => e.FullName == "acme-corp/carousel/slide_1.png");
+        // Files live under the display-name folder (PKG-01: case and spaces preserved)
+        Assert.Contains(archive.Entries, e => e.FullName == "Acme Corp/flyer.png");
+        Assert.Contains(archive.Entries, e => e.FullName == "Acme Corp/carousel/slide_1.png");
         // manifest.json stays at root
         Assert.Contains(archive.Entries, e => e.FullName == "manifest.json");
-        // Manifest records the folder name
-        Assert.Equal("acme-corp", result.Manifest.ClientFolderName);
+        // Manifest records the display-name folder (PKG-01)
+        Assert.Equal("Acme Corp", result.Manifest.ClientFolderName);
     }
 
     [Fact]
-    public async Task BuildAsync_ClientNameNormalisation_CollapsesSpecialChars()
+    public async Task BuildAsync_ClientNameNormalisation_SanitizesIllegalChars()
     {
         var builder = new GeneratedPackageBuilder();
         var asset = RenderedAsset.Create("hook", "image/png", "hook.png", new byte[] { 9 });
@@ -150,8 +150,143 @@ public sealed class PackageBuilderTests
 
         result.Content.Seek(0, SeekOrigin.Begin);
         using var archive = new ZipArchive(result.Content, ZipArchiveMode.Read, leaveOpen: true);
-        Assert.Contains(archive.Entries, e => e.FullName == "my-client-co/hook.png");
-        Assert.Equal("my-client-co", result.Manifest.ClientFolderName);
+        // & . ! are all legal; space/leading-space trimmed; result preserves case (PKG-01)
+        Assert.Contains(archive.Entries, e => e.FullName == "My Client & Co.!/hook.png");
+        Assert.Equal("My Client & Co.!", result.Manifest.ClientFolderName);
+    }
+
+    // ─── B-2: NormalizeFolderName unit tests (PKG-01) ────────────────────────────
+
+    [Theory]
+    [InlineData("Acme Corp", "Acme Corp")]               // case + spaces preserved
+    [InlineData("UPPERCASE NAME", "UPPERCASE NAME")]      // case preserved
+    [InlineData("lowercase name", "lowercase name")]      // lowercase preserved
+    public void NormalizeFolderName_PreservesCase(string input, string expected)
+    {
+        var result = GeneratedPackageBuilder.NormalizeFolderName(input);
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData("Café & Co", "Café & Co")]               // accent + & preserved (dot not at end)
+    [InlineData("Empörung GmbH", "Empörung GmbH")]       // German umlaut preserved
+    [InlineData("résumé", "résumé")]                     // French accent preserved
+    [InlineData("Café & Co.", "Café & Co")]              // trailing dot trimmed (Windows path rule)
+    public void NormalizeFolderName_PreservesAccentsAndSymbols(string input, string expected)
+    {
+        var result = GeneratedPackageBuilder.NormalizeFolderName(input);
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData("Client:Name/Test?", "ClientNameTest")]      // : / ? stripped (reserved)
+    [InlineData("file<name>here", "filenamehere")]            // < > stripped
+    [InlineData("say\"hello\\world", "sayhelloworld")]        // " \ stripped
+    [InlineData("pipe|and*star", "pipeandstar")]              // | * stripped
+    public void NormalizeFolderName_StripsWindowsReservedChars(string input, string expected)
+    {
+        var result = GeneratedPackageBuilder.NormalizeFolderName(input);
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData("<>:\"", "")]    // all-reserved → empty
+    [InlineData("", "")]         // empty stays empty
+    [InlineData("   ", "")]      // whitespace-only → empty
+    public void NormalizeFolderName_EmptyAfterSanitization_ReturnsEmpty(string input, string expected)
+    {
+        var result = GeneratedPackageBuilder.NormalizeFolderName(input);
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void NormalizeFolderName_NullInput_ReturnsEmpty()
+    {
+        // xUnit [InlineData] cannot pass a C# null literal to a non-null string parameter,
+        // so the null case is anchored explicitly here. Impl guards via IsNullOrWhiteSpace.
+        var result = GeneratedPackageBuilder.NormalizeFolderName(null);
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Theory]
+    [InlineData("folder. ", "folder")]        // trailing dot then space trimmed
+    [InlineData("folder  ", "folder")]        // trailing space trimmed
+    [InlineData("folder...", "folder")]       // multiple trailing dots trimmed
+    [InlineData("  leading", "leading")]      // leading whitespace trimmed
+    public void NormalizeFolderName_TrimsTrailingDotAndSpace(string input, string expected)
+    {
+        var result = GeneratedPackageBuilder.NormalizeFolderName(input);
+        Assert.Equal(expected, result);
+    }
+
+    // ─── Cross-OS hardening tests (WU-B hardening) ───────────────────────────────
+
+    [Fact]
+    public void NormalizeFolderName_StripsDel0x7F()
+    {
+        // DEL (0x7F) must be stripped on all OSes
+        var input = "folder\x7Fname";
+        var result = GeneratedPackageBuilder.NormalizeFolderName(input);
+        Assert.Equal("foldername", result);
+    }
+
+    [Theory]
+    [InlineData(".config", "config")]          // leading dot → Unix hidden-file prevention
+    [InlineData(".hidden", "hidden")]          // leading dot stripped
+    [InlineData(". config", "config")]         // leading dot+space both stripped
+    public void NormalizeFolderName_TrimsLeadingDot(string input, string expected)
+    {
+        var result = GeneratedPackageBuilder.NormalizeFolderName(input);
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void NormalizeFolderName_TrimsLeadingSpace()
+    {
+        // Leading space stripped (separate from TrimStart in Trim(); explicit cross-OS rule)
+        var result = GeneratedPackageBuilder.NormalizeFolderName("  MyFolder");
+        Assert.Equal("MyFolder", result);
+    }
+
+    [Fact]
+    public void NormalizeFolderName_TrailingDotTrimmed_CafeCase()
+    {
+        // Trailing dot trimmed — middle dot preserved
+        var result = GeneratedPackageBuilder.NormalizeFolderName("Café & Co.");
+        Assert.Equal("Café & Co", result);
+    }
+
+    [Fact]
+    public void NormalizeFolderName_MiddleDotPreserved()
+    {
+        // Middle dot must NOT be stripped
+        var result = GeneratedPackageBuilder.NormalizeFolderName("Co. Ltd");
+        Assert.Equal("Co. Ltd", result);
+    }
+
+    [Theory]
+    [InlineData("NUL", "NUL_")]        // Windows device name → append _
+    [InlineData("con", "con_")]        // case-insensitive match
+    [InlineData("COM1", "COM1_")]      // COM port
+    [InlineData("LPT9", "LPT9_")]      // LPT port
+    [InlineData("PRN", "PRN_")]        // PRN device
+    [InlineData("AUX", "AUX_")]        // AUX device
+    [InlineData("CLOCK$", "CLOCK$_")] // CLOCK$ device (with dollar sign)
+    public void NormalizeFolderName_DeviceName_Neutralized(string input, string expected)
+    {
+        var result = GeneratedPackageBuilder.NormalizeFolderName(input);
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData("Conway", "Conway")]       // merely contains "con" — must NOT be neutralized
+    [InlineData("NULspace", "NULspace")]   // contains NUL as prefix — must NOT be neutralized
+    [InlineData("MyNUL", "MyNUL")]         // NUL as suffix — must NOT be neutralized
+    [InlineData("COM10", "COM10")]         // COM10 is NOT a reserved name (COM1-COM9 only)
+    public void NormalizeFolderName_DeviceName_OnlyWholeNameNeutralized(string input, string expected)
+    {
+        var result = GeneratedPackageBuilder.NormalizeFolderName(input);
+        Assert.Equal(expected, result);
     }
 
     [Fact]

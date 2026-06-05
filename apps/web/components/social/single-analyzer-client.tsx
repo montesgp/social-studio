@@ -511,7 +511,7 @@ function isKnownFormatKey(key: string): key is ContentFormatKey {
 
 /** Default filenames shown in the Package tab tree when the backend manifest is absent. */
 const FORMAT_FILE_NAMES: Record<ContentFormatKey, string> = {
-  "reel-script": "reel-script.txt",
+  "reel-script": "reel-script.md",
   flyer: "flyer.png",
   carousel: "carousel/",
   "content-idea": "content-idea.txt",
@@ -522,7 +522,7 @@ const FORMAT_FILE_NAMES: Record<ContentFormatKey, string> = {
 
 /**
  * Resolves the display filename for a format. Uses the manifest filename when available,
- * but corrects the extension if the backend returns a wrong one (e.g. reel-script.png → .txt).
+ * but corrects the extension if the backend returns a wrong one (e.g. reel-script.png → .md).
  * Folder formats always use the canonical "/" representation.
  */
 function resolveFormatFilename(formatKey: ContentFormatKey, manifestFilename?: string): string {
@@ -577,23 +577,6 @@ function SocialTabletPreview({
 }
 
 // ── Client folder slug derivation (mirrors backend NormalizeFolderName) ────────
-
-/**
- * Derives a URL-safe client folder slug from a client name, using the same
- * normalization rules as the backend GeneratedPackageBuilder.NormalizeFolderName:
- * lowercase → replace runs of non-alphanumeric chars with a single hyphen → trim hyphens.
- *
- * Examples:
- *   "Acme Corp"   → "acme-corp"
- *   "Café & Co"   → "caf-co"
- *   "Test Client" → "test-client"
- */
-export function deriveClientFolderSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
 
 function RegenerationChoicePanel({
   onRegenerate,
@@ -1060,7 +1043,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       clients.map((client) => ({
         value: client.id,
         label: client.name,
-        description: deriveClientFolderSlug(client.name) || client.id,
+        description: client.name || client.id,
         icon: <Building2 className="h-4 w-4" />,
       })),
     [clients]
@@ -2828,12 +2811,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     clientFolderName={
                       packageJob.manifest?.client_folder_name ??
                       (selectedClientId
-                        ? deriveClientFolderSlug(selectedClient?.name ?? "")
+                        ? selectedClient?.name ?? ""
                         : null)
                     }
                     clientPackages={clientPackages}
                     clientLabels={Object.fromEntries(
-                      clients.map((c) => [c.id, deriveClientFolderSlug(c.name)])
+                      clients.map((c) => [c.id, c.name])
                     )}
                     onDownload={() => void handlePackageAction()}
                   />

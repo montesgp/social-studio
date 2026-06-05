@@ -14,10 +14,10 @@ public sealed class ComposerOutputKindTests
 
     // ------------------------------------------------------------------
     // Text-only composers: OutputKind=Text, TextBody non-null/non-empty
+    // (reel-script excluded — it uses Markdown, see test below)
     // ------------------------------------------------------------------
 
     [Theory]
-    [InlineData("reel-script")]
     [InlineData("caption")]
     [InlineData("hook")]
     [InlineData("content-idea")]
@@ -29,6 +29,22 @@ public sealed class ComposerOutputKindTests
         var spec = await service.ComposeAsync(formatKey, new { }, NoBrand, CancellationToken.None);
 
         Assert.Equal(CompositionOutputKind.Text, spec.OutputKind);
+    }
+
+    // ------------------------------------------------------------------
+    // A-2 [RS-01, RS-02] — reel-script produces Markdown, not Text
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task ReelScript_Compose_OutputKindIsMarkdown()
+    {
+        // RS-01 scenario: "Renderer handles Markdown case explicitly"
+        // RS-02 scenario: "OutputKind is Markdown"
+        var service = new VisualCompositionService();
+
+        var spec = await service.ComposeAsync("reel-script", new { }, NoBrand, CancellationToken.None);
+
+        Assert.Equal(CompositionOutputKind.Markdown, spec.OutputKind);
     }
 
     [Theory]

@@ -30,15 +30,44 @@ public sealed class GeneratedPackageBuilder : IGeneratedPackageBuilder
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
     };
 
-    // Normalise a client display name into a safe folder slug: lowercase, collapse
-    // non-alphanumeric runs to a single dash, trim leading/trailing dashes.
-    private static readonly Regex SlugUnsafe = new(@"[^a-z0-9]+", RegexOptions.Compiled);
+    // Strip the 9 cross-OS-illegal characters (< > : " / \ | ? *), DEL (0x7F), and C0 control chars (0x00-0x1F).
+    // Covers: Linux '/', macOS ':', Windows full reserved set.
+    // Preserve case, accents, internal spaces, emoji, ampersand, dots, and all other characters.
+    private static readonly Regex ReservedAndControl =
+        new(@"[<>:""/\\|?*\x00-\x1F\x7F]", RegexOptions.Compiled);
 
+    // Windows reserved device names — full match only, case-insensitive.
+    // COM1-COM9 and LPT1-LPT9 (COM10+ are NOT reserved).
+    private static readonly Regex DeviceName =
+        new(@"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]|CLOCK\$)$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Cross-OS folder name sanitizer. Strips filesystem-illegal characters and guards
+    /// against OS-reserved names, while preserving case, accents, internal spaces, and emoji.
+    /// Rules applied in order:
+    ///   1. Strip reserved chars (the 9 Windows-illegal + DEL + C0 control chars).
+    ///   2. TrimStart('.', ' ') — leading dots (Unix hidden-file) and leading spaces.
+    ///   3. TrimEnd('.', ' ') — trailing dots/spaces (Windows disallows these as leaf names).
+    ///   4. If the whole result is a Windows reserved device name (CON, NUL, COM1…), append '_'.
+    /// Returns empty string when the name is null/whitespace or all chars were stripped.
+    /// </summary>
     internal static string NormalizeFolderName(string? name)
     {
         if (string.IsNullOrWhiteSpace(name)) return string.Empty;
-        var slug = SlugUnsafe.Replace(name.Trim().ToLowerInvariant(), "-").Trim('-');
-        return slug;
+
+        var sanitized = ReservedAndControl
+            .Replace(name, string.Empty)
+            .TrimStart('.', ' ')
+            .TrimEnd('.', ' ');
+
+        if (sanitized.Length == 0) return string.Empty;
+
+        // Guard Windows reserved device names — whole-name match only.
+        if (DeviceName.IsMatch(sanitized))
+            sanitized += "_";
+
+        return sanitized;
     }
 
     public Task<BuiltPackage> BuildAsync(BuildPackageInput input, CancellationToken ct)

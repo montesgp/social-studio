@@ -158,6 +158,64 @@ public sealed class LocalSvgContentRendererTests
         Assert.Equal("caption.txt", result.Value.Filename);
     }
 
+    // -------------------------------------------------------------------
+    // A-4 [RS-03] — Renderer: Markdown branch (text/markdown; charset=utf-8, .md)
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task RenderAsync_MarkdownOutputKind_FilenameIsReelScriptMd()
+    {
+        // RS-03 scenario: "Renderer writes reel-script.md"
+        var renderer = new LocalSvgContentRenderer();
+        var spec = BuildMarkdownSpec("reel-script", "# Reel Script\n\n**0:00**: Hook text");
+
+        var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("reel-script.md", result.Value.Filename);
+    }
+
+    [Fact]
+    public async Task RenderAsync_MarkdownOutputKind_MimeIsTextMarkdown()
+    {
+        // RS-03 scenario: "Renderer writes reel-script.md" — MIME check
+        var renderer = new LocalSvgContentRenderer();
+        var spec = BuildMarkdownSpec("reel-script", "# Reel Script\n\n**0:00**: Hook text");
+
+        var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("text/markdown; charset=utf-8", result.Value.Mime);
+    }
+
+    [Fact]
+    public async Task RenderAsync_MarkdownOutputKind_BodyBytesAreUtf8()
+    {
+        // RS-03 — body bytes decode correctly, emoji-safe
+        const string expectedBody = "**0:00**: 🎬 Cinematic opener\n\nCTA: Book a call";
+        var renderer = new LocalSvgContentRenderer();
+        var spec = BuildMarkdownSpec("reel-script", expectedBody);
+
+        var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var decoded = System.Text.Encoding.UTF8.GetString(result.Value.GetBytes());
+        Assert.Equal(expectedBody, decoded);
+    }
+
+    [Fact]
+    public async Task RenderAsync_MarkdownOutputKind_DoesNotFallThroughToRaster()
+    {
+        // RS-03 — must NOT produce image/png when OutputKind=Markdown
+        var renderer = new LocalSvgContentRenderer();
+        var spec = BuildMarkdownSpec("reel-script", "Some markdown body");
+
+        var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotEqual("image/png", result.Value.Mime);
+    }
+
     [Fact]
     public async Task RenderAsync_FlyerSpec_MatchesStoryDimensions()
     {
@@ -273,6 +331,18 @@ public sealed class LocalSvgContentRendererTests
             CopySlots: new Dictionary<string, string> { ["text"] = textBody },
             Dimensions: new CompositionDimensions(1080, 1080, 96))
         with { OutputKind = CompositionOutputKind.Text, TextBody = textBody };
+
+    /// <summary>Builds a spec with <see cref="CompositionOutputKind.Markdown"/> set (A-4 / RS-03 tests).</summary>
+    private static VisualCompositionSpec BuildMarkdownSpec(string formatKey, string textBody) =>
+        new VisualCompositionSpec(
+            FormatKey: formatKey,
+            LayoutType: "text-card",
+            Palette: new CompositionPalette("#333", "#666", "#999", "#FFF", "#EEE"),
+            Typography: new CompositionTypography("Arial", 20, "Arial", 14),
+            AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+            CopySlots: new Dictionary<string, string> { ["text"] = textBody },
+            Dimensions: new CompositionDimensions(1080, 1080, 96))
+        with { OutputKind = CompositionOutputKind.Markdown, TextBody = textBody };
 
     private static VisualCompositionSpec BuildFlyerSpec(string? backgroundUrl = null) =>
         new VisualCompositionSpec(

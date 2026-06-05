@@ -3,6 +3,7 @@ using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Assemble;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.Clients;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Assemble;
@@ -45,12 +46,14 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         Dictionary<string, byte[]> storageFiles,
         IReadOnlyList<FormatAssetRow> rows,
         Guid ownerOrgId,
-        Guid analysisId)
+        Guid analysisId,
+        ISocialClientRepository? clientRepository = null)
     {
         var storage = new FakeAssetStorage(storageFiles);
         var assetRepo = new FakeAssetRepository(rows, ownerOrgId, analysisId);
         var analysisRepo = new FakeAnalysisRepository(ownerOrgId, analysisId);
-        return new AssembleGeneratedPackageQueryHandler(storage, assetRepo, analysisRepo);
+        var clientRepo = clientRepository ?? new FakeClientRepository([]);
+        return new AssembleGeneratedPackageQueryHandler(storage, assetRepo, analysisRepo, clientRepo);
     }
 
     // ─── T4.1.1 — Multi-client selection → correct ZIP entries ────────────────
@@ -58,6 +61,9 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
     [Fact]
     public async Task Handle_TwoClientSelection_ZipContainsBothClientFolders()
     {
+        // The clients are intentionally absent from the (default empty) FakeClientRepository,
+        // so this deliberately exercises the GUID-fallback folder path (pre-PKG-02 behavior),
+        // not an oversight in test setup.
         var resultId1 = Guid.NewGuid();
         var resultId2 = Guid.NewGuid();
 
@@ -271,6 +277,110 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         Assert.True(result.IsSuccess);
         Assert.Contains(AnalysisId.ToString(), result.Value.DownloadFilename);
     }
+
+    // ─── B-3 (PKG-02) — Assembled folder uses client display name, not GUID ──
+
+    [Fact]
+    public async Task Handle_WithClientRepository_FolderUsesDisplayNameNotGuid()
+    {
+        // Given client with display name "Acme Corp" and known GUID
+        var resultId = Guid.NewGuid();
+        var rows = new List<FormatAssetRow>
+        {
+            MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+        };
+        var files = new Dictionary<string, byte[]>
+        {
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png"] = "flyer-bytes"u8.ToArray(),
+        };
+
+        var client = Client.Restore(
+            new ClientId(ClientId1), OrgId, "Acme Corp",
+            null, true, DateTime.UtcNow, DateTime.UtcNow);
+        var clientRepo = new FakeClientRepository([client]);
+
+        var handler = BuildHandler(files, rows, OrgId, AnalysisId, clientRepo);
+
+        var selection = new AssembleSelection([new ClientSelection(ClientId1, null)]);
+        var result = await handler.Handle(
+            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+
+        using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read);
+        var entries = zip.Entries.Select(e => e.FullName).ToList();
+
+        // Folder must be display name, NOT the GUID
+        Assert.Contains(entries, e => e.StartsWith("Acme Corp/") && e.Contains("flyer.png"));
+        Assert.DoesNotContain(entries, e => e.StartsWith($"{ClientId1}/"));
+    }
+
+    [Fact]
+    public async Task Handle_WithClientRepository_ReservedCharsInNameAreSanitized()
+    {
+        // Given client with display name containing reserved chars (PKG-02 same sanitizer as PKG-01)
+        var resultId = Guid.NewGuid();
+        var rows = new List<FormatAssetRow>
+        {
+            MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+        };
+        var files = new Dictionary<string, byte[]>
+        {
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png"] = "bytes"u8.ToArray(),
+        };
+
+        var client = Client.Restore(
+            new ClientId(ClientId1), OrgId, "Client:Name/Test?",
+            null, true, DateTime.UtcNow, DateTime.UtcNow);
+        var clientRepo = new FakeClientRepository([client]);
+
+        var handler = BuildHandler(files, rows, OrgId, AnalysisId, clientRepo);
+
+        var selection = new AssembleSelection([new ClientSelection(ClientId1, null)]);
+        var result = await handler.Handle(
+            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read);
+        var entries = zip.Entries.Select(e => e.FullName).ToList();
+
+        // : / ? stripped; no slug dashes added
+        Assert.Contains(entries, e => e.StartsWith("ClientNameTest/") && e.Contains("flyer.png"));
+    }
+
+    [Fact]
+    public async Task Handle_UnknownClient_FallsBackToGuidFolder()
+    {
+        // Given a client GUID with no matching client record → fallback to GUID string
+        var resultId = Guid.NewGuid();
+        var rows = new List<FormatAssetRow>
+        {
+            MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+        };
+        var files = new Dictionary<string, byte[]>
+        {
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png"] = "bytes"u8.ToArray(),
+        };
+
+        // Empty client repo — no client record for ClientId1
+        var clientRepo = new FakeClientRepository([]);
+
+        var handler = BuildHandler(files, rows, OrgId, AnalysisId, clientRepo);
+
+        var selection = new AssembleSelection([new ClientSelection(ClientId1, null)]);
+        var result = await handler.Handle(
+            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read);
+        var entries = zip.Entries.Select(e => e.FullName).ToList();
+
+        // Fallback: folder is the GUID string when client not found
+        Assert.Contains(entries, e => e.StartsWith($"{ClientId1}/") && e.Contains("flyer.png"));
+    }
 }
 
 // ─── Test doubles ──────────────────────────────────────────────────────────────
@@ -319,6 +429,23 @@ file sealed class FakeAssetRepository(
 
     public Task DeleteByFormatResultIdAsync(Guid formatResultId, CancellationToken ct) =>
         Task.CompletedTask;
+}
+
+file sealed class FakeClientRepository(IReadOnlyList<Client> clients) : ISocialClientRepository
+{
+    public Task<Client?> GetByIdAsync(ClientId id, Guid organizationId, CancellationToken cancellationToken = default)
+    {
+        var client = clients.FirstOrDefault(c => c.Id == id && c.OrganizationId == organizationId);
+        return Task.FromResult(client);
+    }
+
+    public Task<(IReadOnlyList<Client> Items, int TotalCount)> ListAsync(SocialClientQuery query, CancellationToken cancellationToken = default) =>
+        Task.FromResult<(IReadOnlyList<Client>, int)>((clients, clients.Count));
+
+    public Task AddAsync(Client client, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+
+    public void Update(Client client) { }
 }
 
 file sealed class FakeAnalysisRepository(Guid ownerOrgId, Guid analysisId) : ISingleContentAnalysisRepository

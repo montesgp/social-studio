@@ -2,7 +2,9 @@ using System.IO.Compression;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Packaging;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.Clients;
 using MediatR;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Assemble;
@@ -61,19 +63,23 @@ public sealed class AssembleGeneratedPackageQueryHandler
     private readonly IGeneratedAssetStorage _assetStorage;
     private readonly IContentGenerationFormatAssetRepository _assetRepository;
     private readonly ISingleContentAnalysisRepository _analysisRepository;
+    private readonly ISocialClientRepository _clientRepository;
 
     public AssembleGeneratedPackageQueryHandler(
         IGeneratedAssetStorage assetStorage,
         IContentGenerationFormatAssetRepository assetRepository,
-        ISingleContentAnalysisRepository analysisRepository)
+        ISingleContentAnalysisRepository analysisRepository,
+        ISocialClientRepository clientRepository)
     {
         ArgumentNullException.ThrowIfNull(assetStorage);
         ArgumentNullException.ThrowIfNull(assetRepository);
         ArgumentNullException.ThrowIfNull(analysisRepository);
+        ArgumentNullException.ThrowIfNull(clientRepository);
 
         _assetStorage = assetStorage;
         _assetRepository = assetRepository;
         _analysisRepository = analysisRepository;
+        _clientRepository = clientRepository;
     }
 
     public async Task<Result<AssembleGeneratedPackageResponse>> Handle(
@@ -104,6 +110,13 @@ public sealed class AssembleGeneratedPackageQueryHandler
             allRows,
             query.OrganizationId,
             query.AnalysisId);
+
+        // 2c. Resolve display names for all distinct client IDs (deduped via Dictionary).
+        // Each lookup is scoped to this organization; null/empty name → GUID fallback.
+        var clientFolders = await ResolveClientFoldersAsync(
+            latestRows.Select(r => r.ClientId).Distinct(),
+            query.OrganizationId,
+            cancellationToken);
 
         // 3. Determine the effective client set from the selection.
         // A single entry with ClientId == Guid.Empty is the wildcard sentinel meaning "all clients".
@@ -157,10 +170,15 @@ public sealed class AssembleGeneratedPackageQueryHandler
 
                 using var assetStream = openResult.Value;
 
-                // ZIP entry path: {clientId}/{relativeFilename}
+                // ZIP entry path: {clientFolder}/{relativeFilename}
+                // clientFolder is the sanitized display name (PKG-02); falls back to GUID string
+                // when the client record is not found.
                 // The DB filename is intentionally a leaf for carousel slides; the storage path
                 // is authoritative for preserving subfolders such as carousel/slide_1.png.
-                var entryName = $"{parsed.ClientId}/{parsed.RelativeAssetPath}";
+                var folder = clientFolders.TryGetValue(parsed.ClientId, out var folderName)
+                    ? folderName
+                    : parsed.ClientId.ToString();
+                var entryName = $"{folder}/{parsed.RelativeAssetPath}";
                 if (!writtenEntries.Add(entryName))
                 {
                     continue;
@@ -180,6 +198,40 @@ public sealed class AssembleGeneratedPackageQueryHandler
     }
 
     // ─── Private helpers ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Resolves display-name folder segments for a set of client GUIDs within the given organization.
+    /// Each distinct clientId is looked up at most once (deduplication via <see cref="Dictionary{K,V}"/>).
+    /// When a client record is not found, the entry is omitted — callers fall back to the GUID string.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<Guid, string>> ResolveClientFoldersAsync(
+        IEnumerable<Guid> clientIds,
+        Guid organizationId,
+        CancellationToken ct)
+    {
+        var result = new Dictionary<Guid, string>();
+        foreach (var clientId in clientIds)
+        {
+            if (result.ContainsKey(clientId))
+                continue;
+
+            var client = await _clientRepository.GetByIdAsync(
+                new ClientId(clientId),
+                organizationId,
+                ct);
+
+            if (client is not null)
+            {
+                var folder = GeneratedPackageBuilder.NormalizeFolderName(client.Name);
+                if (!string.IsNullOrEmpty(folder))
+                    result[clientId] = folder;
+                else
+                    result[clientId] = clientId.ToString(); // sanitized-to-empty edge case
+            }
+            // client is null → not added → caller falls back to GUID
+        }
+        return result;
+    }
 
     /// <summary>
     /// Attempts to extract the clientId GUID and relative asset path from a storage path of the form
