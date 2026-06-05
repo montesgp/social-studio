@@ -105,7 +105,10 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
                     .Select(background => new BrandBackgroundTemplateSnapshot(
                         background.Name,
                         background.Url,
-                        background.UseCase))
+                        background.UseCase,
+                        background.Tier,
+                        background.FormatKey,
+                        background.IsFormatDefault))
                     .ToArray(),
                 Typography: brandRow.Typography.Select(t => t.FontFamily).ToArray(),
                 VoiceAndTone: brandRow.VoiceAndTone,

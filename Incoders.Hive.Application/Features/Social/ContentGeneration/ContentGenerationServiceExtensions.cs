@@ -13,6 +13,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Composers;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration;
 
@@ -73,6 +74,15 @@ public static class ContentGenerationServiceExtensions
 
         // Package builder (BCL ZipArchive — Application layer, no NuGet)
         services.AddScoped<IGeneratedPackageBuilder, GeneratedPackageBuilder>();
+
+        // Guardrail validator (Application — no Infrastructure types; always registered here).
+        services.AddScoped<IVisualGuardrailValidator, VisualGuardrailValidator>();
+
+        // No-op designer: B1a passthrough that keeps designed-raster formats on their CURRENT
+        // rendering behavior (SkiaSharp slot raster) until B1b ships the real Opus designer.
+        // Infrastructure SHOULD override this with OpusVisualDesigner in AddRenderingAndPackaging.
+        // TryAdd ensures Infrastructure's real registration wins.
+        services.TryAddScoped<IVisualDesigner, NoOpVisualDesigner>();
 
         // End-to-end pipeline used by the background worker: load analysis → orchestrate →
         // compose + render → build + store + persist.

@@ -2,14 +2,27 @@ using Incoders.Hive.Domain.Common;
 
 namespace Incoders.Hive.Domain.Social.ClientBrandManuals;
 
-public sealed record BackgroundEntry(string Name, string Url, string? UseCase)
+public sealed record BackgroundEntry(
+    string Name,
+    string Url,
+    string? UseCase,
+    BackgroundTier Tier = BackgroundTier.Creative,
+    string? FormatKey = null,
+    bool IsFormatDefault = false)
 {
     public const int NameMaxLength = 100;
     public const int UrlMinLength = 10;
     public const int UrlMaxLength = 2048;
     public const int UseCaseMaxLength = 100;
+    public const int FormatKeyMaxLength = 100;
 
-    public static Result<BackgroundEntry> Create(string name, string url, string? useCase)
+    public static Result<BackgroundEntry> Create(
+        string name,
+        string url,
+        string? useCase,
+        BackgroundTier tier = BackgroundTier.Creative,
+        string? formatKey = null,
+        bool isFormatDefault = false)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -46,9 +59,48 @@ public sealed record BackgroundEntry(string Name, string Url, string? UseCase)
             }
         }
 
-        return Result.Success(new BackgroundEntry(trimmedName, trimmedUrl, trimmedUseCase));
+        // Normalize FormatKey (trim, null-if-empty) like UseCase.
+        string? trimmedFormatKey = null;
+        if (formatKey is not null)
+        {
+            trimmedFormatKey = formatKey.Trim();
+            if (trimmedFormatKey.Length == 0)
+            {
+                trimmedFormatKey = null;
+            }
+            else if (trimmedFormatKey.Length > FormatKeyMaxLength)
+            {
+                return Result.Failure<BackgroundEntry>(ClientBrandManualErrors.Validation(
+                    $"FormatKey must not exceed {FormatKeyMaxLength} characters."));
+            }
+        }
+
+        // Entry-level guard: IsFormatDefault=true requires non-empty FormatKey AND ForcedDefault tier.
+        if (isFormatDefault)
+        {
+            if (string.IsNullOrWhiteSpace(trimmedFormatKey))
+            {
+                return Result.Failure<BackgroundEntry>(ClientBrandManualErrors.Validation(
+                    "A forced default entry requires a non-empty FormatKey."));
+            }
+
+            if (tier != BackgroundTier.ForcedDefault)
+            {
+                return Result.Failure<BackgroundEntry>(ClientBrandManualErrors.Validation(
+                    "A forced default entry must use BackgroundTier.ForcedDefault."));
+            }
+        }
+
+        return Result.Success(new BackgroundEntry(trimmedName, trimmedUrl, trimmedUseCase,
+            tier, trimmedFormatKey, isFormatDefault));
     }
 
-    public static BackgroundEntry Restore(string name, string url, string? useCase)
-        => new(name, url, useCase);
+    public static BackgroundEntry Restore(
+        string name,
+        string url,
+        string? useCase,
+        BackgroundTier tier = BackgroundTier.Creative,
+        string? formatKey = null,
+        bool isFormatDefault = false)
+        => new(name, url, useCase, tier, formatKey, isFormatDefault);
 }

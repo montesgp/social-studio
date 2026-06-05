@@ -50,7 +50,16 @@ public sealed class ContentGenerationJobProcessor
     private readonly IGeneratedPackageRepository _packages;
     private readonly IGeneratedAssetStorage? _assetStorage;
     private readonly IContentGenerationFormatAssetRepository? _assetRepository;
+    private readonly IVisualDesigner? _designer;
+    private readonly IVisualGuardrailValidator? _guardrails;
     private readonly ILogger<ContentGenerationJobProcessor> _logger;
+
+    /// <summary>
+    /// Designed-raster formats: flyer + carousel slides.
+    /// Text formats (hook, caption, cta-variation, reel-script, content-idea) bypass the designer.
+    /// </summary>
+    private static readonly HashSet<string> DesignedRasterFormats =
+        new(StringComparer.OrdinalIgnoreCase) { "flyer", "carousel" };
 
     public ContentGenerationJobProcessor(
         IContentGenerationJobRepository jobs,
@@ -65,6 +74,8 @@ public sealed class ContentGenerationJobProcessor
         IGeneratedPackageRepository packages,
         IGeneratedAssetStorage? assetStorage = null,
         IContentGenerationFormatAssetRepository? assetRepository = null,
+        IVisualDesigner? designer = null,
+        IVisualGuardrailValidator? guardrails = null,
         ILogger<ContentGenerationJobProcessor>? logger = null)
     {
         _jobs = jobs;
@@ -79,6 +90,8 @@ public sealed class ContentGenerationJobProcessor
         _packages = packages;
         _assetStorage = assetStorage;
         _assetRepository = assetRepository;
+        _designer = designer;
+        _guardrails = guardrails;
         _logger = logger ?? NullLogger<ContentGenerationJobProcessor>.Instance;
     }
 
@@ -245,6 +258,64 @@ public sealed class ContentGenerationJobProcessor
                 for (var specIndex = 0; specIndex < specs.Count; specIndex++)
                 {
                     var spec = specs[specIndex];
+
+                    // Designer + guardrail stage for designed-raster formats (flyer, carousel).
+                    // Text/markdown formats bypass entirely (spec.OutputKind != Raster means they
+                    // are already text/markdown — the designer only applies to raster specs from
+                    // designed formats).
+                    //
+                    // IsActive gate: when the registered IVisualDesigner is a passthrough/no-op
+                    // (IsActive=false, e.g. B1a's NoOpVisualDesigner), this entire block is skipped
+                    // and processing falls through to the legacy renderer below — preserving
+                    // pre-B1a rendering behavior exactly. Only a real, active designer (B1b's
+                    // OpusVisualDesigner, IsActive=true) triggers the designer+guardrail chain.
+                    if (_designer is not null
+                        && _designer.IsActive
+                        && _guardrails is not null
+                        && DesignedRasterFormats.Contains(formatKey)
+                        && spec.OutputKind == CompositionOutputKind.Raster)
+                    {
+                        // Tier-aware background selection.
+                        var backgroundTemplates = brand.Brand?.BackgroundTemplates
+                            ?? Array.Empty<BrandBackgroundTemplateSnapshot>();
+                        var selection = Domain.Social.ContentGeneration.BackgroundSelector.Select(
+                            backgroundTemplates, formatKey);
+
+                        // Design stage. OrganizationId is threaded per-job so the designer's AI
+                        // provider call resolves credentials for the correct tenant.
+                        var designed = await _designer.ComposeAsync(
+                            job.OrganizationId, spec, brand.Brand!, selection, ct);
+                        if (!designed.IsSuccess)
+                        {
+                            var designDetail = $"{designed.Error.Code}: {designed.Error.MessageKey}";
+                            renderFailures.Add($"{formatKey}: designer-failed:{designDetail}");
+                            _logger.LogWarning(
+                                "ContentGeneration: designer failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}",
+                                formatKey, specIndex, job.Id, designDetail);
+                            await PersistRenderFailureAsync(job.Id, formatKey, step, designDetail, ct);
+                            break; // Fail the whole format
+                        }
+
+                        // Guardrail stage.
+                        var guarded = _guardrails.Validate(designed.Value, brand.Brand!, spec);
+                        if (!guarded.IsSuccess)
+                        {
+                            var guardDetail = $"{guarded.Error.Code}: {guarded.Error.MessageKey}";
+                            renderFailures.Add($"{formatKey}: guardrail-failed:{guardDetail}");
+                            _logger.LogWarning(
+                                "ContentGeneration: guardrail failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}",
+                                formatKey, specIndex, job.Id, guardDetail);
+                            await PersistRenderFailureAsync(job.Id, formatKey, step, guardDetail, ct);
+                            break; // Renderer NOT called — fail the format
+                        }
+
+                        // Guardrails passed: promote spec to Html kind with validated markup.
+                        spec = spec with
+                        {
+                            OutputKind = CompositionOutputKind.Html,
+                            DesignerMarkup = guarded.Value.Markup,
+                        };
+                    }
 
                     var rendered = await _renderer.RenderAsync(spec, new RenderOptions(), ct);
                     if (!rendered.IsSuccess)

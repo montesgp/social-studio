@@ -18,6 +18,14 @@ public enum CompositionOutputKind
     /// with MIME type <c>text/markdown; charset=utf-8</c> and filename <c>{FormatKey}.md</c>.
     /// </summary>
     Markdown,
+
+    /// <summary>
+    /// HTML/CSS composition authored by <c>IVisualDesigner</c> and validated by the guardrail pipeline.
+    /// Renderer dispatches on this kind and renders <see cref="VisualCompositionSpec.DesignerMarkup"/>
+    /// via headless Chromium (B1b) or falls back to legacy slot rendering (SkiaSharp fallback).
+    /// Added in B1a alongside <see cref="VisualCompositionSpec.DesignerMarkup"/> (Design Decision 12).
+    /// </summary>
+    Html,
 }
 
 /// <summary>
@@ -45,6 +53,13 @@ public sealed record VisualCompositionSpec(
     /// Set by text-only composers from their CopySlots. Null for raster formats.
     /// </summary>
     public string? TextBody { get; init; }
+
+    /// <summary>
+    /// Validated HTML markup produced by <c>IVisualDesigner</c> and passed through the guardrail pipeline.
+    /// Set by the pipeline when <see cref="OutputKind"/> is <see cref="CompositionOutputKind.Html"/>.
+    /// Null for raster/text/markdown formats. (Design Decision 12 — additive, default null.)
+    /// </summary>
+    public string? DesignerMarkup { get; init; }
 }
 
 /// <summary>Brand-derived or default colour palette.</summary>
