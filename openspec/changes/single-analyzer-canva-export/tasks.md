@@ -300,10 +300,10 @@ feat(integrations): WU-5 — ICanvaOAuthService + PKCE flow + xmin refresh rotat
 **Spec requirements satisfied:** CANVA-EXPORT-01 (Design Import API, edit URL), CANVA-EXPORT-03 (API failures surfaced), CANVA-EXPORT-04 (Autofill/Brand Templates never called).
 
 **RED tests to write first:**
-- [ ] `ICanvaDesignImportClientContractTests.cs` (new, `Incoders.Hive.Tests/Application/`):
+- [x] `ICanvaDesignImportClientContractTests.cs` (new, `Incoders.Hive.Tests/Application/`):
   - `Port_HasNoInfrastructureTypes` — reflects interface signatures.
   - `Port_DoesNotReferenceAutofillOrBrandTemplatesEndpoints` — asserts no string literal `"autofill"` or `"brand-template"` in port definition (static text check).
-- [ ] `CanvaDesignImportClientTests.cs` (new, `Incoders.Hive.Tests/Infrastructure/Social/Canva/`):
+- [x] `CanvaDesignImportClientTests.cs` (new, `Incoders.Hive.Tests/Infrastructure/Social/Canva/`):
   - `ImportAsync_SubmitsJobAndPollsUntilSuccess_ReturnEditUrl` — fake `HttpMessageHandler` sequence: submit → 200 `{jobId}`; first poll → `processing`; second poll → `success` + `editUrl`; asserts returned `editUrl`.
   - `ImportAsync_PollTimeout_ReturnsTypedTimeoutError` — handler returns `processing` on every poll; assert `timeout` error after budget exhausted; no hang.
   - `ImportAsync_SubmitReturns5xx_ReturnsHandledError` — asserts failure result, no exception thrown.
@@ -312,16 +312,16 @@ feat(integrations): WU-5 — ICanvaOAuthService + PKCE flow + xmin refresh rotat
   - `ImportAsync_LiveCanva_Integration` (**integration-guarded**, runtime-skip when `CANVA_ACCESS_TOKEN` env var absent) — real HTTP call; asserts `editUrl` returned.
 
 **GREEN implementation steps:**
-- [ ] Create Application port:
+- [x] Create Application port:
   - `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/ICanvaDesignImportClient.cs`
   - Signature: `Task<Result<CanvaImportResult>> ImportAsync(byte[] pptxBytes, string accessToken, CancellationToken ct)`
   - `CanvaImportResult`: record `{ string EditUrl, DateTimeOffset ExpiresAt }`.
-- [ ] Create Infrastructure adapter:
+- [x] Create Infrastructure adapter:
   - `Incoders.Hive.Infrastructure/Social/Canva/CanvaDesignImportClient.cs`
   - POST to Canva Design Import API (multipart, `file=pptx`); poll job status endpoint with exponential backoff up to configurable budget (default: 12 attempts × 5 s = 60 s).
   - Returns typed `Result<CanvaImportResult>` for success; `timeout`, `api-failure`, `unauthorized` error codes for known failure modes.
   - NEVER calls `/autofill` or `/brand-templates` endpoints.
-- [ ] Register `CanvaDesignImportClient` + `HttpClient` (named `"canva-import"`) in DI.
+- [x] Register `CanvaDesignImportClient` + `HttpClient` (named `"canva-import"`) in DI.
 
 **Files / layers touched:**
 - `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/ICanvaDesignImportClient.cs` (new)

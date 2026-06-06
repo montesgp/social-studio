@@ -142,6 +142,12 @@ public static class DependencyInjection
         services.AddHttpClient<ICanvaOAuthService, CanvaOAuthService>(
             "canva-oauth",
             client => client.Timeout = TimeSpan.FromSeconds(30));
+
+        // Canva Design Import client — submits PPTX + polls import job (bounded 12 × 5 s = 60 s max).
+        // Timeout set to 90 s to accommodate the poll budget plus submit RTT with margin.
+        services.AddHttpClient<ICanvaDesignImportClient, CanvaDesignImportClient>(
+            "canva-import",
+            client => client.Timeout = TimeSpan.FromSeconds(90));
         services.AddScoped<IIntegrationExecutionAttemptRepository, EfIntegrationExecutionAttemptRepository>();
         services.AddScoped<ISingleContentAnalysisRepository, EfSingleContentAnalysisRepository>();
         services.AddScoped<IProfileAnalysisRepository, EfProfileAnalysisRepository>();
