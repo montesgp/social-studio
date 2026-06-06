@@ -921,6 +921,14 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [packageJob.status]);
 
+  // Surface a polling failure/timeout from the generation job so the overlay closing never leaves
+  // the user without feedback (the client-side poll timeout is the last-resort exit from the spinner).
+  useEffect(() => {
+    if (packageJob.isError && packageJob.error) {
+      setPackageJobError({ message: packageJob.error.message });
+    }
+  }, [packageJob.isError, packageJob.error]);
+
   const downloadCurrentPackage = useCallback(async () => {
     if (isDownloadingPackage) return;
     const analysisId = videoResult?.id;

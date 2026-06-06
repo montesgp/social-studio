@@ -9,6 +9,10 @@ import type {
 } from "@/lib/api/types";
 
 const DEFAULT_INTERVAL_MS = 2500;
+// Client-side safety net so the overlay can never poll forever. The backend force-fails a hung
+// job (per-job timeout ~15 min, watchdog ~16 min), so by this point a terminal status should
+// already have arrived; if it hasn't, the status endpoint is unreachable and we stop gracefully.
+const DEFAULT_TIMEOUT_MS = 16 * 60 * 1000;
 
 /** Terminal statuses where polling should stop. */
 const TERMINAL_STATUSES = new Set<ContentGenerationJobStatus>([
@@ -77,10 +81,11 @@ export interface UseContentGenerationJobResult {
  */
 export function useContentGenerationJob(
   jobId: string | null,
-  opts?: { intervalMs?: number; enabled?: boolean; token?: string }
+  opts?: { intervalMs?: number; enabled?: boolean; token?: string; timeoutMs?: number }
 ): UseContentGenerationJobResult {
   const [state, dispatch] = useReducer(reducer, { phase: "idle" });
   const intervalMs = opts?.intervalMs ?? DEFAULT_INTERVAL_MS;
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const enabled = opts?.enabled !== false;
   const token = opts?.token;
 
@@ -115,9 +120,22 @@ export function useContentGenerationJob(
     dispatch({ type: "FETCH_START" });
 
     let timeoutId: ReturnType<typeof setTimeout>;
+    const startedAt = Date.now();
 
     async function poll() {
       if (cancelledRef.current || controller.signal.aborted) return;
+
+      // Client-side safety net: stop polling and surface a timeout instead of spinning forever.
+      if (Date.now() - startedAt > timeoutMs) {
+        dispatch({
+          type: "FETCH_ERROR",
+          payload: new Error(
+            "Generation is taking longer than expected. It may still finish in the background — " +
+              "check your history in a few moments."
+          ),
+        });
+        return;
+      }
 
       try {
         const response = await fetchStatus(jobId as string, controller.signal);
@@ -149,7 +167,7 @@ export function useContentGenerationJob(
       abortRef.current = null;
       dispatch({ type: "RESET" });
     };
-  }, [jobId, enabled, intervalMs, fetchStatus]);
+  }, [jobId, enabled, intervalMs, timeoutMs, fetchStatus]);
 
   const data =
     state.phase === "polling" || state.phase === "done" ? state.data : null;

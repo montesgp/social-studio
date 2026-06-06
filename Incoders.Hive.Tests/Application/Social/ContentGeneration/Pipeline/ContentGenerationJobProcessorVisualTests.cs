@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
@@ -162,6 +163,42 @@ public sealed class ContentGenerationJobProcessorVisualTests
     }
 
     // -----------------------------------------------------------------------
+    // [RED] Regression: designer AI call MUST run inside an active ProviderCallContext
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Production bug: OpusVisualDesigner.ComposeAsync ran from the render loop with NO ambient
+    /// ProviderCallContext, so the instrumentation decorator threw "ProviderCallContext.Current is
+    /// null" and EVERY flyer/carousel failed. The processor MUST open a Begin() scope around the
+    /// designer call (mirroring how the content generators scope their own provider calls).
+    /// </summary>
+    [Fact]
+    public async Task Pipeline_ActiveDesigner_ProviderCallContextIsActiveDuringComposeCall()
+    {
+        // GIVEN the SAME ProviderCallContext the instrumentation decorator would read in production
+        var providerCallContext = new ProviderCallContext();
+        var designer = new ContextCapturingDesigner(providerCallContext);
+
+        var processor = BuildProcessor(
+            formatKey: "flyer",
+            payload: new object(),
+            renderer: new SpyRenderer(),
+            designer: designer,
+            guardrails: new PassingGuardrailValidator(),
+            providerCallContext: providerCallContext);
+
+        // WHEN processing runs
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        // THEN the designer observed a non-null ProviderCallContext.Current at call time
+        Assert.True(designer.WasCalled, "Designer must be invoked for an active flyer designer.");
+        Assert.True(
+            designer.ContextWasActive,
+            "ProviderCallContext.Current MUST be non-null while the designer's AI call runs — " +
+            "otherwise the instrumentation decorator throws and every flyer/carousel fails.");
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
@@ -191,7 +228,8 @@ public sealed class ContentGenerationJobProcessorVisualTests
         IContentRenderer renderer,
         IVisualDesigner designer,
         IVisualGuardrailValidator guardrails,
-        bool brandWithForcedDefault = false)
+        bool brandWithForcedDefault = false,
+        ProviderCallContext? providerCallContext = null)
     {
         var fakeJob = new ContentGenerationJob(
             Id: JobId,
@@ -262,6 +300,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
             assetRepository: null,
             designer: designer,
             guardrails: guardrails,
+            providerCallContext: providerCallContext,
             logger: NullLogger<ContentGenerationJobProcessor>.Instance);
     }
 }
@@ -307,6 +346,35 @@ file sealed class SpyDesigner : IVisualDesigner
 
     private static string BuildValidMarkup() =>
         """<div class="composition" data-format="flyer" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""";
+}
+
+/// <summary>
+/// Active designer that records whether <see cref="ProviderCallContext.Current"/> was set at the
+/// moment <c>ComposeAsync</c> ran — proving the processor opened a provider-call scope around it.
+/// Returns valid markup so the pipeline proceeds to the guardrail/render stages.
+/// </summary>
+file sealed class ContextCapturingDesigner(ProviderCallContext context) : IVisualDesigner
+{
+    public bool WasCalled { get; private set; }
+    public bool ContextWasActive { get; private set; }
+
+    public bool IsActive => true;
+
+    public Task<Result<VisualDesignOutput>> ComposeAsync(
+        Guid organizationId,
+        VisualCompositionSpec contentPayload,
+        BrandManualSnapshot brandSnapshot,
+        BackgroundSelection backgroundSelection,
+        CancellationToken cancellationToken)
+    {
+        WasCalled = true;
+        ContextWasActive = context.Current is not null;
+        var output = new VisualDesignOutput(
+            Markup: """<div class="composition" data-format="flyer" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""",
+            PromptVersionKey: "visual-designer/v1",
+            IsValid: false);
+        return Task.FromResult(Result.Success(output));
+    }
 }
 
 file sealed class SucceedingDesigner : IVisualDesigner

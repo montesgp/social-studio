@@ -1,12 +1,14 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Flyer;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 using Microsoft.Extensions.Logging;
@@ -52,6 +54,7 @@ public sealed class ContentGenerationJobProcessor
     private readonly IContentGenerationFormatAssetRepository? _assetRepository;
     private readonly IVisualDesigner? _designer;
     private readonly IVisualGuardrailValidator? _guardrails;
+    private readonly ProviderCallContext _providerCallContext;
     private readonly ILogger<ContentGenerationJobProcessor> _logger;
 
     /// <summary>
@@ -76,6 +79,7 @@ public sealed class ContentGenerationJobProcessor
         IContentGenerationFormatAssetRepository? assetRepository = null,
         IVisualDesigner? designer = null,
         IVisualGuardrailValidator? guardrails = null,
+        ProviderCallContext? providerCallContext = null,
         ILogger<ContentGenerationJobProcessor>? logger = null)
     {
         _jobs = jobs;
@@ -92,6 +96,12 @@ public sealed class ContentGenerationJobProcessor
         _assetRepository = assetRepository;
         _designer = designer;
         _guardrails = guardrails;
+        // The designer makes an AI call from the render loop — OUTSIDE the orchestrator's
+        // provider-call scope. Without an ambient ProviderCallContext the instrumentation
+        // decorator throws "ProviderCallContext.Current is null", failing every flyer/carousel.
+        // In production DI injects the scoped instance the decorator reads; the fallback only
+        // keeps unit construction simple.
+        _providerCallContext = providerCallContext ?? new ProviderCallContext();
         _logger = logger ?? NullLogger<ContentGenerationJobProcessor>.Instance;
     }
 
@@ -112,15 +122,19 @@ public sealed class ContentGenerationJobProcessor
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            await _jobs.UpdateStatusAsync(job.Id, "Failed", "cancelled", "cancelled", ct);
+            // Per-job timeout or host shutdown. The terminal write MUST use a fresh token —
+            // writing with the already-cancelled ct would cancel SaveChanges too, leaving the
+            // job stuck in "Running" forever (the exact "pill never changes" symptom).
+            await _jobs.UpdateStatusAsync(job.Id, "Failed", "cancelled", "cancelled", CancellationToken.None);
             throw;
         }
         catch (Exception ex)
         {
             // Anything that escapes the per-step handling is surfaced verbatim — the user
             // needs the real failure on their screen, not a generic "unexpected-error".
+            // Use CancellationToken.None so this terminal write always lands even if ct is faulted.
             _logger.LogError(ex, "ContentGeneration: unhandled error processing job {JobId}.", job.Id);
-            await _jobs.UpdateStatusAsync(job.Id, "Failed", FormatException(ex), $"unhandled:{ex.GetType().Name}", ct);
+            await _jobs.UpdateStatusAsync(job.Id, "Failed", FormatException(ex), $"unhandled:{ex.GetType().Name}", CancellationToken.None);
         }
     }
 
@@ -293,8 +307,23 @@ public sealed class ContentGenerationJobProcessor
 
                         // Design stage. OrganizationId is threaded per-job so the designer's AI
                         // provider call resolves credentials for the correct tenant.
-                        var designed = await _designer.ComposeAsync(
-                            job.OrganizationId, spec, brand.Brand!, selection, ct);
+                        // A ProviderCallContext scope MUST be active around this call: the
+                        // instrumentation decorator reads ProviderCallContext.Current to write the
+                        // usage-ledger event and throws if it is null. The content generators open
+                        // their own scope inside the orchestrator; the designer runs here, in the
+                        // render loop, so the scope must be opened explicitly.
+                        Result<VisualDesignOutput> designed;
+                        using (_providerCallContext.Begin(
+                            job.OrganizationId,
+                            effectiveClientId,
+                            workflowKey: "content-generation",
+                            pipelineStepKey: $"designer:{formatKey}",
+                            promptVersion: "visual-designer/v1",
+                            correlationId: job.CorrelationId))
+                        {
+                            designed = await _designer.ComposeAsync(
+                                job.OrganizationId, spec, brand.Brand!, selection, ct);
+                        }
                         if (!designed.IsSuccess)
                         {
                             var designDetail = $"{designed.Error.Code}: {designed.Error.MessageKey}";
