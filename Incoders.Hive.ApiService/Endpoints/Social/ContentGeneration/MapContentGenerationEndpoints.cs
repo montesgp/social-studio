@@ -4,6 +4,7 @@ using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Assemble;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Download;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Export;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.PackageListing;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Regenerate;
@@ -46,6 +47,14 @@ public static class ContentGenerationEndpointsExtensions
             .WithSummary("Re-render a single format and overwrite the stored asset(s) for the given client")
             .Produces<RegenerateFormatResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        analyzerGroup.MapGet("/{analysisId:guid}/formats/{formatKey}/download-pptx", ContentGenerationEndpointFacade.DownloadFormatAsPptxAsync)
+            .WithName("DownloadFormatAsPptx")
+            .WithSummary("Download a generated format as an editable PPTX presentation (offline, no re-render). Requires jobId query parameter.")
+            .Produces(StatusCodes.Status200OK, contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         analyzerGroup.MapDelete("/{analysisId:guid}/formats/{formatKey}", ContentGenerationEndpointFacade.DeleteFormatAsync)
             .WithName("DeleteFormatAsset")
@@ -257,6 +266,39 @@ public static class ContentGenerationEndpointFacade
             cancellationToken);
 
         return result.Match(() => (IResult)TypedResults.NoContent());
+    }
+
+    /// <summary>
+    /// GET /{analysisId}/formats/{formatKey}/download-pptx?jobId={jobId}
+    ///
+    /// Downloads the persisted format composition spec as an editable PPTX.
+    /// Requires the <c>jobId</c> query parameter that produced this format result.
+    /// Returns 409 when the format predates B3 markup persistence (PPTX-02-d).
+    /// No re-render, no AI call (PPTX-03).
+    /// </summary>
+    public static async Task<IResult> DownloadFormatAsPptxAsync(
+        Guid analysisId,
+        string formatKey,
+        Guid jobId,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+            return OrganizationRequired.ToProblem();
+
+        var result = await sender.Send(
+            new ExportFormatToPptxQuery(
+                JobId: jobId,
+                FormatKey: formatKey,
+                OrganizationId: tenantId.Value),
+            cancellationToken);
+
+        return result.Match(response =>
+            (IResult)TypedResults.File(
+                response.PptxBytes,
+                contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                fileDownloadName: response.DownloadFilename));
     }
 
     public static async Task<IResult> ListPackagesAsync(

@@ -211,6 +211,71 @@ export async function assemblePackage(
   return { blob, filename };
 }
 
+// ─── Download PPTX ───────────────────────────────────────────────────────────
+
+/**
+ * GET /api/social/single-analyzer/{analysisId}/formats/{formatKey}/download-pptx?jobId={jobId}
+ *
+ * Downloads the persisted format composition spec as an editable PPTX file.
+ * Requires the jobId that produced the format result (available from the generation job state).
+ * Returns a Blob with MIME type application/vnd.openxmlformats-officedocument.presentationml.presentation.
+ *
+ * Throws when:
+ * - 409: the format predates B3 markup persistence (not-exportable)
+ * - 404: job or format not found
+ * - Any other non-2xx HTTP status
+ */
+export async function downloadFormatAsPptx(
+  analysisId: string,
+  formatKey: string,
+  jobId: string,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<{ blob: Blob; filename: string }> {
+  const base = typeof window !== "undefined" ? "/hive-api" : "";
+  const headers = new Headers();
+
+  if (opts?.token) {
+    headers.set("Authorization", `Bearer ${opts.token}`);
+  }
+
+  if (typeof window !== "undefined") {
+    const orgId = window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+    if (orgId) {
+      headers.set("X-Tenant-Id", orgId);
+    }
+  }
+
+  const url = `${base}/api/social/single-analyzer/${encodeURIComponent(analysisId)}/formats/${encodeURIComponent(formatKey)}/download-pptx?jobId=${encodeURIComponent(jobId)}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers,
+    signal: opts?.signal,
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let message = `Failed to download PPTX (HTTP ${response.status})`;
+    try {
+      const problem = (await response.json()) as { detail?: string; title?: string };
+      if (response.status === 409) {
+        message = problem.detail ?? "This format cannot be exported as PPTX (markup not persisted).";
+      } else {
+        message = problem.detail ?? problem.title ?? message;
+      }
+    } catch {
+      // ignore: keep default HTTP message
+    }
+    throw new Error(message);
+  }
+
+  const filename =
+    parseContentDispositionFilename(response.headers.get("Content-Disposition")) ??
+    `${formatKey}.pptx`;
+  const blob = await response.blob();
+  return { blob, filename };
+}
+
 // ─── Regenerate / Delete format types ────────────────────────────────────────
 
 export interface RegenerateFormatRequest {

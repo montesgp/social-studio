@@ -152,25 +152,25 @@ feat(content-gen): WU-2 — IPptxExportAdapter port + OpenXML PptxExportAdapter 
 **Spec requirements satisfied:** PPTX-02 (user can download), PPTX-04 (single markup read path).
 
 **RED tests to write first:**
-- [ ] `ExportFormatToPptxQueryHandlerTests.cs` (new, `Incoders.Hive.Tests/Application/Social/ContentGeneration/Export/`):
+- [x] `ExportFormatToPptxQueryHandlerTests.cs` (new, `Incoders.Hive.Tests/Application/Social/ContentGeneration/Export/`):
   - `Handle_ValidEnvelope_DelegatesToAdapterAndReturnsPptxBytes` — fake repo returns row with non-null `CompositionSpecJson`; fake adapter returns `byte[]`; asserts handler returns those bytes.
   - `Handle_NullCompositionSpecJson_ReturnsNotExportableError` — fake repo returns row with `CompositionSpecJson: null`; asserts `Result.Failure` with `not-exportable` error code; adapter is NEVER called.
   - `Handle_FormatKeyNotFound_ReturnsNotFoundError` — fake repo returns null; asserts `Result.Failure` with `not-found`.
   - `Handle_AdapterFailure_PropagatesError` — fake adapter returns failure; asserts handler propagates the error.
-- [ ] `MapContentGenerationEndpointsTests.cs` (extend or new in `Incoders.Hive.Tests/ApiService/`):
-  - `DownloadPptx_Endpoint_Returns200WithPptxMimeType` — integration test with minimal DI; fake handler returns bytes; asserts `Content-Type: application/vnd.openxmlformats-officedocument.presentationml.presentation` and `Content-Disposition: attachment`.
-  - `DownloadPptx_Endpoint_Returns422WhenNotExportable` — handler returns `not-exportable`; asserts HTTP 422.
+- [x] `MapContentGenerationPptxEndpointTests.cs` (new in `Incoders.Hive.Tests/ApiService/ContentGeneration/`):
+  - `DownloadPptx_HandlerReturnsBytes_Returns200WithPptxMimeType` — fake handler returns bytes; asserts `Content-Type: application/vnd.openxmlformats-officedocument.presentationml.presentation` and `FileDownloadName`.
+  - `DownloadPptx_NotExportableError_Returns409` — handler returns `not-exportable`; asserts HTTP 409 (Conflict). Note: existing error type infrastructure maps Conflict→409 (no 422 available).
 
 **GREEN implementation steps:**
-- [ ] Create `ExportFormatToPptxQuery.cs` + `ExportFormatToPptxQueryHandler.cs` in Application:
+- [x] Create `ExportFormatToPptxQuery.cs` + `ExportFormatToPptxQueryHandler.cs` in Application:
   - `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToPptxQuery.cs`
   - `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToPptxQueryHandler.cs`
   - Handler: resolve format result by `(jobId, formatKey)`; deserialize `CompositionSpecJson`; if null → `not-exportable`; delegate to `IPptxExportAdapter.BuildAsync`; return bytes.
-- [ ] Extend `MapContentGenerationEndpoints.cs` — add `GET .../formats/{formatKey}/download-pptx` route to `analyzerGroup`:
+- [x] Extend `MapContentGenerationEndpoints.cs` — add `GET .../formats/{formatKey}/download-pptx` route to `analyzerGroup`:
   - `Incoders.Hive.ApiService/Endpoints/Social/ContentGeneration/MapContentGenerationEndpoints.cs`
-  - Returns `File(bytes, "application/vnd.openxmlformats-…", "{formatKey}.pptx")` on success; maps `not-exportable` → 422.
-- [ ] Add `downloadFormatAsPptx(jobId, formatKey)` function to `apps/web/lib/api/content-generation.ts`.
-- [ ] Add "Download PPTX" button to `apps/web/components/social/single-analyzer-client.tsx` in the format card actions area; calls `downloadFormatAsPptx` and triggers browser download.
+  - Returns `File(bytes, "application/vnd.openxmlformats-…", "{formatKey}.pptx")` on success; maps `not-exportable` → 409 (Conflict). Note: HTTP 422 not in existing error type enum; Conflict is the closest handled error.
+- [x] Add `downloadFormatAsPptx(analysisId, formatKey, jobId)` function to `apps/web/lib/api/content-generation.ts`.
+- [x] Add "Download PPTX" button to `apps/web/components/social/single-analyzer-client.tsx` in the format card actions area; calls `downloadFormatAsPptxFile` and triggers browser download (visual formats only: carousel/flyer).
 
 **Files / layers touched:**
 - `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToPptxQuery.cs` (new)

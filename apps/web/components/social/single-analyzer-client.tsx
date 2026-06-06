@@ -67,6 +67,7 @@ import {
   downloadPackageFile,
   assemblePackage,
   deleteFormatItem,
+  downloadFormatAsPptx,
   ALL_FORMAT_KEYS,
   FORMAT_LABELS,
 } from "@/lib/api/content-generation";
@@ -744,6 +745,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const allowNavigationRef = useRef(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDownloadingPackage, setIsDownloadingPackage] = useState(false);
+  const [isDownloadingPptx, setIsDownloadingPptx] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isHydratingHistory, setIsHydratingHistory] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -952,6 +954,34 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setIsDownloadingPackage(false);
     }
   }, [packageJobId, isDownloadingPackage, effectiveToken, videoResult?.id, canAssembleFromStoredAssets]);
+
+  const downloadFormatAsPptxFile = useCallback(async (formatKey: string) => {
+    if (isDownloadingPptx) return;
+    const analysisId = videoResult?.id;
+    const jobId = packageJobId;
+    if (!analysisId || !jobId) return;
+    setIsDownloadingPptx(true);
+    setPackageJobError(null);
+    try {
+      const { blob, filename } = await downloadFormatAsPptx(analysisId, formatKey, jobId, {
+        token: effectiveToken,
+      });
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (e) {
+      const err = e as { message?: string };
+      setPackageJobError({ message: err?.message ?? `Failed to download ${formatKey}.pptx.` });
+    } finally {
+      setIsDownloadingPptx(false);
+    }
+  }, [packageJobId, isDownloadingPptx, effectiveToken, videoResult?.id]);
 
   useEffect(() => {
     setDuplicateAnalysisPrompt(null);
@@ -2697,6 +2727,31 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                   >
                                     <Trash2 className="h-3 w-3" />
                                     Delete
+                                  </Button>
+                                )}
+                              {packageJob.manifest?.has_stored_assets &&
+                                packageSucceededFormats.includes(selectedFormatKey) &&
+                                (mutationMode === "carousel" || mutationMode === "flyer") &&
+                                packageJobId && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-xs"
+                                    onClick={() => void downloadFormatAsPptxFile(selectedFormatKey)}
+                                    disabled={isDownloadingPptx || isFormatMutating || packageGenerationIsRunning}
+                                    title="Download this format as an editable PowerPoint presentation."
+                                  >
+                                    {isDownloadingPptx ? (
+                                      <span className="flex items-center gap-1">
+                                        <RefreshCw className="h-3 w-3 animate-spin" />
+                                        Downloading…
+                                      </span>
+                                    ) : (
+                                      <span className="flex items-center gap-1">
+                                        <Download className="h-3 w-3" />
+                                        Download PPTX
+                                      </span>
+                                    )}
                                   </Button>
                                 )}
                             </div>
