@@ -103,31 +103,31 @@ feat(content-gen): WU-1 — persist markup+geometry in composition_spec_json (D1
 **Spec requirements satisfied:** PPTX-02 (download as editable PPTX), PPTX-03 (deterministic offline).
 
 **RED tests to write first:**
-- [ ] `PptxExportAdapterTests.cs` (new, `Incoders.Hive.Tests/Infrastructure/Rendering/`):
+- [x] `PptxExportAdapterTests.cs` (new, `Incoders.Hive.Tests/Infrastructure/Rendering/`):
   - `BuildAsync_SingleAsset_ProducesOneSlidePart` — uses `StubMarkupBuilder.BuildStubMarkupWithGeometry()` helper + synthetic geometry; asserts one `SlidePart`.
-  - `BuildAsync_SlideSize_MatchesCanvasInEmu` — asserts `SlideSize` EMU values derived from `canvas {w,h,dpi=96}` (1080×1920 flyer: 10286400×18288000 EMU; 1080×1080 carousel: 10286400×10286400 EMU).
+  - `BuildAsync_SlideSize_MatchesCanvasInEmu` — asserts `SlideSize` EMU values derived from `canvas {w,h,dpi=96}` (1080×1920 flyer: 10287000×18288000 EMU; 1080×1080 carousel: 10287000×10287000 EMU). Note: correct value is 1080×9525=10287000, not 10286400.
   - `BuildAsync_DataSlot_ProducesEditableTextBox` — asserts each `data-slot` produces a `Shape` with `TextBody`; text = inner text; not rasterized.
   - `BuildAsync_TextBox_CoordinatesMatchGeometryInEmu` — asserts `sp:spPr/a:xfrm` offset and extents match persisted geometry converted at 9525 EMU/px.
   - `BuildAsync_TextBox_FontAndColorMatchGeometry` — asserts run properties (`fontFamily`, `fontSizePx`, `color`) flow through.
   - `BuildAsync_Background_ProducesPicturePart` — asserts background layer present as `Picture` (full-bleed), behind text boxes.
   - `BuildAsync_NullGeometry_FallsBackToStackedLayout` — asserts graceful fallback when geometry is missing/null for a slot.
   - `BuildAsync_Deterministic_SameInputSameStructure` — call twice, compare `SlidePart` XML structure (node names + text, not byte equality).
-- [ ] `IPptxExportAdapterContractTests.cs` (new, `Incoders.Hive.Tests/Application/`):
+- [x] `IPptxExportAdapterContractTests.cs` (new, `Incoders.Hive.Tests/Application/`):
   - `Port_HasNoInfrastructureTypes` — reflects `IPptxExportAdapter` and asserts no `Infrastructure|Persistence|EfCore|Npgsql|AspNetCore|Playwright|DocumentFormat` in parameter or return type names (mirrors existing `IVisualDesignerContractTests` pattern).
 
 **GREEN implementation steps:**
-- [ ] Create `IPptxExportAdapter.cs` port in Application:
+- [x] Create `IPptxExportAdapter.cs` port in Application:
   - `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IPptxExportAdapter.cs`
   - Signature: `Task<Result<byte[]>> BuildAsync(CompositionSpecEnvelope envelope, CancellationToken ct)`
-- [ ] Add `DocumentFormat.OpenXml` NuGet reference to `Incoders.Hive.Infrastructure.csproj`.
-- [ ] Create `PptxExportAdapter.cs` in Infrastructure:
+- [x] Add `DocumentFormat.OpenXml` NuGet reference to `Incoders.Hive.Infrastructure.csproj`.
+- [x] Create `PptxExportAdapter.cs` in Infrastructure:
   - `Incoders.Hive.Infrastructure/Rendering/PptxExportAdapter.cs`
   - Implements `IPptxExportAdapter`.
   - Builds `PresentationDocument` in-memory (`MemoryStream`); adds `SlidePart` per asset canvas; maps `SlotGeometry[]` → text boxes; embeds background `ImagePart` from `backgroundImageRef`.
-- [ ] Create `StubMarkupBuilder.cs` test helper in Tests:
+- [x] Create `StubMarkupBuilder.cs` test helper in Tests:
   - `Incoders.Hive.Tests/Infrastructure/Rendering/StubMarkupBuilder.cs`
   - `BuildStubMarkupWithGeometry()` returns a `CompositionSpecEnvelope` with at least 2 `data-slot` elements and a `data-layer="background"` element, with synthetic geometry values.
-- [ ] Register `PptxExportAdapter` in `InfrastructureContentGenerationExtensions.cs`.
+- [x] Register `PptxExportAdapter` in `InfrastructureContentGenerationExtensions.cs`.
 
 **Files / layers touched:**
 - `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IPptxExportAdapter.cs` (new)
