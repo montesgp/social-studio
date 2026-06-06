@@ -128,7 +128,66 @@ public sealed class HtmlChromiumContentRendererTests
     }
 
     /// <summary>
-    /// INTEGRATION (browser-gated): when a render timeout occurs, the result must be a failed Result,
+    /// INTEGRATION (browser-gated) WU-9: RenderWithGeometryAsync on layered markup (background + content
+    /// layers) must return a non-null <c>BackgroundImageDataUri</c> that begins with the
+    /// <c>data:image/png;base64,</c> prefix.
+    /// </summary>
+    [Fact]
+    public async Task RenderWithGeometryAsync_LayeredMarkup_ReturnsBackgroundImageDataUri()
+    {
+        if (!ChromiumAvailabilityCheck.IsInstalled())
+        {
+            return;
+        }
+
+        var options = new RenderingOptions { Engine = RenderingEngine.Chromium, DeviceScaleFactor = 1 };
+        await using var pool = new ChromiumBrowserPool(options);
+        await pool.InitializeAsync(CancellationToken.None);
+
+        var renderer = new HtmlChromiumContentRenderer(pool, new SpyFallbackRenderer(), options);
+        // Markup has both data-layer="background" and data-layer="content" layers.
+        var spec = BuildHtmlSpec(w: 200, h: 200);
+
+        var result = await renderer.RenderWithGeometryAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Render failed: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
+        // WU-9 assertion: BackgroundImageDataUri must be non-null and be a valid data-URI
+        Assert.NotNull(result.Value.BackgroundImageDataUri);
+        Assert.StartsWith("data:image/png;base64,", result.Value.BackgroundImageDataUri,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// INTEGRATION (browser-gated) WU-9: when background capture is skipped (captureGeometry=false path,
+    /// i.e. plain RenderAsync), the base RenderAsync result does not expose BackgroundImageDataUri —
+    /// only the geometry-aware path captures it.
+    /// </summary>
+    [Fact]
+    public async Task RenderAsync_HtmlSpec_DoesNotProduceBackgroundImageDataUri()
+    {
+        if (!ChromiumAvailabilityCheck.IsInstalled())
+        {
+            return;
+        }
+
+        var options = new RenderingOptions { Engine = RenderingEngine.Chromium, DeviceScaleFactor = 1 };
+        await using var pool = new ChromiumBrowserPool(options);
+        await pool.InitializeAsync(CancellationToken.None);
+
+        var renderer = new HtmlChromiumContentRenderer(pool, new SpyFallbackRenderer(), options);
+        var spec = BuildHtmlSpec(w: 200, h: 200);
+
+        // Plain RenderAsync — no geometry path, so BackgroundImageDataUri is not produced
+        // (the RenderedAsset type does not have this field — it's only on RenderedAssetWithGeometry).
+        var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        // RenderedAsset itself has no BackgroundImageDataUri — this test just confirms the path works.
+        Assert.True(result.Value.SizeBytes > 0);
+    }
+
+    /// <summary>
+    /// INTEGRATION (browser-gated) WU-9: when a render timeout occurs, the result must be a failed Result,
     /// not an exception.
     /// </summary>
     [Fact]

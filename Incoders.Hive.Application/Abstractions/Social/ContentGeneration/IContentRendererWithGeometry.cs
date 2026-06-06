@@ -41,13 +41,22 @@ public interface IContentRendererWithGeometry : IContentRenderer
 }
 
 /// <summary>
-/// A rendered asset paired with the per-slot geometry captured during the same render pass (D3).
+/// A rendered asset paired with the per-slot geometry captured during the same render pass (D3),
+/// and the optional background-only data-URI captured in the same page session (WU-9).
 /// </summary>
 /// <param name="Asset">The rendered PNG asset.</param>
 /// <param name="SlotGeometry">
 /// Geometry entries for each <c>[data-slot]</c> element found in the markup.
 /// Empty when no slots were present or geometry capture failed gracefully.
 /// </param>
+/// <param name="BackgroundImageDataUri">
+/// A <c>data:image/png;base64,…</c> data-URI for the background-only screenshot (content layer
+/// hidden) captured during the same Chromium page session. Null when background capture was not
+/// performed (e.g. fallback renderer, Skia engine, or non-designed formats) or when it failed
+/// gracefully. When non-null, stored as <c>CompositionSpecEnvelope.BackgroundImageRef</c> so
+/// export adapters can rasterize the background without re-launching Chromium.
+/// </param>
 public sealed record RenderedAssetWithGeometry(
     RenderedAsset Asset,
-    IReadOnlyList<SlotGeometryEntry> SlotGeometry);
+    IReadOnlyList<SlotGeometryEntry> SlotGeometry,
+    string? BackgroundImageDataUri = null);

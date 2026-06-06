@@ -245,7 +245,16 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
                 $"{spec.FormatKey}.png",
                 screenshotBytes);
 
-            return Result.Success(new RenderedAssetWithGeometry(asset, slotGeometry));
+            // WU-9 D3: capture background-only PNG when geometry is requested (same page session).
+            // Hide the content layer, take a second screenshot, then restore — no second full render.
+            string? backgroundDataUri = null;
+            if (captureGeometry)
+            {
+                backgroundDataUri = await CaptureBackgroundDataUriAsync(
+                    page, spec, _logger, renderCt);
+            }
+
+            return Result.Success(new RenderedAssetWithGeometry(asset, slotGeometry, backgroundDataUri));
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
         {
@@ -303,6 +312,86 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
                 Color: string.IsNullOrWhiteSpace(e.Color) ? null : e.Color,
                 TextAlign: string.IsNullOrWhiteSpace(e.TextAlign) ? null : e.TextAlign))
             .ToList();
+    }
+
+    /// <summary>
+    /// Captures a background-only screenshot by hiding the content layer on the existing Playwright
+    /// page, taking a screenshot, and then restoring visibility — all within the same page session.
+    ///
+    /// <para>
+    /// WU-9 D3: the content layer (<c>[data-layer="content"]</c>) is hidden via an injected
+    /// <c>&lt;style&gt;</c> tag. The background-only PNG is encoded as a
+    /// <c>data:image/png;base64,…</c> data-URI and returned. On any failure the method returns
+    /// <c>null</c> (non-fatal — export degrades to no background rather than crashing).
+    /// </para>
+    /// </summary>
+    private static async Task<string?> CaptureBackgroundDataUriAsync(
+        IPage page,
+        VisualCompositionSpec spec,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        const string HideContentScript = @"
+            (function() {
+                var el = document.querySelector('[data-layer=""content""]');
+                if (el) { el._prevDisplay = el.style.display; el.style.display = 'none'; }
+            })()";
+        const string RestoreContentScript = @"
+            (function() {
+                var el = document.querySelector('[data-layer=""content""]');
+                if (el) { el.style.display = el._prevDisplay !== undefined ? el._prevDisplay : ''; }
+            })()";
+
+        try
+        {
+            // Hide content layer
+            await page.EvaluateAsync(HideContentScript);
+
+            // Screenshot background only
+            var bgBytes = await page.ScreenshotAsync(new PageScreenshotOptions
+            {
+                Type = ScreenshotType.Png,
+                Clip = new Clip
+                {
+                    X = 0,
+                    Y = 0,
+                    Width = spec.Dimensions.Width,
+                    Height = spec.Dimensions.Height
+                },
+                FullPage = false
+            });
+
+            if (bgBytes is null || bgBytes.Length == 0)
+            {
+                logger.LogWarning(
+                    "Background capture returned empty bytes for format '{FormatKey}'; BackgroundImageDataUri will be null.",
+                    spec.FormatKey);
+                return null;
+            }
+
+            return "data:image/png;base64," + Convert.ToBase64String(bgBytes);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Background capture failed for format '{FormatKey}'; BackgroundImageDataUri will be null. {Message}",
+                spec.FormatKey,
+                ex.Message);
+            return null;
+        }
+        finally
+        {
+            // Best-effort restore — if this fails the page is about to be recycled anyway
+            try
+            {
+                await page.EvaluateAsync(RestoreContentScript);
+            }
+            catch
+            {
+                // ignored — page will be returned to the pool regardless
+            }
+        }
     }
 
     /// <summary>

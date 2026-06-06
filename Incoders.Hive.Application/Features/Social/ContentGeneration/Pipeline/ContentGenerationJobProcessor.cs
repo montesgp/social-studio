@@ -253,9 +253,11 @@ public sealed class ContentGenerationJobProcessor
                 // slot geometry for this format so they can be persisted in composition_spec_json
                 // on success. Markup comes from the guardrail-validated spec; geometry from the
                 // renderer when it implements IContentRendererWithGeometry (otherwise empty list).
+                // WU-9: also track the background-only data-URI from the same render pass.
                 string? capturedMarkup = null;
                 CompositionDimensions? capturedDimensions = null;
                 IReadOnlyList<SlotGeometryEntry> capturedGeometry = [];
+                string? capturedBackgroundDataUri = null;
 
                 // We need the format result ID to associate asset rows.
                 // Generate a stable ID now (it will be upserted into the DB after render).
@@ -351,6 +353,8 @@ public sealed class ContentGenerationJobProcessor
                         }
                         asset = renderedWithGeo.Value.Asset;
                         capturedGeometry = renderedWithGeo.Value.SlotGeometry;
+                        // WU-9: capture the background data-URI from the same render pass.
+                        capturedBackgroundDataUri = renderedWithGeo.Value.BackgroundImageDataUri;
                     }
                     else
                     {
@@ -452,6 +456,7 @@ public sealed class ContentGenerationJobProcessor
                         capturedMarkup,
                         capturedDimensions,
                         capturedGeometry,
+                        capturedBackgroundDataUri,
                         ct);
                     existingByFormat[formatKey] = persistedFormatResult;
 
@@ -797,12 +802,15 @@ public sealed class ContentGenerationJobProcessor
         string? designerMarkup,
         CompositionDimensions? specDimensions,
         IReadOnlyList<SlotGeometryEntry> slotGeometry,
+        string? backgroundImageDataUri,
         CancellationToken ct)
     {
         // WU-1 D1: when a validated designer markup is present, serialize the versioned
         // CompositionSpecEnvelope into composition_spec_json so the PPTX/Canva export
         // adapters can retrieve markup + geometry without re-composing.
         // Non-designed formats (text, markdown, legacy raster) leave the column null.
+        // WU-9: also store the background-only data-URI so export adapters can rasterize
+        // the decorative background without re-launching Chromium.
         string? compositionSpecJson = null;
         if (designerMarkup is not null)
         {
@@ -815,7 +823,7 @@ public sealed class ContentGenerationJobProcessor
                 Markup: designerMarkup,
                 Canvas: canvas,
                 SlotGeometry: slotGeometry,
-                BackgroundImageRef: null);
+                BackgroundImageRef: backgroundImageDataUri);
 
             compositionSpecJson = JsonSerializer.Serialize(envelope, JsonOptions);
         }

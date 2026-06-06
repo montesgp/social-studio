@@ -422,6 +422,43 @@ docs(integrations): WU-8 — Canva connector guide + spec-delta reconciliation
 
 ---
 
+### WU-9 — Populate flattened background image in export envelope
+
+**Goal:** Fix the gap reported by sdd-verify (#594): `BackgroundImageRef` is always `null` so exported PPTX/Canva designs have editable text on a BLANK background, losing the B1b visual design. Capture the background-only PNG on the SAME Playwright page used for geometry (hide `[data-layer="content"]`, screenshot, restore), encode as `data:image/png;base64,…`, return from `HtmlChromiumContentRenderer`, thread through `ContentGenerationJobProcessor.PersistRenderSuccessAsync` into `CompositionSpecEnvelope.BackgroundImageRef`.
+
+**Spec requirements satisfied:** PPTX-02 (background visible in exported PPTX), design D3 (background captured at render time, not export time).
+
+**RED tests written first:**
+- [x] `ContentGenerationJobProcessorBackgroundTests.cs` (new, `Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/`):
+  - `ProcessAsync_GeometryRendererWithBackground_PersistsBackgroundRefInEnvelope` — stub geometry renderer returns `BackgroundImageDataUri`; asserts envelope `BackgroundImageRef` equals that data-URI.
+  - `ProcessAsync_GeometryRendererWithNullBackground_PersistsNullBackgroundRef` — renderer returns null; asserts graceful null (no crash).
+- [x] `HtmlChromiumContentRendererTests.cs` (extended, `Incoders.Hive.Tests/Infrastructure/Rendering/`, Chromium-gated):
+  - `RenderWithGeometryAsync_LayeredMarkup_ReturnsBackgroundImageDataUri` — asserts `BackgroundImageDataUri` non-null, starts with `data:image/png;base64,`.
+  - `RenderAsync_HtmlSpec_DoesNotProduceBackgroundImageDataUri` — confirms plain `RenderAsync` path still works (regression guard).
+
+**GREEN implementation steps:**
+- [x] Extend `RenderedAssetWithGeometry` record in `IContentRendererWithGeometry.cs` with `string? BackgroundImageDataUri = null` parameter (nullable, optional, defaults to null for existing callers).
+- [x] Add `CaptureBackgroundDataUriAsync` static helper in `HtmlChromiumContentRenderer.cs`: hides `[data-layer="content"]` via JS eval, takes second screenshot, encodes as data-URI, restores — all on the existing page. Failure is non-fatal (returns null + logs Warning).
+- [x] Call `CaptureBackgroundDataUriAsync` in `RenderChromiumAsync` when `captureGeometry=true`, after the full screenshot.
+- [x] Add `string? backgroundImageDataUri` parameter to `PersistRenderSuccessAsync`; replace `BackgroundImageRef: null` with `BackgroundImageRef: backgroundImageDataUri`.
+- [x] Add `capturedBackgroundDataUri` variable in the processor's format-render loop; set from `renderedWithGeo.Value.BackgroundImageDataUri`; pass to `PersistRenderSuccessAsync`.
+
+**Files / layers touched:**
+- `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IContentRendererWithGeometry.cs` (extend `RenderedAssetWithGeometry` record)
+- `Incoders.Hive.Infrastructure/Rendering/HtmlChromiumContentRenderer.cs` (add `CaptureBackgroundDataUriAsync`, call from `RenderChromiumAsync`)
+- `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` (thread `capturedBackgroundDataUri`, update `PersistRenderSuccessAsync`)
+- `Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessorBackgroundTests.cs` (new)
+- `Incoders.Hive.Tests/Infrastructure/Rendering/HtmlChromiumContentRendererTests.cs` (extend)
+
+**Commit message:**
+```
+feat(content-gen): WU-9 — capture flattened background image into export envelope (B3)
+```
+
+**Status:** [x] COMPLETE
+
+---
+
 ## Test plan summary
 
 | Work unit | Tests | Offline? | Guard |
@@ -436,6 +473,8 @@ docs(integrations): WU-8 — Canva connector guide + spec-delta reconciliation
 | WU-6 | `CanvaDesignImportClientTests.ImportAsync_LiveCanva_Integration` | No | `CANVA_ACCESS_TOKEN` env var skip |
 | WU-7 | `ExportFormatToCanvaCommandHandlerTests`, endpoint tests | Yes (unit) | — |
 | WU-8 | None | — | Gates only |
+| WU-9 | `ContentGenerationJobProcessorBackgroundTests` | Yes (unit) | — |
+| WU-9 | `HtmlChromiumContentRendererTests` (2 new tests) | No | `ChromiumAvailabilityCheck` runtime-skip |
 
 All `dotnet test` runs must be green before declaring a WU complete. Integration-guarded tests are skipped in CI unless credentials are injected.
 
@@ -443,7 +482,7 @@ All `dotnet test` runs must be green before declaring a WU complete. Integration
 
 ## Definition of done
 
-- [x] All 8 work units completed and committed in seam order.
+- [x] All 9 work units completed and committed in seam order (WU-1..8 original + WU-9 background capture).
 - [x] `dotnet test` passes with 0 failures (integration-guarded tests skipped, not failed).
 - [x] All ports (`IPptxExportAdapter`, `ICanvaUserTokenRepository`, `ICanvaOAuthService`, `ICanvaDesignImportClient`) pass `Port_HasNoInfrastructureTypes` contract assertion.
 - [x] `PptxExportAdapter`, `CanvaOAuthService`, `CanvaDesignImportClient` registered only in Infrastructure DI — not leaked to Domain or Application DI.
