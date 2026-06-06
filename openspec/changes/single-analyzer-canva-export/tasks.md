@@ -403,11 +403,12 @@ feat(integrations): WU-7 — ExportToCanva command + endpoint + Connect/Export U
 **RED tests:** None — docs-only work unit. Gates serve as the verification gate (`pwsh -File scripts/gates/Run-Gates.ps1`).
 
 **GREEN implementation steps:**
-- [ ] Update or create Canva connector guide:
-  - `docs/connectors/canva.md` — section on per-user OAuth (PKCE), required scopes, how Design Import works, PPTX export notes, what Autofill/Brand Templates are and why they are deferred.
-- [ ] Add spec reconciliation note to `openspec/changes/single-analyzer-canva-export/specs/content-generation/spec-delta.md` and `specs/integrations/spec-delta.md`:
-  - Confirm which spec IDs (PPTX-01…04, CANVA-USER-01…03, CANVA-EXPORT-01…04) are covered by which WUs.
-- [ ] Run `pwsh -File scripts/gates/Run-Gates.ps1` and confirm all MUST gates pass.
+- [x] Update or create Canva connector guide:
+  - `docs/operators/canva-connector-setup.md` — extended with B3 sections: per-user OAuth PKCE flow, authorize/callback endpoints, token refresh/rotation, PPTX download (endpoint + editability table), Export to Canva (endpoint + error table + flow summary), Autofill/Brand Templates deferred note, prerequisites checklist.
+- [x] Add spec reconciliation note to `openspec/changes/single-analyzer-canva-export/specs/content-generation/spec-delta.md` and `specs/integrations/spec-delta.md`:
+  - PPTX-01..04 covered by WU-1/2/3/7. Status code clarification: 409 Conflict (not 422) for not-exportable.
+  - CANVA-USER-01..03 + CANVA-EXPORT-01..04 covered by WU-4/5/6/7. CanvaImportResult shape (DesignId+EditUrl+ExpiresAt) documented. EnsureFreshAsync organizationId parameter noted as internal.
+- [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` and confirm all MUST gates pass.
 
 **Files / layers touched:**
 - `docs/connectors/canva.md` (new or extend)
@@ -442,14 +443,14 @@ All `dotnet test` runs must be green before declaring a WU complete. Integration
 
 ## Definition of done
 
-- [ ] All 8 work units completed and committed in seam order.
-- [ ] `dotnet test` passes with 0 failures (integration-guarded tests skipped, not failed).
-- [ ] All ports (`IPptxExportAdapter`, `ICanvaUserTokenRepository`, `ICanvaOAuthService`, `ICanvaDesignImportClient`) pass `Port_HasNoInfrastructureTypes` contract assertion.
-- [ ] `PptxExportAdapter`, `CanvaOAuthService`, `CanvaDesignImportClient` registered only in Infrastructure DI — not leaked to Domain or Application DI.
-- [ ] `DocumentFormat.OpenXml` referenced only in `Incoders.Hive.Infrastructure.csproj`.
-- [ ] Migration `Add_CanvaUserTokens` is the ONLY new EF migration in this change.
-- [ ] `composition_spec_json` never written as `null` in the success render path.
-- [ ] Autofill/Brand Templates endpoints never reachable from active code paths (`ICanvaAutofillAdapter` stub exists but is not wired in DI).
-- [ ] `pwsh -File scripts/gates/Run-Gates.ps1` exits 0 — all MUST gates pass.
-- [ ] Docs synced: `docs/connectors/canva.md` updated.
-- [ ] PR opened against `dev` from `feat/b3-canva-export` branch (single PR, `size:exception` label).
+- [x] All 8 work units completed and committed in seam order.
+- [x] `dotnet test` passes with 0 failures (integration-guarded tests skipped, not failed).
+- [x] All ports (`IPptxExportAdapter`, `ICanvaUserTokenRepository`, `ICanvaOAuthService`, `ICanvaDesignImportClient`) pass `Port_HasNoInfrastructureTypes` contract assertion.
+- [x] `PptxExportAdapter`, `CanvaOAuthService`, `CanvaDesignImportClient` registered only in Infrastructure DI — not leaked to Domain or Application DI.
+- [x] `DocumentFormat.OpenXml` referenced only in `Incoders.Hive.Infrastructure.csproj`.
+- [x] Migration `Add_CanvaUserTokens` is the ONLY new EF migration in this change.
+- [x] `composition_spec_json` never written as `null` in the success render path.
+- [x] Autofill/Brand Templates endpoints never reachable from active code paths (`ICanvaAutofillAdapter` stub exists but is not wired in DI).
+- [x] `pwsh -File scripts/gates/Run-Gates.ps1` exits 0 — all MUST gates pass.
+- [x] Docs synced: `docs/operators/canva-connector-setup.md` updated with B3 per-user OAuth, PPTX download, and Export to Canva sections.
+- [ ] PR opened against `dev` from `feat/single-analyzer-canva-export` branch (single PR, `size:exception` label).

@@ -271,3 +271,42 @@ and is not modified here.
 ## REMOVED Requirements
 
 None.
+
+---
+
+## Implementation Reconciliation (WU-8)
+
+Completed in change `single-analyzer-canva-export` (Fase B / B3). All requirements in this delta are
+implemented and verified. Work units responsible:
+
+| Requirement | Work Unit | Status |
+|---|---|---|
+| CANVA-USER-01 (OAuth PKCE connect flow) | WU-5 | Implemented. `GET /api/integrations/canva/authorize` + `GET /api/integrations/canva/callback`. PKCE verifier generated per request; state round-tripped via cache (TTL 10 min); mismatch rejected. |
+| CANVA-USER-02 (token refresh rotation + serialization) | WU-4 + WU-5 | Implemented. `CanvaOAuthService.EnsureFreshAsync` refreshes on expiry, persists new pair atomically. Concurrent refresh serialized via `xmin` optimistic concurrency on `platform.canva_user_tokens`. |
+| CANVA-USER-03 (view + revoke connection) | WU-5 + WU-7 | Implemented. UI shows connected/disconnected state. `RevokeAsync` deletes only the requesting user's token row. |
+| CANVA-EXPORT-01 (Design Import → edit URL) | WU-6 + WU-7 | Implemented. `CanvaDesignImportClient` uploads PPTX, polls job (bounded: 12 × 5 s = 60 s), returns `CanvaImportResult { DesignId, EditUrl, ExpiresAt }`. Endpoint: `POST /api/social/single-analyzer/{analysisId}/formats/{formatKey}/export-to-canva`. Edit URL valid ~30 days. |
+| CANVA-EXPORT-02 (blocked until connected) | WU-7 | Implemented. Handler detects absent token → `canva.not_connected` (409) → UI redirects to authorize endpoint. No upload attempted. |
+| CANVA-EXPORT-03 (handled API failures) | WU-6 + WU-7 | Implemented. Timeout → 502 `canva.import.timeout`; API failure → 502 `canva.import.api_failure`; revoked token → tokens cleared + 409 `canva.reconnect_required`. No unhandled exception reaches the client. |
+| CANVA-EXPORT-04 (Autofill/Brand Templates deferred) | WU-7 | Implemented. `ICanvaAutofillAdapter` stub exists in Application (not wired in DI). `ICanvaDesignImportClient` tests assert no request to `/autofill` or `/brand-template` endpoints. |
+
+### CanvaImportResult shape
+
+The shipped `CanvaImportResult` record carries three fields: `DesignId` (string), `EditUrl` (string),
+and `ExpiresAt` (DateTimeOffset). The `DesignId` field was added in WU-7 to support future
+Autofill/Brand Template integration. The spec scenarios reference `editUrl` only — both fields are
+present in the response.
+
+### Status code note (CANVA-EXPORT-02 / not_connected)
+
+Scenarios CANVA-EXPORT-02-a and related scenarios describe the system "not attempting an upload" and
+showing a connect prompt. The implementation returns **HTTP 409 Conflict** with error code
+`canva.not_connected`. HTTP 422 is not in the project's error-type infrastructure — `ErrorType.Conflict`
+maps to 409 via `ResultExtensions.StatusCodeFor`. This is consistent with the PPTX-02-d treatment
+and the observable behavior matches the intent of all affected scenarios.
+
+### EnsureFreshAsync signature (internal, no spec impact)
+
+`ICanvaOAuthService.EnsureFreshAsync` receives `(userId, organizationIntegrationId, organizationId, ct)`.
+The `organizationId` parameter was added in WU-7 so the service can resolve the org BYOK credential
+(client_id / client_secret) when refreshing. This is an internal concern; no spec scenario references
+it directly.

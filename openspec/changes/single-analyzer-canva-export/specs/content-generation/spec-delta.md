@@ -159,3 +159,24 @@ requirements are modified.
 ## REMOVED Requirements
 
 None.
+
+---
+
+## Implementation Reconciliation (WU-8)
+
+Completed in change `single-analyzer-canva-export` (Fase B / B3). All requirements in this delta are
+implemented and verified. Work units responsible:
+
+| Requirement | Work Unit | Status |
+|---|---|---|
+| PPTX-01 (markup persistence) | WU-1 | Implemented. `ContentGenerationJobProcessor.PersistRenderSuccessAsync` writes a versioned `CompositionSpecEnvelope` (schemaVersion 1) to `composition_spec_json`. Null is never written on the success path. |
+| PPTX-02 (editable PPTX download) | WU-2 + WU-3 | Implemented. `PptxExportAdapter` (OpenXML) builds the PPTX offline. Endpoint: `GET /api/social/single-analyzer/{analysisId}/formats/{formatKey}/download-pptx?jobId={jobId}`. |
+| PPTX-03 (deterministic, offline) | WU-2 | Implemented. PPTX generation never calls Chromium or the AI composition model. Same input → same structural output (verified by `BuildAsync_Deterministic_SameInputSameStructure`). |
+| PPTX-04 (single markup read path) | WU-3 + WU-7 | Implemented. Both `ExportFormatToPptxQueryHandler` and `ExportFormatToCanvaCommandHandler` read from `composition_spec_json`; neither triggers re-render or re-composition. |
+
+### Status code note (PPTX-02-d / "not exportable")
+
+The spec scenario PPTX-02-d says the system returns a "clear, user-facing error" when markup is not
+persisted. The implementation returns **HTTP 409 Conflict** with error code `content-gen.not_exportable`.
+HTTP 422 is not in the project's error-type infrastructure — `ErrorType.Conflict` maps to 409 via
+`ResultExtensions.StatusCodeFor`. The observable behavior matches the intent of the scenario.
