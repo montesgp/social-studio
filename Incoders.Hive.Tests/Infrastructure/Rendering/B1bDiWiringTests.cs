@@ -106,6 +106,9 @@ public sealed class B1bDiWiringTests
         // Stub AI gateway — OpusVisualDesigner takes IAiCompletionGateway
         services.AddScoped<IAiCompletionGateway, StubAiGatewayForDi>();
 
+        // Logging — required by HtmlChromiumContentRenderer (ILogger<HtmlChromiumContentRenderer>)
+        services.AddLogging();
+
         // Content generation Application-layer registrations (no-op designer via TryAdd)
         services.AddContentGeneration();
 

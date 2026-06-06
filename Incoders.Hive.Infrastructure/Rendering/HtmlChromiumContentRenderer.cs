@@ -2,6 +2,8 @@ using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Playwright;
 
 namespace Incoders.Hive.Infrastructure.Rendering;
@@ -69,6 +71,7 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
     private readonly ChromiumBrowserPool? _browserPool;
     private readonly IContentRenderer _fallbackRenderer;
     private readonly RenderingOptions _options;
+    private readonly ILogger<HtmlChromiumContentRenderer> _logger;
 
     /// <summary>
     /// Initializes the renderer.
@@ -81,10 +84,14 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
     /// Fallback renderer — used for non-HTML specs, or for all specs when engine is Skia.
     /// </param>
     /// <param name="options">Rendering configuration (engine, timeout, scale factor).</param>
+    /// <param name="logger">
+    /// Logger for geometry capture warnings. Pass <c>null</c> in unit tests (defaults to NullLogger).
+    /// </param>
     public HtmlChromiumContentRenderer(
         ChromiumBrowserPool? browserPool,
         IContentRenderer fallbackRenderer,
-        RenderingOptions options)
+        RenderingOptions options,
+        ILogger<HtmlChromiumContentRenderer>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(fallbackRenderer);
         ArgumentNullException.ThrowIfNull(options);
@@ -92,6 +99,7 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
         _browserPool = browserPool;
         _fallbackRenderer = fallbackRenderer;
         _options = options;
+        _logger = logger ?? NullLogger<HtmlChromiumContentRenderer>.Instance;
     }
 
     /// <inheritdoc />
@@ -201,7 +209,11 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
                 {
                     // Geometry capture failure is non-fatal — the render proceeds with empty geometry.
                     // Log at Warning so production issues are visible but the asset is still delivered.
-                    _ = geoEx; // suppress CA2016 — intentional swallow after logging
+                    _logger.LogWarning(
+                        geoEx,
+                        "Slot geometry capture failed for format '{FormatKey}'; proceeding with empty geometry. {Message}",
+                        spec.FormatKey,
+                        geoEx.Message);
                 }
             }
 

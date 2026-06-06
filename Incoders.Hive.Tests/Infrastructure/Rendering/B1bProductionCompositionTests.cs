@@ -102,6 +102,9 @@ public sealed class B1bProductionCompositionTests
         // Provider gateway dependency of OpusVisualDesigner (real one needs Infrastructure plumbing).
         services.AddScoped<IAiCompletionGateway, StubProductionAiGateway>();
 
+        // Logging — required by HtmlChromiumContentRenderer (ILogger<HtmlChromiumContentRenderer>)
+        services.AddLogging();
+
         // Application layer — registers the NoOpVisualDesigner via TryAdd (production baseline).
         services.AddContentGeneration();
 

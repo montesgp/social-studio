@@ -3,6 +3,7 @@ using Incoders.Hive.Infrastructure.Rendering;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 
 namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
 
@@ -99,13 +100,17 @@ public static class InfrastructureContentGenerationExtensions
                 return new HtmlChromiumContentRenderer(
                     sp.GetRequiredService<ChromiumBrowserPool>(),
                     fallback,
-                    options);
+                    options,
+                    sp.GetRequiredService<ILogger<HtmlChromiumContentRenderer>>());
             });
             services.AddScoped<IContentRenderer>(sp =>
                 sp.GetRequiredService<HtmlChromiumContentRenderer>());
             services.AddScoped<IContentRendererWithGeometry>(sp =>
                 sp.GetRequiredService<HtmlChromiumContentRenderer>());
         }
+
+        // Register the PPTX export adapter (B3 WU-2 — provider-neutral port, OpenXML adapter).
+        services.AddScoped<IPptxExportAdapter, PptxExportAdapter>();
 
         return services;
     }
