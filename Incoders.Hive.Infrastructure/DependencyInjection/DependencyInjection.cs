@@ -133,6 +133,7 @@ public static class DependencyInjection
         services.AddScoped<IIntegrationProviderCatalogRepository, EfIntegrationProviderCatalogRepository>();
         services.AddScoped<IOrganizationIntegrationRepository, EfOrganizationIntegrationRepository>();
         services.AddScoped<IOrganizationIntegrationCredentialRepository, EfOrganizationIntegrationCredentialRepository>();
+        services.AddScoped<ICanvaUserTokenRepository, EfCanvaUserTokenRepository>();
         services.AddScoped<IIntegrationExecutionAttemptRepository, EfIntegrationExecutionAttemptRepository>();
         services.AddScoped<ISingleContentAnalysisRepository, EfSingleContentAnalysisRepository>();
         services.AddScoped<IProfileAnalysisRepository, EfProfileAnalysisRepository>();
