@@ -169,7 +169,7 @@ public sealed class CanvaOAuthServiceTests
             Now);
         repo.Seed(token);
 
-        var result = await service.EnsureFreshAsync(UserId, OrgIntegrationId, CancellationToken.None);
+        var result = await service.EnsureFreshAsync(UserId, OrgIntegrationId, OrgId, CancellationToken.None);
 
         Assert.True(result.IsSuccess, $"EnsureFreshAsync failed: {result.Error.Code}");
         Assert.Equal("valid-access", result.Value);
@@ -204,7 +204,7 @@ public sealed class CanvaOAuthServiceTests
             Now.AddDays(-1));
         repo.Seed(token);
 
-        var result = await service.EnsureFreshAsync(UserId, OrgIntegrationId, CancellationToken.None);
+        var result = await service.EnsureFreshAsync(UserId, OrgIntegrationId, OrgId, CancellationToken.None);
 
         Assert.True(result.IsSuccess, $"EnsureFreshAsync (refresh) failed: {result.Error.Code}");
         Assert.Equal("new-access-token", result.Value);
@@ -219,7 +219,7 @@ public sealed class CanvaOAuthServiceTests
     {
         var (service, _, _, _, _) = CreateService();
 
-        var result = await service.EnsureFreshAsync(UserId, OrgIntegrationId, CancellationToken.None);
+        var result = await service.EnsureFreshAsync(UserId, OrgIntegrationId, OrgId, CancellationToken.None);
 
         Assert.True(result.IsFailure);
         Assert.Equal("canva.oauth.token_not_found", result.Error.Code);
@@ -272,7 +272,7 @@ public sealed class CanvaOAuthServiceTests
 
         var (service, _, _, _, _) = CreateService(httpHandler: httpHandler, repo: repo, protector: protector);
 
-        var result = await service.EnsureFreshAsync(UserId, OrgIntegrationId, CancellationToken.None);
+        var result = await service.EnsureFreshAsync(UserId, OrgIntegrationId, OrgId, CancellationToken.None);
 
         // The service must succeed — using the concurrent writer's already-rotated token
         Assert.True(result.IsSuccess, $"D2 retry failed: {result.Error.Code}");

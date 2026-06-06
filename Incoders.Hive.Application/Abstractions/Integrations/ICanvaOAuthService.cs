@@ -75,11 +75,17 @@ public interface ICanvaOAuthService
     /// </summary>
     /// <param name="userId">The platform user whose token to retrieve.</param>
     /// <param name="organizationIntegrationId">The org-level Canva integration row id.</param>
+    /// <param name="organizationId">
+    ///     The REAL organization id, used to resolve the Canva BYOK credentials via
+    ///     <c>IIntegrationResolver</c> when a token refresh is required.
+    ///     Must be the authenticated tenant's org id — NOT the <c>organizationIntegrationId</c>.
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Plaintext access token, or a typed error (token-not-found, refresh-failed).</returns>
     Task<Result<string>> EnsureFreshAsync(
         Guid userId,
         Guid organizationIntegrationId,
+        Guid organizationId,
         CancellationToken ct = default);
 
     /// <summary>

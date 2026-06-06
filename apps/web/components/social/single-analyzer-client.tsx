@@ -23,6 +23,7 @@ import {
   FileText,
   FolderOpen,
   FileImage,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
@@ -35,6 +36,7 @@ import { OptionCardSelector, type OptionCardSelectorOption } from "@/components/
 import { Select } from "@/components/ui/select";
 import { getMockClients, getMockOrganizations } from "@/lib/mocks/content-workflow";
 import { listWorkflowClients } from "@/lib/api/content-workflow";
+import { getOrganizationIntegration } from "@/lib/api/integrations";
 import type {
   Organization,
   SingleContentAnalysisStatus,
@@ -68,6 +70,7 @@ import {
   assemblePackage,
   deleteFormatItem,
   downloadFormatAsPptx,
+  exportFormatToCanva,
   ALL_FORMAT_KEYS,
   FORMAT_LABELS,
 } from "@/lib/api/content-generation";
@@ -746,6 +749,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDownloadingPackage, setIsDownloadingPackage] = useState(false);
   const [isDownloadingPptx, setIsDownloadingPptx] = useState(false);
+  const [isExportingToCanva, setIsExportingToCanva] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isHydratingHistory, setIsHydratingHistory] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -982,6 +986,73 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setIsDownloadingPptx(false);
     }
   }, [packageJobId, isDownloadingPptx, effectiveToken, videoResult?.id]);
+
+  /**
+   * Exports the given format to Canva via the Design Import API.
+   * On success: opens the Canva edit URL in a new tab.
+   * On not_connected / reconnect_required: redirects to the OAuth Connect flow.
+   * On other errors: sets the package job error for the user to see.
+   *
+   * B3 WU-7 — mirrors downloadFormatAsPptxFile pattern.
+   */
+  const exportFormatToCanvaFile = useCallback(async (formatKey: string) => {
+    if (isExportingToCanva) return;
+    const analysisId = videoResult?.id;
+    const jobId = packageJobId;
+    if (!analysisId || !jobId) return;
+    setIsExportingToCanva(true);
+    setPackageJobError(null);
+    try {
+      // Lazy-load the org's Canva integration id so we don't need an extra prop.
+      // Uses selectedOrganizationId which is already resolved from the active org context.
+      const orgId = selectedOrganizationId;
+
+      let orgIntegrationId = "";
+      if (orgId) {
+        try {
+          const integration = await getOrganizationIntegration(orgId, "canva", effectiveToken ?? undefined);
+          orgIntegrationId = integration.integrationId ?? "";
+        } catch {
+          // Integration not configured — fall through; the handler returns not_connected.
+        }
+      }
+
+      const result = await exportFormatToCanva(analysisId, formatKey, jobId, orgIntegrationId, {
+        token: effectiveToken,
+      });
+      // Success: open Canva design edit URL in a new tab
+      window.open(result.editUrl, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      const err = e as { message?: string; code?: string };
+      const code = err.code ?? "";
+
+      // User has not connected their Canva account — start the OAuth Connect flow.
+      // The authorize endpoint will resolve the orgIntegrationId from the user's org context.
+      if (code === "canva.not_connected" || code === "canva.reconnect_required") {
+        // Fetch the org's Canva integration id for the authorize redirect.
+        // If unavailable, we still redirect and let the server handle it gracefully.
+        let canvaIntegrationId = "";
+        try {
+          const integration = await getOrganizationIntegration(
+            selectedOrganizationId, "canva", effectiveToken ?? undefined
+          );
+          canvaIntegrationId = integration.integrationId ?? "";
+        } catch {
+          // Ignore — the authorize endpoint handles missing orgIntegrationId gracefully.
+        }
+        const returnUrl = typeof window !== "undefined" ? window.location.href : "/";
+        const connectUrl = `/api/integrations/canva/authorize?orgIntegrationId=${encodeURIComponent(canvaIntegrationId)}&redirectUri=${encodeURIComponent(returnUrl)}`;
+        window.location.href = connectUrl;
+        return;
+      }
+
+      setPackageJobError({
+        message: err?.message ?? `Failed to export ${formatKey} to Canva.`,
+      });
+    } finally {
+      setIsExportingToCanva(false);
+    }
+  }, [packageJobId, isExportingToCanva, effectiveToken, videoResult?.id, selectedOrganizationId]);
 
   useEffect(() => {
     setDuplicateAnalysisPrompt(null);
@@ -2750,6 +2821,32 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                       <span className="flex items-center gap-1">
                                         <Download className="h-3 w-3" />
                                         Download PPTX
+                                      </span>
+                                    )}
+                                  </Button>
+                                )}
+                              {/* B3 WU-7 — Export to Canva (visual formats only) */}
+                              {packageJob.manifest?.has_stored_assets &&
+                                packageSucceededFormats.includes(selectedFormatKey) &&
+                                (mutationMode === "carousel" || mutationMode === "flyer") &&
+                                packageJobId && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-xs"
+                                    onClick={() => void exportFormatToCanvaFile(selectedFormatKey)}
+                                    disabled={isExportingToCanva || isFormatMutating || packageGenerationIsRunning}
+                                    title="Export this format to Canva as an editable design. Requires Canva connection."
+                                  >
+                                    {isExportingToCanva ? (
+                                      <span className="flex items-center gap-1">
+                                        <RefreshCw className="h-3 w-3 animate-spin" />
+                                        Exporting…
+                                      </span>
+                                    ) : (
+                                      <span className="flex items-center gap-1">
+                                        <ExternalLink className="h-3 w-3" />
+                                        Export to Canva
                                       </span>
                                     )}
                                   </Button>

@@ -1,4 +1,5 @@
 using Incoders.Hive.ApiService.Endpoints.Common;
+using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Domain.Common;
@@ -10,6 +11,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.PackageListing
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Regenerate;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Status;
 using MediatR;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Incoders.Hive.ApiService.Endpoints.Social.ContentGeneration;
 
@@ -55,6 +57,15 @@ public static class ContentGenerationEndpointsExtensions
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        analyzerGroup.MapPost("/{analysisId:guid}/formats/{formatKey}/export-to-canva", ContentGenerationEndpointFacade.ExportFormatToCanvaAsync)
+            .WithName("ExportFormatToCanva")
+            .WithSummary("Export a generated format to Canva as an editable design via the Design Import API. Returns the Canva edit URL.")
+            .Produces<ExportFormatToCanvaResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
 
         analyzerGroup.MapDelete("/{analysisId:guid}/formats/{formatKey}", ContentGenerationEndpointFacade.DeleteFormatAsync)
             .WithName("DeleteFormatAsset")
@@ -137,6 +148,18 @@ public sealed record ClientPackageApiEntry(
 
 /// <summary>Top-level response for GET .../packages.</summary>
 public sealed record AnalysisPackagesApiResponse(IReadOnlyList<ClientPackageApiEntry> Clients);
+
+// ─── Export-to-Canva request / response types (WU-7) ──────────────────────────
+
+/// <summary>
+/// Request body for POST .../formats/{formatKey}/export-to-canva.
+/// The <c>jobId</c> identifies the generation job that produced the format.
+/// The <c>orgIntegrationId</c> is the org-level Canva integration row id used to look up
+/// per-user tokens and BYOK credentials.
+/// </summary>
+public sealed record ExportToCanvaRequest(
+    Guid JobId,
+    Guid OrgIntegrationId);
 
 /// <summary>
 /// Minimal API handler delegates for content generation endpoints.
@@ -350,5 +373,57 @@ public static class ContentGenerationEndpointFacade
                 response.ContentStream,
                 contentType: "application/zip",
                 fileDownloadName: $"content-package-{jobId}.zip"));
+    }
+
+    /// <summary>
+    /// POST /{analysisId}/formats/{formatKey}/export-to-canva
+    ///
+    /// Exports the persisted format composition as an editable Canva design.
+    /// Requires the <c>jobId</c> (in the request body) that produced the format result,
+    /// plus the <c>orgIntegrationId</c> identifying the org's Canva integration row.
+    ///
+    /// Returns 200 <c>{ editUrl, designId, expiresAt }</c> on success.
+    /// Returns 409 with <c>"canva.not_connected"</c> error code when the user has not
+    /// connected their Canva account — the caller should redirect to the authorize endpoint.
+    /// Returns 502 for Canva API failures (timeout, api-failure).
+    /// </summary>
+    public static async Task<IResult> ExportFormatToCanvaAsync(
+        Guid analysisId,
+        string formatKey,
+        [FromBody] ExportToCanvaRequest body,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
+        CancellationToken cancellationToken)
+    {
+        if (currentUser.UserId is not { } userId)
+            return TypedResults.Unauthorized();
+
+        if (currentTenant.TenantId is not { } tenantId)
+            return OrganizationRequired.ToProblem();
+
+        var result = await sender.Send(
+            new ExportFormatToCanvaCommand(
+                JobId: body.JobId,
+                FormatKey: formatKey,
+                OrganizationId: tenantId.Value,
+                OrganizationIntegrationId: body.OrgIntegrationId,
+                UserId: userId),
+            cancellationToken);
+
+        if (result.IsSuccess)
+            return TypedResults.Ok(result.Value);
+
+        // Upstream Canva API failures → 502 Bad Gateway (not our fault, not the user's fault)
+        if (result.Error.Code.StartsWith("canva.import.", StringComparison.OrdinalIgnoreCase))
+        {
+            return TypedResults.Problem(
+                title: "Canva API failure",
+                detail: result.Error.MessageKey,
+                statusCode: StatusCodes.Status502BadGateway,
+                extensions: new Dictionary<string, object?> { ["code"] = result.Error.Code });
+        }
+
+        return result.Error.ToProblem();
     }
 }

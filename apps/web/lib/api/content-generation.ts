@@ -357,6 +357,81 @@ export async function listAnalysisPackages(
   );
 }
 
+// ─── Export to Canva ─────────────────────────────────────────────────────────
+
+/** Response shape returned by POST .../export-to-canva on success. */
+export interface ExportToCanvaResult {
+  designId: string;
+  editUrl: string;
+  expiresAt: string; // ISO 8601
+}
+
+/**
+ * POST /api/social/single-analyzer/{analysisId}/formats/{formatKey}/export-to-canva
+ *
+ * Exports the persisted format composition to Canva via the Design Import API.
+ * Returns the Canva edit URL on success.
+ *
+ * Throws when:
+ * - 409 with code "canva.not_connected": user has not connected their Canva account.
+ *   The caller should start the OAuth Connect flow.
+ * - 409 with code "canva.reconnect_required": the stored token was revoked — reconnect.
+ * - 409 with code "content-gen.not-exportable": format predates B3 markup persistence.
+ * - 502: Canva API failure (timeout, api-failure).
+ * - Any other non-2xx HTTP status.
+ *
+ * The thrown Error will have a `code` property when the server returns a problem+json body.
+ */
+export async function exportFormatToCanva(
+  analysisId: string,
+  formatKey: string,
+  jobId: string,
+  orgIntegrationId: string,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<ExportToCanvaResult> {
+  const base = typeof window !== "undefined" ? "/hive-api" : "";
+  const headers = new Headers({ "Content-Type": "application/json" });
+
+  if (opts?.token) {
+    headers.set("Authorization", `Bearer ${opts.token}`);
+  }
+
+  if (typeof window !== "undefined") {
+    const orgId = window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+    if (orgId) {
+      headers.set("X-Tenant-Id", orgId);
+    }
+  }
+
+  const url = `${base}/api/social/single-analyzer/${encodeURIComponent(analysisId)}/formats/${encodeURIComponent(formatKey)}/export-to-canva`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ jobId, orgIntegrationId }),
+    signal: opts?.signal,
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let message = `Failed to export to Canva (HTTP ${response.status})`;
+    let code: string | undefined;
+    try {
+      const problem = (await response.json()) as { detail?: string; title?: string; extensions?: { code?: string }; code?: string };
+      code = problem.code ?? (problem.extensions as Record<string, string> | undefined)?.["code"];
+      message = problem.detail ?? problem.title ?? message;
+    } catch {
+      // ignore: keep default HTTP message
+    }
+    const err = new Error(message) as Error & { code?: string; status?: number };
+    err.code = code;
+    err.status = response.status;
+    throw err;
+  }
+
+  return response.json() as Promise<ExportToCanvaResult>;
+}
+
 /**
  * GET /api/social/content-generation-jobs/{jobId}/package
  * Downloads the generated ZIP using auth + tenant headers.

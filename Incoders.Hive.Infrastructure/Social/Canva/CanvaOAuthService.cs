@@ -172,6 +172,7 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
     public async Task<Result<string>> EnsureFreshAsync(
         Guid userId,
         Guid organizationIntegrationId,
+        Guid organizationId,
         CancellationToken ct = default)
     {
         var token = await _tokenRepository.GetAsync(userId, organizationIntegrationId, ct);
@@ -184,15 +185,11 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
         if (token.AccessTokenExpiresAtUtc > nowUtc)
             return Result.Success(_protector.Unprotect(token.EncryptedAccessToken));
 
-        // Token expired — need to refresh via single-use refresh token (D2 rotation)
+        // Token expired — need to refresh via single-use refresh token (D2 rotation).
+        // Pass the REAL organizationId (not organizationIntegrationId as a proxy)
+        // so the resolver can load the correct BYOK client_id/secret.
         var refreshToken = _protector.Unprotect(token.EncryptedRefreshToken);
-
-        // We need the org credential to provide client_id/secret for the refresh grant.
-        // NOTE: EnsureFreshAsync does not take organizationId as a parameter by design —
-        // the resolver is called with the organization integrated in the token's context.
-        // We resolve the org via the organizationIntegrationId (runtime resolution deferred here).
-        // For now, resolve via a convention — see CanvaOAuthErrors.RefreshFailed fallback.
-        var refreshResult = await RefreshAccessTokenAsync(token, refreshToken, nowUtc, organizationIntegrationId, ct);
+        var refreshResult = await RefreshAccessTokenAsync(token, refreshToken, nowUtc, organizationId, ct);
         return refreshResult;
     }
 
@@ -211,31 +208,15 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
         CanvaUserToken token,
         string plaintextRefreshToken,
         DateTime nowUtc,
-        Guid organizationIntegrationId,
+        Guid organizationId,
         CancellationToken ct)
     {
-        // Resolve org credentials using organizationIntegrationId.
-        // Since EnsureFreshAsync callers (e.g. ExportFormatToCanvaCommandHandler) need not pass
-        // the org ID separately, we accept that EnsureFreshAsync requires the resolver to have
-        // been configured with the right org context. However, to avoid over-complicating the
-        // signature, we pass a sentinel empty Guid that the resolver will reject gracefully,
-        // and rely on callers passing the org credential resolution via CanvaOAuthService's
-        // constructor-injected resolver. The D2 retry test exercises this with a FakeIntegrationResolver.
-        //
-        // For the service wiring in production, the http client token refresh is done via
-        // the stored client_id/secret from the resolved org credential. Since EnsureFreshAsync
-        // may be called from background jobs, we look up the client credentials from a resolved
-        // "canva" integration using the organizationIntegrationId as the org root.
-        //
-        // Limitation: this requires the org to still have the Canva integration configured.
-        // If it was deleted, the refresh fails gracefully with `refresh-failed`.
-
-        // Build the refresh token request WITHOUT resolving org credentials for simplicity:
-        // Canva's refresh token grant requires client_id and client_secret as Basic auth.
-        // We resolve the org from the token's OrganizationIntegrationId via the resolver.
-        // For the tests, the FakeIntegrationResolver ignores the org ID.
+        // Resolve the org BYOK credentials (client_id / client_secret) using the REAL organizationId.
+        // This is the correct pattern: callers of EnsureFreshAsync must supply the authenticated
+        // tenant's org id, NOT the organizationIntegrationId (which is a different entity).
+        // The resolver returns the Canva app credentials needed for the refresh grant.
         var resolved = await _integrationResolver.ResolveProviderAsync(
-            token.UserId == Guid.Empty ? Guid.NewGuid() : organizationIntegrationId,
+            organizationId,
             "canva",
             ct);
 

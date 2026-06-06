@@ -345,29 +345,37 @@ feat(integrations): WU-6 — ICanvaDesignImportClient port + bounded-poll HTTP a
 **Spec requirements satisfied:** CANVA-EXPORT-01, CANVA-EXPORT-02, CANVA-EXPORT-03, CANVA-EXPORT-04, CANVA-USER-03 (revoke visible in UI).
 
 **RED tests to write first:**
-- [ ] `ExportFormatToCanvaCommandHandlerTests.cs` (new, `Incoders.Hive.Tests/Application/Social/ContentGeneration/Export/`):
+- [x] `ExportFormatToCanvaCommandHandlerTests.cs` (new, `Incoders.Hive.Tests/Application/Social/ContentGeneration/Export/`):
   - `Handle_UserNotConnected_ReturnsNeedsAuthorizationWithAuthorizeUrl` — fake token repo returns `null`; asserts `needs-authorization` result with non-empty `authorizeUrl`; PPTX adapter and import client never called.
   - `Handle_UserConnectedExpiredToken_RefreshesAndExports` — fake OAuth service `EnsureFreshAsync` returns fresh token; asserts import client called with that token.
   - `Handle_HappyPath_ReturnEditUrl` — all fakes succeed; asserts returned `{ editUrl, expiresAt }`.
   - `Handle_NullCompositionSpecJson_ReturnsNotExportableError` — fake format result repo returns null markup; asserts `not-exportable` error; import client never called.
   - `Handle_ImportClientTimeout_ReturnsHandledError` — fake import client returns `timeout` error; asserts handler propagates typed error.
   - `Handle_ImportClientUnauthorized_ClearsTokensAndReturnsReconnectError` — fake import client returns `unauthorized`; asserts token repo `DeleteAsync` called; asserts `reconnect-required` error returned.
-- [ ] Extend `MapContentGenerationEndpointsTests.cs`:
+  - `Handle_RealOrganizationId_FlowsIntoEnsureFreshAsync` — asserts REAL org id (not proxy) reaches EnsureFreshAsync.
+- [x] `MapContentGenerationCanvaEndpointTests.cs` (new, `Incoders.Hive.Tests/ApiService/ContentGeneration/`):
   - `ExportToCanva_Endpoint_Returns200WithEditUrl` — fake handler; asserts JSON `{ editUrl }`.
-  - `ExportToCanva_Endpoint_Returns401WhenNeedsAuthorization` — handler returns `needs-authorization`; asserts 401 + `authorizeUrl` in response.
+  - `ExportToCanva_Endpoint_Returns409WhenNeedsAuthorization` — handler returns `canva.not_connected`; asserts 409 + code in response.
+  - `ExportToCanva_Endpoint_Returns502OnImportTimeout` — import timeout → 502.
+  - `ExportToCanva_Endpoint_Returns502OnImportApiFailure` — import api-failure → 502.
+  - `ExportToCanva_Endpoint_Returns409WhenNotExportable` — no markup → 409.
+  - `ExportToCanva_MissingTenant_ReturnsProblem` — no tenant → problem.
+  - `ExportToCanva_MissingUser_ReturnsUnauthorized` — no user → 401.
 
 **GREEN implementation steps:**
-- [ ] Create `ExportFormatToCanvaCommand.cs` + `ExportFormatToCanvaCommandHandler.cs`:
+- [x] Create `ExportFormatToCanvaCommand.cs` + `ExportFormatToCanvaCommandHandler.cs`:
   - `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToCanvaCommand.cs`
   - `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToCanvaCommandHandler.cs`
-  - Handler logic: lookup format result (null markup → `not-exportable`); lookup token (null → `needs-authorization`); `EnsureFreshAsync`; build PPTX (`IPptxExportAdapter`); `ImportAsync` (`ICanvaDesignImportClient`); on 401 → delete token + `reconnect-required`; return `editUrl`.
-  - Add deferred extension point: `ICanvaAutofillAdapter` (future, unreachable stub or comment-only interface stub in Application — never wired in DI for current plan).
-- [ ] Extend `MapContentGenerationEndpoints.cs` — add `POST .../formats/{formatKey}/export-to-canva`:
-  - Returns 200 `{ editUrl, expiresAt }` on success; maps `needs-authorization` → 401 `{ authorizeUrl }`; maps `not-exportable` → 422; maps `timeout`/`api-failure` → 502.
-- [ ] Add `exportFormatToCanva(jobId, formatKey)` + `getCanvaConnectStatus()` + `revokeCanvaConnection()` to `apps/web/lib/api/content-generation.ts`.
-- [ ] Extend `apps/web/components/social/single-analyzer-client.tsx`:
-  - "Export to Canva" button per format card; triggers `exportFormatToCanva`; on `needs-authorization` → shows "Connect to Canva" prompt (opens `authorizeUrl`); on success → opens `editUrl` in new tab.
-  - "Connect to Canva" / "Disconnect Canva" status in UI (calls `getCanvaConnectStatus` / `revokeCanvaConnection`).
+  - Handler logic: lookup format result (null markup → `not-exportable`); lookup token (null → `canva.not_connected`); `EnsureFreshAsync` with REAL orgId; build PPTX (`IPptxExportAdapter`); `ImportAsync` (`ICanvaDesignImportClient`); on 401 → revoke + `canva.reconnect_required`; return `editUrl`.
+  - Added `ICanvaAutofillAdapter` deferred stub (not wired in DI).
+- [x] Extend `MapContentGenerationEndpoints.cs` — added `POST .../formats/{formatKey}/export-to-canva`:
+  - Returns 200 `{ editUrl, expiresAt }` on success; maps `canva.not_connected`/`canva.reconnect_required` → 409; maps `canva.import.*` → 502.
+- [x] Added `exportFormatToCanva(analysisId, formatKey, jobId, orgIntegrationId)` to `apps/web/lib/api/content-generation.ts`.
+- [x] Extended `apps/web/components/social/single-analyzer-client.tsx`:
+  - "Export to Canva" button per format card (visual formats only); triggers `exportFormatToCanvaFile`.
+  - On `canva.not_connected`/`canva.reconnect_required` → redirects to OAuth Connect flow.
+  - On success → opens `editUrl` in new tab.
+  - Fix: `ICanvaOAuthService.EnsureFreshAsync` updated to take `organizationId` parameter; all WU-5 tests updated.
 
 **Files / layers touched:**
 - `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToCanvaCommand.cs` (new)
