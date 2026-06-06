@@ -249,9 +249,9 @@ feat(integrations): WU-4 — CanvaUserToken entity + ICanvaUserTokenRepository +
 **Spec requirements satisfied:** CANVA-USER-01 (PKCE auth code flow, state validation), CANVA-USER-02 (token refresh rotation + serialization via xmin), CANVA-USER-03 (revoke path).
 
 **RED tests to write first:**
-- [ ] `ICanvaOAuthServiceContractTests.cs` (new, `Incoders.Hive.Tests/Application/`):
+- [x] `ICanvaOAuthServiceContractTests.cs` (new, `Incoders.Hive.Tests/Application/`):
   - `Port_HasNoInfrastructureTypes` — reflects interface signatures.
-- [ ] `CanvaOAuthServiceTests.cs` (new, `Incoders.Hive.Tests/Infrastructure/Social/Canva/`):
+- [x] `CanvaOAuthServiceTests.cs` (new, `Incoders.Hive.Tests/Infrastructure/Social/Canva/`):
   - `BuildAuthorizeUrl_GeneratesPkceChallengeDerivedFromVerifier` — asserts `code_challenge` is SHA-256/Base64Url of `code_verifier`.
   - `BuildAuthorizeUrl_StateRoundTrips` — asserts state parameter is stored and returned in callback.
   - `BuildAuthorizeUrl_RejectsStateMismatch` — asserts callback with wrong state returns failure.
@@ -262,21 +262,21 @@ feat(integrations): WU-4 — CanvaUserToken entity + ICanvaUserTokenRepository +
   - `RevokeAsync_DeletesTokenRow` — asserts `ICanvaUserTokenRepository.DeleteAsync` called.
 
 **GREEN implementation steps:**
-- [ ] Create Application port:
+- [x] Create Application port:
   - `Incoders.Hive.Application/Abstractions/Integrations/ICanvaOAuthService.cs`
-  - Methods: `Task<string> BuildAuthorizeUrlAsync(Guid userId, Guid orgIntegrationId, CancellationToken ct)`, `Task<Result> ExchangeCodeAsync(Guid userId, Guid orgIntegrationId, string code, string state, CancellationToken ct)`, `Task<Result<string>> EnsureFreshAsync(Guid userId, Guid orgIntegrationId, CancellationToken ct)`, `Task RevokeAsync(Guid userId, Guid orgIntegrationId, CancellationToken ct)`.
-- [ ] Create Infrastructure adapter:
+  - Methods: `Task<Result<string>> BuildAuthorizeUrlAsync(Guid userId, Guid orgIntegrationId, Guid orgId, string redirectUri, CancellationToken ct)`, `Task<Result> ExchangeCodeAsync(Guid userId, Guid orgIntegrationId, Guid orgId, string code, string state, string redirectUri, CancellationToken ct)`, `Task<Result<string>> EnsureFreshAsync(Guid userId, Guid orgIntegrationId, CancellationToken ct)`, `Task RevokeAsync(Guid userId, Guid orgIntegrationId, CancellationToken ct)`.
+- [x] Create Infrastructure adapter:
   - `Incoders.Hive.Infrastructure/Social/Canva/CanvaOAuthService.cs`
   - PKCE: generate `code_verifier` (32-byte random / Base64Url), derive `code_challenge` (SHA-256 / Base64Url).
-  - State: store `(state, verifier)` in `IDistributedCache` or `ICacheStore` keyed by session/user; expire after 10 min.
+  - State: store `(state, verifier)` in `ICacheStore` keyed by `canva:pkce:{state}`; TTL 10 min.
   - `EnsureFreshAsync`: implements D2 xmin-retry flow (read → check expiry → refresh if needed → `UpsertAsync` with xmin → on `DbUpdateConcurrencyException` re-read once → use rotated row).
   - Resolves org credential via `IIntegrationResolver.ResolveProviderAsync(orgId, "canva")`.
   - Encrypts/decrypts tokens via `IIntegrationSecretProtector`.
-- [ ] Create OAuth endpoints in `MapIntegrationsEndpoints.cs` (or new `MapCanvaOAuthEndpoints.cs`):
-  - `Incoders.Hive.ApiService/Endpoints/Integrations/MapIntegrationsEndpoints.cs` (extend)
+- [x] Create OAuth endpoints in `MapIntegrationsEndpoints.cs`:
+  - `Incoders.Hive.ApiService/Endpoints/Integrations/MapIntegrationsEndpoints.cs` (extend + `CanvaOAuthFacade` static class)
   - `GET .../integrations/canva/authorize` → calls `ICanvaOAuthService.BuildAuthorizeUrlAsync`; 302 redirect to Canva.
-  - `GET .../integrations/canva/callback` → calls `ICanvaOAuthService.ExchangeCodeAsync`; on success 302 to UI success page; on failure 302 to error page.
-- [ ] Register `CanvaOAuthService` + `HttpClient` (named `"canva-oauth"`) in Infrastructure DI.
+  - `GET .../integrations/canva/callback` → calls `ICanvaOAuthService.ExchangeCodeAsync`; on success 302 to UI success page; on failure 302 to error page (no HTTP 500 for expected failures).
+- [x] Register `CanvaOAuthService` + `HttpClient` (named `"canva-oauth"`) in Infrastructure DI via `AddHttpClient<ICanvaOAuthService, CanvaOAuthService>`.
 
 **Files / layers touched:**
 - `Incoders.Hive.Application/Abstractions/Integrations/ICanvaOAuthService.cs` (new)

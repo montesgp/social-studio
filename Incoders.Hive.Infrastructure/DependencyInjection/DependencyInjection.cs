@@ -10,6 +10,7 @@ using Incoders.Hive.Infrastructure.Ai;
 using Incoders.Hive.Infrastructure.Packaging;
 using Incoders.Hive.Infrastructure.Rendering;
 using Incoders.Hive.Infrastructure.Social;
+using Incoders.Hive.Infrastructure.Social.Canva;
 using Incoders.Hive.Infrastructure.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Infrastructure.Caching.InMemory;
@@ -134,6 +135,13 @@ public static class DependencyInjection
         services.AddScoped<IOrganizationIntegrationRepository, EfOrganizationIntegrationRepository>();
         services.AddScoped<IOrganizationIntegrationCredentialRepository, EfOrganizationIntegrationCredentialRepository>();
         services.AddScoped<ICanvaUserTokenRepository, EfCanvaUserTokenRepository>();
+
+        // Canva OAuth PKCE service — per-request scoped; owns the HttpClient for token exchanges.
+        // Named client "canva-oauth" with a reasonable timeout (30s). Canva's token endpoint
+        // is a fast synchronous call, not a long-running job, so no resilience handler removal needed.
+        services.AddHttpClient<ICanvaOAuthService, CanvaOAuthService>(
+            "canva-oauth",
+            client => client.Timeout = TimeSpan.FromSeconds(30));
         services.AddScoped<IIntegrationExecutionAttemptRepository, EfIntegrationExecutionAttemptRepository>();
         services.AddScoped<ISingleContentAnalysisRepository, EfSingleContentAnalysisRepository>();
         services.AddScoped<IProfileAnalysisRepository, EfProfileAnalysisRepository>();

@@ -1,4 +1,6 @@
 using Incoders.Hive.ApiService.Endpoints.Common;
+using Incoders.Hive.Application.Abstractions;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Application.Features.Integrations;
 using Incoders.Hive.Application.Features.Integrations.Configure;
@@ -72,6 +74,25 @@ public static class IntegrationsEndpointsExtensions
             .Produces<OrganizationIntegrationResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // ─── Canva per-user OAuth (PKCE) — WU-5 ─────────────────────────────────
+
+        var canvaGroup = app.MapGroup("/api/integrations/canva")
+            .WithTags("Integrations")
+            .RequireAuthorization();
+
+        canvaGroup.MapGet("/authorize", CanvaOAuthFacade.AuthorizeAsync)
+            .WithName("CanvaOAuthAuthorize")
+            .WithSummary("Start Canva per-user OAuth PKCE flow — redirects to Canva authorization page")
+            .Produces(StatusCodes.Status302Found)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+        canvaGroup.MapGet("/callback", CanvaOAuthFacade.CallbackAsync)
+            .WithName("CanvaOAuthCallback")
+            .WithSummary("Canva OAuth callback — exchanges code for tokens and redirects to UI")
+            .Produces(StatusCodes.Status302Found)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
 
         return app;
     }
@@ -204,6 +225,98 @@ public static class IntegrationsEndpointsExtensions
         return result.Match(response => (IResult)TypedResults.Ok(response));
     }
 
+}
+
+/// <summary>
+/// Minimal API handler delegates for Canva per-user OAuth endpoints (WU-5).
+///
+/// <para>
+/// Authorize: builds PKCE URL and redirects the user to Canva.
+/// Callback: validates state, exchanges code+verifier for tokens, redirects to the UI.
+/// </para>
+///
+/// <para>
+/// Errors (invalid/expired state, Canva error) produce a redirect to the error page —
+/// no HTTP 500 is ever returned for expected OAuth failures.
+/// </para>
+/// </summary>
+public static class CanvaOAuthFacade
+{
+    // UI success and error redirect paths — the SPA handles these routes.
+    private const string SuccessRedirectPath = "/integrations/canva/connected";
+    private const string ErrorRedirectPath = "/integrations/canva/error";
+
+    /// <summary>
+    /// GET /api/integrations/canva/authorize?orgIntegrationId={guid}&amp;redirectUri={uri}
+    ///
+    /// Resolves the user + org context, calls <see cref="ICanvaOAuthService.BuildAuthorizeUrlAsync"/>,
+    /// stores verifier in cache, then 302-redirects to Canva.
+    /// </summary>
+    public static async Task<IResult> AuthorizeAsync(
+        [FromQuery] Guid orgIntegrationId,
+        [FromQuery] string redirectUri,
+        [FromServices] ICanvaOAuthService oauthService,
+        [FromServices] ICurrentUser currentUser,
+        [FromServices] ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentUser.UserId is not { } userId)
+            return TypedResults.Unauthorized();
+
+        if (currentTenant.TenantId is not { } tenantId)
+            return IntegrationErrors.OrganizationRequired.ToProblem();
+
+        var result = await oauthService.BuildAuthorizeUrlAsync(
+            userId,
+            orgIntegrationId,
+            tenantId.Value,
+            redirectUri,
+            cancellationToken);
+
+        return result.IsSuccess
+            ? TypedResults.Redirect(result.Value)
+            : result.Error.ToProblem();
+    }
+
+    /// <summary>
+    /// GET /api/integrations/canva/callback?code={code}&amp;state={state}&amp;orgIntegrationId={guid}&amp;redirectUri={uri}
+    ///
+    /// Validates state, exchanges code+verifier for tokens, redirects to the UI success or error page.
+    /// Expected failures (invalid/expired state, Canva error) redirect to the error page — no 500.
+    /// </summary>
+    public static async Task<IResult> CallbackAsync(
+        [FromQuery] string code,
+        [FromQuery] string state,
+        [FromQuery] Guid orgIntegrationId,
+        [FromQuery] string redirectUri,
+        [FromServices] ICanvaOAuthService oauthService,
+        [FromServices] ICurrentUser currentUser,
+        [FromServices] ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentUser.UserId is not { } userId)
+            return TypedResults.Redirect(ErrorRedirectPath + "?reason=unauthenticated");
+
+        if (currentTenant.TenantId is not { } tenantId)
+            return TypedResults.Redirect(ErrorRedirectPath + "?reason=no-organization");
+
+        // Canva may return an error param instead of a code (e.g., user cancelled).
+        if (string.IsNullOrWhiteSpace(code))
+            return TypedResults.Redirect(ErrorRedirectPath + "?reason=no-code");
+
+        var result = await oauthService.ExchangeCodeAsync(
+            userId,
+            orgIntegrationId,
+            tenantId.Value,
+            code,
+            state,
+            redirectUri,
+            cancellationToken);
+
+        return result.IsSuccess
+            ? TypedResults.Redirect(SuccessRedirectPath)
+            : TypedResults.Redirect(ErrorRedirectPath + "?reason=" + Uri.EscapeDataString(result.Error.Code));
+    }
 }
 
 public sealed record ConfigureOrganizationIntegrationRequest(
