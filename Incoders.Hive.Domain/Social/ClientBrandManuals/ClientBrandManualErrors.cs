@@ -26,4 +26,14 @@ public static class ClientBrandManualErrors
     public static readonly Error AnotherManualActive = Error.Conflict(
         "social.client_brand_manuals.another_active",
         "social.client_brand_manuals.errors.another_manual_active");
+
+    public static Error DuplicateForcedDefault(string formatKey) =>
+        Error.Validation(
+            "social.client_brand_manuals.duplicate-forced-default",
+            $"A forced-default background already exists for format '{formatKey}'.");
+
+    public static Error ForcedDefaultWithoutFormat(string name) =>
+        Error.Validation(
+            "social.client_brand_manuals.forced-default-without-format",
+            $"Background entry '{name}' is marked as forced default but has no FormatKey.");
 }

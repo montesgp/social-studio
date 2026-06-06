@@ -50,7 +50,16 @@ public sealed class ContentGenerationJobProcessor
     private readonly IGeneratedPackageRepository _packages;
     private readonly IGeneratedAssetStorage? _assetStorage;
     private readonly IContentGenerationFormatAssetRepository? _assetRepository;
+    private readonly IVisualDesigner? _designer;
+    private readonly IVisualGuardrailValidator? _guardrails;
     private readonly ILogger<ContentGenerationJobProcessor> _logger;
+
+    /// <summary>
+    /// Designed-raster formats: flyer + carousel slides.
+    /// Text formats (hook, caption, cta-variation, reel-script, content-idea) bypass the designer.
+    /// </summary>
+    private static readonly HashSet<string> DesignedRasterFormats =
+        new(StringComparer.OrdinalIgnoreCase) { "flyer", "carousel" };
 
     public ContentGenerationJobProcessor(
         IContentGenerationJobRepository jobs,
@@ -65,6 +74,8 @@ public sealed class ContentGenerationJobProcessor
         IGeneratedPackageRepository packages,
         IGeneratedAssetStorage? assetStorage = null,
         IContentGenerationFormatAssetRepository? assetRepository = null,
+        IVisualDesigner? designer = null,
+        IVisualGuardrailValidator? guardrails = null,
         ILogger<ContentGenerationJobProcessor>? logger = null)
     {
         _jobs = jobs;
@@ -79,6 +90,8 @@ public sealed class ContentGenerationJobProcessor
         _packages = packages;
         _assetStorage = assetStorage;
         _assetRepository = assetRepository;
+        _designer = designer;
+        _guardrails = guardrails;
         _logger = logger ?? NullLogger<ContentGenerationJobProcessor>.Instance;
     }
 
@@ -236,6 +249,16 @@ public sealed class ContentGenerationJobProcessor
                 var formatAssetRows = new List<FormatAssetRow>();
                 Guid formatResultId;
 
+                // WU-1 (B3 D1+D3): track the validated markup, canvas dimensions, and captured
+                // slot geometry for this format so they can be persisted in composition_spec_json
+                // on success. Markup comes from the guardrail-validated spec; geometry from the
+                // renderer when it implements IContentRendererWithGeometry (otherwise empty list).
+                // WU-9: also track the background-only data-URI from the same render pass.
+                string? capturedMarkup = null;
+                CompositionDimensions? capturedDimensions = null;
+                IReadOnlyList<SlotGeometryEntry> capturedGeometry = [];
+                string? capturedBackgroundDataUri = null;
+
                 // We need the format result ID to associate asset rows.
                 // Generate a stable ID now (it will be upserted into the DB after render).
                 formatResultId = existingByFormat.TryGetValue(formatKey, out var existingResult)
@@ -246,19 +269,108 @@ public sealed class ContentGenerationJobProcessor
                 {
                     var spec = specs[specIndex];
 
-                    var rendered = await _renderer.RenderAsync(spec, new RenderOptions(), ct);
-                    if (!rendered.IsSuccess)
+                    // Designer + guardrail stage for designed-raster formats (flyer, carousel).
+                    // Text/markdown formats bypass entirely (spec.OutputKind != Raster means they
+                    // are already text/markdown — the designer only applies to raster specs from
+                    // designed formats).
+                    //
+                    // IsActive gate: when the registered IVisualDesigner is a passthrough/no-op
+                    // (IsActive=false, e.g. B1a's NoOpVisualDesigner), this entire block is skipped
+                    // and processing falls through to the legacy renderer below — preserving
+                    // pre-B1a rendering behavior exactly. Only a real, active designer (B1b's
+                    // OpusVisualDesigner, IsActive=true) triggers the designer+guardrail chain.
+                    if (_designer is not null
+                        && _designer.IsActive
+                        && _guardrails is not null
+                        && DesignedRasterFormats.Contains(formatKey)
+                        && spec.OutputKind == CompositionOutputKind.Raster)
                     {
-                        var detail = $"{rendered.Error.Code}: {rendered.Error.MessageKey}";
-                        renderFailures.Add($"{formatKey}: {detail}");
-                        _logger.LogWarning(
-                            "ContentGeneration: render failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}",
-                            formatKey, specIndex, job.Id, detail);
-                        await PersistRenderFailureAsync(job.Id, formatKey, step, detail, ct);
-                        break; // Fail the whole format on first render failure
+                        // Tier-aware background selection.
+                        var backgroundTemplates = brand.Brand?.BackgroundTemplates
+                            ?? Array.Empty<BrandBackgroundTemplateSnapshot>();
+                        var selection = Domain.Social.ContentGeneration.BackgroundSelector.Select(
+                            backgroundTemplates, formatKey);
+
+                        // Design stage. OrganizationId is threaded per-job so the designer's AI
+                        // provider call resolves credentials for the correct tenant.
+                        var designed = await _designer.ComposeAsync(
+                            job.OrganizationId, spec, brand.Brand!, selection, ct);
+                        if (!designed.IsSuccess)
+                        {
+                            var designDetail = $"{designed.Error.Code}: {designed.Error.MessageKey}";
+                            renderFailures.Add($"{formatKey}: designer-failed:{designDetail}");
+                            _logger.LogWarning(
+                                "ContentGeneration: designer failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}",
+                                formatKey, specIndex, job.Id, designDetail);
+                            await PersistRenderFailureAsync(job.Id, formatKey, step, designDetail, ct);
+                            break; // Fail the whole format
+                        }
+
+                        // Guardrail stage.
+                        var guarded = _guardrails.Validate(designed.Value, brand.Brand!, spec);
+                        if (!guarded.IsSuccess)
+                        {
+                            var guardDetail = $"{guarded.Error.Code}: {guarded.Error.MessageKey}";
+                            renderFailures.Add($"{formatKey}: guardrail-failed:{guardDetail}");
+                            _logger.LogWarning(
+                                "ContentGeneration: guardrail failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}",
+                                formatKey, specIndex, job.Id, guardDetail);
+                            await PersistRenderFailureAsync(job.Id, formatKey, step, guardDetail, ct);
+                            break; // Renderer NOT called — fail the format
+                        }
+
+                        // Guardrails passed: promote spec to Html kind with validated markup.
+                        spec = spec with
+                        {
+                            OutputKind = CompositionOutputKind.Html,
+                            DesignerMarkup = guarded.Value.Markup,
+                        };
+
+                        // WU-1 D1: capture the validated markup and canvas dimensions for persistence.
+                        capturedMarkup = guarded.Value.Markup;
+                        capturedDimensions = spec.Dimensions;
                     }
 
-                    var asset = rendered.Value;
+                    // WU-1 D3: when the renderer supports geometry capture (IContentRendererWithGeometry)
+                    // and the spec is an Html composition, use RenderWithGeometryAsync to capture
+                    // per-[data-slot] bounding rects in the same Chromium page session.
+                    // Falls back to the base RenderAsync for non-Html specs or legacy renderers.
+                    RenderedAsset asset;
+                    if (spec.OutputKind == CompositionOutputKind.Html
+                        && _renderer is IContentRendererWithGeometry geometryRenderer)
+                    {
+                        var renderedWithGeo = await geometryRenderer.RenderWithGeometryAsync(
+                            spec, new RenderOptions(), ct);
+                        if (!renderedWithGeo.IsSuccess)
+                        {
+                            var detail = $"{renderedWithGeo.Error.Code}: {renderedWithGeo.Error.MessageKey}";
+                            renderFailures.Add($"{formatKey}: {detail}");
+                            _logger.LogWarning(
+                                "ContentGeneration: render failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}",
+                                formatKey, specIndex, job.Id, detail);
+                            await PersistRenderFailureAsync(job.Id, formatKey, step, detail, ct);
+                            break;
+                        }
+                        asset = renderedWithGeo.Value.Asset;
+                        capturedGeometry = renderedWithGeo.Value.SlotGeometry;
+                        // WU-9: capture the background data-URI from the same render pass.
+                        capturedBackgroundDataUri = renderedWithGeo.Value.BackgroundImageDataUri;
+                    }
+                    else
+                    {
+                        var rendered = await _renderer.RenderAsync(spec, new RenderOptions(), ct);
+                        if (!rendered.IsSuccess)
+                        {
+                            var detail = $"{rendered.Error.Code}: {rendered.Error.MessageKey}";
+                            renderFailures.Add($"{formatKey}: {detail}");
+                            _logger.LogWarning(
+                                "ContentGeneration: render failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}",
+                                formatKey, specIndex, job.Id, detail);
+                            await PersistRenderFailureAsync(job.Id, formatKey, step, detail, ct);
+                            break; // Fail the whole format on first render failure
+                        }
+                        asset = rendered.Value;
+                    }
 
                     // Determine the relative path for storage.
                     // Carousel: carousel/slide_{N}.png (1-based index)
@@ -332,12 +444,19 @@ public sealed class ContentGenerationJobProcessor
                     }
 
                     // Persist format result first (so formatResultId is stable in DB).
+                    // WU-1: pass captured markup + canvas dimensions + geometry so
+                    // PersistRenderSuccessAsync can serialize the CompositionSpecEnvelope
+                    // into composition_spec_json.
                     var persistedFormatResult = await PersistRenderSuccessAsync(
                         formatResultId,
                         job.Id,
                         formatKey,
                         step,
                         assets.Last(),
+                        capturedMarkup,
+                        capturedDimensions,
+                        capturedGeometry,
+                        capturedBackgroundDataUri,
                         ct);
                     existingByFormat[formatKey] = persistedFormatResult;
 
@@ -680,8 +799,35 @@ public sealed class ContentGenerationJobProcessor
         string formatKey,
         FormatStep step,
         RenderedAsset asset,
+        string? designerMarkup,
+        CompositionDimensions? specDimensions,
+        IReadOnlyList<SlotGeometryEntry> slotGeometry,
+        string? backgroundImageDataUri,
         CancellationToken ct)
     {
+        // WU-1 D1: when a validated designer markup is present, serialize the versioned
+        // CompositionSpecEnvelope into composition_spec_json so the PPTX/Canva export
+        // adapters can retrieve markup + geometry without re-composing.
+        // Non-designed formats (text, markdown, legacy raster) leave the column null.
+        // WU-9: also store the background-only data-URI so export adapters can rasterize
+        // the decorative background without re-launching Chromium.
+        string? compositionSpecJson = null;
+        if (designerMarkup is not null)
+        {
+            var canvas = specDimensions is not null
+                ? new CanvasDimensions(specDimensions.Width, specDimensions.Height, specDimensions.Dpi)
+                : new CanvasDimensions(0, 0, 96);
+
+            var envelope = new CompositionSpecEnvelope(
+                SchemaVersion: CompositionSpecEnvelope.CurrentSchemaVersion,
+                Markup: designerMarkup,
+                Canvas: canvas,
+                SlotGeometry: slotGeometry,
+                BackgroundImageRef: backgroundImageDataUri);
+
+            compositionSpecJson = JsonSerializer.Serialize(envelope, JsonOptions);
+        }
+
         var now = DateTime.UtcNow;
         return await _formatResults.UpsertAsync(new ContentGenerationFormatResult(
             Id: resultId,
@@ -689,7 +835,7 @@ public sealed class ContentGenerationJobProcessor
             FormatKey: formatKey,
             Status: "Rendered",
             OutputJson: step.OutputJson,
-            CompositionSpecJson: null,
+            CompositionSpecJson: compositionSpecJson,
             // v1 storage: asset-hash marker for legacy compat (INC-4 switches to per-asset rows).
             RenderedAssetUri: $"asset-hash://{asset.ContentHash}",
             InferredFieldsJson: step.InferredFields.Count == 0

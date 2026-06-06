@@ -76,7 +76,10 @@ public sealed class VisualCompositionServiceTests
         Assert.Equal("flyer", spec.FormatKey);
         Assert.Equal(1080, spec.Dimensions.Width);
         Assert.Equal(1920, spec.Dimensions.Height);
-        Assert.Equal("/storage/client-assets/org/client/story.png", spec.AssetSlots["background"].ImageUrl);
+        // B1a tier-aware selection: the brand template has Tier=Creative (default, no explicit tier),
+        // so BackgroundSelector.Select returns BackgroundSelection.Creative → no forced URL.
+        // Legacy UseCase-based matching is superseded by the 3-tier model (BG-03 design decision 3).
+        Assert.Null(spec.AssetSlots["background"].ImageUrl);
         Assert.Equal("@client", spec.CopySlots["signature"]);
     }
 

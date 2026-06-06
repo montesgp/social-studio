@@ -347,7 +347,11 @@ public sealed class OrganizationIntegrationsFlowTests
                     false,
                     false,
                     false,
-                    [new IntegrationCredentialField("access_token", "Access token", true, true)],
+                    [
+                        new IntegrationCredentialField("client_id",     "Client ID",     true,  true),
+                        new IntegrationCredentialField("client_secret", "Client secret", true,  true),
+                        new IntegrationCredentialField("scopes",        "Scopes",        false, false)
+                    ],
                     nowUtc),
                 CreateProvider(
                     "blotato",

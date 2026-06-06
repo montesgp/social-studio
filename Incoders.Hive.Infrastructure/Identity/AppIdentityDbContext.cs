@@ -79,6 +79,8 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<ProfileAnalysisData> ProfileAnalyses => Set<ProfileAnalysisData>();
 
+    public DbSet<CanvaUserTokenData> CanvaUserTokens => Set<CanvaUserTokenData>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -907,6 +909,46 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .WithOne(x => x.ContentPlan)
                 .HasForeignKey(x => x.ContentPlanId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // B3 WU-4 — per-user Canva OAuth token storage (CANVA-USER-01, CANVA-USER-02, CANVA-USER-03)
+        builder.Entity<CanvaUserTokenData>(entity =>
+        {
+            entity.ToTable("canva_user_tokens", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id").IsRequired();
+            entity.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
+            entity.Property(x => x.OrganizationIntegrationId).HasColumnName("organization_integration_id").IsRequired();
+            entity.Property(x => x.EncryptedAccessToken).HasColumnName("encrypted_access_token").IsRequired();
+            entity.Property(x => x.EncryptedRefreshToken).HasColumnName("encrypted_refresh_token").IsRequired();
+            entity.Property(x => x.AccessTokenExpiresAtUtc).HasColumnName("access_token_expires_at_utc").IsRequired();
+            entity.Property(x => x.Scopes).HasColumnName("scopes").HasMaxLength(1024).IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // D2: xmin-based optimistic concurrency token for refresh-token rotation serialization.
+            // UseXminAsConcurrencyToken() is Npgsql-specific; falls back gracefully on in-memory provider.
+            entity.Property(x => x.RowVersion)
+                .HasColumnName("xmin")
+                .HasColumnType("xid")
+                .ValueGeneratedOnAddOrUpdate()
+                .IsConcurrencyToken();
+
+            // Unique constraint: one active token per user per org-level Canva integration.
+            entity.HasIndex(x => new { x.UserId, x.OrganizationIntegrationId })
+                .IsUnique()
+                .HasDatabaseName("ix_canva_user_tokens_user_org_integration");
+
+            entity.HasIndex(x => x.OrganizationIntegrationId)
+                .HasDatabaseName("ix_canva_user_tokens_org_integration_id");
+
+            // FK: organization_integration_id → platform.organization_integrations(id) ON DELETE CASCADE
+            // When the org-level Canva integration is removed, all per-user tokens are also removed.
+            entity.HasOne<OrganizationIntegrationData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationIntegrationId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_canva_user_tokens_organization_integration");
         });
 
         builder.Entity<ContentPlanSlotData>(entity =>

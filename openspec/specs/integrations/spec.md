@@ -97,3 +97,20 @@ This fallback behavior applies **exclusively** to `variantKey="profile"`. The si
 - Profile Analyzer setup requires `actor_mappings_json` to contain two entries for `variantKey="profile"` (see above).
 - Missing entries cause an immediate `Integration.ProfileActorNotConfigured` 422 error with no Apify call made.
 - See `docs/operators/profile-analysis-setup.md` for the exact configuration steps.
+
+---
+
+## Canva Connect API BYOK Configuration (CANVA-DELTA-01)
+
+> Added by change `single-analyzer-canva-connector`. Purely additive; no existing requirements modified.
+
+The `canva` integration provider exposes the Canva Connect API BYOK credential
+schema: `client_id` (secret, required), `client_secret` (secret, required), and
+`scopes` (non-secret, optional, default scope string provided as placeholder).
+Category `Design`. The provider reaches `Connected` status once `client_id` and
+`client_secret` are configured; a blank `scopes` does not block connection.
+
+The OAuth authorization-code / per-user token flow (PKCE, token exchange,
+refresh rotation) is deferred to B3. B2 stores the app-level credentials only.
+
+See `docs/operators/canva-connector-setup.md` for configuration steps.

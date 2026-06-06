@@ -117,6 +117,12 @@ public sealed class ClientBrandManual : Entity<ClientBrandManualId>
             return Result.Failure<ClientBrandManual>(ClientBrandManualErrors.EmptyManual);
         }
 
+        var forcedDefaultCheck = ValidateForcedDefaultUniqueness(bgList);
+        if (forcedDefaultCheck.IsFailure)
+        {
+            return Result.Failure<ClientBrandManual>(forcedDefaultCheck.Error);
+        }
+
         return Result.Success(new ClientBrandManual(
             id,
             clientId,
@@ -199,6 +205,12 @@ public sealed class ClientBrandManual : Entity<ClientBrandManualId>
         if (!HasSomeSignal(palette, logoList, bgList, typoList, voiceResult.Value, notesResult.Value))
         {
             return Result.Failure<ClientBrandManual>(ClientBrandManualErrors.EmptyManual);
+        }
+
+        var forcedDefaultCheck = ValidateForcedDefaultUniqueness(bgList);
+        if (forcedDefaultCheck.IsFailure)
+        {
+            return Result.Failure<ClientBrandManual>(forcedDefaultCheck.Error);
         }
 
         Title = titleResult.Value;
@@ -296,6 +308,31 @@ public sealed class ClientBrandManual : Entity<ClientBrandManualId>
         }
 
         return Result.Success<string?>(trimmed);
+    }
+
+    private static Result ValidateForcedDefaultUniqueness(IReadOnlyList<BackgroundEntry> backgrounds)
+    {
+        // Reject any forced default missing a FormatKey (entry-level guard may have caught this,
+        // but the aggregate is the authority when entries arrive pre-built via the list).
+        var orphan = backgrounds
+            .FirstOrDefault(b => b.IsFormatDefault && string.IsNullOrWhiteSpace(b.FormatKey));
+        if (orphan is not null)
+        {
+            return Result.Failure(ClientBrandManualErrors.ForcedDefaultWithoutFormat(orphan.Name));
+        }
+
+        // Reject duplicate forced defaults for the same FormatKey.
+        var duplicate = backgrounds
+            .Where(b => b.IsFormatDefault && !string.IsNullOrWhiteSpace(b.FormatKey))
+            .GroupBy(b => b.FormatKey!, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(g => g.Count() > 1);
+
+        if (duplicate is not null)
+        {
+            return Result.Failure(ClientBrandManualErrors.DuplicateForcedDefault(duplicate.Key));
+        }
+
+        return Result.Success();
     }
 
     private static bool HasSomeSignal(

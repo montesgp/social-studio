@@ -10,6 +10,7 @@ using Incoders.Hive.Infrastructure.Ai;
 using Incoders.Hive.Infrastructure.Packaging;
 using Incoders.Hive.Infrastructure.Rendering;
 using Incoders.Hive.Infrastructure.Social;
+using Incoders.Hive.Infrastructure.Social.Canva;
 using Incoders.Hive.Infrastructure.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Infrastructure.Caching.InMemory;
@@ -133,6 +134,20 @@ public static class DependencyInjection
         services.AddScoped<IIntegrationProviderCatalogRepository, EfIntegrationProviderCatalogRepository>();
         services.AddScoped<IOrganizationIntegrationRepository, EfOrganizationIntegrationRepository>();
         services.AddScoped<IOrganizationIntegrationCredentialRepository, EfOrganizationIntegrationCredentialRepository>();
+        services.AddScoped<ICanvaUserTokenRepository, EfCanvaUserTokenRepository>();
+
+        // Canva OAuth PKCE service — per-request scoped; owns the HttpClient for token exchanges.
+        // Named client "canva-oauth" with a reasonable timeout (30s). Canva's token endpoint
+        // is a fast synchronous call, not a long-running job, so no resilience handler removal needed.
+        services.AddHttpClient<ICanvaOAuthService, CanvaOAuthService>(
+            "canva-oauth",
+            client => client.Timeout = TimeSpan.FromSeconds(30));
+
+        // Canva Design Import client — submits PPTX + polls import job (bounded 12 × 5 s = 60 s max).
+        // Timeout set to 90 s to accommodate the poll budget plus submit RTT with margin.
+        services.AddHttpClient<ICanvaDesignImportClient, CanvaDesignImportClient>(
+            "canva-import",
+            client => client.Timeout = TimeSpan.FromSeconds(90));
         services.AddScoped<IIntegrationExecutionAttemptRepository, EfIntegrationExecutionAttemptRepository>();
         services.AddScoped<ISingleContentAnalysisRepository, EfSingleContentAnalysisRepository>();
         services.AddScoped<IProfileAnalysisRepository, EfProfileAnalysisRepository>();
@@ -246,8 +261,15 @@ public static class DependencyInjection
 
     private static IServiceCollection AddRenderingAndPackaging(this IServiceCollection services, IConfiguration configuration)
     {
-        // v1 PNG renderer (SkiaSharp) — no PDF, no external rendering service
-        services.AddScoped<IContentRenderer, LocalSvgContentRenderer>();
+        // Rendering engine is a GLOBAL application setting, bound from the "Rendering" config section.
+        // Default: Chromium (HTML/CSS via Playwright) with SkiaSharp fallback inside the renderer;
+        // override Rendering:Engine to "Skia" to fall back to the slot-raster renderer entirely.
+        //
+        // B1b: registers the configured IContentRenderer (Chromium + pooled browser, or Skia) and the
+        // real OpusVisualDesigner (IVisualDesigner, IsActive=true) — REPLACING the Application-layer
+        // NoOpVisualDesigner and any default LocalSvgContentRenderer. This is what makes the
+        // flyer/carousel designer pipeline genuinely ACTIVE in production.
+        services.AddB1bRenderingAndDesigner(configuration);
 
         // Null adapters for future providers (v1 not supported)
         services.AddScoped<IImageGenerationClient, NullImageGenerationClient>();

@@ -156,4 +156,14 @@ public static class ContentGenerationErrors
 
     public static Error UnknownFormatKey(string key) =>
         Error.Validation("content-gen.unknown-format-key", $"Unknown format key: {key}");
+
+    /// <summary>
+    /// The format result does not have persisted markup (predates B3 or render failed).
+    /// Spec PPTX-02-d: return this as a clear handled error, never re-design or throw.
+    /// Maps to HTTP 409 Conflict via <c>ErrorType.Conflict</c>.
+    /// </summary>
+    public static readonly Error NotExportable =
+        Error.Conflict(
+            "content-gen.not-exportable",
+            "This format does not have a persisted composition spec and cannot be exported as PPTX.");
 }
