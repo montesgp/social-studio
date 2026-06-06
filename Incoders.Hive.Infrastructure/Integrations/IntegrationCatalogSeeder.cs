@@ -52,13 +52,21 @@ public sealed class IntegrationCatalogSeeder
             "canva",
             "Canva",
             IntegrationProviderCategory.Design,
-            "Design and canvas generation provider.",
+            "Canva Connect API app credentials (client-id + client-secret). OAuth user flow is B3.",
             "canva",
             true,
             false,
             false,
             false,
-            [new IntegrationCredentialField("access_token", "Access token", true, true, null, "OAuth/token credential for Canva API")],
+            [
+                new IntegrationCredentialField("client_id",     "Client ID",     true,  true,  null,
+                    "Canva Connect app client ID"),
+                new IntegrationCredentialField("client_secret", "Client secret", true,  true,  null,
+                    "Canva Connect app client secret"),
+                new IntegrationCredentialField("scopes",        "Scopes",        false, false,
+                    "asset:read asset:write brandtemplate:meta:read design:meta:read design:content:read design:content:write profile:read",
+                    "Space-separated Connect API scopes. Leave blank to use the default set above.")
+            ],
             []),
         new(
             new Guid("83b6f049-f598-47e9-a1c5-77d1f57cb694"),
