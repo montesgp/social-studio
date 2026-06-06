@@ -69,6 +69,32 @@ public sealed class B1bDiWiringTests
         Assert.IsType<HtmlChromiumContentRenderer>(renderer);
     }
 
+    /// <summary>
+    /// B3 WU-1 D3: when Chromium engine is configured, IContentRendererWithGeometry MUST
+    /// resolve to HtmlChromiumContentRenderer — the same instance as IContentRenderer.
+    /// </summary>
+    [Fact]
+    public void DI_ChromiumEngine_ResolvesIContentRendererWithGeometry()
+    {
+        var sp = BuildServiceProvider(engine: "chromium");
+        var geometryRenderer = sp.GetRequiredService<IContentRendererWithGeometry>();
+        Assert.IsType<HtmlChromiumContentRenderer>(geometryRenderer);
+    }
+
+    /// <summary>
+    /// B3 WU-1 D3: IContentRenderer and IContentRendererWithGeometry must resolve to the
+    /// SAME HtmlChromiumContentRenderer instance within the same DI scope (no double allocation).
+    /// </summary>
+    [Fact]
+    public void DI_ChromiumEngine_IContentRendererAndGeometryRenderer_SameInstance()
+    {
+        using var sp = BuildServiceProvider(engine: "chromium");
+        using var scope = sp.CreateScope();
+        var renderer = scope.ServiceProvider.GetRequiredService<IContentRenderer>();
+        var geometryRenderer = scope.ServiceProvider.GetRequiredService<IContentRendererWithGeometry>();
+        Assert.Same(renderer, geometryRenderer);
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------

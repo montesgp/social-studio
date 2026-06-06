@@ -89,8 +89,11 @@ public static class InfrastructureContentGenerationExtensions
             var pool = new ChromiumBrowserPool(options);
             services.AddSingleton(pool);
 
+            // Register HtmlChromiumContentRenderer as a named scoped instance, then expose it
+            // via both IContentRenderer and IContentRendererWithGeometry (D3: geometry capture port).
             services.RemoveAll<IContentRenderer>();
-            services.AddScoped<IContentRenderer>(sp =>
+            services.RemoveAll<IContentRendererWithGeometry>();
+            services.AddScoped<HtmlChromiumContentRenderer>(sp =>
             {
                 var fallback = new Rendering.LocalSvgContentRenderer();
                 return new HtmlChromiumContentRenderer(
@@ -98,6 +101,10 @@ public static class InfrastructureContentGenerationExtensions
                     fallback,
                     options);
             });
+            services.AddScoped<IContentRenderer>(sp =>
+                sp.GetRequiredService<HtmlChromiumContentRenderer>());
+            services.AddScoped<IContentRendererWithGeometry>(sp =>
+                sp.GetRequiredService<HtmlChromiumContentRenderer>());
         }
 
         return services;

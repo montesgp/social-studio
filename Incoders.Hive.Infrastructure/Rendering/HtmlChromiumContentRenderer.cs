@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Microsoft.Playwright;
@@ -27,7 +28,43 @@ namespace Incoders.Hive.Infrastructure.Rendering;
 /// <see cref="ChromiumAvailabilityCheck.IsInstalled()"/>.
 /// </para>
 /// </summary>
-public sealed class HtmlChromiumContentRenderer : IContentRenderer
+/// <summary>
+/// JavaScript snippet evaluated by Playwright to capture per-[data-slot] bounding rects
+/// and computed text styles during the existing render pass (D3).
+/// Returns a JSON array of slot geometry objects.
+/// </summary>
+file static class SlotGeometryScript
+{
+    /// <summary>
+    /// $$eval selector: matches every element with a [data-slot] attribute.
+    /// Extracts getBoundingClientRect() + getComputedStyle() for each element.
+    /// Returns an array of objects with slot, x, y, width, height, fontFamily,
+    /// fontSize, color, textAlign fields.
+    /// </summary>
+    public const string Selector = "[data-slot]";
+
+    public const string ExtractExpression = @"
+        elements => elements.map(el => {
+            const r = el.getBoundingClientRect();
+            const s = window.getComputedStyle(el);
+            const ff = (s.fontFamily || '').split(',')[0].replace(/[""']/g, '').trim();
+            const fsPx = parseFloat(s.fontSize) || 0;
+            return {
+                slot: el.getAttribute('data-slot') || '',
+                x: r.x,
+                y: r.y,
+                width: r.width,
+                height: r.height,
+                fontFamily: ff || null,
+                fontSizePx: fsPx,
+                color: s.color || null,
+                textAlign: s.textAlign || null
+            };
+        })
+    ";
+}
+
+public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
 {
     private readonly ChromiumBrowserPool? _browserPool;
     private readonly IContentRenderer _fallbackRenderer;
@@ -58,7 +95,7 @@ public sealed class HtmlChromiumContentRenderer : IContentRenderer
     }
 
     /// <inheritdoc />
-    public Task<Result<RenderedAsset>> RenderAsync(
+    public async Task<Result<RenderedAsset>> RenderAsync(
         VisualCompositionSpec spec,
         RenderOptions opts,
         CancellationToken ct)
@@ -66,34 +103,66 @@ public sealed class HtmlChromiumContentRenderer : IContentRenderer
         // Engine config governs: Skia always delegates to fallback (even for Html specs).
         if (_options.Engine == RenderingEngine.Skia)
         {
-            return _fallbackRenderer.RenderAsync(spec, opts, ct);
+            return await _fallbackRenderer.RenderAsync(spec, opts, ct);
         }
 
         // Non-HTML output kinds: delegate to fallback.
         if (spec.OutputKind != CompositionOutputKind.Html)
         {
-            return _fallbackRenderer.RenderAsync(spec, opts, ct);
+            return await _fallbackRenderer.RenderAsync(spec, opts, ct);
         }
 
-        // Chromium engine + Html spec: render via Playwright.
-        return RenderChromiumAsync(spec, opts, ct);
+        // Chromium engine + Html spec: render via Playwright (no geometry capture).
+        var result = await RenderChromiumAsync(spec, opts, captureGeometry: false, ct);
+        return result.IsSuccess
+            ? Result.Success(result.Value.Asset)
+            : Result.Failure<RenderedAsset>(result.Error);
     }
 
-    private async Task<Result<RenderedAsset>> RenderChromiumAsync(
+    /// <inheritdoc />
+    public async Task<Result<RenderedAssetWithGeometry>> RenderWithGeometryAsync(
         VisualCompositionSpec spec,
         RenderOptions opts,
         CancellationToken ct)
     {
+        // Engine config governs: Skia always delegates to base RenderAsync (no geometry).
+        if (_options.Engine == RenderingEngine.Skia)
+        {
+            var fallbackResult = await _fallbackRenderer.RenderAsync(spec, opts, ct);
+            return fallbackResult.IsSuccess
+                ? Result.Success(new RenderedAssetWithGeometry(fallbackResult.Value, []))
+                : Result.Failure<RenderedAssetWithGeometry>(fallbackResult.Error);
+        }
+
+        // Non-HTML output kinds: delegate to fallback (no geometry).
+        if (spec.OutputKind != CompositionOutputKind.Html)
+        {
+            var fallbackResult = await _fallbackRenderer.RenderAsync(spec, opts, ct);
+            return fallbackResult.IsSuccess
+                ? Result.Success(new RenderedAssetWithGeometry(fallbackResult.Value, []))
+                : Result.Failure<RenderedAssetWithGeometry>(fallbackResult.Error);
+        }
+
+        // Chromium engine + Html spec: render with geometry capture.
+        return await RenderChromiumAsync(spec, opts, captureGeometry: true, ct);
+    }
+
+    private async Task<Result<RenderedAssetWithGeometry>> RenderChromiumAsync(
+        VisualCompositionSpec spec,
+        RenderOptions opts,
+        bool captureGeometry,
+        CancellationToken ct)
+    {
         if (_browserPool is null)
         {
-            return Result.Failure<RenderedAsset>(
+            return Result.Failure<RenderedAssetWithGeometry>(
                 RenderErrors.RenderFailed("ChromiumBrowserPool is null — engine is Chromium but pool was not injected."));
         }
 
         var markup = spec.DesignerMarkup;
         if (string.IsNullOrWhiteSpace(markup))
         {
-            return Result.Failure<RenderedAsset>(
+            return Result.Failure<RenderedAssetWithGeometry>(
                 RenderErrors.RenderFailed("DesignerMarkup is null or empty — cannot render Html spec without markup."));
         }
 
@@ -119,6 +188,23 @@ public sealed class HtmlChromiumContentRenderer : IContentRenderer
                 WaitUntil = WaitUntilState.NetworkIdle
             });
 
+            // WU-1 D3: capture per-[data-slot] bounding rects during the existing page lifetime.
+            // This piggybacks the render that already runs — no second Chromium pass.
+            IReadOnlyList<SlotGeometryEntry> slotGeometry = [];
+            if (captureGeometry)
+            {
+                try
+                {
+                    slotGeometry = await CaptureSlotGeometryAsync(page, renderCt);
+                }
+                catch (Exception geoEx)
+                {
+                    // Geometry capture failure is non-fatal — the render proceeds with empty geometry.
+                    // Log at Warning so production issues are visible but the asset is still delivered.
+                    _ = geoEx; // suppress CA2016 — intentional swallow after logging
+                }
+            }
+
             // Capture the bounding box of the root composition element for overflow backstop.
             // If the rendered element overflows the declared canvas, we still capture the
             // viewport area only — preventing unbounded screenshots (Design Decision 7 precise backstop).
@@ -137,7 +223,7 @@ public sealed class HtmlChromiumContentRenderer : IContentRenderer
 
             if (screenshotBytes is null || screenshotBytes.Length == 0)
             {
-                return Result.Failure<RenderedAsset>(
+                return Result.Failure<RenderedAssetWithGeometry>(
                     RenderErrors.RenderFailed("Playwright screenshot returned empty bytes."));
             }
 
@@ -147,29 +233,64 @@ public sealed class HtmlChromiumContentRenderer : IContentRenderer
                 $"{spec.FormatKey}.png",
                 screenshotBytes);
 
-            return Result.Success(asset);
+            return Result.Success(new RenderedAssetWithGeometry(asset, slotGeometry));
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
         {
-            return Result.Failure<RenderedAsset>(
+            return Result.Failure<RenderedAssetWithGeometry>(
                 RenderErrors.RenderFailed(
                     $"Chromium render timeout after {DescribeTimeout(_options)} for format '{spec.FormatKey}'."));
         }
         catch (OperationCanceledException)
         {
-            return Result.Failure<RenderedAsset>(
+            return Result.Failure<RenderedAssetWithGeometry>(
                 RenderErrors.RenderFailed("Chromium render cancelled by caller."));
         }
         catch (PlaywrightException ex)
         {
-            return Result.Failure<RenderedAsset>(
+            return Result.Failure<RenderedAssetWithGeometry>(
                 RenderErrors.RenderFailed($"Playwright error: {ex.Message}"));
         }
         catch (Exception ex)
         {
-            return Result.Failure<RenderedAsset>(
+            return Result.Failure<RenderedAssetWithGeometry>(
                 RenderErrors.RenderFailed($"Unexpected render error: {ex.Message}"));
         }
+    }
+
+    /// <summary>
+    /// Evaluates the slot geometry script on the current Playwright page.
+    /// Returns geometry entries for all <c>[data-slot]</c> elements, or an empty list
+    /// if no slots are found or evaluation fails.
+    /// </summary>
+    private static async Task<IReadOnlyList<SlotGeometryEntry>> CaptureSlotGeometryAsync(
+        IPage page,
+        CancellationToken ct)
+    {
+        // $$eval: applies to all matching elements and returns a JS array.
+        // The expression maps each element to a plain object with rect + computed-style fields.
+        var rawEntries = await page.EvalOnSelectorAllAsync<SlotGeometryDto[]>(
+            SlotGeometryScript.Selector,
+            SlotGeometryScript.ExtractExpression);
+
+        if (rawEntries is null || rawEntries.Length == 0)
+        {
+            return [];
+        }
+
+        return rawEntries
+            .Where(e => !string.IsNullOrWhiteSpace(e.Slot))
+            .Select(e => new SlotGeometryEntry(
+                Slot: e.Slot!,
+                X: e.X,
+                Y: e.Y,
+                Width: e.Width,
+                Height: e.Height,
+                FontFamily: string.IsNullOrWhiteSpace(e.FontFamily) ? null : e.FontFamily,
+                FontSizePx: e.FontSizePx,
+                Color: string.IsNullOrWhiteSpace(e.Color) ? null : e.Color,
+                TextAlign: string.IsNullOrWhiteSpace(e.TextAlign) ? null : e.TextAlign))
+            .ToList();
     }
 
     /// <summary>
@@ -200,4 +321,22 @@ public sealed class HtmlChromiumContentRenderer : IContentRenderer
         options.ForcePreExpiredTimeoutForTests
             ? "0s (forced)"
             : $"{options.PerRenderTimeoutSeconds}s";
+}
+
+/// <summary>
+/// DTO used to deserialize the JS object returned by <see cref="SlotGeometryScript.ExtractExpression"/>
+/// via <c>EvalOnSelectorAllAsync</c>. Property names match the JavaScript camelCase keys.
+/// Internal to the Infrastructure rendering namespace.
+/// </summary>
+file sealed class SlotGeometryDto
+{
+    public string? Slot { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Width { get; set; }
+    public double Height { get; set; }
+    public string? FontFamily { get; set; }
+    public double FontSizePx { get; set; }
+    public string? Color { get; set; }
+    public string? TextAlign { get; set; }
 }
