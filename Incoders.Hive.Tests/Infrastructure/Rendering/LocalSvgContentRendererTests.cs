@@ -13,6 +13,11 @@ namespace Incoders.Hive.Tests.Infrastructure.Rendering;
 /// TDD tests for <see cref="LocalSvgContentRenderer"/>.
 /// Validates PNG output from a VisualCompositionSpec.
 /// </summary>
+/// <remarks>
+/// Runs in the serial "SkiaRenderingSerial" collection: SkiaSharp decoding flaked intermittently
+/// under parallel Release load. See <see cref="SkiaRenderingSerialCollection"/>.
+/// </remarks>
+[Collection("SkiaRenderingSerial")]
 public sealed class LocalSvgContentRendererTests
 {
     // PNG magic bytes: \x89PNG\r\n\x1a\n
