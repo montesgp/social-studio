@@ -54,11 +54,13 @@ public sealed class VisualGuardrailValidatorTests
     }
 
     // -----------------------------------------------------------------------
-    // VD-02: Off-palette color rejected, renderer not called
+    // VD-02 (advisory): Off-palette color does NOT block generation — render anyway.
+    // Product decision: the brand palette is a strong preference, not a hard gate. A flyer must
+    // always generate even if the AI deviates (e.g. white text for legibility).
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void OffPaletteColor_Rejected_RendererNotCalled()
+    public void OffPaletteColor_IsAdvisory_RendersAnyway()
     {
         // GIVEN markup with off-palette hex (#FF00FF not in brand palette)
         var markup = ValidMarkup(extraStyle: "background-color:#FF00FF;");
@@ -69,17 +71,17 @@ public sealed class VisualGuardrailValidatorTests
         // WHEN guardrail validation runs
         var result = Validator.Validate(output, brand, spec);
 
-        // THEN failed Result with OffPalette error
-        Assert.True(result.IsFailure);
-        Assert.Equal("visual-guardrail.off-palette", result.Error.Code);
+        // THEN it is NOT blocked — the design is forwarded to the renderer.
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.IsValid);
     }
 
     // -----------------------------------------------------------------------
-    // VD-02: Non-manual font (Arial) rejected
+    // VD-02 (advisory): Non-manual font (Arial) does NOT block generation — render anyway.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void NonManualFont_Arial_Rejected()
+    public void NonManualFont_Arial_IsAdvisory_RendersAnyway()
     {
         // GIVEN markup with font-family:Arial, manual does not list Arial
         var markup = ValidMarkup(fontFamily: "Arial");
@@ -90,9 +92,8 @@ public sealed class VisualGuardrailValidatorTests
         // WHEN guardrail validation runs
         var result = Validator.Validate(output, brand, spec);
 
-        // THEN failed Result with FontNotAllowed error
-        Assert.True(result.IsFailure);
-        Assert.Equal("visual-guardrail.font-not-allowed", result.Error.Code);
+        // THEN it is NOT blocked — the design is forwarded to the renderer.
+        Assert.True(result.IsSuccess);
     }
 
     // -----------------------------------------------------------------------

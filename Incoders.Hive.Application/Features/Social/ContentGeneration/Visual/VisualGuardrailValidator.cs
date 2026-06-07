@@ -3,21 +3,33 @@ using System.Xml;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 
 /// <summary>
 /// Concrete implementation of the visual guardrail pipeline (VD-02, VD-03, VD-04).
-/// Four ordered steps:
-///   1. Schema      — single root div.composition, allowed tags, mandatory data-layer attributes.
-///   2. Palette     — every color token in inline styles must be in the brand palette.
-///   3. Typography  — every font-family must be in the brand typography allow-list.
-///   4. Overflow    — static heuristic: char-count estimate vs data-max-lines per slot.
+/// Four ordered steps with two enforcement levels:
+///   1. Schema      — single root div.composition, allowed tags, mandatory data-layer attributes. HARD.
+///   2. Palette     — colors SHOULD be in the brand palette. ADVISORY (logged, never blocks).
+///   3. Typography  — fonts SHOULD be in the brand allow-list. ADVISORY (logged, never blocks).
+///   4. Overflow    — static heuristic: char-count estimate vs data-max-lines per slot. HARD.
 ///
-/// First failure short-circuits — the renderer is NEVER called on a guardrail violation.
+/// Product decision: the brand palette/typography are strong preferences, not gates — a flyer must
+/// always generate even if the AI's design deviates (e.g. white text for legibility). Only the HARD
+/// steps (a structurally invalid markup or text that won't fit the canvas) stop the render; the
+/// SOFT steps are logged for observability and otherwise allowed through.
 /// </summary>
 public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
 {
+    private readonly ILogger<VisualGuardrailValidator> _logger;
+
+    public VisualGuardrailValidator(ILogger<VisualGuardrailValidator>? logger = null)
+    {
+        _logger = logger ?? NullLogger<VisualGuardrailValidator>.Instance;
+    }
+
     /// <summary>
     /// Bundled brand-neutral fallback font family (never Arial unless the manual lists it).
     /// Used when the brand has an empty typography list — ensures generation never hard-fails.
@@ -72,28 +84,37 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
         BrandManualSnapshot brand,
         VisualCompositionSpec spec)
     {
-        // Step 1 — Schema validation (VD-04)
+        // Step 1 — Schema validation (VD-04). HARD: a malformed composition cannot render.
         var schemaResult = ValidateSchema(output.Markup);
         if (schemaResult.IsFailure)
         {
             return Result.Failure<VisualDesignOutput>(schemaResult.Error);
         }
 
-        // Step 2 — Palette validation (VD-02)
+        // Step 2 — Palette (VD-02). ADVISORY: the brand palette is a preference, not a gate.
+        // We still want the design to use it "as much as possible" (the designer prompt enforces
+        // that), but a deviation (e.g. white for text legibility) must NOT block generation —
+        // we log it and render anyway.
         var paletteResult = ValidatePalette(output.Markup, brand);
         if (paletteResult.IsFailure)
         {
-            return Result.Failure<VisualDesignOutput>(paletteResult.Error);
+            _logger.LogWarning(
+                "Visual guardrail (advisory): {Reason} Rendering anyway for format '{FormatKey}'.",
+                paletteResult.Error.MessageKey, spec.FormatKey);
         }
 
-        // Step 3 — Typography validation (VD-02)
+        // Step 3 — Typography (VD-02). ADVISORY for the same reason; off-allowlist fonts fall back
+        // gracefully in the renderer rather than failing the format.
         var typoResult = ValidateTypography(output.Markup, brand);
         if (typoResult.IsFailure)
         {
-            return Result.Failure<VisualDesignOutput>(typoResult.Error);
+            _logger.LogWarning(
+                "Visual guardrail (advisory): {Reason} Rendering anyway for format '{FormatKey}'.",
+                typoResult.Error.MessageKey, spec.FormatKey);
         }
 
-        // Step 4 — Overflow check: static heuristic (VD-03)
+        // Step 4 — Overflow check: static heuristic (VD-03). HARD: protects legibility (text must
+        // fit the canvas, not spill out).
         var overflowResult = ValidateOverflow(output.Markup, spec);
         if (overflowResult.IsFailure)
         {
