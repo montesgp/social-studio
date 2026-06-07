@@ -1537,6 +1537,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setGeneratingConversion(mode);
     const formatKey = formatForMutationMode(mode);
     setPackageJobError(null);
+    // Set the requested-format count BEFORE the await so the progress overlay can never show a
+    // stale denominator (e.g. "(1/3)") for a single-format job — it must read 1 from the moment
+    // the overlay can appear. A flyer is one format = one file; >1 only applies to a carousel.
+    setPackageRequestedFormats([formatKey]);
     try {
       const response = await requestPackage(
         videoResult.id,
