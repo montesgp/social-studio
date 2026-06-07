@@ -21,7 +21,12 @@ public sealed record ContentGenerationJobStatusResponse(
     Guid JobId,
     string Status,
     IReadOnlyDictionary<string, string> PerFormatStatus,
-    string? ManifestJson);
+    string? ManifestJson,
+    // Human/technical failure reason (e.g. "render_failed[flyer: guardrail-failed:
+    // visual-guardrail.off-palette: …]") so the UI can show actionable guidance and route to
+    // support instead of nudging a blind, token-burning retry. Optional/last so existing
+    // positional constructions keep compiling.
+    string? StatusReason = null);
 
 /// <summary>
 /// Handles <see cref="ContentGenerationJobStatusQuery"/>: loads the job and its format results.
@@ -68,6 +73,7 @@ public sealed class ContentGenerationJobStatusQueryHandler
             JobId: job.Id,
             Status: job.Status,
             PerFormatStatus: perFormatStatus,
-            ManifestJson: job.ManifestJson));
+            ManifestJson: job.ManifestJson,
+            StatusReason: job.StatusReason));
     }
 }

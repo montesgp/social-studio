@@ -62,6 +62,8 @@ export interface UseContentGenerationJobResult {
   status: ContentGenerationJobStatus | null;
   perFormatStatus: ContentGenerationJobStatusResponse["perFormatStatus"];
   manifest: GeneratedPackageManifest | null;
+  /** Backend failure reason (codes embedded) when the job did not succeed. */
+  statusReason: string | null;
   isLoading: boolean;
   isPolling: boolean;
   isError: boolean;
@@ -176,6 +178,7 @@ export function useContentGenerationJob(
     status: data?.status ?? null,
     perFormatStatus: data?.perFormatStatus ?? {},
     manifest: data?.manifest ?? null,
+    statusReason: data?.statusReason ?? null,
     isLoading: state.phase === "loading",
     isPolling: state.phase === "polling",
     isError: state.phase === "error",

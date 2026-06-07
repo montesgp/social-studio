@@ -51,6 +51,7 @@ interface RawJobStatusResponse {
   status: ContentGenerationJobStatus;
   perFormatStatus: Record<string, string>;
   manifestJson: string | null;
+  statusReason: string | null;
 }
 
 function parseContentDispositionFilename(contentDisposition: string | null): string | null {
@@ -83,6 +84,7 @@ function normalizeStatusResponse(raw: RawJobStatusResponse): ContentGenerationJo
     status: raw.status,
     perFormatStatus: raw.perFormatStatus as ContentGenerationJobStatusResponse["perFormatStatus"],
     manifest: parseManifest(raw.manifestJson),
+    statusReason: raw.statusReason ?? null,
   };
 }
 

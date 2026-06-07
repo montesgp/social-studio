@@ -80,6 +80,7 @@ import { InferredFieldsDisclosure } from "@/components/social/single-analyzer/in
 import { PartialCompletionBanner } from "@/components/social/single-analyzer/partial-completion-banner";
 import { SupportError } from "@/components/support/support-error";
 import { openWhatsAppSupport } from "@/lib/support/support";
+import { resolveGenerationFailureError } from "@/lib/support/user-facing-errors";
 import { AnalysisOverlay } from "@/components/social/analysis-overlay";
 import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
 import { exportElementToPdf } from "@/lib/export/pdf-export";
@@ -2698,17 +2699,38 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       </div>
 
                       {packageJobError && (
-                        <div className="rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-2">
-                          <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                          <span>{packageJobError.message}</span>
-                        </div>
+                        <SupportError
+                          error={{ message: packageJobError.message }}
+                          context={{
+                            feature: "single-analyzer",
+                            organizationId: selectedOrganizationId,
+                            details: {
+                              analysisId: videoResult?.id ?? null,
+                              scope: "content-generation",
+                            },
+                          }}
+                          onDismiss={() => setPackageJobError(null)}
+                        />
                       )}
 
+                      {/* A FAILED generation routes the user to support instead of nudging a blind,
+                          token-burning retry. The backend status_reason carries the real cause
+                          (e.g. an off-palette guardrail block) so the copy is actionable and the
+                          support report includes the technical detail. */}
                       {packageGenerationIsFailed && !packageJobError && (
-                        <div className="rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-2">
-                          <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                          <span>Generation failed. You can retry above.</span>
-                        </div>
+                        <SupportError
+                          error={resolveGenerationFailureError(packageJob.statusReason)}
+                          context={{
+                            feature: "single-analyzer",
+                            organizationId: selectedOrganizationId,
+                            details: {
+                              analysisId: videoResult?.id ?? null,
+                              scope: "content-generation",
+                              clientId: packageJobClientId ?? selectedClientId ?? null,
+                              statusReason: packageJob.statusReason ?? null,
+                            },
+                          }}
+                        />
                       )}
 
                       {packageGenerationIsPartial && (

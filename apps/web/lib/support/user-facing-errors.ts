@@ -99,7 +99,57 @@ const ERROR_COPY: Record<string, UserFacingError> = {
       "No AI provider is connected for your organization. An admin needs to connect one (e.g. Claude) in Settings → Integrations.",
     isConfigIssue: true,
   },
+  // ── Content generation (flyer/carousel) failures ────────────────────────────
+  // These are usually NOT fixed by retrying as-is (a blind retry just re-spends AI
+  // credits), so the copy points the user to support instead of nudging "try again".
+  "social.content_generation.failed": {
+    title: "We couldn't generate this content",
+    message:
+      "The generation didn't complete. Retrying as-is usually won't fix it and re-spends AI credits — contact support and we'll sort out what's blocking it.",
+    isConfigIssue: false,
+  },
+  "visual-guardrail.off-palette": {
+    title: "The design didn't match the client's brand palette",
+    message:
+      "The AI laid out the content with a color that isn't in this client's brand palette, so we blocked it to protect the brand. This needs a brand-setup adjustment — contact support and we'll fix it for you.",
+    isConfigIssue: true,
+  },
+  "visual-guardrail.off-font": {
+    title: "The design used a font outside the brand kit",
+    message:
+      "The AI used a typeface that isn't in this client's brand kit, so we blocked it. This needs a brand-setup adjustment — contact support and we'll fix it for you.",
+    isConfigIssue: true,
+  },
+  "visual-designer.empty-markup": {
+    title: "The AI design came back empty",
+    message:
+      "The design step returned nothing usable. Contact support if you need this content — we can look into it without you burning more credits.",
+    isConfigIssue: false,
+  },
 };
+
+// Specific failure codes the backend embeds inside a job's aggregate status_reason
+// (e.g. "render_failed[flyer: guardrail-failed:visual-guardrail.off-palette: …]").
+// Order matters: first match wins.
+const GENERATION_FAILURE_CODES: readonly string[] = [
+  "visual-guardrail.off-palette",
+  "visual-guardrail.off-font",
+  "visual-designer.empty-markup",
+];
+
+/**
+ * Maps a content-generation job's failure reason to a {@link UserFacingErrorInput} for
+ * {@link SupportError}: a recognized specific code when present, otherwise a friendly generic
+ * code. The raw reason is kept as the message so the support report carries the technical detail.
+ */
+export function resolveGenerationFailureError(statusReason?: string | null): UserFacingErrorInput {
+  const reason = statusReason ?? "";
+  const specific = GENERATION_FAILURE_CODES.find((code) => reason.includes(code));
+  return {
+    code: specific ?? "social.content_generation.failed",
+    message: statusReason ?? undefined,
+  };
+}
 
 const DEFAULT_ERROR: UserFacingError = {
   title: "Something went wrong",
