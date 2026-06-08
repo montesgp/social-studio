@@ -84,7 +84,9 @@ Integrations persistence model:
 - `platform.organization_integration_credentials` stores encrypted organization credential values.
 - Product modules such as Social consume integration resolution through an abstraction (`IIntegrationResolver`) instead of reading provider credentials or appsettings directly.
 - Social client hard-delete is an explicit MVP cleanup exception reserved for platform sysadmins. It is implemented as an application use case plus infrastructure cascade cleanup; normal client lifecycle remains archive/reactivate for organization admins.
+- Organization hard-delete is an explicit MVP cleanup exception reserved for platform sysadmins. It removes the organization root, organization-scoped users (excluding platform sysadmins), memberships, workspace module assignments, settings, integrations, clients and all Social child chains in cascade.
 - Client cleanup must remove client-scoped generated storage artifacts through storage ports after database rows are committed, so Domain/Application do not depend on Supabase or local filesystem details.
+- Organization cleanup must remove organization-scoped generated packages, durable generated assets and uploaded client asset folders through storage ports after database rows are committed; storage failures are logged as orphan cleanup warnings, not transaction failures.
 
 Social network catalog model:
 - Platform social networks store an `icon_key` selected from the frontend social-network icon allowlist, not arbitrary icon text, so admin users can preview the assigned icon and downstream UI can render it consistently.

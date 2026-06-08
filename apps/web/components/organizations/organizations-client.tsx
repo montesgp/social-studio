@@ -30,6 +30,7 @@ import {
   activateOrganization,
   createOrganization,
   deactivateOrganization,
+  deleteOrganization,
   getOrganization,
   listOrganizations,
   updateOrganization
@@ -49,6 +50,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Select } from "@/components/ui/select";
 import { Column, SortableChildTable } from "@/components/ui/sortable-child-table";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
 
@@ -81,6 +83,7 @@ export function OrganizationsClient() {
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Organization | null>(null);
 
   const items = useMemo(() => page?.items ?? [], [page?.items]);
   const effectiveToken = manualToken || (sessionToken ?? "");
@@ -237,6 +240,23 @@ export function OrganizationsClient() {
       toast.success("Organization reactivated", activated.name);
       setDetails(activated);
     });
+  }
+
+  function onRequestDelete(item: Organization) {
+    setPendingDelete(item);
+  }
+
+  async function onConfirmDelete(item: Organization) {
+    await runAction(item.id, async () => {
+      const deleted = await deleteOrganization(item.id, effectiveToken || undefined);
+      setSuccess("Organization deleted permanently.");
+      toast.success(
+        "Organization deleted permanently",
+        `${deleted.name} • ${deleted.deletedClientCount} clients • ${deleted.deletedUserCount} users`
+      );
+      setDetails((current) => (current?.id === item.id ? null : current));
+    });
+    setPendingDelete(null);
   }
 
   async function runAction(id: string, action: () => Promise<void>) {
@@ -431,7 +451,7 @@ export function OrganizationsClient() {
                       </Button>
                       {item.isActive ? (
                         <Button
-                          variant="destructive"
+                          variant="warning"
                           size="sm"
                           disabled={actingId === item.id}
                           onClick={() => void onArchive(item)}
@@ -448,6 +468,14 @@ export function OrganizationsClient() {
                           <RotateCcw className="h-4 w-4" /> Reactivate
                         </Button>
                       )}
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={actingId === item.id}
+                        onClick={() => onRequestDelete(item)}
+                      >
+                        <Trash2 className="h-4 w-4" /> Delete
+                      </Button>
                     </div>
                   </motion.article>
                 ))}
@@ -481,6 +509,33 @@ export function OrganizationsClient() {
                           </Button>
                           <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
                             <Edit3 className="h-4 w-4" /> Edit
+                          </Button>
+                          {item.isActive ? (
+                            <Button
+                              variant="warning"
+                              size="sm"
+                              disabled={actingId === item.id}
+                              onClick={() => void onArchive(item)}
+                            >
+                              Archive
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={actingId === item.id}
+                              onClick={() => void onReactivate(item)}
+                            >
+                              Reactivate
+                            </Button>
+                          )}
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={actingId === item.id}
+                            onClick={() => onRequestDelete(item)}
+                          >
+                            Delete
                           </Button>
                         </div>
                       </TableCell>
@@ -518,6 +573,7 @@ export function OrganizationsClient() {
           onEdit={(item) => openEdit(item)}
           onArchive={(item) => void onArchive(item)}
           onReactivate={(item) => void onReactivate(item)}
+          onDelete={onRequestDelete}
           acting={actingId === details?.id}
         />
       </div>
@@ -558,6 +614,31 @@ export function OrganizationsClient() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ConfirmationDialog
+        open={pendingDelete !== null}
+        title="Delete organization permanently?"
+        description={
+          pendingDelete
+            ? `This will permanently delete "${pendingDelete.name}" and all organization-scoped data, including users, clients, accounts, brand manuals, plans, analyses, integrations, generated packages, and stored assets. This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete permanently"
+        cancelLabel="Cancel"
+        confirmVariant="destructive"
+        icon={<Trash2 className="h-5 w-5" />}
+        disableDismiss={pendingDelete !== null && actingId === pendingDelete.id}
+        onConfirm={() => {
+          if (pendingDelete) {
+            void onConfirmDelete(pendingDelete);
+          }
+        }}
+        onCancel={() => {
+          if (!actingId) {
+            setPendingDelete(null);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -661,6 +742,7 @@ function OrganizationDetailsPanel({
   onEdit,
   onArchive,
   onReactivate,
+  onDelete,
   acting
 }: {
   organization: Organization | null;
@@ -668,6 +750,7 @@ function OrganizationDetailsPanel({
   onEdit: (organization: Organization) => void;
   onArchive: (organization: Organization) => void;
   onReactivate: (organization: Organization) => void;
+  onDelete: (organization: Organization) => void;
   acting: boolean;
 }) {
   const [detailTab, setDetailTab] = useState<"overview" | "connectors" | "modules">("overview");
@@ -899,7 +982,7 @@ function OrganizationDetailsPanel({
                 <Edit3 className="h-4 w-4" /> Edit
               </Button>
               {organization.isActive ? (
-                <Button variant="destructive" disabled={acting} onClick={() => onArchive(organization)}>
+                <Button variant="warning" disabled={acting} onClick={() => onArchive(organization)}>
                   <Archive className="h-4 w-4" /> Archive
                 </Button>
               ) : (
@@ -907,6 +990,9 @@ function OrganizationDetailsPanel({
                   <RotateCcw className="h-4 w-4" /> Reactivate
                 </Button>
               )}
+              <Button variant="destructive" disabled={acting} onClick={() => onDelete(organization)}>
+                <Trash2 className="h-4 w-4" /> Delete
+              </Button>
             </div>
           </>
         )}

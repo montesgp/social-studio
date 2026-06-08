@@ -12,6 +12,13 @@ export interface OrganizationPayload {
   name: string;
 }
 
+export interface DeletedOrganization {
+  id: string;
+  name: string;
+  deletedClientCount: number;
+  deletedUserCount: number;
+}
+
 export async function listOrganizations(query: OrganizationsQuery, token?: string) {
   const params = new URLSearchParams();
   if (query.name) params.set("name", query.name);
@@ -47,4 +54,8 @@ export async function deactivateOrganization(id: string, token?: string) {
 
 export async function activateOrganization(id: string, token?: string) {
   return apiRequest<Organization>(`/api/organizations/${id}/activate`, { method: "POST" }, token);
+}
+
+export async function deleteOrganization(id: string, token?: string) {
+  return apiRequest<DeletedOrganization>(`/api/organizations/${id}`, { method: "DELETE" }, token);
 }

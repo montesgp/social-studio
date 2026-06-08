@@ -70,6 +70,12 @@ public static class TenantsEndpointsExtensions
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        group.MapDelete("/{id:guid}", DeleteAsync)
+            .WithName($"Delete{routeLabel}")
+            .WithSummary("Permanently delete an organization and all organization-scoped data")
+            .Produces<DeletedTenantResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapGet("/{id:guid}/modules", GetModulesAsync)
             .WithName($"Get{routeLabel}Modules")
             .WithSummary("Get system modules and organization module assignments")
@@ -140,6 +146,15 @@ public static class TenantsEndpointsExtensions
     {
         var result = await sender.Send(new ActivateTenantCommand(id), cancellationToken);
         return result.Match(tenant => (IResult)TypedResults.Ok(tenant));
+    }
+
+    private static async Task<IResult> DeleteAsync(
+        Guid id,
+        ISender sender,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(new DeleteTenantCommand(id), cancellationToken);
+        return result.Match(deleted => (IResult)TypedResults.Ok(deleted));
     }
 
     private static async Task<IResult> GetModulesAsync(

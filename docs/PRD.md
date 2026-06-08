@@ -68,6 +68,7 @@ Content operators repeatedly research viral content, interpret why it worked, id
 ## 9. Acceptance Criteria
 - A CM can create/select a client and run a content research workflow.
 - A sysadmin can temporarily hard-delete a client during MVP cleanup after explicit confirmation; the operation removes client-scoped data and stored assets in cascade.
+- A sysadmin can temporarily hard-delete an organization during MVP cleanup after explicit confirmation; the operation removes organization-scoped users, clients, integrations, generated packages, stored assets and all client chains in cascade.
 - Organization admins can archive/deactivate clients, but cannot hard-delete them.
 - The system can persist retrieved references and AI-generated ideas.
 - The system can evaluate ideas with a configurable model.

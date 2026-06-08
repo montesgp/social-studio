@@ -80,6 +80,7 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(MultiTenancyOptions.SectionName));
 
         services.AddScoped<ITenantRepository, EfTenantRepository>();
+        services.AddScoped<ITenantHardDeleteRepository, EfTenantHardDeleteRepository>();
         services.AddScoped<ITenantMembershipService, EfTenantMembershipService>();
         services.AddScoped<CurrentTenant>();
         services.AddScoped<ICurrentTenant>(sp => sp.GetRequiredService<CurrentTenant>());
