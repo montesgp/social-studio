@@ -2633,17 +2633,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 <RefreshCw className="h-3 w-3" />
                                 Regenerate all formats
                               </span>
-                            ) : packageGenerationIsPartial ? (
-                              <span className="flex items-center gap-2">
-                                <CheckCircle2 className="h-3 w-3 text-amber-500" />
-                                Partial — retry?
-                              </span>
-                            ) : packageGenerationIsFailed ? (
-                              <span className="flex items-center gap-2">
-                                <XCircle className="h-3 w-3 text-red-500" />
-                                Retry generation
-                              </span>
                             ) : (
+                              // On failure/partial we do NOT frame the button as "retry" — a blind
+                              // retry just re-spends AI credits. The SupportError + PartialCompletionBanner
+                              // below convey the state; this stays the neutral generate control.
                               <span className="flex items-center gap-2">
                                 <Sparkles className="h-3 w-3" />
                                 Convert to all formats
