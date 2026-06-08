@@ -833,8 +833,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const packageGenerationIsAllFormatJob =
     packageRequestedFormats.length === SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS.length &&
     SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS.every((format) => packageRequestedFormats.includes(format));
-  const allFormatsGenerationIsCompleted =
-    packageGenerationIsCompleted && packageGenerationIsAllFormatJob;
   const packageGenerationIsPartial =
     packageUiStatus === "Partial" || packageUiStatus === "PartialSuccess";
   const packageGenerationIsFailed = packageUiStatus === "Failed";
@@ -1644,10 +1642,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const generatedFormatKeys = SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS.filter(
     (format) => packageSucceededFormats.includes(format) || hasLocalGeneratedFormat(format)
   );
-  const allActiveFormatsGenerated = SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS.every((format) =>
-    generatedFormatKeys.includes(format)
-  );
-  const shouldRegenerateAllFormats = allFormatsGenerationIsCompleted || allActiveFormatsGenerated;
+  // "Regenerate all formats" is offered ONLY when the user actually ran an all-formats generation
+  // (a single all-formats job that has finished — completed or partial). Generating formats one by
+  // one — e.g. just a flyer — must NOT enable all-formats regeneration, even if every format happens
+  // to exist from separate single-format runs.
+  const shouldRegenerateAllFormats =
+    packageGenerationIsAllFormatJob &&
+    (packageGenerationIsCompleted || packageGenerationIsPartial);
   const convertAllPills = SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS
     .filter((format) => {
       if (generatedFormatKeys.includes(format)) return true;
