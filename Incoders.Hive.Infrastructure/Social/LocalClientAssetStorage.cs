@@ -98,4 +98,32 @@ public sealed class LocalClientAssetStorage : IClientAssetStorage
             SizeBytes: request.SizeBytes,
             OriginalFileName: request.OriginalFileName));
     }
+
+    public Task DeleteClientAssetsAsync(
+        Guid organizationId,
+        Guid clientId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var clientFolder = Path.Combine(
+            _rootPath,
+            organizationId.ToString("N"),
+            clientId.ToString("N"));
+
+        var rootFullPath = Path.GetFullPath(_rootPath);
+        var clientFullPath = Path.GetFullPath(clientFolder);
+
+        if (!clientFullPath.StartsWith(rootFullPath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Resolved client asset folder is outside the configured storage root.");
+        }
+
+        if (Directory.Exists(clientFullPath))
+        {
+            Directory.Delete(clientFullPath, recursive: true);
+        }
+
+        return Task.CompletedTask;
+    }
 }

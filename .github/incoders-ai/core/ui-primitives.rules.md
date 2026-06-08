@@ -66,6 +66,17 @@ Feature code that re-implements any of these — inline or as a local component 
 
 `h-10` is not a valid select height in this design system.
 
+## Button — Variant Contract
+
+| `variant` | Use when |
+|---|---|
+| `"default"` | Primary non-destructive action |
+| `"secondary"` | Secondary neutral action |
+| `"outline"` | Low-emphasis action |
+| `"ghost"` | Chrome-light action inside dense controls |
+| `"warning"` | Reversible caution action such as archive/deactivate |
+| `"destructive"` | Irreversible destructive action such as hard delete |
+
 ---
 
 ## Rules

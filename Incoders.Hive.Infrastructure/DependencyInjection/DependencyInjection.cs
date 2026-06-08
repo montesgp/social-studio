@@ -80,6 +80,7 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(MultiTenancyOptions.SectionName));
 
         services.AddScoped<ITenantRepository, EfTenantRepository>();
+        services.AddScoped<ITenantHardDeleteRepository, EfTenantHardDeleteRepository>();
         services.AddScoped<ITenantMembershipService, EfTenantMembershipService>();
         services.AddScoped<CurrentTenant>();
         services.AddScoped<ICurrentTenant>(sp => sp.GetRequiredService<CurrentTenant>());
@@ -120,6 +121,7 @@ public static class DependencyInjection
 
         services.AddScoped<ISystemSettingRepository, EfSystemSettingRepository>();
         services.AddScoped<ISocialClientRepository, EfSocialClientRepository>();
+        services.AddScoped<ISocialClientHardDeleteRepository, EfSocialClientRepository>();
         services.AddScoped<ISocialNetworkRepository, EfSocialNetworkRepository>();
         services.AddScoped<IClientReferentAccountRepository, EfClientReferentAccountRepository>();
         services.AddScoped<IClientCompetitorAccountRepository, EfClientCompetitorAccountRepository>();

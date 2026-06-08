@@ -24,6 +24,11 @@ Content research retrieves candidate high-performing content by client, niche, r
 - Referent accounts edited in the client form MUST be synchronized as a complete ordered list on client save, not persisted on each row add/edit/reorder action.
 - Client form validation failures MUST keep the form/dialog open and mark the invalid field inline without discarding entered data.
 - Brand manual typography entry uses MUST offer a common-font picker while still allowing custom font family values.
+- Client hard-delete is a temporary MVP sysadmin-only cleanup operation. Organization admins MUST NOT see or invoke it.
+- Before a sysadmin hard-deletes a client, the frontend MUST show the shared confirmation dialog and clearly state that the operation is irreversible.
+- Client hard-delete MUST remove client-scoped data, including client accounts, brand manuals, general strategies, content plans, profile analyses, client-scoped usage events, generated package jobs, generated package rows, generated package files, generated durable asset rows, generated durable asset files, and uploaded client asset folders.
+- When a single-content analysis linked to the deleted client is also used by generated jobs for another client, the analysis MUST be preserved and detached from the deleted client instead of breaking the other client's generated-package history.
+- Client archive/deactivate remains the normal reversible lifecycle action for both sysadmins and organization admins; its button MUST use a warning visual treatment, while the destructive visual treatment is reserved for sysadmin hard-delete.
 
 ## Single-Content Analysis Pipeline
 
@@ -103,6 +108,10 @@ Content extraction uses per-platform Apify adapters. Supported platforms:
 - A CM can create a client for the resolved organization.
 - A CM can list clients for the resolved organization.
 - A client id from another organization returns not found.
+- A sysadmin can hard-delete a client only after confirming the shared modal.
+- A sysadmin hard-delete removes all client-scoped data and stored assets without deleting unrelated data for other clients.
+- An organization admin can archive/deactivate a client but cannot hard-delete it.
+- The Archive action is visually cautionary, not destructive red; the red destructive button is reserved for sysadmin Delete.
 - A CM can run single-content analysis with no client selected for analysis-only review.
 - A CM must choose an active client before generating a single-content package from the Single Analyzer UI; the selected client determines the generated output context.
 - Generated single-content packages use the resolved client's brand, strategy, objectives/KPIs, and account context.

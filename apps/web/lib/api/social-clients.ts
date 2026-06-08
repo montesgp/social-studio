@@ -15,6 +15,12 @@ export interface SocialClientPayload {
   sectorOrNiche?: string | null;
 }
 
+export interface DeletedSocialClient {
+  id: string;
+  organizationId: string;
+  name: string;
+}
+
 export async function listSocialClients(query: SocialClientsQuery, token?: string) {
   const params = new URLSearchParams();
   if (query.organizationId) params.set("organizationId", query.organizationId);
@@ -51,4 +57,8 @@ export async function deactivateSocialClient(id: string, token?: string) {
 
 export async function activateSocialClient(id: string, token?: string) {
   return apiRequest<SocialClient>(`/api/social/clients/${id}/activate`, { method: "POST" }, token);
+}
+
+export async function deleteSocialClient(id: string, token?: string) {
+  return apiRequest<DeletedSocialClient>(`/api/social/clients/${id}`, { method: "DELETE" }, token);
 }
