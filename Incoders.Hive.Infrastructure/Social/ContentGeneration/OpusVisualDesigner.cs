@@ -165,10 +165,13 @@ public sealed class OpusVisualDesigner : IVisualDesigner
             "   - <div data-layer=\"background\"> — background color, gradient, or image\n" +
             "   - <div data-layer=\"content\"> — all text and foreground elements\n" +
             "4. Every text node MUST be: <element class=\"slot\" data-slot=\"{slotName}\" data-max-lines=\"{n}\">\n" +
-            $"5. Colors: ONLY use hex values from the brand palette: {palette}\n" +
-            "   NEVER use colors outside the brand palette.\n" +
-            $"6. Fonts: ONLY use font families from the brand typography list: {fonts}\n" +
-            "   NEVER use: Arial, system-ui, sans-serif, or any font NOT in the allowed list.\n" +
+            $"5. Colors: PREFER the brand palette for all primary, accent and decorative elements: {palette}\n" +
+            "   Neutral colors — white (#FFFFFF), black (#000000) and grays — ARE allowed for text,\n" +
+            "   backgrounds and contrast when the palette has no suitable neutral. Do NOT introduce\n" +
+            "   other off-brand hues; lean on the brand colors as much as the layout allows.\n" +
+            $"6. Fonts: PREFER the font families from the brand typography list: {fonts}\n" +
+            "   If the brand list has no suitable family for a role, a neutral system fallback is\n" +
+            "   acceptable. Avoid decorative off-brand fonts.\n" +
             "7. No external @import, no Google Fonts, no remote URLs for fonts.\n" +
             "   Fonts are container-installed — reference by family name only.\n" +
             "8. No JavaScript. No SVG. Allowed tags: div, h1, h2, p, span, img, ul, li.\n" +
