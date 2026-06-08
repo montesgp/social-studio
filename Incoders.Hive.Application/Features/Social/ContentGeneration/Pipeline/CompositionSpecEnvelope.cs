@@ -1,4 +1,56 @@
+using System.Text.Json;
+
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
+
+/// <summary>
+/// Serialization helper for <c>composition_spec_json</c>. A single-asset format (e.g. flyer) stores
+/// ONE envelope; a multi-asset format (carousel) stores ONE envelope PER slide so every slide stays
+/// editable on export. To stay backward-compatible with rows written before multi-slide support,
+/// a single envelope is serialized as a JSON object and many as a JSON array; the parser accepts
+/// both shapes.
+/// </summary>
+public static class CompositionSpecJson
+{
+    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// Serializes one-or-many envelopes. A single envelope is written as a JSON object (legacy
+    /// shape); multiple as a JSON array. Returns null for an empty list.
+    /// </summary>
+    public static string? Serialize(IReadOnlyList<CompositionSpecEnvelope> envelopes)
+    {
+        if (envelopes.Count == 0) return null;
+        return envelopes.Count == 1
+            ? JsonSerializer.Serialize(envelopes[0], Options)
+            : JsonSerializer.Serialize(envelopes, Options);
+    }
+
+    /// <summary>
+    /// Parses <c>composition_spec_json</c> into a list of envelopes, accepting both the legacy
+    /// single-object shape and the multi-slide array shape. Returns an empty list on
+    /// null/blank/unparseable input (callers treat that as "not exportable").
+    /// </summary>
+    public static IReadOnlyList<CompositionSpecEnvelope> ParseList(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+
+        var trimmed = json.TrimStart();
+        try
+        {
+            if (trimmed.StartsWith('['))
+            {
+                return JsonSerializer.Deserialize<List<CompositionSpecEnvelope>>(json, Options) ?? [];
+            }
+
+            var single = JsonSerializer.Deserialize<CompositionSpecEnvelope>(json, Options);
+            return single is null ? [] : [single];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+}
 
 /// <summary>
 /// Versioned JSON envelope persisted in <c>social.content_generation_format_results.composition_spec_json</c>.

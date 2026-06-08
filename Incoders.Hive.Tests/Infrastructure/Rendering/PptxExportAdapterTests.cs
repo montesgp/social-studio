@@ -37,6 +37,32 @@ public sealed class PptxExportAdapterTests
         Assert.Equal(1, slideCount);
     }
 
+    [Fact]
+    public async Task BuildManyAsync_MultipleEnvelopes_ProducesOneSlidePerEnvelope()
+    {
+        // A carousel persists one editable envelope per slide; the package builds one PPTX with
+        // one slide per envelope so every slide stays editable in PowerPoint/Canva.
+        var envelopes = new[]
+        {
+            StubMarkupBuilder.BuildCarouselEnvelope(),
+            StubMarkupBuilder.BuildCarouselEnvelope(),
+            StubMarkupBuilder.BuildCarouselEnvelope(),
+        };
+
+        var result = await Adapter.BuildManyAsync(envelopes, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
+        Assert.Equal(3, CountSlides(result.Value));
+    }
+
+    [Fact]
+    public async Task BuildManyAsync_Empty_ReturnsFailure()
+    {
+        var result = await Adapter.BuildManyAsync([], CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+    }
+
     // ------------------------------------------------------------------
     // Slide dimensions — px → EMU via 9525 EMU/px (96 dpi default)
     // ------------------------------------------------------------------

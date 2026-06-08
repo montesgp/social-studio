@@ -419,9 +419,7 @@ file sealed class FakeCanvaOAuthService : ICanvaOAuthService
         Guid userId, Guid organizationIntegrationId, Guid organizationId, string redirectUri, CancellationToken ct)
         => Task.FromResult(Result.Success("https://www.canva.com/api/oauth/authorize?state=test"));
 
-    public Task<Result> ExchangeCodeAsync(
-        Guid userId, Guid organizationIntegrationId, Guid organizationId,
-        string code, string state, string redirectUri, CancellationToken ct)
+    public Task<Result> ExchangeCodeAsync(string code, string state, CancellationToken ct = default)
         => Task.FromResult(Result.Success());
 
     public Task<Result<string>> EnsureFreshAsync(
@@ -452,6 +450,9 @@ file sealed class FakePptxAdapterForCanva : IPptxExportAdapter
     public FakePptxAdapterForCanva(Result<byte[]> response) => _response = response;
 
     public Task<Result<byte[]>> BuildAsync(CompositionSpecEnvelope envelope, CancellationToken ct)
+        => BuildManyAsync([envelope], ct);
+
+    public Task<Result<byte[]>> BuildManyAsync(IReadOnlyList<CompositionSpecEnvelope> envelopes, CancellationToken ct)
     {
         WasCalled = true;
         return Task.FromResult(_response);
@@ -466,10 +467,14 @@ file sealed class FakeCanvaImportClient : ICanvaDesignImportClient
 
     public FakeCanvaImportClient(Result<CanvaImportResult> response) => _response = response;
 
-    public Task<Result<CanvaImportResult>> ImportAsync(byte[] pptxBytes, string accessToken, CancellationToken ct)
+    public string? LastDesignTitleUsed { get; private set; }
+
+    public Task<Result<CanvaImportResult>> ImportAsync(
+        byte[] pptxBytes, string accessToken, string? designTitle = null, CancellationToken ct = default)
     {
         WasCalled = true;
         LastAccessTokenUsed = accessToken;
+        LastDesignTitleUsed = designTitle;
         return Task.FromResult(_response);
     }
 }

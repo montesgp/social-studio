@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
@@ -30,9 +29,6 @@ public sealed class ExportFormatToCanvaCommandHandler
     : IRequestHandler<ExportFormatToCanvaCommand, Result<ExportFormatToCanvaResponse>>
 {
     private const string UnauthorizedImportErrorCode = "canva.import.unauthorized";
-
-    private static readonly JsonSerializerOptions JsonOptions =
-        new(JsonSerializerDefaults.Web);
 
     private readonly IContentGenerationJobRepository _jobRepository;
     private readonly IContentGenerationFormatResultRepository _formatResultRepository;
@@ -103,28 +99,19 @@ public sealed class ExportFormatToCanvaCommandHandler
                 ContentGenerationErrors.NotExportable);
         }
 
-        // 4. Deserialize the versioned envelope
-        CompositionSpecEnvelope envelope;
-        try
-        {
-            envelope = JsonSerializer.Deserialize<CompositionSpecEnvelope>(
-                formatResult.CompositionSpecJson, JsonOptions)!;
-        }
-        catch (JsonException)
-        {
-            return Result.Failure<ExportFormatToCanvaResponse>(
-                ContentGenerationErrors.NotExportable);
-        }
-
-        if (envelope is null)
+        // 4. Parse the persisted envelope(s): one per slide for carousel, one for single formats.
+        //    Accepts both the legacy single-object shape and the multi-slide array shape.
+        var envelopes = CompositionSpecJson.ParseList(formatResult.CompositionSpecJson);
+        if (envelopes.Count == 0)
         {
             return Result.Failure<ExportFormatToCanvaResponse>(
                 ContentGenerationErrors.NotExportable);
         }
 
         // 5. Check that the user has connected their Canva account
+        // Org-level connection: look up the shared org token, not a per-user one.
         var existingToken = await _tokenRepository.GetAsync(
-            command.UserId,
+            CanvaOrgConnection.SharedUserId,
             command.OrganizationIntegrationId,
             cancellationToken);
 
@@ -139,7 +126,7 @@ public sealed class ExportFormatToCanvaCommandHandler
         // 6. Ensure the access token is fresh (D2 rotation if expired).
         //    Pass the REAL organizationId — not the organizationIntegrationId proxy.
         var tokenResult = await _oauthService.EnsureFreshAsync(
-            command.UserId,
+            CanvaOrgConnection.SharedUserId,
             command.OrganizationIntegrationId,
             command.OrganizationId,
             cancellationToken);
@@ -151,15 +138,16 @@ public sealed class ExportFormatToCanvaCommandHandler
 
         var accessToken = tokenResult.Value;
 
-        // 7. Build PPTX bytes (offline, deterministic)
-        var buildResult = await _pptxAdapter.BuildAsync(envelope, cancellationToken);
+        // 7. Build PPTX bytes (offline, deterministic) — one slide per envelope.
+        var buildResult = await _pptxAdapter.BuildManyAsync(envelopes, cancellationToken);
         if (buildResult.IsFailure)
         {
             return Result.Failure<ExportFormatToCanvaResponse>(buildResult.Error);
         }
 
-        // 8. Import PPTX into Canva
-        var importResult = await _importClient.ImportAsync(buildResult.Value, accessToken, cancellationToken);
+        // 8. Import PPTX into Canva (title the design after the format).
+        var importResult = await _importClient.ImportAsync(
+            buildResult.Value, accessToken, designTitle: command.FormatKey, ct: cancellationToken);
 
         if (importResult.IsFailure)
         {
@@ -167,7 +155,7 @@ public sealed class ExportFormatToCanvaCommandHandler
             if (string.Equals(importResult.Error.Code, UnauthorizedImportErrorCode, StringComparison.OrdinalIgnoreCase))
             {
                 await _oauthService.RevokeAsync(
-                    command.UserId,
+                    CanvaOrgConnection.SharedUserId,
                     command.OrganizationIntegrationId,
                     cancellationToken);
 

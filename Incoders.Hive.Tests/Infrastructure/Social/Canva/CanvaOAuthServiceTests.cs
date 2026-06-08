@@ -120,12 +120,13 @@ public sealed class CanvaOAuthServiceTests
         var protector = new FakeProtector();
         var (service, cache, _, _, _) = CreateService(httpHandler: httpHandler, repo: repo, protector: protector);
 
-        // Pre-seed a state in cache (simulates authorize flow having run)
+        // Pre-seed the cached authorization context (simulates authorize flow having run).
         var state = "test-state-123";
         var verifier = "test-verifier-abc";
-        cache.SetStateVerifier(state, verifier);
+        cache.SetPendingAuthorization(state,
+            new CanvaPendingAuthorization(verifier, "https://app.local/callback", OrgId, OrgIntegrationId));
 
-        var result = await service.ExchangeCodeAsync(UserId, OrgIntegrationId, OrgId, "auth-code", state, "https://app.local/callback", CancellationToken.None);
+        var result = await service.ExchangeCodeAsync("auth-code", state, CancellationToken.None);
 
         Assert.True(result.IsSuccess, $"ExchangeCode failed: {result.Error.Code}");
         Assert.True(repo.UpsertCalled, "Expected UpsertAsync to be called");
@@ -143,7 +144,7 @@ public sealed class CanvaOAuthServiceTests
     {
         var (service, _, _, _, _) = CreateService();
 
-        var result = await service.ExchangeCodeAsync(UserId, OrgIntegrationId, OrgId, "code", "wrong-state", "https://app.local/callback", CancellationToken.None);
+        var result = await service.ExchangeCodeAsync("code", "wrong-state", CancellationToken.None);
 
         Assert.True(result.IsFailure);
         Assert.Equal("canva.oauth.invalid_state", result.Error.Code);
@@ -388,10 +389,13 @@ internal sealed class FakeCacheStore : ICacheStore
     public void SetStateVerifier(string state, string verifier)
         => _store[$"canva:pkce:{state}"] = verifier;
 
+    public void SetPendingAuthorization(string state, CanvaPendingAuthorization pending)
+        => _store[$"canva:pkce:{state}"] = pending;
+
     public string? GetVerifierForState(string state)
     {
         _store.TryGetValue($"canva:pkce:{state}", out var v);
-        return v as string;
+        return v is CanvaPendingAuthorization p ? p.Verifier : v as string;
     }
 
     public Task<T?> GetAsync<T>(string key, CancellationToken cancellationToken = default)

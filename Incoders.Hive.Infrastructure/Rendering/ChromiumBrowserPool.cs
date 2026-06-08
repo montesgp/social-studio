@@ -94,10 +94,12 @@ public sealed class ChromiumBrowserPool : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, nameof(ChromiumBrowserPool));
 
+        // Lazy-initialize on first use. The pool is a singleton with no startup hook, so the first
+        // render launches Playwright + Chromium here; InitializeAsync is idempotent (guarded by
+        // _initLock) so concurrent first-renders are safe and later calls return immediately.
         if (!_initialized)
         {
-            throw new InvalidOperationException(
-                "ChromiumBrowserPool must be initialized before use. Call InitializeAsync first.");
+            await InitializeAsync(cancellationToken);
         }
 
         // Acquire concurrency slot — blocks until a slot is free

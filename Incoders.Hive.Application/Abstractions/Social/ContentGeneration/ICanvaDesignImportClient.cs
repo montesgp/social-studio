@@ -62,8 +62,14 @@ public interface ICanvaDesignImportClient
     /// Expected failures NEVER throw; only truly unexpected conditions (e.g. network infrastructure failure)
     /// may propagate as exceptions, which callers must handle defensively.
     /// </returns>
+    /// <param name="designTitle">
+    /// Optional human-friendly title for the imported design (Canva uses the upload filename as the
+    /// design name). When null/blank a generic default is used. Used to name a package design after
+    /// the client.
+    /// </param>
     Task<Result<CanvaImportResult>> ImportAsync(
         byte[] pptxBytes,
         string accessToken,
+        string? designTitle = null,
         CancellationToken ct = default);
 }

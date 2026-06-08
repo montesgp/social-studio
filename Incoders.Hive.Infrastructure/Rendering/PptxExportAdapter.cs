@@ -42,16 +42,32 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
     public Task<Result<byte[]>> BuildAsync(CompositionSpecEnvelope envelope, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(envelope);
+        return BuildManyAsync([envelope], ct);
+    }
 
-        if (envelope.SchemaVersion != CompositionSpecEnvelope.CurrentSchemaVersion)
+    /// <inheritdoc />
+    public Task<Result<byte[]>> BuildManyAsync(IReadOnlyList<CompositionSpecEnvelope> envelopes, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(envelopes);
+
+        if (envelopes.Count == 0)
         {
             return Task.FromResult(Result.Failure<byte[]>(
-                PptxExportErrors.UnsupportedSchemaVersion(envelope.SchemaVersion)));
+                PptxExportErrors.BuildFailed("No composition specs to export.")));
+        }
+
+        foreach (var envelope in envelopes)
+        {
+            if (envelope.SchemaVersion != CompositionSpecEnvelope.CurrentSchemaVersion)
+            {
+                return Task.FromResult(Result.Failure<byte[]>(
+                    PptxExportErrors.UnsupportedSchemaVersion(envelope.SchemaVersion)));
+            }
         }
 
         try
         {
-            var bytes = BuildPptx(envelope);
+            var bytes = BuildPptx(envelopes);
             return Task.FromResult(Result.Success(bytes));
         }
         catch (Exception ex)
@@ -65,14 +81,17 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
     // Core builder
     // -----------------------------------------------------------------------
 
-    private static byte[] BuildPptx(CompositionSpecEnvelope envelope)
+    private static byte[] BuildPptx(IReadOnlyList<CompositionSpecEnvelope> envelopes)
     {
         using var ms = new MemoryStream();
         using (var prs = PresentationDocument.Create(ms, PresentationDocumentType.Presentation))
         {
-            var emuPerPx = EmuPerPx(envelope.Canvas.Dpi);
-            var slideWidthEmu = (long)(envelope.Canvas.Width * emuPerPx);
-            var slideHeightEmu = (long)(envelope.Canvas.Height * emuPerPx);
+            // PPTX has a single presentation-wide slide size — use the first envelope's canvas.
+            // For multi-slide carousels every slide shares the same canvas, so this is exact.
+            var first = envelopes[0];
+            var emuPerPx = EmuPerPx(first.Canvas.Dpi);
+            var slideWidthEmu = (long)(first.Canvas.Width * emuPerPx);
+            var slideHeightEmu = (long)(first.Canvas.Height * emuPerPx);
 
             // ---- Presentation part ----
             var presentationPart = prs.AddPresentationPart();
@@ -86,13 +105,16 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
             InitSlideLayout(slideLayoutPart);
             slideLayoutPart.AddPart(slideMasterPart, "rIdSM1");
 
-            // ---- One slide per envelope (single asset = 1 slide) ----
-            var slidePart = presentationPart.AddNewPart<SlidePart>("rId2");
-            AddSlide(slidePart, slideLayoutPart, envelope, emuPerPx, slideWidthEmu, slideHeightEmu);
+            // ---- One slide per envelope ----
+            for (var i = 0; i < envelopes.Count; i++)
+            {
+                var relationshipId = $"rIdSlide{i + 1}";
+                var slidePart = presentationPart.AddNewPart<SlidePart>(relationshipId);
+                AddSlide(slidePart, slideLayoutPart, envelopes[i], emuPerPx, slideWidthEmu, slideHeightEmu);
 
-            // Wire slide into the slide-id list
-            presentationPart.Presentation.SlideIdList!.AppendChild(
-                new P.SlideId { Id = 256U, RelationshipId = "rId2" });
+                presentationPart.Presentation.SlideIdList!.AppendChild(
+                    new P.SlideId { Id = 256U + (uint)i, RelationshipId = relationshipId });
+            }
 
             presentationPart.Presentation.Save();
         }

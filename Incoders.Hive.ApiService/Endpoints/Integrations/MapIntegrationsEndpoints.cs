@@ -81,18 +81,22 @@ public static class IntegrationsEndpointsExtensions
             .WithTags("Integrations")
             .RequireAuthorization();
 
+        // Authorize requires auth (called by the admin's browser via fetch with the bearer): it
+        // returns the Canva authorize URL as JSON so the SPA can navigate to Canva.
         canvaGroup.MapGet("/authorize", CanvaOAuthFacade.AuthorizeAsync)
             .WithName("CanvaOAuthAuthorize")
-            .WithSummary("Start Canva per-user OAuth PKCE flow — redirects to Canva authorization page")
-            .Produces(StatusCodes.Status302Found)
+            .WithSummary("Start Canva org OAuth PKCE flow — returns the Canva authorize URL as JSON")
+            .Produces<CanvaAuthorizeUrlResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized);
 
+        // Callback is an UNAUTHENTICATED browser navigation FROM Canva (no bearer) — it must allow
+        // anonymous; security comes from validating the OAuth state against the server-side cache.
         canvaGroup.MapGet("/callback", CanvaOAuthFacade.CallbackAsync)
+            .AllowAnonymous()
             .WithName("CanvaOAuthCallback")
-            .WithSummary("Canva OAuth callback — exchanges code for tokens and redirects to UI")
-            .Produces(StatusCodes.Status302Found)
-            .ProducesProblem(StatusCodes.Status400BadRequest);
+            .WithSummary("Canva OAuth callback — exchanges code for the org token and redirects to UI")
+            .Produces(StatusCodes.Status302Found);
 
         return app;
     }
@@ -260,21 +264,26 @@ public static class CanvaOAuthFacade
         [FromServices] ICurrentTenant currentTenant,
         CancellationToken cancellationToken)
     {
-        if (currentUser.UserId is not { } userId)
+        if (currentUser.UserId is null)
             return TypedResults.Unauthorized();
 
         if (currentTenant.TenantId is not { } tenantId)
             return IntegrationErrors.OrganizationRequired.ToProblem();
 
+        // Org-level connection: the token is stored under the shared org sentinel, not the
+        // initiating user — so the whole org reuses this single connection.
         var result = await oauthService.BuildAuthorizeUrlAsync(
-            userId,
+            CanvaOrgConnection.SharedUserId,
             orgIntegrationId,
             tenantId.Value,
             redirectUri,
             cancellationToken);
 
+        // Return the URL as JSON — the SPA fetches this (with its bearer) then navigates the
+        // browser to Canva. A 302 here would be useless: the SPA can't send the bearer on a
+        // full-page navigation.
         return result.IsSuccess
-            ? TypedResults.Redirect(result.Value)
+            ? TypedResults.Ok(new CanvaAuthorizeUrlResponse(result.Value))
             : result.Error.ToProblem();
     }
 
@@ -285,39 +294,31 @@ public static class CanvaOAuthFacade
     /// Expected failures (invalid/expired state, Canva error) redirect to the error page — no 500.
     /// </summary>
     public static async Task<IResult> CallbackAsync(
-        [FromQuery] string code,
-        [FromQuery] string state,
-        [FromQuery] Guid orgIntegrationId,
-        [FromQuery] string redirectUri,
+        [FromQuery] string? code,
+        [FromQuery] string? state,
+        [FromQuery] string? error,
         [FromServices] ICanvaOAuthService oauthService,
-        [FromServices] ICurrentUser currentUser,
-        [FromServices] ICurrentTenant currentTenant,
         CancellationToken cancellationToken)
     {
-        if (currentUser.UserId is not { } userId)
-            return TypedResults.Redirect(ErrorRedirectPath + "?reason=unauthenticated");
+        // Canva may return an error param instead of a code (e.g., the user cancelled).
+        if (!string.IsNullOrWhiteSpace(error))
+            return TypedResults.Redirect(ErrorRedirectPath + "?reason=" + Uri.EscapeDataString(error));
 
-        if (currentTenant.TenantId is not { } tenantId)
-            return TypedResults.Redirect(ErrorRedirectPath + "?reason=no-organization");
-
-        // Canva may return an error param instead of a code (e.g., user cancelled).
-        if (string.IsNullOrWhiteSpace(code))
+        if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(state))
             return TypedResults.Redirect(ErrorRedirectPath + "?reason=no-code");
 
-        var result = await oauthService.ExchangeCodeAsync(
-            userId,
-            orgIntegrationId,
-            tenantId.Value,
-            code,
-            state,
-            redirectUri,
-            cancellationToken);
+        // No bearer/tenant here (browser navigation from Canva): the org + integration + verifier
+        // + redirect URI are all recovered from the server-side cache keyed by the validated state.
+        var result = await oauthService.ExchangeCodeAsync(code, state, cancellationToken);
 
         return result.IsSuccess
             ? TypedResults.Redirect(SuccessRedirectPath)
             : TypedResults.Redirect(ErrorRedirectPath + "?reason=" + Uri.EscapeDataString(result.Error.Code));
     }
 }
+
+/// <summary>Response of GET .../canva/authorize: the Canva authorization URL the SPA navigates to.</summary>
+public sealed record CanvaAuthorizeUrlResponse(string AuthorizeUrl);
 
 public sealed record ConfigureOrganizationIntegrationRequest(
     IntegrationConnectionMode ConnectionMode,

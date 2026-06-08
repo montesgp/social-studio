@@ -263,15 +263,11 @@ public sealed class ContentGenerationJobProcessor
                 var formatAssetRows = new List<FormatAssetRow>();
                 Guid formatResultId;
 
-                // WU-1 (B3 D1+D3): track the validated markup, canvas dimensions, and captured
-                // slot geometry for this format so they can be persisted in composition_spec_json
-                // on success. Markup comes from the guardrail-validated spec; geometry from the
-                // renderer when it implements IContentRendererWithGeometry (otherwise empty list).
-                // WU-9: also track the background-only data-URI from the same render pass.
-                string? capturedMarkup = null;
-                CompositionDimensions? capturedDimensions = null;
-                IReadOnlyList<SlotGeometryEntry> capturedGeometry = [];
-                string? capturedBackgroundDataUri = null;
+                // WU-1 (B3 D1+D3): one editable composition envelope (validated markup + canvas +
+                // per-slot geometry + background data-URI) is captured PER successfully rendered
+                // slide and persisted in composition_spec_json. Single-asset formats (flyer) yield
+                // one; carousel yields one per slide so every slide stays editable on export.
+                var capturedEnvelopes = new List<CompositionSpecEnvelope>();
 
                 // We need the format result ID to associate asset rows.
                 // Generate a stable ID now (it will be upserted into the DB after render).
@@ -282,6 +278,12 @@ public sealed class ContentGenerationJobProcessor
                 for (var specIndex = 0; specIndex < specs.Count; specIndex++)
                 {
                     var spec = specs[specIndex];
+
+                    // Per-slide capture — built into an envelope at the end of a successful iteration.
+                    string? capturedMarkup = null;
+                    CompositionDimensions? capturedDimensions = null;
+                    IReadOnlyList<SlotGeometryEntry> capturedGeometry = [];
+                    string? capturedBackgroundDataUri = null;
 
                     // Designer + guardrail stage for designed-raster formats (flyer, carousel).
                     // Text/markdown formats bypass entirely (spec.OutputKind != Raster means they
@@ -462,6 +464,22 @@ public sealed class ContentGenerationJobProcessor
                     }
 
                     assets.Add(asset);
+
+                    // Capture this slide's editable composition (designed-raster formats only —
+                    // text/markdown slides have no markup). One envelope per slide keeps every
+                    // carousel slide editable on PPTX/Canva export.
+                    if (capturedMarkup is not null)
+                    {
+                        var canvas = capturedDimensions is not null
+                            ? new CanvasDimensions(capturedDimensions.Width, capturedDimensions.Height, capturedDimensions.Dpi)
+                            : new CanvasDimensions(0, 0, 96);
+                        capturedEnvelopes.Add(new CompositionSpecEnvelope(
+                            CompositionSpecEnvelope.CurrentSchemaVersion,
+                            capturedMarkup,
+                            canvas,
+                            capturedGeometry,
+                            capturedBackgroundDataUri));
+                    }
                 }
 
                 if (formatRendered && !formatStorageFailed)
@@ -482,10 +500,7 @@ public sealed class ContentGenerationJobProcessor
                         formatKey,
                         step,
                         assets.Last(),
-                        capturedMarkup,
-                        capturedDimensions,
-                        capturedGeometry,
-                        capturedBackgroundDataUri,
+                        capturedEnvelopes,
                         ct);
                     existingByFormat[formatKey] = persistedFormatResult;
 
@@ -828,34 +843,15 @@ public sealed class ContentGenerationJobProcessor
         string formatKey,
         FormatStep step,
         RenderedAsset asset,
-        string? designerMarkup,
-        CompositionDimensions? specDimensions,
-        IReadOnlyList<SlotGeometryEntry> slotGeometry,
-        string? backgroundImageDataUri,
+        IReadOnlyList<CompositionSpecEnvelope> compositionEnvelopes,
         CancellationToken ct)
     {
-        // WU-1 D1: when a validated designer markup is present, serialize the versioned
-        // CompositionSpecEnvelope into composition_spec_json so the PPTX/Canva export
-        // adapters can retrieve markup + geometry without re-composing.
-        // Non-designed formats (text, markdown, legacy raster) leave the column null.
-        // WU-9: also store the background-only data-URI so export adapters can rasterize
-        // the decorative background without re-launching Chromium.
-        string? compositionSpecJson = null;
-        if (designerMarkup is not null)
-        {
-            var canvas = specDimensions is not null
-                ? new CanvasDimensions(specDimensions.Width, specDimensions.Height, specDimensions.Dpi)
-                : new CanvasDimensions(0, 0, 96);
-
-            var envelope = new CompositionSpecEnvelope(
-                SchemaVersion: CompositionSpecEnvelope.CurrentSchemaVersion,
-                Markup: designerMarkup,
-                Canvas: canvas,
-                SlotGeometry: slotGeometry,
-                BackgroundImageRef: backgroundImageDataUri);
-
-            compositionSpecJson = JsonSerializer.Serialize(envelope, JsonOptions);
-        }
+        // WU-1 D1: serialize the per-slide composition envelopes (markup + canvas + geometry +
+        // background data-URI) into composition_spec_json so the PPTX/Canva export adapters can
+        // retrieve everything without re-composing. Single-asset formats store one envelope;
+        // carousel stores one per slide so every slide stays editable. Non-designed formats
+        // (text, markdown, legacy raster) produce no envelopes and leave the column null.
+        var compositionSpecJson = CompositionSpecJson.Serialize(compositionEnvelopes);
 
         var now = DateTime.UtcNow;
         return await _formatResults.UpsertAsync(new ContentGenerationFormatResult(

@@ -43,6 +43,29 @@ export async function listOrganizationIntegrations(organizationId: string, token
   );
 }
 
+export interface CanvaAuthorizeUrlResponse {
+  authorizeUrl: string;
+}
+
+/**
+ * Starts the ORG-level Canva OAuth connect. Returns the Canva authorization URL the caller must
+ * navigate the browser to. The `redirectUri` is the env-derived callback (see the Connect button);
+ * it must be in the Canva app's allowed redirect URIs.
+ */
+export async function getCanvaAuthorizeUrl(
+  organizationId: string,
+  orgIntegrationId: string,
+  redirectUri: string,
+  token?: string
+) {
+  const query = new URLSearchParams({ orgIntegrationId, redirectUri }).toString();
+  return apiRequest<CanvaAuthorizeUrlResponse>(
+    `/api/integrations/canva/authorize?${query}`,
+    { headers: organizationHeaders(organizationId) },
+    token
+  );
+}
+
 export async function getOrganizationIntegration(organizationId: string, providerKey: string, token?: string) {
   return apiRequest<OrganizationIntegration>(
     `/api/integrations/organization/${providerKey}`,

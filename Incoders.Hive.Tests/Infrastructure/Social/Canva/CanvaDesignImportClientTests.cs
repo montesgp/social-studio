@@ -260,7 +260,7 @@ public sealed class CanvaDesignImportClientTests
         var httpClient = new HttpClient();
         var client = new CanvaDesignImportClient(httpClient); // production constructor — 5s poll interval
 
-        var result = await client.ImportAsync(pptxBytes, accessToken, CancellationToken.None);
+        var result = await client.ImportAsync(pptxBytes, accessToken, ct: CancellationToken.None);
 
         // The integration test accepts either success (real PPTX returns edit URL) or
         // a handled failure (Canva rejects our stub bytes). What it MUST NOT do is throw.

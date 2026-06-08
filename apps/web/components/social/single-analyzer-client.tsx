@@ -71,6 +71,7 @@ import {
   deleteFormatItem,
   downloadFormatAsPptx,
   exportFormatToCanva,
+  exportPackageToCanva,
   ALL_FORMAT_KEYS,
   FORMAT_LABELS,
 } from "@/lib/api/content-generation";
@@ -751,6 +752,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [isDownloadingPackage, setIsDownloadingPackage] = useState(false);
   const [isDownloadingPptx, setIsDownloadingPptx] = useState(false);
   const [isExportingToCanva, setIsExportingToCanva] = useState(false);
+  // Whether the active org has the Canva connector configured (gates the package "Send to Canva").
+  const [canvaConfigured, setCanvaConfigured] = useState(false);
+  const [canvaOrgIntegrationId, setCanvaOrgIntegrationId] = useState("");
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isHydratingHistory, setIsHydratingHistory] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -1033,23 +1037,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       const err = e as { message?: string; code?: string };
       const code = err.code ?? "";
 
-      // User has not connected their Canva account — start the OAuth Connect flow.
-      // The authorize endpoint will resolve the orgIntegrationId from the user's org context.
+      // Canva is connected at the ORG level by an admin (Settings → Integrations); individual users
+      // are never redirected to OAuth. If the org isn't connected, say so clearly.
       if (code === "canva.not_connected" || code === "canva.reconnect_required") {
-        // Fetch the org's Canva integration id for the authorize redirect.
-        // If unavailable, we still redirect and let the server handle it gracefully.
-        let canvaIntegrationId = "";
-        try {
-          const integration = await getOrganizationIntegration(
-            selectedOrganizationId, "canva", effectiveToken ?? undefined
-          );
-          canvaIntegrationId = integration.integrationId ?? "";
-        } catch {
-          // Ignore — the authorize endpoint handles missing orgIntegrationId gracefully.
-        }
-        const returnUrl = typeof window !== "undefined" ? window.location.href : "/";
-        const connectUrl = `/api/integrations/canva/authorize?orgIntegrationId=${encodeURIComponent(canvaIntegrationId)}&redirectUri=${encodeURIComponent(returnUrl)}`;
-        window.location.href = connectUrl;
+        setPackageJobError({
+          message:
+            "Canva isn't connected for this organization yet. An admin needs to connect it in Settings → Integrations.",
+        });
         return;
       }
 
@@ -1060,6 +1054,41 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setIsExportingToCanva(false);
     }
   }, [packageJobId, isExportingToCanva, effectiveToken, videoResult?.id, selectedOrganizationId]);
+
+  /**
+   * Sends the whole VISUAL package of the current job (flyer + carousel slides) to Canva as ONE
+   * editable multi-page design, titled after the client. Mirrors exportFormatToCanvaFile's
+   * connect-on-demand behavior. B3 — package-level Send to Canva.
+   */
+  const sendPackageToCanva = useCallback(async () => {
+    if (isExportingToCanva) return;
+    const analysisId = videoResult?.id;
+    const jobId = packageJobId;
+    if (!analysisId || !jobId) return;
+    setIsExportingToCanva(true);
+    setPackageJobError(null);
+    try {
+      const result = await exportPackageToCanva(analysisId, jobId, canvaOrgIntegrationId, {
+        token: effectiveToken,
+      });
+      window.open(result.editUrl, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      const err = e as { message?: string; code?: string };
+      const code = err.code ?? "";
+      // Canva is connected at the ORG level by an admin (Settings → Integrations). Individual users
+      // are never redirected to OAuth — if the org isn't connected, we say so clearly.
+      if (code === "canva.not_connected" || code === "canva.reconnect_required") {
+        setPackageJobError({
+          message:
+            "Canva isn't connected for this organization yet. An admin needs to connect it in Settings → Integrations.",
+        });
+        return;
+      }
+      setPackageJobError({ message: err?.message ?? "Failed to send the package to Canva." });
+    } finally {
+      setIsExportingToCanva(false);
+    }
+  }, [packageJobId, isExportingToCanva, effectiveToken, videoResult?.id, canvaOrgIntegrationId]);
 
   useEffect(() => {
     setDuplicateAnalysisPrompt(null);
@@ -1234,6 +1263,41 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   useEffect(() => {
     void loadHistory();
   }, [loadHistory, selectedOrganizationId]);
+
+  // Detect whether the active org has the Canva connector configured. This gates the package-level
+  // "Send to Canva" action: it appears only when the org integration exists. Per-user connection is
+  // still handled reactively (clicking starts the OAuth flow when the user hasn't connected).
+  useEffect(() => {
+    let cancelled = false;
+    async function checkCanvaConfigured() {
+      if (!selectedOrganizationId) {
+        setCanvaConfigured(false);
+        setCanvaOrgIntegrationId("");
+        return;
+      }
+      try {
+        const integration = await getOrganizationIntegration(
+          selectedOrganizationId,
+          "canva",
+          effectiveToken ?? undefined
+        );
+        const id = integration.integrationId ?? "";
+        if (!cancelled) {
+          setCanvaConfigured(Boolean(id));
+          setCanvaOrgIntegrationId(id);
+        }
+      } catch {
+        if (!cancelled) {
+          setCanvaConfigured(false);
+          setCanvaOrgIntegrationId("");
+        }
+      }
+    }
+    void checkCanvaConfigured();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrganizationId, effectiveToken]);
 
   useEffect(() => {
     if (!isPlatformAdmin && activeOrgId) {
@@ -2999,6 +3063,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       clients.map((c) => [c.id, c.name])
                     )}
                     onDownload={() => void handlePackageAction()}
+                    canSendToCanva={
+                      canvaConfigured && canDownloadPackage && packageJobId !== null
+                    }
+                    isSendingToCanva={isExportingToCanva}
+                    onSendToCanva={() => void sendPackageToCanva()}
                   />
                 )}
               </CardContent>
@@ -3171,6 +3240,10 @@ interface PackageTabContentProps {
    *  instead of an opaque GUID. Falls back to a truncated id when a client is unknown. */
   clientLabels: Record<string, string>;
   onDownload: () => void;
+  /** True when the org has Canva configured AND there is a package + current job to export. */
+  canSendToCanva: boolean;
+  isSendingToCanva: boolean;
+  onSendToCanva: () => void;
 }
 
 function PackageTabContent({
@@ -3185,6 +3258,9 @@ function PackageTabContent({
   clientPackages,
   clientLabels,
   onDownload,
+  canSendToCanva,
+  isSendingToCanva,
+  onSendToCanva,
 }: PackageTabContentProps) {
   const allFormatKeys = Array.from(
     new Set([...Object.keys(localFormats) as ContentFormatKey[], ...packageSucceededFormats])
@@ -3264,11 +3340,13 @@ function PackageTabContent({
                         Generated
                       </span>
                     </div>
-                    {/* Carousel slide children */}
+                    {/* Carousel slide children — styled identically to a single-file format row
+                        (e.g. flyer.png): same icon, color and text weight; only the indent reflects
+                        that they live inside the carousel/ folder. */}
                     {isCarousel && formatEntry.assets.map((asset) => (
                       <div key={asset.index} className="pl-12 flex items-center gap-1.5 py-0.5">
-                        <FileImage className="h-3 w-3 text-blue-300 shrink-0" />
-                        <span className="font-mono text-xs text-muted-foreground/70 truncate">
+                        <FileImage className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                        <span className="font-mono text-xs text-foreground/80 truncate">
                           {asset.filename}
                         </span>
                       </div>
@@ -3381,6 +3459,31 @@ function PackageTabContent({
           </span>
         )}
       </Button>
+
+      {/* Send to Canva — only when the org has Canva configured. Sends the visual package
+          (flyer + carousel slides) as ONE editable multi-page Canva design. */}
+      {canSendToCanva && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full h-9 text-xs"
+          onClick={onSendToCanva}
+          disabled={isSendingToCanva || isLoading}
+          title="Send the visual package (flyer + carousel) to Canva as one editable design."
+        >
+          {isSendingToCanva ? (
+            <span className="flex items-center gap-2">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              Sending to Canva…
+            </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <ExternalLink className="h-3 w-3" />
+              Send to Canva
+            </span>
+          )}
+        </Button>
+      )}
     </div>
   );
 }

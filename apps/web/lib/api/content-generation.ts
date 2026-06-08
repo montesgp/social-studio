@@ -435,6 +435,61 @@ export async function exportFormatToCanva(
 }
 
 /**
+ * POST /api/social/single-analyzer/{analysisId}/package/export-to-canva
+ *
+ * Exports the whole VISUAL package of a job (flyer + carousel slides) to Canva as ONE editable
+ * multi-page design, titled after the client. Same error contract as {@link exportFormatToCanva}.
+ */
+export async function exportPackageToCanva(
+  analysisId: string,
+  jobId: string,
+  orgIntegrationId: string,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<ExportToCanvaResult> {
+  const base = typeof window !== "undefined" ? "/hive-api" : "";
+  const headers = new Headers({ "Content-Type": "application/json" });
+
+  if (opts?.token) {
+    headers.set("Authorization", `Bearer ${opts.token}`);
+  }
+
+  if (typeof window !== "undefined") {
+    const orgId = window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+    if (orgId) {
+      headers.set("X-Tenant-Id", orgId);
+    }
+  }
+
+  const url = `${base}/api/social/single-analyzer/${encodeURIComponent(analysisId)}/package/export-to-canva`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ jobId, orgIntegrationId }),
+    signal: opts?.signal,
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let message = `Failed to send package to Canva (HTTP ${response.status})`;
+    let code: string | undefined;
+    try {
+      const problem = (await response.json()) as { detail?: string; title?: string; extensions?: { code?: string }; code?: string };
+      code = problem.code ?? (problem.extensions as Record<string, string> | undefined)?.["code"];
+      message = problem.detail ?? problem.title ?? message;
+    } catch {
+      // ignore: keep default HTTP message
+    }
+    const err = new Error(message) as Error & { code?: string; status?: number };
+    err.code = code;
+    err.status = response.status;
+    throw err;
+  }
+
+  return response.json() as Promise<ExportToCanvaResult>;
+}
+
+/**
  * GET /api/social/content-generation-jobs/{jobId}/package
  * Downloads the generated ZIP using auth + tenant headers.
  */

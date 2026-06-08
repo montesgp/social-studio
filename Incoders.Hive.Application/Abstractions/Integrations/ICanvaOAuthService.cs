@@ -50,23 +50,23 @@ public interface ICanvaOAuthService
         CancellationToken ct = default);
 
     /// <summary>
-    /// Validates the OAuth callback: checks state, exchanges code+verifier for tokens,
-    /// and stores the encrypted token pair via <c>ICanvaUserTokenRepository</c>.
+    /// Validates the OAuth callback and stores the org-level Canva token.
+    ///
+    /// <para>
+    /// The callback is a browser navigation FROM Canva — it carries NO bearer token or tenant
+    /// header. Everything needed (PKCE verifier, redirect URI, organization id, integration id)
+    /// was cached under <paramref name="state"/> during <see cref="BuildAuthorizeUrlAsync"/>, so
+    /// this method only needs the <paramref name="code"/> and <paramref name="state"/>. The token
+    /// is stored under the shared org sentinel (<c>CanvaOrgConnection.SharedUserId</c>) so the whole
+    /// org reuses one connection.
+    /// </para>
     /// </summary>
-    /// <param name="userId">The platform user completing the OAuth flow.</param>
-    /// <param name="organizationIntegrationId">The org-level Canva integration row id.</param>
-    /// <param name="organizationId">Used to resolve the Canva BYOK credentials.</param>
     /// <param name="code">The authorization code from Canva.</param>
-    /// <param name="state">The state parameter returned by Canva — must match cache.</param>
-    /// <param name="redirectUri">Must match the redirect URI used in the authorize step.</param>
+    /// <param name="state">The state parameter returned by Canva — must match the cached entry.</param>
     /// <param name="ct">Cancellation token.</param>
     Task<Result> ExchangeCodeAsync(
-        Guid userId,
-        Guid organizationIntegrationId,
-        Guid organizationId,
         string code,
         string state,
-        string redirectUri,
         CancellationToken ct = default);
 
     /// <summary>

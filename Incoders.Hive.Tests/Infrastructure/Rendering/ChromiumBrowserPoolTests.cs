@@ -56,6 +56,30 @@ public sealed class ChromiumBrowserPoolTests
     }
 
     /// <summary>
+    /// Regression: <see cref="ChromiumBrowserPool.AcquirePageAsync"/> must lazily initialize the
+    /// pool on first use. The pool is a singleton with no startup hook, so before this fix the
+    /// first render threw "ChromiumBrowserPool must be initialized before use" and flyers/carousels
+    /// never rendered (the failure was masked earlier by the designer ProviderCallContext bug).
+    /// </summary>
+    [Fact]
+    public async Task AcquirePageAsync_WithoutExplicitInitialize_LazilyInitializesAndReturnsLease()
+    {
+        if (!ChromiumAvailabilityCheck.IsInstalled())
+        {
+            // Graceful skip — environments without a Chromium install can't launch the browser.
+            return;
+        }
+
+        var options = new RenderingOptions { Engine = RenderingEngine.Chromium, MaxConcurrentRenders = 1 };
+        await using var pool = new ChromiumBrowserPool(options);
+
+        // InitializeAsync is intentionally NOT called — AcquirePageAsync must self-initialize.
+        await using var lease = await pool.AcquirePageAsync(400, 400, CancellationToken.None);
+
+        Assert.NotNull(lease.Page);
+    }
+
+    /// <summary>
     /// DeviceScaleFactor default is 2 per design decision 11.
     /// </summary>
     [Fact]

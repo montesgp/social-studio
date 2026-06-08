@@ -12,6 +12,17 @@ using Microsoft.EntityFrameworkCore;
 namespace Incoders.Hive.Infrastructure.Social.Canva;
 
 /// <summary>
+/// Cached PKCE + context for an in-flight Canva authorization, keyed by the OAuth <c>state</c>.
+/// Stored at authorize time (when the request is authenticated) so the unauthenticated callback
+/// navigation from Canva can rebuild everything it needs from <c>state</c> alone.
+/// </summary>
+public sealed record CanvaPendingAuthorization(
+    string Verifier,
+    string RedirectUri,
+    Guid OrganizationId,
+    Guid OrganizationIntegrationId);
+
+/// <summary>
 /// Infrastructure adapter for Canva per-user OAuth 2.0 PKCE flow.
 ///
 /// <para>
@@ -89,10 +100,11 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
         // Generate state — opaque random value used to prevent CSRF
         var state = GenerateState();
 
-        // Store verifier in cache, keyed by state (TTL 10 min)
+        // Cache everything the callback needs, keyed by state (TTL 10 min). The callback is an
+        // unauthenticated browser navigation from Canva, so it rebuilds the full context from here.
         await _cache.SetAsync(
             PkceCacheKeyPrefix + state,
-            verifier,
+            new CanvaPendingAuthorization(verifier, redirectUri, organizationId, organizationIntegrationId),
             PkceTtl,
             ct);
 
@@ -102,24 +114,21 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
 
     /// <inheritdoc/>
     public async Task<Result> ExchangeCodeAsync(
-        Guid userId,
-        Guid organizationIntegrationId,
-        Guid organizationId,
         string code,
         string state,
-        string redirectUri,
         CancellationToken ct = default)
     {
-        // Validate state and retrieve verifier
-        var verifier = await _cache.GetAsync<string>(PkceCacheKeyPrefix + state, ct);
-        if (verifier is null)
+        // Validate state and retrieve the cached authorization context (verifier + redirect URI +
+        // org ids). Everything was stored at authorize time when we had the authenticated context.
+        var pending = await _cache.GetAsync<CanvaPendingAuthorization>(PkceCacheKeyPrefix + state, ct);
+        if (pending is null)
             return Result.Failure(CanvaOAuthErrors.InvalidState);
 
         // Clean up the state from cache (single-use)
         await _cache.RemoveAsync(PkceCacheKeyPrefix + state, ct);
 
         // Resolve org credentials to get client_id/secret
-        var resolved = await _integrationResolver.ResolveProviderAsync(organizationId, "canva", ct);
+        var resolved = await _integrationResolver.ResolveProviderAsync(pending.OrganizationId, "canva", ct);
         if (resolved.IsFailure)
             return Result.Failure(resolved.Error);
 
@@ -129,8 +138,9 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             return Result.Failure(CanvaOAuthErrors.ClientCredentialsMissing);
 
-        // Exchange code for tokens
-        var tokenResult = await ExchangeAuthorizationCodeAsync(clientId, clientSecret, code, verifier, redirectUri, ct);
+        // Exchange code for tokens (redirect URI must match the one used at authorize time).
+        var tokenResult = await ExchangeAuthorizationCodeAsync(
+            clientId, clientSecret, code, pending.Verifier, pending.RedirectUri, ct);
         if (tokenResult.IsFailure)
             return Result.Failure(tokenResult.Error);
 
@@ -142,16 +152,17 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
         var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
         var expiresAt = nowUtc.AddSeconds(tokens.ExpiresIn - 60); // 60s buffer
 
-        // Upsert: create or overwrite the per-user token row
-        var existing = await _tokenRepository.GetAsync(userId, organizationIntegrationId, ct);
+        // Org-level connection: store under the shared sentinel so the whole org reuses one token.
+        var existing = await _tokenRepository.GetAsync(
+            CanvaOrgConnection.SharedUserId, pending.OrganizationIntegrationId, ct);
 
         CanvaUserToken tokenEntity;
         if (existing is null)
         {
             tokenEntity = CanvaUserToken.Create(
                 CanvaUserTokenId.New(),
-                userId,
-                organizationIntegrationId,
+                CanvaOrgConnection.SharedUserId,
+                pending.OrganizationIntegrationId,
                 encryptedAccess,
                 encryptedRefresh,
                 expiresAt,

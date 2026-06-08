@@ -240,6 +240,9 @@ file sealed class FakePptxAdapter : IPptxExportAdapter
     public FakePptxAdapter(Result<byte[]> response) => _response = response;
 
     public Task<Result<byte[]>> BuildAsync(CompositionSpecEnvelope envelope, CancellationToken ct)
+        => BuildManyAsync([envelope], ct);
+
+    public Task<Result<byte[]>> BuildManyAsync(IReadOnlyList<CompositionSpecEnvelope> envelopes, CancellationToken ct)
     {
         WasCalled = true;
         return Task.FromResult(_response);

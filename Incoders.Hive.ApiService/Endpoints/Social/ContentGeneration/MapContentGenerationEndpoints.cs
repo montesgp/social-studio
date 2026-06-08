@@ -67,6 +67,15 @@ public static class ContentGenerationEndpointsExtensions
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status502BadGateway);
 
+        analyzerGroup.MapPost("/{analysisId:guid}/package/export-to-canva", ContentGenerationEndpointFacade.ExportPackageToCanvaAsync)
+            .WithName("ExportPackageToCanva")
+            .WithSummary("Export the whole visual package (flyer + carousel slides) of a job to Canva as one editable multi-page design. Returns the Canva edit URL.")
+            .Produces<ExportFormatToCanvaResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
+
         analyzerGroup.MapDelete("/{analysisId:guid}/formats/{formatKey}", ContentGenerationEndpointFacade.DeleteFormatAsync)
             .WithName("DeleteFormatAsset")
             .WithSummary("Physically delete a format's asset object(s) from storage and remove the DB rows")
@@ -406,6 +415,51 @@ public static class ContentGenerationEndpointFacade
             new ExportFormatToCanvaCommand(
                 JobId: body.JobId,
                 FormatKey: formatKey,
+                OrganizationId: tenantId.Value,
+                OrganizationIntegrationId: body.OrgIntegrationId,
+                UserId: userId),
+            cancellationToken);
+
+        if (result.IsSuccess)
+            return TypedResults.Ok(result.Value);
+
+        // Upstream Canva API failures → 502 Bad Gateway (not our fault, not the user's fault)
+        if (result.Error.Code.StartsWith("canva.import.", StringComparison.OrdinalIgnoreCase))
+        {
+            return TypedResults.Problem(
+                title: "Canva API failure",
+                detail: result.Error.MessageKey,
+                statusCode: StatusCodes.Status502BadGateway,
+                extensions: new Dictionary<string, object?> { ["code"] = result.Error.Code });
+        }
+
+        return result.Error.ToProblem();
+    }
+
+    /// <summary>
+    /// POST /{analysisId}/package/export-to-canva
+    ///
+    /// Exports the whole VISUAL package of a job (flyer + carousel slides) as one editable
+    /// multi-page Canva design, titled after the client. Same auth/error contract as the
+    /// per-format export: 409 for not-connected/reconnect, 502 for Canva API failures.
+    /// </summary>
+    public static async Task<IResult> ExportPackageToCanvaAsync(
+        Guid analysisId,
+        [FromBody] ExportToCanvaRequest body,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
+        CancellationToken cancellationToken)
+    {
+        if (currentUser.UserId is not { } userId)
+            return TypedResults.Unauthorized();
+
+        if (currentTenant.TenantId is not { } tenantId)
+            return OrganizationRequired.ToProblem();
+
+        var result = await sender.Send(
+            new ExportPackageToCanvaCommand(
+                JobId: body.JobId,
                 OrganizationId: tenantId.Value,
                 OrganizationIntegrationId: body.OrgIntegrationId,
                 UserId: userId),

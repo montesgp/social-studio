@@ -45,4 +45,13 @@ public interface IPptxExportAdapter
     /// when the envelope is unsupported or malformed.
     /// </returns>
     Task<Result<byte[]>> BuildAsync(CompositionSpecEnvelope envelope, CancellationToken ct);
+
+    /// <summary>
+    /// Builds a single editable PPTX with one slide per envelope — used for multi-slide formats
+    /// (carousel) and multi-format packages. All envelopes are assumed to share the canvas size of
+    /// the first (PPTX has a single presentation-wide slide size).
+    /// </summary>
+    /// <param name="envelopes">Ordered envelopes; each becomes one slide. Must be non-empty.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<Result<byte[]>> BuildManyAsync(IReadOnlyList<CompositionSpecEnvelope> envelopes, CancellationToken ct);
 }

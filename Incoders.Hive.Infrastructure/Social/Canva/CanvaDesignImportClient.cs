@@ -72,6 +72,7 @@ public sealed class CanvaDesignImportClient : ICanvaDesignImportClient
     public async Task<Result<CanvaImportResult>> ImportAsync(
         byte[] pptxBytes,
         string accessToken,
+        string? designTitle = null,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(pptxBytes);
@@ -79,7 +80,7 @@ public sealed class CanvaDesignImportClient : ICanvaDesignImportClient
             return Result.Failure<CanvaImportResult>(CanvaImportErrors.Unauthorized);
 
         // ── Step 1: Submit the PPTX via multipart/form-data ──────────────────
-        var submitResult = await SubmitImportAsync(pptxBytes, accessToken, ct);
+        var submitResult = await SubmitImportAsync(pptxBytes, accessToken, designTitle, ct);
         if (submitResult.IsFailure)
             return Result.Failure<CanvaImportResult>(submitResult.Error);
 
@@ -94,6 +95,7 @@ public sealed class CanvaDesignImportClient : ICanvaDesignImportClient
     private async Task<Result<string>> SubmitImportAsync(
         byte[] pptxBytes,
         string accessToken,
+        string? designTitle,
         CancellationToken ct)
     {
         using var content = new MultipartFormDataContent();
@@ -101,7 +103,9 @@ public sealed class CanvaDesignImportClient : ICanvaDesignImportClient
         var fileContent = new ByteArrayContent(pptxBytes);
         fileContent.Headers.ContentType = new MediaTypeHeaderValue(
             "application/vnd.openxmlformats-officedocument.presentationml.presentation");
-        content.Add(fileContent, "file", "presentation.pptx");
+        // Canva titles the imported design from the upload filename — use the caller's title.
+        var fileName = $"{SanitizeFileName(designTitle) ?? "presentation"}.pptx";
+        content.Add(fileContent, "file", fileName);
 
         var request = new HttpRequestMessage(HttpMethod.Post, CanvaImportUrl)
         {
@@ -225,6 +229,24 @@ public sealed class CanvaDesignImportClient : ICanvaDesignImportClient
 
         // Exhausted all attempts without success
         return Result.Failure<CanvaImportResult>(CanvaImportErrors.Timeout);
+    }
+
+    /// <summary>
+    /// Reduces a free-form title to a safe upload filename stem (Canva derives the design name
+    /// from it). Strips path/quote characters and clamps length. Returns null when blank.
+    /// </summary>
+    private static string? SanitizeFileName(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return null;
+
+        var cleaned = new string(title
+            .Trim()
+            .Select(c => char.IsLetterOrDigit(c) || c is ' ' or '-' or '_' ? c : '-')
+            .ToArray())
+            .Trim();
+
+        if (cleaned.Length > 80) cleaned = cleaned[..80].Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? null : cleaned;
     }
 
     // ─── Private response DTOs ────────────────────────────────────────────────

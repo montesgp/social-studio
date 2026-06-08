@@ -28,6 +28,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   configureOrganizationIntegration,
   deleteOrganizationIntegration,
+  getCanvaAuthorizeUrl,
   getOrganizationIntegration,
   listIntegrationProviders,
   listOrganizationIntegrations,
@@ -224,6 +225,13 @@ function ModelSelect({
 interface IntegrationsSettingsClientProps {
   isPlatformAdmin: boolean;
 }
+
+/**
+ * Provider keys whose connector needs a one-time ORG OAuth connection (not just client_id/secret).
+ * These show a "Connect" button in addition to the credential config. Single extension point —
+ * add a provider key here (and its authorize helper) when another OAuth connector is introduced.
+ */
+const OAUTH_CONNECT_PROVIDERS = new Set<string>(["canva"]);
 
 export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSettingsClientProps) {
   const token = useAccessToken();
@@ -576,6 +584,34 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     }
   }
 
+  // Starts the ORG-level OAuth connect for connectors that need it (Canva today). One admin
+  // connects the org's account once; afterwards every user reuses that connection. The redirect URI
+  // is derived from the current origin (local → local, prod → prod) so nothing is hard-coded; it
+  // must be in the connector app's allowed redirect URIs.
+  async function startOAuthConnect(integration: OrganizationIntegration) {
+    if (!selectedOrganizationId || !token || !integration.integrationId) {
+      return;
+    }
+
+    setError(null);
+    try {
+      // Canva requires localhost redirect URIs to use 127.0.0.1 (not "localhost"). Normalize only
+      // the local host; prod origins pass through unchanged — still fully env-derived, no config.
+      const origin = window.location.origin.replace("://localhost", "://127.0.0.1");
+      const redirectUri = `${origin}/hive-api/api/integrations/${integration.providerKey}/callback`;
+      // Provider dispatch — extend here when another OAuth connector is added.
+      const { authorizeUrl } = await getCanvaAuthorizeUrl(
+        selectedOrganizationId,
+        integration.integrationId,
+        redirectUri,
+        token
+      );
+      window.location.href = authorizeUrl;
+    } catch (err) {
+      setError((err as ApiError).message ?? "Failed to start the connection.");
+    }
+  }
+
   async function removeConfiguration(integration: OrganizationIntegration) {
     if (!selectedOrganizationId || !token) {
       return;
@@ -807,6 +843,13 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                         <Button variant="secondary" size="sm" onClick={() => void openConfigure(integration)}>
                           <KeyRound className="h-4 w-4" /> Connect / Configure
                         </Button>
+                        {/* OAuth-connect providers (e.g. Canva): one-time org account connection.
+                            Shown only once the connector app credentials (client_id/secret) exist. */}
+                        {OAUTH_CONNECT_PROVIDERS.has(integration.providerKey) && integration.integrationId ? (
+                          <Button variant="outline" size="sm" onClick={() => void startOAuthConnect(integration)}>
+                            <Link2 className="h-4 w-4" /> Connect account
+                          </Button>
+                        ) : null}
                         <Button variant="outline" size="sm" onClick={() => void runTest(integration)}>
                           <Link2 className="h-4 w-4" /> Test connection
                         </Button>

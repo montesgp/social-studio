@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
@@ -24,9 +23,6 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Export;
 public sealed class ExportFormatToPptxQueryHandler
     : IRequestHandler<ExportFormatToPptxQuery, Result<ExportFormatToPptxResponse>>
 {
-    private static readonly JsonSerializerOptions JsonOptions =
-        new(JsonSerializerDefaults.Web);
-
     private readonly IContentGenerationJobRepository _jobRepository;
     private readonly IContentGenerationFormatResultRepository _formatResultRepository;
     private readonly IPptxExportAdapter _pptxAdapter;
@@ -85,27 +81,17 @@ public sealed class ExportFormatToPptxQueryHandler
                 ContentGenerationErrors.NotExportable);
         }
 
-        // 4. Deserialize the versioned envelope
-        CompositionSpecEnvelope envelope;
-        try
-        {
-            envelope = JsonSerializer.Deserialize<CompositionSpecEnvelope>(
-                formatResult.CompositionSpecJson, JsonOptions)!;
-        }
-        catch (JsonException)
+        // 4. Parse the persisted envelope(s): one per slide for carousel, one for single formats.
+        //    Accepts both the legacy single-object shape and the multi-slide array shape.
+        var envelopes = CompositionSpecJson.ParseList(formatResult.CompositionSpecJson);
+        if (envelopes.Count == 0)
         {
             return Result.Failure<ExportFormatToPptxResponse>(
                 ContentGenerationErrors.NotExportable);
         }
 
-        if (envelope is null)
-        {
-            return Result.Failure<ExportFormatToPptxResponse>(
-                ContentGenerationErrors.NotExportable);
-        }
-
-        // 5. Delegate to the PPTX adapter (offline, deterministic)
-        var buildResult = await _pptxAdapter.BuildAsync(envelope, cancellationToken);
+        // 5. Delegate to the PPTX adapter (offline, deterministic) — one slide per envelope.
+        var buildResult = await _pptxAdapter.BuildManyAsync(envelopes, cancellationToken);
 
         if (buildResult.IsFailure)
         {
