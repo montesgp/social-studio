@@ -9,12 +9,29 @@ namespace Incoders.Hive.ApiService.BackgroundServices;
 /// end-to-end pipeline (load analysis → orchestrate → compose + render → build + store).
 ///
 /// Mirrors the pattern of <see cref="SingleAnalysisBackgroundWorker"/>.
-/// On startup, any job still in "Running" status (orphaned from a previous crash) is
-/// transitioned to "Failed" with error_code="restart-detected".
+///
+/// <para>Resilience against "stuck generating forever" (the pill never changes):</para>
+/// <list type="bullet">
+///   <item><description>Startup: any job left in "Running" (orphaned from a crash) is failed.</description></item>
+///   <item><description>Per-job: a wall-clock timeout cancels a job that runs past <see cref="JobTimeout"/>;
+///   the processor records the terminal status so the UI stops polling.</description></item>
+///   <item><description>Periodic watchdog: a recurring sweep fails any job stuck in "Running" past
+///   <see cref="ContentGenerationJobWatchdog.StuckJobThreshold"/> (covers a worker that died
+///   without unwinding its catch).</description></item>
+/// </list>
+/// The "which jobs to fail" policy lives in <see cref="ContentGenerationJobWatchdog"/> (Application);
+/// this worker only owns the "when" (startup + timer) and the per-job timeout.
 /// </summary>
 internal sealed class ContentGenerationBackgroundWorker : BackgroundService
 {
     private const int MaxConcurrency = 3;
+
+    /// <summary>Per-job wall-clock backstop. Generous: a multi-format job legitimately makes several
+    /// bounded (120 s) AI calls plus renders. This only fires for a genuine hang, never normal work.</summary>
+    internal static readonly TimeSpan JobTimeout = TimeSpan.FromMinutes(15);
+
+    /// <summary>How often the watchdog sweeps for stuck "Running" jobs.</summary>
+    internal static readonly TimeSpan WatchdogInterval = TimeSpan.FromMinutes(2);
 
     private readonly IContentGenerationJobQueue _queue;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -39,7 +56,7 @@ internal sealed class ContentGenerationBackgroundWorker : BackgroundService
         {
             using var scope = _scopeFactory.CreateScope();
             var jobRepo = scope.ServiceProvider.GetRequiredService<IContentGenerationJobRepository>();
-            await MarkOrphanedJobsAsync(jobRepo, stoppingToken);
+            await ContentGenerationJobWatchdog.MarkOrphanedRunningJobsAsync(jobRepo, stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -59,9 +76,13 @@ internal sealed class ContentGenerationBackgroundWorker : BackgroundService
             CancellationToken = stoppingToken,
         };
 
+        // Run the job consumer and the periodic watchdog concurrently. Both end on host shutdown.
+        var consume = Parallel.ForEachAsync(_queue.DequeueAllAsync(stoppingToken), options, ProcessAsync);
+        var watchdog = RunWatchdogAsync(stoppingToken);
+
         try
         {
-            await Parallel.ForEachAsync(_queue.DequeueAllAsync(stoppingToken), options, ProcessAsync);
+            await Task.WhenAll(consume, watchdog);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -74,16 +95,31 @@ internal sealed class ContentGenerationBackgroundWorker : BackgroundService
         var sw = System.Diagnostics.Stopwatch.StartNew();
         _logger.LogInformation("ContentGeneration worker: START job {JobId}.", jobId);
 
+        // Per-job wall-clock timeout, linked to the host token. When it fires the processor's
+        // cancellation handler records the terminal status (using a fresh token), so the job
+        // never stays "Running".
+        using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        jobCts.CancelAfter(JobTimeout);
+
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var processor = scope.ServiceProvider.GetRequiredService<ContentGenerationJobProcessor>();
-            await processor.ProcessAsync(jobId, cancellationToken);
+            await processor.ProcessAsync(jobId, jobCts.Token);
 
             sw.Stop();
             _logger.LogInformation(
                 "ContentGeneration worker: FINISHED job {JobId} in {ElapsedMs} ms.",
                 jobId, sw.ElapsedMilliseconds);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Per-job timeout (NOT host shutdown). The processor already marked the job Failed.
+            // Swallow so the parallel consumer keeps draining the queue.
+            sw.Stop();
+            _logger.LogError(
+                "ContentGeneration worker: job {JobId} TIMED OUT after {ElapsedMs} ms (limit {LimitMs} ms).",
+                jobId, sw.ElapsedMilliseconds, (long)JobTimeout.TotalMilliseconds);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -96,24 +132,42 @@ internal sealed class ContentGenerationBackgroundWorker : BackgroundService
     }
 
     /// <summary>
-    /// On startup: scan for jobs in "Running" status and mark them failed.
-    /// These are orphans from a previous process that crashed mid-job.
+    /// Periodic sweep that force-fails jobs stuck in "Running" past the watchdog threshold.
+    /// This is the backstop for a worker that died without running its own cancellation handler.
     /// </summary>
-    internal static async Task MarkOrphanedJobsAsync(
-        IContentGenerationJobRepository jobRepo,
-        CancellationToken ct)
+    private async Task RunWatchdogAsync(CancellationToken stoppingToken)
     {
-        var runningJobs = await jobRepo.ListPendingOrRunningAsync(ct);
-        var orphans = runningJobs.Where(j => j.Status == "Running").ToList();
-
-        foreach (var orphan in orphans)
+        using var timer = new PeriodicTimer(WatchdogInterval);
+        try
         {
-            await jobRepo.UpdateStatusAsync(
-                orphan.Id,
-                "Failed",
-                "restart-detected",
-                "restart-detected",
-                ct);
+            while (await timer.WaitForNextTickAsync(stoppingToken))
+            {
+                try
+                {
+                    using var scope = _scopeFactory.CreateScope();
+                    var jobRepo = scope.ServiceProvider.GetRequiredService<IContentGenerationJobRepository>();
+                    var failed = await ContentGenerationJobWatchdog.FailStuckRunningJobsAsync(
+                        jobRepo, DateTime.UtcNow, stoppingToken);
+                    if (failed > 0)
+                    {
+                        _logger.LogWarning(
+                            "ContentGeneration watchdog: force-failed {Count} job(s) stuck in Running past {Minutes} min.",
+                            failed, (int)ContentGenerationJobWatchdog.StuckJobThreshold.TotalMinutes);
+                    }
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "ContentGeneration watchdog: sweep failed (continuing).");
+                }
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Host shutting down — expected.
         }
     }
 }

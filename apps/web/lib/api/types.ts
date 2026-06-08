@@ -830,6 +830,8 @@ export interface ContentGenerationJobStatusResponse {
   status: ContentGenerationJobStatus;
   perFormatStatus: Partial<Record<ContentFormatKey, string>>;
   manifest: GeneratedPackageManifest | null;
+  /** Failure reason from the backend (codes embedded), used to show actionable error guidance. */
+  statusReason: string | null;
 }
 
 // ── INC-6: Multi-client package tree types ────────────────────────────────────

@@ -44,9 +44,12 @@ public sealed class EfContentGenerationJobRepository : IContentGenerationJobRepo
         var entity = await _db.ContentGenerationJobs.FindAsync(new object[] { id }, ct);
         if (entity is null) return;
 
-        entity.Status = status;
-        entity.StatusReason = statusReason;
-        entity.ErrorCode = errorCode;
+        // Clamp diagnostic strings to their column widths. status_reason/error_code can carry
+        // truncated exception messages whose length is not under our control; an over-length value
+        // would abort SaveChanges (22001) and leave the job stuck in "Running" forever.
+        entity.Status = StringColumn.Truncate(status, StringColumn.JobStatus)!;
+        entity.StatusReason = StringColumn.Truncate(statusReason, StringColumn.JobStatusReason);
+        entity.ErrorCode = StringColumn.Truncate(errorCode, StringColumn.JobErrorCode);
         entity.UpdatedAt = DateTime.UtcNow;
 
         if (status == "Running" && entity.StartedAt is null)

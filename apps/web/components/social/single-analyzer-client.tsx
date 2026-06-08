@@ -80,6 +80,7 @@ import { InferredFieldsDisclosure } from "@/components/social/single-analyzer/in
 import { PartialCompletionBanner } from "@/components/social/single-analyzer/partial-completion-banner";
 import { SupportError } from "@/components/support/support-error";
 import { openWhatsAppSupport } from "@/lib/support/support";
+import { resolveGenerationFailureError } from "@/lib/support/user-facing-errors";
 import { AnalysisOverlay } from "@/components/social/analysis-overlay";
 import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
 import { exportElementToPdf } from "@/lib/export/pdf-export";
@@ -921,6 +922,14 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [packageJob.status]);
 
+  // Surface a polling failure/timeout from the generation job so the overlay closing never leaves
+  // the user without feedback (the client-side poll timeout is the last-resort exit from the spinner).
+  useEffect(() => {
+    if (packageJob.isError && packageJob.error) {
+      setPackageJobError({ message: packageJob.error.message });
+    }
+  }, [packageJob.isError, packageJob.error]);
+
   const downloadCurrentPackage = useCallback(async () => {
     if (isDownloadingPackage) return;
     const analysisId = videoResult?.id;
@@ -1529,6 +1538,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setGeneratingConversion(mode);
     const formatKey = formatForMutationMode(mode);
     setPackageJobError(null);
+    // Set the requested-format count BEFORE the await so the progress overlay can never show a
+    // stale denominator (e.g. "(1/3)") for a single-format job — it must read 1 from the moment
+    // the overlay can appear. A flyer is one format = one file; >1 only applies to a carousel.
+    setPackageRequestedFormats([formatKey]);
     try {
       const response = await requestPackage(
         videoResult.id,
@@ -2620,17 +2633,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 <RefreshCw className="h-3 w-3" />
                                 Regenerate all formats
                               </span>
-                            ) : packageGenerationIsPartial ? (
-                              <span className="flex items-center gap-2">
-                                <CheckCircle2 className="h-3 w-3 text-amber-500" />
-                                Partial — retry?
-                              </span>
-                            ) : packageGenerationIsFailed ? (
-                              <span className="flex items-center gap-2">
-                                <XCircle className="h-3 w-3 text-red-500" />
-                                Retry generation
-                              </span>
                             ) : (
+                              // On failure/partial we do NOT frame the button as "retry" — a blind
+                              // retry just re-spends AI credits. The SupportError + PartialCompletionBanner
+                              // below convey the state; this stays the neutral generate control.
                               <span className="flex items-center gap-2">
                                 <Sparkles className="h-3 w-3" />
                                 Convert to all formats
@@ -2686,17 +2692,38 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       </div>
 
                       {packageJobError && (
-                        <div className="rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-2">
-                          <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                          <span>{packageJobError.message}</span>
-                        </div>
+                        <SupportError
+                          error={{ message: packageJobError.message }}
+                          context={{
+                            feature: "single-analyzer",
+                            organizationId: selectedOrganizationId,
+                            details: {
+                              analysisId: videoResult?.id ?? null,
+                              scope: "content-generation",
+                            },
+                          }}
+                          onDismiss={() => setPackageJobError(null)}
+                        />
                       )}
 
+                      {/* A FAILED generation routes the user to support instead of nudging a blind,
+                          token-burning retry. The backend status_reason carries the real cause
+                          (e.g. an off-palette guardrail block) so the copy is actionable and the
+                          support report includes the technical detail. */}
                       {packageGenerationIsFailed && !packageJobError && (
-                        <div className="rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-2">
-                          <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                          <span>Generation failed. You can retry above.</span>
-                        </div>
+                        <SupportError
+                          error={resolveGenerationFailureError(packageJob.statusReason)}
+                          context={{
+                            feature: "single-analyzer",
+                            organizationId: selectedOrganizationId,
+                            details: {
+                              analysisId: videoResult?.id ?? null,
+                              scope: "content-generation",
+                              clientId: packageJobClientId ?? selectedClientId ?? null,
+                              statusReason: packageJob.statusReason ?? null,
+                            },
+                          }}
+                        />
                       )}
 
                       {packageGenerationIsPartial && (

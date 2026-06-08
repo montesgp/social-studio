@@ -26,13 +26,15 @@ public sealed class EfContentGenerationFormatResultRepository : IContentGenerati
         }
         else
         {
-            existing.Status = result.Status;
+            existing.Status = StringColumn.Truncate(result.Status, StringColumn.FormatStatus)!;
             existing.OutputJson = result.OutputJson;
             existing.CompositionSpecJson = result.CompositionSpecJson;
-            existing.RenderedAssetUri = result.RenderedAssetUri;
+            existing.RenderedAssetUri = StringColumn.Truncate(result.RenderedAssetUri, StringColumn.RenderedAssetUri);
             existing.InferredFieldsJson = result.InferredFieldsJson;
-            existing.PromptVersion = result.PromptVersion;
-            existing.ErrorCode = result.ErrorCode;
+            existing.PromptVersion = StringColumn.Truncate(result.PromptVersion, StringColumn.FormatPromptVersion);
+            // error_code is the column that overflowed in production: a full exception message
+            // (~195 chars) was written here. Clamp so the failure can always be persisted.
+            existing.ErrorCode = StringColumn.Truncate(result.ErrorCode, StringColumn.FormatErrorCode);
             existing.UpdatedAt = DateTime.UtcNow;
         }
 
@@ -55,14 +57,15 @@ public sealed class EfContentGenerationFormatResultRepository : IContentGenerati
     {
         Id = r.Id,
         JobId = r.JobId,
-        FormatKey = r.FormatKey,
-        Status = r.Status,
+        // Clamp bounded columns so an over-length value never aborts the save (22001).
+        FormatKey = StringColumn.Truncate(r.FormatKey, StringColumn.FormatKey)!,
+        Status = StringColumn.Truncate(r.Status, StringColumn.FormatStatus)!,
         OutputJson = r.OutputJson,
         CompositionSpecJson = r.CompositionSpecJson,
-        RenderedAssetUri = r.RenderedAssetUri,
+        RenderedAssetUri = StringColumn.Truncate(r.RenderedAssetUri, StringColumn.RenderedAssetUri),
         InferredFieldsJson = r.InferredFieldsJson,
-        PromptVersion = r.PromptVersion,
-        ErrorCode = r.ErrorCode,
+        PromptVersion = StringColumn.Truncate(r.PromptVersion, StringColumn.FormatPromptVersion),
+        ErrorCode = StringColumn.Truncate(r.ErrorCode, StringColumn.FormatErrorCode),
         CreatedAt = r.CreatedAt,
         UpdatedAt = r.UpdatedAt,
     };
