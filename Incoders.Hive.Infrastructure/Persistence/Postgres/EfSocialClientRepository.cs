@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Incoders.Hive.Infrastructure.Persistence.Postgres;
 
-public sealed class EfSocialClientRepository : ISocialClientRepository
+public sealed class EfSocialClientRepository : ISocialClientRepository, ISocialClientHardDeleteRepository
 {
     private readonly AppIdentityDbContext _dbContext;
 
@@ -79,6 +79,186 @@ public sealed class EfSocialClientRepository : ISocialClientRepository
         entity.SectorOrNiche = client.SectorOrNiche;
         entity.IsActive = client.IsActive;
         entity.UpdatedAtUtc = client.UpdatedAtUtc;
+    }
+
+    public async Task<SocialClientHardDeleteResult?> HardDeleteAsync(
+        Guid clientId,
+        CancellationToken cancellationToken = default)
+    {
+        var client = await _dbContext.SocialClients
+            .FirstOrDefaultAsync(x => x.Id == clientId, cancellationToken);
+
+        if (client is null)
+        {
+            return null;
+        }
+
+        var contentPlanIds = await _dbContext.ContentPlans
+            .Where(x => x.ClientId == clientId)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        var analysisIds = await _dbContext.SingleContentAnalyses
+            .Where(x => x.ClientId == clientId)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        var analysisIdsWithOtherClientJobs = analysisIds.Count == 0
+            ? []
+            : await _dbContext.ContentGenerationJobs
+                .Where(j =>
+                    analysisIds.Contains(j.AnalysisId)
+                    && j.ClientId.HasValue
+                    && j.ClientId.Value != clientId)
+                .Select(j => j.AnalysisId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+        var analysisIdsToKeep = analysisIdsWithOtherClientJobs.ToHashSet();
+        var analysisIdsToDelete = analysisIds
+            .Where(id => !analysisIdsToKeep.Contains(id))
+            .ToList();
+
+        var clientScopedJobIds = await _dbContext.ContentGenerationJobs
+            .Where(j => j.ClientId == clientId)
+            .Select(j => j.Id)
+            .ToListAsync(cancellationToken);
+
+        var analysisOwnedJobIds = analysisIdsToDelete.Count == 0
+            ? []
+            : await _dbContext.ContentGenerationJobs
+                .Where(j => analysisIdsToDelete.Contains(j.AnalysisId))
+                .Select(j => j.Id)
+                .ToListAsync(cancellationToken);
+
+        var jobIdsToDelete = clientScopedJobIds
+            .Concat(analysisOwnedJobIds)
+            .Distinct()
+            .ToList();
+
+        var formatResultIdsToDelete = jobIdsToDelete.Count == 0
+            ? []
+            : await _dbContext.ContentGenerationFormatResults
+                .Where(x => jobIdsToDelete.Contains(x.JobId))
+                .Select(x => x.Id)
+                .ToListAsync(cancellationToken);
+
+        var generatedPackageStorageUris = jobIdsToDelete.Count == 0
+            ? []
+            : await _dbContext.GeneratedPackages
+                .Where(x => jobIdsToDelete.Contains(x.JobId))
+                .Select(x => x.StorageUri)
+                .Where(uri => uri != string.Empty)
+                .ToListAsync(cancellationToken);
+
+        var generatedAssetStoragePaths = formatResultIdsToDelete.Count == 0
+            ? []
+            : await _dbContext.ContentGenerationFormatAssets
+                .Where(x => formatResultIdsToDelete.Contains(x.FormatResultId))
+                .Select(x => x.StoragePath)
+                .Where(path => path != string.Empty)
+                .ToListAsync(cancellationToken);
+
+        if (formatResultIdsToDelete.Count > 0)
+        {
+            _dbContext.ContentGenerationFormatAssets.RemoveRange(
+                await _dbContext.ContentGenerationFormatAssets
+                    .Where(x => formatResultIdsToDelete.Contains(x.FormatResultId))
+                    .ToListAsync(cancellationToken));
+        }
+
+        if (jobIdsToDelete.Count > 0)
+        {
+            _dbContext.GeneratedPackages.RemoveRange(
+                await _dbContext.GeneratedPackages
+                    .Where(x => jobIdsToDelete.Contains(x.JobId))
+                    .ToListAsync(cancellationToken));
+
+            _dbContext.ContentGenerationFormatResults.RemoveRange(
+                await _dbContext.ContentGenerationFormatResults
+                    .Where(x => jobIdsToDelete.Contains(x.JobId))
+                    .ToListAsync(cancellationToken));
+
+            _dbContext.ContentGenerationJobs.RemoveRange(
+                await _dbContext.ContentGenerationJobs
+                    .Where(x => jobIdsToDelete.Contains(x.Id))
+                    .ToListAsync(cancellationToken));
+        }
+
+        if (analysisIdsToDelete.Count > 0)
+        {
+            _dbContext.IntegrationExecutionAttempts.RemoveRange(
+                await _dbContext.IntegrationExecutionAttempts
+                    .Where(x => analysisIdsToDelete.Contains(x.AnalysisId))
+                    .ToListAsync(cancellationToken));
+
+            _dbContext.SingleContentAnalyses.RemoveRange(
+                await _dbContext.SingleContentAnalyses
+                    .Where(x => analysisIdsToDelete.Contains(x.Id))
+                    .ToListAsync(cancellationToken));
+        }
+
+        if (analysisIdsToKeep.Count > 0)
+        {
+            var sharedAnalyses = await _dbContext.SingleContentAnalyses
+                .Where(x => analysisIdsWithOtherClientJobs.Contains(x.Id))
+                .ToListAsync(cancellationToken);
+
+            foreach (var analysis in sharedAnalyses)
+            {
+                analysis.ClientId = null;
+            }
+        }
+
+        if (contentPlanIds.Count > 0)
+        {
+            _dbContext.ContentPlanSlots.RemoveRange(
+                await _dbContext.ContentPlanSlots
+                    .Where(x => contentPlanIds.Contains(x.ContentPlanId))
+                    .ToListAsync(cancellationToken));
+        }
+
+        _dbContext.ContentPlans.RemoveRange(
+            await _dbContext.ContentPlans
+                .Where(x => x.ClientId == clientId)
+                .ToListAsync(cancellationToken));
+        _dbContext.GeneralStrategies.RemoveRange(
+            await _dbContext.GeneralStrategies
+                .Where(x => x.ClientId == clientId)
+                .ToListAsync(cancellationToken));
+        _dbContext.ClientBrandManuals.RemoveRange(
+            await _dbContext.ClientBrandManuals
+                .Where(x => x.ClientId == clientId)
+                .ToListAsync(cancellationToken));
+        _dbContext.ClientReferentAccounts.RemoveRange(
+            await _dbContext.ClientReferentAccounts
+                .Where(x => x.ClientId == clientId)
+                .ToListAsync(cancellationToken));
+        _dbContext.ClientCompetitorAccounts.RemoveRange(
+            await _dbContext.ClientCompetitorAccounts
+                .Where(x => x.ClientId == clientId)
+                .ToListAsync(cancellationToken));
+        _dbContext.ClientOwnAccounts.RemoveRange(
+            await _dbContext.ClientOwnAccounts
+                .Where(x => x.ClientId == clientId)
+                .ToListAsync(cancellationToken));
+        _dbContext.ProfileAnalyses.RemoveRange(
+            await _dbContext.ProfileAnalyses
+                .Where(x => x.ClientId == clientId)
+                .ToListAsync(cancellationToken));
+        _dbContext.UsageEvents.RemoveRange(
+            await _dbContext.UsageEvents
+                .Where(x => x.ClientId == clientId)
+                .ToListAsync(cancellationToken));
+
+        _dbContext.SocialClients.Remove(client);
+
+        return new SocialClientHardDeleteResult(
+            client.Id,
+            client.OrganizationId,
+            client.Name,
+            generatedPackageStorageUris,
+            generatedAssetStoragePaths);
     }
 
     private static Client ToDomain(SocialClientData row) =>

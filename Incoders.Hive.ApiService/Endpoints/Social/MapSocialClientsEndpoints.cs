@@ -5,11 +5,13 @@ using Incoders.Hive.Application.Common.Pagination;
 using Incoders.Hive.Application.Features.Social.Clients;
 using Incoders.Hive.Application.Features.Social.Clients.Activate;
 using Incoders.Hive.Application.Features.Social.Clients.Create;
+using Incoders.Hive.Application.Features.Social.Clients.Delete;
 using Incoders.Hive.Application.Features.Social.Clients.Deactivate;
 using Incoders.Hive.Application.Features.Social.Clients.GetAll;
 using Incoders.Hive.Application.Features.Social.Clients.GetById;
 using Incoders.Hive.Application.Features.Social.Clients.Update;
 using Incoders.Hive.Domain.Social.Clients;
+using Incoders.Hive.Infrastructure.Identity;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -64,6 +66,14 @@ public static class SocialClientsEndpointsExtensions
             .Produces<SocialClientResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        group.MapDelete("/{id:guid}", DeleteAsync)
+            .WithName("DeleteSocialClient")
+            .WithSummary("Hard-delete a Hive Social client and all client-scoped data")
+            .RequireAuthorization(IdentityServicesExtensions.Policies.PlatformAdmin)
+            .Produces<DeletedSocialClientResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }
@@ -188,6 +198,18 @@ public static class SocialClientsEndpointsExtensions
 
         var result = await sender.Send(
             new ActivateSocialClientCommand(id, organizationId.Value),
+            cancellationToken);
+
+        return result.Match(client => (IResult)TypedResults.Ok(client));
+    }
+
+    private static async Task<IResult> DeleteAsync(
+        Guid id,
+        ISender sender,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new DeleteSocialClientCommand(id),
             cancellationToken);
 
         return result.Match(client => (IResult)TypedResults.Ok(client));

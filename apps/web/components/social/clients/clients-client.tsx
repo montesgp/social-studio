@@ -17,11 +17,13 @@ import {
   RotateCcw,
   Search,
   Sparkles,
+  Trash2,
   Users,
   X
 } from "lucide-react";
 import {
   activateSocialClient,
+  deleteSocialClient,
   deactivateSocialClient,
   getSocialClient,
   listSocialClients
@@ -35,6 +37,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
@@ -68,6 +71,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
   const [details, setDetails] = useState<SocialClient | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [pendingDelete, setPendingDelete] = useState<SocialClient | null>(null);
 
   const effectiveToken = sessionToken ?? "";
   const items = useMemo(() => page?.items ?? [], [page]);
@@ -247,6 +251,20 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
       toast.success("Client reactivated", activated.name);
       setDetails(activated);
     });
+  }
+
+  function onRequestDelete(item: SocialClient) {
+    setPendingDelete(item);
+  }
+
+  async function onConfirmDelete(item: SocialClient) {
+    await runAction(item.id, async () => {
+      const deleted = await deleteSocialClient(item.id, effectiveToken || undefined);
+      setSuccess("Client deleted permanently.");
+      toast.success("Client deleted permanently", deleted.name);
+      setDetails((current) => (current?.id === item.id ? null : current));
+    });
+    setPendingDelete(null);
   }
 
   async function runAction(id: string, action: () => Promise<void>) {
@@ -489,7 +507,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
                         </Button>
                         {item.isActive ? (
                           <Button
-                            variant="destructive"
+                            variant="warning"
                             size="sm"
                             disabled={actingId === item.id}
                             onClick={() => void onArchive(item)}
@@ -506,6 +524,16 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
                             <RotateCcw className="h-4 w-4" /> Reactivate
                           </Button>
                         )}
+                        {isPlatformAdmin ? (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={actingId === item.id}
+                            onClick={() => onRequestDelete(item)}
+                          >
+                            <Trash2 className="h-4 w-4" /> Delete
+                          </Button>
+                        ) : null}
                       </div>
                     </motion.article>
                   ))}
@@ -562,6 +590,35 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
                             <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
                               Edit
                             </Button>
+                            {item.isActive ? (
+                              <Button
+                                variant="warning"
+                                size="sm"
+                                disabled={actingId === item.id}
+                                onClick={() => void onArchive(item)}
+                              >
+                                Archive
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={actingId === item.id}
+                                onClick={() => void onReactivate(item)}
+                              >
+                                Reactivate
+                              </Button>
+                            )}
+                            {isPlatformAdmin ? (
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                disabled={actingId === item.id}
+                                onClick={() => onRequestDelete(item)}
+                              >
+                                Delete
+                              </Button>
+                            ) : null}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -600,11 +657,37 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
             onEdit={(item) => openEdit(item)}
             onArchive={(item) => void onArchive(item)}
             onReactivate={(item) => void onReactivate(item)}
+            onDelete={onRequestDelete}
+            canDelete={isPlatformAdmin}
             acting={actingId === details?.id}
           />
         )}
       </div>
 
+      <ConfirmationDialog
+        open={pendingDelete !== null}
+        title="Delete client permanently?"
+        description={
+          pendingDelete
+            ? `This will permanently delete "${pendingDelete.name}" and all client-scoped data, including accounts, brand manuals, plans, analyses, generated packages, and stored assets. This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete permanently"
+        cancelLabel="Cancel"
+        confirmVariant="destructive"
+        icon={<Trash2 className="h-5 w-5" />}
+        disableDismiss={pendingDelete !== null && actingId === pendingDelete.id}
+        onConfirm={() => {
+          if (pendingDelete) {
+            void onConfirmDelete(pendingDelete);
+          }
+        }}
+        onCancel={() => {
+          if (!actingId) {
+            setPendingDelete(null);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -666,6 +749,8 @@ function ClientDetailsPanel({
   onEdit,
   onArchive,
   onReactivate,
+  onDelete,
+  canDelete,
   acting
 }: {
   client: SocialClient | null;
@@ -673,6 +758,8 @@ function ClientDetailsPanel({
   onEdit: (client: SocialClient) => void;
   onArchive: (client: SocialClient) => void;
   onReactivate: (client: SocialClient) => void;
+  onDelete: (client: SocialClient) => void;
+  canDelete: boolean;
   acting: boolean;
 }) {
   if (!client) {
@@ -719,7 +806,7 @@ function ClientDetailsPanel({
             <Edit3 className="h-4 w-4" /> Edit
           </Button>
           {client.isActive ? (
-            <Button variant="destructive" disabled={acting} onClick={() => onArchive(client)}>
+            <Button variant="warning" disabled={acting} onClick={() => onArchive(client)}>
               <Archive className="h-4 w-4" /> Archive
             </Button>
           ) : (
@@ -727,6 +814,11 @@ function ClientDetailsPanel({
               <RotateCcw className="h-4 w-4" /> Reactivate
             </Button>
           )}
+          {canDelete ? (
+            <Button variant="destructive" disabled={acting} onClick={() => onDelete(client)}>
+              <Trash2 className="h-4 w-4" /> Delete
+            </Button>
+          ) : null}
         </div>
       </CardContent>
     </Card>

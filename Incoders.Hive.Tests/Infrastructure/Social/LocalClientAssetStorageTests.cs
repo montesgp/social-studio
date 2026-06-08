@@ -91,6 +91,29 @@ public sealed class LocalClientAssetStorageTests : IDisposable
         Assert.Equal(ClientAssetStorageErrors.FileTooLarge.Code, result.Error.Code);
     }
 
+    [Fact]
+    public async Task DeleteClientAssetsAsync_RemovesOnlyTheRequestedClientFolder()
+    {
+        var clock = new TestClock(new DateTime(2026, 5, 23, 12, 0, 0, DateTimeKind.Utc));
+        var storage = CreateStorage(clock);
+        var organizationId = Guid.NewGuid();
+        var clientId = Guid.NewGuid();
+        var otherClientId = Guid.NewGuid();
+
+        await UploadPngAsync(storage, organizationId, clientId);
+        await UploadPngAsync(storage, organizationId, otherClientId);
+
+        var clientFolder = Path.Combine(_tempRoot, organizationId.ToString("N"), clientId.ToString("N"));
+        var otherClientFolder = Path.Combine(_tempRoot, organizationId.ToString("N"), otherClientId.ToString("N"));
+        Assert.True(Directory.Exists(clientFolder));
+        Assert.True(Directory.Exists(otherClientFolder));
+
+        await storage.DeleteClientAssetsAsync(organizationId, clientId);
+
+        Assert.False(Directory.Exists(clientFolder));
+        Assert.True(Directory.Exists(otherClientFolder));
+    }
+
     private LocalClientAssetStorage CreateStorage(TestClock clock)
     {
         var options = new ClientAssetStorageOptions
@@ -105,6 +128,24 @@ public sealed class LocalClientAssetStorageTests : IDisposable
             Options.Create(options),
             new FakeHostEnvironment(_tempRoot),
             clock);
+    }
+
+    private static async Task UploadPngAsync(
+        LocalClientAssetStorage storage,
+        Guid organizationId,
+        Guid clientId)
+    {
+        await using var content = new MemoryStream(new byte[] { 1, 2, 3 });
+
+        var result = await storage.UploadImageAsync(new ClientAssetUploadRequest(
+            OrganizationId: organizationId,
+            ClientId: clientId,
+            ContentType: "image/png",
+            OriginalFileName: "logo.png",
+            Content: content,
+            SizeBytes: content.Length));
+
+        Assert.True(result.IsSuccess);
     }
 
     public void Dispose()

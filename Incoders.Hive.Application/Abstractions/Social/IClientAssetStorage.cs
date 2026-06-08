@@ -7,6 +7,11 @@ public interface IClientAssetStorage
     Task<Result<ClientAssetUploadResult>> UploadImageAsync(
         ClientAssetUploadRequest request,
         CancellationToken cancellationToken = default);
+
+    Task DeleteClientAssetsAsync(
+        Guid organizationId,
+        Guid clientId,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record ClientAssetUploadRequest(
