@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
@@ -102,6 +103,9 @@ public sealed class B1bProductionCompositionTests
         // Provider gateway dependency of OpusVisualDesigner (real one needs Infrastructure plumbing).
         services.AddScoped<IAiCompletionGateway, StubProductionAiGateway>();
 
+        // AI selector dependency of OpusVisualDesigner (resolves the org's provider/model).
+        services.AddScoped<IDefaultAiSelector, StubProductionAiSelector>();
+
         // Logging — required by HtmlChromiumContentRenderer (ILogger<HtmlChromiumContentRenderer>)
         services.AddLogging();
 
@@ -134,4 +138,10 @@ file sealed class StubProductionAiGateway : IAiCompletionGateway
     public Task<Result<AiJsonCompletionResponse<TResponse>>> CompleteJsonAsync<TResponse>(
         AiJsonCompletionRequest request, CancellationToken ct = default) where TResponse : notnull =>
         throw new NotImplementedException("Stub — not invoked in composition-root resolution tests.");
+}
+
+file sealed class StubProductionAiSelector : IDefaultAiSelector
+{
+    public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
+        Task.FromResult(Result.Success(new DefaultAiSelection("claude", "claude-sonnet-4-6")));
 }

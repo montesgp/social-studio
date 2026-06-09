@@ -100,6 +100,67 @@ public sealed class CanvaOAuthServiceTests
         Assert.Contains("redirect_uri=", url);
     }
 
+    [Fact]
+    public async Task BuildAuthorizeUrl_EmptyScopesCredential_FallsBackToDefaultScopes()
+    {
+        // GIVEN an org that filled in client_id/secret but left the optional 'scopes' credential blank.
+        var resolver = new ScopelessIntegrationResolver();
+        var service = new CanvaOAuthService(
+            new FakeCanvaUserTokenRepository(),
+            new FakeCacheStore(),
+            resolver,
+            new FakeProtector(),
+            new FakeUnitOfWork(),
+            new HttpClient(new FakeHttpMessageHandler(HttpStatusCode.OK, "{}")),
+            new FakeTimeProvider(FixedNow));
+
+        // WHEN the authorize URL is built.
+        var result = await service.BuildAuthorizeUrlAsync(
+            UserId, OrgIntegrationId, OrgId, "https://app.local/callback", CancellationToken.None);
+
+        // THEN the request carries the default Connect scopes (never an empty scope).
+        Assert.True(result.IsSuccess, $"Expected success but got: {result.Error.Code}");
+        var scope = ExtractQueryParam(result.Value, "scope");
+        Assert.False(string.IsNullOrWhiteSpace(scope), "scope query param must not be empty");
+        var decoded = Uri.UnescapeDataString(scope!);
+        Assert.Contains("design:content:write", decoded);
+    }
+
+    [Fact]
+    public async Task ExchangeCodeAsync_OnSuccess_CommitsUnitOfWork()
+    {
+        // Regression: the token Add MUST be committed. CanvaOAuthService previously never called
+        // SaveChanges, so canva_user_tokens stayed empty after a successful authorize, which made
+        // every export fail with canva.not_connected (409) even though the popup said "connected".
+        var tokenResponse = new
+        {
+            access_token = "plaintext-access", // gates:secret-allow
+            refresh_token = "plaintext-refresh", // gates:secret-allow
+            expires_in = 3600,
+            token_type = "Bearer",
+            scope = "design:content:write",
+        };
+        var uow = new FakeUnitOfWork();
+        var cache = new FakeCacheStore();
+        var service = new CanvaOAuthService(
+            new FakeCanvaUserTokenRepository(),
+            cache,
+            new FakeIntegrationResolver(),
+            new FakeProtector(),
+            uow,
+            new HttpClient(new FakeHttpMessageHandler(HttpStatusCode.OK, JsonSerializer.Serialize(tokenResponse))),
+            new FakeTimeProvider(FixedNow));
+
+        const string state = "commit-state";
+        cache.SetPendingAuthorization(state,
+            new CanvaPendingAuthorization("verifier-xyz", "https://app.local/callback", OrgId, OrgIntegrationId));
+
+        var result = await service.ExchangeCodeAsync("auth-code", state, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {result.Error.Code}");
+        Assert.True(uow.SaveChangesCallCount >= 1, "ExchangeCodeAsync must commit the token via the unit of work");
+    }
+
     // ─── ExchangeCodeAsync ────────────────────────────────────────────────────
 
     [Fact]
@@ -333,6 +394,7 @@ public sealed class CanvaOAuthServiceTests
             cache,
             resolver,
             prot,
+            new FakeUnitOfWork(),
             httpClient,
             fakeTimeProvider);
 
@@ -514,6 +576,18 @@ internal sealed class FakeProtector : IIntegrationSecretProtector
             : protectedValue;
 }
 
+/// <summary>Fake unit of work that records how many times the work was committed.</summary>
+internal sealed class FakeUnitOfWork : IUnitOfWork
+{
+    public int SaveChangesCallCount { get; private set; }
+
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        SaveChangesCallCount++;
+        return Task.FromResult(0);
+    }
+}
+
 /// <summary>Configurable fake HTTP handler for offline token endpoint tests.</summary>
 internal sealed class FakeHttpMessageHandler : HttpMessageHandler
 {
@@ -565,6 +639,43 @@ internal sealed class FakeIntegrationResolver : IIntegrationResolver
                 ["client_id"] = "test-client-id",
                 ["client_secret"] = "test-client-secret", // gates:secret-allow
                 ["scopes"] = "design:content:read design:content:write",
+            });
+
+        return Task.FromResult(Result.Success(resolved));
+    }
+
+    public Task<Result<ResolvedIntegration>> ResolveDefaultAiProviderAsync(
+        Guid organizationId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(Result.Failure<ResolvedIntegration>(IntegrationErrors.IntegrationNotFound));
+}
+
+/// <summary>
+/// Fake resolver whose Canva integration has client_id/client_secret but NO 'scopes' credential —
+/// the exact production state that left the authorize URL with an empty scope.
+/// </summary>
+internal sealed class ScopelessIntegrationResolver : IIntegrationResolver
+{
+    public Task<Result<ResolvedIntegration>> ResolveProviderAsync(
+        Guid organizationId,
+        string providerKey,
+        CancellationToken cancellationToken = default)
+    {
+        var resolved = new ResolvedIntegration(
+            organizationId,
+            providerKey,
+            "Canva",
+            IntegrationProviderCategory.Design,
+            IntegrationConnectionMode.BringYourOwnKey,
+            IntegrationStatus.Connected,
+            IsReadOnly: false,
+            IsDefaultAi: false,
+            SelectedAiModel: null,
+            Credentials: new Dictionary<string, string>
+            {
+                ["client_id"] = "test-client-id",
+                ["client_secret"] = "test-client-secret", // gates:secret-allow
+                // no "scopes" key on purpose
             });
 
         return Task.FromResult(Result.Success(resolved));

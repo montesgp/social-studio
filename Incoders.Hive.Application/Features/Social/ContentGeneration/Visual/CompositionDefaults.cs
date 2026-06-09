@@ -25,6 +25,12 @@ internal static class CompositionDefaults
     internal static readonly CompositionDimensions StandardDimensions = new(1080, 1080, 96);
 
     /// <summary>
+    /// Carousel slides use the modern 4:5 feed ratio (1080×1350) — more screen real-estate in the
+    /// Instagram feed than the legacy 1:1 square. Flyers/stories stay 9:16; text cards stay square.
+    /// </summary>
+    internal static readonly CompositionDimensions CarouselDimensions = new(1080, 1350, 96);
+
+    /// <summary>
     /// Resolves a brand palette or returns defaults and marks ColorPalette as inferred.
     /// </summary>
     internal static CompositionPalette ResolvePalette(BrandSnapshot brand, InferenceAccumulator inferred)

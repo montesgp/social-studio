@@ -9,7 +9,15 @@ export type AuthRouteDecision =
   | { kind: "redirect"; location: "/login" | "/dashboard"; clearSession: boolean };
 
 export function isPublicPath(pathname: string) {
-  return pathname === "/login" || pathname === "/forgot-password" || pathname === "/reset-password";
+  return (
+    pathname === "/login" ||
+    pathname === "/forgot-password" ||
+    pathname === "/reset-password" ||
+    // Canva OAuth popup result pages: rendered inside the OAuth popup on the 127.0.0.1 origin,
+    // which has no session cookie. They only postMessage the result to the opener and close, so
+    // they must not be auth-guarded (otherwise the popup bounces to /login).
+    pathname.startsWith("/integrations/canva/")
+  );
 }
 
 export function resolveAuthRouteDecision({

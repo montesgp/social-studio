@@ -83,6 +83,6 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
                 ["subtitle"] = slide is null ? "Supporting copy" : slide.Body,
                 ["cta"] = ctaText,
             },
-            Dimensions: CompositionDefaults.StandardDimensions);
+            Dimensions: CompositionDefaults.CarouselDimensions);
     }
 }

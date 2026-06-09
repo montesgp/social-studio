@@ -99,6 +99,11 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
 
             // ---- Slide master (required by the OOXML spec) ----
             var slideMasterPart = presentationPart.AddNewPart<SlideMasterPart>("rId1");
+            // A slide master REQUIRES an associated theme; without it the package is invalid
+            // (PowerPoint repairs it, Canva's import rejects it). Add the theme before the master XML.
+            var themePart = slideMasterPart.AddNewPart<ThemePart>("rIdTheme1");
+            themePart.Theme = CreateMinimalTheme();
+            themePart.Theme.Save();
             InitSlideMaster(slideMasterPart);
 
             var slideLayoutPart = slideMasterPart.AddNewPart<SlideLayoutPart>("rIdSL1");
@@ -233,20 +238,55 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
         var hexColor = CssColorToHex(geo?.Color) ?? "000000";
         var justification = CssTextAlignToJustification(geo?.TextAlign);
 
+        // Fidelity attributes (CT_TextCharacterProperties attributes — order-independent).
         var runProps = new D.RunProperties { Language = "en-US", FontSize = fontSizeHundredths };
+        if (IsBold(geo?.FontWeight))
+        {
+            runProps.Bold = true;
+        }
+
+        if (string.Equals(geo?.FontStyle, "italic", StringComparison.OrdinalIgnoreCase))
+        {
+            runProps.Italic = true;
+        }
+
+        if (string.Equals(geo?.TextTransform, "uppercase", StringComparison.OrdinalIgnoreCase))
+        {
+            runProps.Capital = D.TextCapsValues.All;
+        }
+
+        // letter-spacing: px → 1/100 pt (spc). px*0.75 = pt, ×100 = 1/100 pt. May be negative (tight).
+        if (geo is not null && Math.Abs(geo.LetterSpacingPx) > 0.01)
+        {
+            runProps.Spacing = (int)Math.Round(geo.LetterSpacingPx * 75);
+        }
+
+        // OOXML CT_TextCharacterProperties child order is fixed: the fill (a:solidFill) MUST come
+        // BEFORE the latin font (a:latin). Emitting them in the wrong order produces a schema-invalid
+        // run — PowerPoint silently repairs it, but stricter importers (Canva) reject the whole file.
+        runProps.AppendChild(new D.SolidFill(new D.RgbColorModelHex { Val = hexColor }));
         if (!string.IsNullOrWhiteSpace(fontFamily))
         {
             runProps.AppendChild(new D.LatinFont { Typeface = fontFamily });
         }
 
-        runProps.AppendChild(new D.SolidFill(
-            new D.RgbColorModelHex { Val = hexColor }));
+        // Paragraph: alignment (attribute) + line spacing (lnSpc — must be the FIRST child).
+        var paraProps = new D.ParagraphProperties { Alignment = justification };
+        if (geo is not null && geo.LineHeightPx > 0 && geo.FontSizePx > 0)
+        {
+            var ratio = Math.Clamp(geo.LineHeightPx / geo.FontSizePx, 0.8, 3.0);
+            paraProps.AppendChild(new D.LineSpacing(
+                new D.SpacingPercent { Val = (int)Math.Round(ratio * 100000) }));
+        }
 
-        var paragraph = new D.Paragraph(
-            new D.ParagraphProperties { Alignment = justification },
-            new D.Run(runProps, new D.Text(text)));
+        var paragraph = new D.Paragraph(paraProps, new D.Run(runProps, new D.Text(text)));
 
-        var bodyProps = new D.BodyProperties { Wrap = D.TextWrappingValues.Square };
+        // Vertically center text within its measured box so headings/CTAs don't top-stick.
+        var bodyProps = new D.BodyProperties
+        {
+            Wrap = D.TextWrappingValues.Square,
+            Anchor = D.TextAnchoringTypeValues.Center
+        };
         var shape = new P.Shape(
             new P.NonVisualShapeProperties(
                 new P.NonVisualDrawingProperties { Id = shapeId, Name = slotName },
@@ -292,7 +332,8 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
                         new P.NonVisualGroupShapeDrawingProperties(),
                         new P.ApplicationNonVisualDrawingProperties()),
                     new P.GroupShapeProperties(new D.TransformGroup()))),
-            new D.ColorMap
+            // Must be the Presentation-namespace clrMap (p:clrMap), NOT the Drawing one (a:clrMap).
+            new P.ColorMap
             {
                 Background1 = D.ColorSchemeIndexValues.Light1,
                 Text1 = D.ColorSchemeIndexValues.Dark1,
@@ -310,6 +351,57 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
             new P.SlideLayoutIdList(
                 new P.SlideLayoutId { Id = 2147483649U, RelationshipId = "rIdSL1" }));
         part.SlideMaster.Save();
+    }
+
+    /// <summary>
+    /// Builds a minimal but schema-valid Office theme. A slide master must reference a theme; a
+    /// stricter importer (Canva) fails the whole file if it is missing or malformed.
+    /// </summary>
+    private static D.Theme CreateMinimalTheme()
+    {
+        D.SolidFill PhClrFill() => new(new D.SchemeColor { Val = D.SchemeColorValues.PhColor });
+
+        return new D.Theme(
+            new D.ThemeElements(
+                new D.ColorScheme(
+                    new D.Dark1Color(new D.SystemColor { Val = D.SystemColorValues.WindowText, LastColor = "000000" }),
+                    new D.Light1Color(new D.SystemColor { Val = D.SystemColorValues.Window, LastColor = "FFFFFF" }),
+                    new D.Dark2Color(new D.RgbColorModelHex { Val = "44546A" }),
+                    new D.Light2Color(new D.RgbColorModelHex { Val = "E7E6E6" }),
+                    new D.Accent1Color(new D.RgbColorModelHex { Val = "4472C4" }),
+                    new D.Accent2Color(new D.RgbColorModelHex { Val = "ED7D31" }),
+                    new D.Accent3Color(new D.RgbColorModelHex { Val = "A5A5A5" }),
+                    new D.Accent4Color(new D.RgbColorModelHex { Val = "FFC000" }),
+                    new D.Accent5Color(new D.RgbColorModelHex { Val = "5B9BD5" }),
+                    new D.Accent6Color(new D.RgbColorModelHex { Val = "70AD47" }),
+                    new D.Hyperlink(new D.RgbColorModelHex { Val = "0563C1" }),
+                    new D.FollowedHyperlinkColor(new D.RgbColorModelHex { Val = "954F72" }))
+                { Name = "Office" },
+                new D.FontScheme(
+                    new D.MajorFont(
+                        new D.LatinFont { Typeface = "Calibri Light" },
+                        new D.EastAsianFont { Typeface = "" },
+                        new D.ComplexScriptFont { Typeface = "" }),
+                    new D.MinorFont(
+                        new D.LatinFont { Typeface = "Calibri" },
+                        new D.EastAsianFont { Typeface = "" },
+                        new D.ComplexScriptFont { Typeface = "" }))
+                { Name = "Office" },
+                new D.FormatScheme(
+                    new D.FillStyleList(PhClrFill(), PhClrFill(), PhClrFill()),
+                    new D.LineStyleList(
+                        new D.Outline(PhClrFill()) { Width = 6350 },
+                        new D.Outline(PhClrFill()) { Width = 12700 },
+                        new D.Outline(PhClrFill()) { Width = 19050 }),
+                    new D.EffectStyleList(
+                        new D.EffectStyle(new D.EffectList()),
+                        new D.EffectStyle(new D.EffectList()),
+                        new D.EffectStyle(new D.EffectList())),
+                    new D.BackgroundFillStyleList(PhClrFill(), PhClrFill(), PhClrFill()))
+                { Name = "Office" }),
+            new D.ObjectDefaults(),
+            new D.ExtraColorSchemeList())
+        { Name = "Office Theme" };
     }
 
     private static void InitSlideLayout(SlideLayoutPart part)
@@ -421,6 +513,22 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
         }
 
         return "000000";
+    }
+
+    /// <summary>Bold when the computed font-weight is "bold" or numeric ≥ 600.</summary>
+    private static bool IsBold(string? fontWeight)
+    {
+        if (string.IsNullOrWhiteSpace(fontWeight))
+        {
+            return false;
+        }
+
+        if (string.Equals(fontWeight, "bold", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return int.TryParse(fontWeight, out var weight) && weight >= 600;
     }
 
     private static D.TextAlignmentTypeValues? CssTextAlignToJustification(string? textAlign) =>

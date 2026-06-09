@@ -51,8 +51,32 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
 
     private static readonly HashSet<string> AllowedTags = new(StringComparer.OrdinalIgnoreCase)
     {
-        "div", "h1", "h2", "p", "span", "img", "ul", "li"
+        // Structural + text tags the designer legitimately uses. Kept deliberately small, but it
+        // must cover the common, render-safe HTML the LLM emits (line breaks, emphasis, headings,
+        // ordered lists) — otherwise a perfectly renderable flyer is hard-rejected as invalid markup.
+        "div", "h1", "h2", "h3", "h4", "p", "span", "img",
+        "ul", "ol", "li", "br", "strong", "em", "b", "i", "u", "small"
     };
+
+    /// <summary>XML's five built-in entities — left untouched when normalizing markup for the parser.</summary>
+    private static readonly HashSet<string> XmlBuiltinEntities = new(StringComparer.Ordinal)
+    {
+        "amp", "lt", "gt", "quot", "apos"
+    };
+
+    /// <summary>
+    /// HTML void elements. The designer emits these in HTML form (<c>&lt;img&gt;</c>, <c>&lt;br&gt;</c>)
+    /// which Chromium renders fine but <see cref="XmlDocument"/> rejects — we self-close them before
+    /// the structural XML parse only (the original markup still goes to the renderer unchanged).
+    /// </summary>
+    private static readonly Regex VoidElementRegex =
+        new(@"<(?<tag>img|br|hr|input|meta|link|source|area|col|embed|track|wbr|base|param)(?<attrs>(?:\s[^<>]*?)?)\s*/?>",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>Matches a full HTML entity (named/numeric) or a bare ampersand.</summary>
+    private static readonly Regex EntityOrAmpRegex =
+        new(@"&(?:#x[0-9A-Fa-f]+|#[0-9]+|[A-Za-z][A-Za-z0-9]*);|&",
+            RegexOptions.Compiled);
 
     private static readonly HashSet<string> AllowedColorKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -85,7 +109,7 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
         VisualCompositionSpec spec)
     {
         // Step 1 — Schema validation (VD-04). HARD: a malformed composition cannot render.
-        var schemaResult = ValidateSchema(output.Markup);
+        var schemaResult = ValidateSchema(output.Markup, spec.FormatKey);
         if (schemaResult.IsFailure)
         {
             return Result.Failure<VisualDesignOutput>(schemaResult.Error);
@@ -128,23 +152,32 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
     // Step 1: Schema
     // -------------------------------------------------------------------------
 
-    private static Result ValidateSchema(string markup)
+    private Result ValidateSchema(string markup, string formatKey)
     {
         if (string.IsNullOrWhiteSpace(markup))
         {
+            _logger.LogWarning("Visual guardrail schema: empty markup for format '{FormatKey}'.", formatKey);
             return Result.Failure(VisualGuardrailErrors.InvalidMarkup);
         }
 
-        // Wrap in a root element to allow XML-parse of fragments
-        var wrapped = $"<root>{markup}</root>";
+        // The designer emits HTML; XmlDocument needs well-formed XML. Normalize render-safe HTML-isms
+        // (unclosed void elements like <img>/<br>, HTML named entities, bare ampersands) so a
+        // legitimately renderable composition is not falsely rejected. The ORIGINAL markup still
+        // flows to the renderer unchanged — this normalization is only for the structural check.
+        var wrapped = $"<root>{PrepareForXmlParse(markup)}</root>";
         XmlDocument doc;
         try
         {
             doc = new XmlDocument();
             doc.LoadXml(wrapped);
         }
-        catch
+        catch (XmlException ex)
         {
+            // Capture WHY it failed — without this the failure is opaque ("invalid-markup") and
+            // impossible to diagnose from production data. Logged, not surfaced (keeps i18n contract).
+            _logger.LogWarning(ex,
+                "Visual guardrail schema: markup is not well-formed XML for format '{FormatKey}'. Snippet: {Snippet}",
+                formatKey, Truncate(markup, 600));
             return Result.Failure(VisualGuardrailErrors.InvalidMarkup);
         }
 
@@ -158,29 +191,83 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
 
         if (compositionNodes.Count != 1)
         {
+            _logger.LogWarning(
+                "Visual guardrail schema: expected exactly one root element, found {Count} for format '{FormatKey}'.",
+                compositionNodes.Count, formatKey);
             return Result.Failure(VisualGuardrailErrors.InvalidMarkup);
         }
 
         var composition = (XmlElement)compositionNodes[0];
         if (!HasClass(composition, "composition"))
         {
+            _logger.LogWarning(
+                "Visual guardrail schema: root element <{Tag}> missing class=\"composition\" for format '{FormatKey}'.",
+                composition.Name, formatKey);
             return Result.Failure(VisualGuardrailErrors.InvalidMarkup);
         }
 
         // Check allowed tags recursively and mandatory data-layer children
-        if (!AllTagsAllowed(composition))
+        if (!AllTagsAllowed(composition, out var offendingTag))
         {
+            _logger.LogWarning(
+                "Visual guardrail schema: disallowed tag <{Tag}> for format '{FormatKey}'.",
+                offendingTag, formatKey);
             return Result.Failure(VisualGuardrailErrors.InvalidMarkup);
         }
 
         // Mandatory: at least one data-layer="background" and one data-layer="content"
         if (!HasDataLayer(composition, "background") || !HasDataLayer(composition, "content"))
         {
+            _logger.LogWarning(
+                "Visual guardrail schema: missing required data-layer 'background'/'content' for format '{FormatKey}'.",
+                formatKey);
             return Result.Failure(VisualGuardrailErrors.InvalidMarkup);
         }
 
         return Result.Success();
     }
+
+    /// <summary>
+    /// Makes designer HTML parseable by <see cref="XmlDocument"/> without changing how it renders:
+    /// self-closes void elements and converts HTML named entities / bare ampersands into XML-safe forms.
+    /// </summary>
+    private static string PrepareForXmlParse(string markup)
+    {
+        // 1) Neutralize HTML entities XML doesn't know + escape bare ampersands.
+        var withEntities = EntityOrAmpRegex.Replace(markup, static m =>
+        {
+            var token = m.Value;
+            if (token == "&")
+            {
+                return "&amp;"; // bare ampersand
+            }
+
+            var inner = token[1..^1]; // strip leading '&' and trailing ';'
+            if (inner[0] == '#' || XmlBuiltinEntities.Contains(inner))
+            {
+                return token; // numeric entity or XML built-in — already valid
+            }
+
+            var decoded = System.Net.WebUtility.HtmlDecode(token);
+            if (string.Equals(decoded, token, StringComparison.Ordinal))
+            {
+                return "&amp;" + inner + ";"; // unknown entity — keep the text, escape the '&'
+            }
+
+            // Re-escape so a decoded char can never re-introduce a markup-significant character.
+            return decoded
+                .Replace("&", "&amp;")
+                .Replace("<", "&lt;")
+                .Replace(">", "&gt;")
+                .Replace("\"", "&quot;");
+        });
+
+        // 2) Self-close void elements (<img ...> -> <img ... />).
+        return VoidElementRegex.Replace(withEntities, "<${tag}${attrs} />");
+    }
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..max] + "…";
 
     private static bool HasClass(XmlElement el, string className)
     {
@@ -189,7 +276,7 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
             && cls.Split(' ').Contains(className, StringComparer.OrdinalIgnoreCase);
     }
 
-    private static bool AllTagsAllowed(XmlNode node)
+    private static bool AllTagsAllowed(XmlNode node, out string? offendingTag)
     {
         foreach (XmlNode child in node.ChildNodes)
         {
@@ -200,15 +287,17 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
 
             if (!AllowedTags.Contains(child.Name))
             {
+                offendingTag = child.Name;
                 return false;
             }
 
-            if (!AllTagsAllowed(child))
+            if (!AllTagsAllowed(child, out offendingTag))
             {
                 return false;
             }
         }
 
+        offendingTag = null;
         return true;
     }
 
@@ -345,8 +434,9 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
 
         // Use a simple regex to find text-slot segments. We scan for all data-slot attributes
         // and measure the TEXT content within that element.
-        // Parse via XmlDocument for correctness (already validated in step 1).
-        var wrapped = $"<root>{markup}</root>";
+        // Parse via XmlDocument for correctness (already validated in step 1). Use the same
+        // normalization so void elements / entities don't trip the parse here either.
+        var wrapped = $"<root>{PrepareForXmlParse(markup)}</root>";
         XmlDocument doc;
         try
         {

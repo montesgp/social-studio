@@ -234,4 +234,72 @@ public sealed class VisualGuardrailValidatorTests
         Assert.True(result.IsSuccess);
         Assert.NotEmpty(result.Value.PromptVersionKey);
     }
+
+    // -----------------------------------------------------------------------
+    // VD-04 (robustness): the designer emits HTML, not XML. Render-valid HTML-isms that the
+    // strict XmlDocument parser used to reject must NOT block generation. Regression tests for the
+    // intermittent `invalid-markup` flyer failures (Chromium renders all of these fine).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void UnclosedVoidImg_InBackground_Passes()
+    {
+        // GIVEN a background <img> in HTML form (NOT self-closed) — valid HTML, invalid raw XML.
+        var markup =
+            """<div class="composition" style="width:1080px;height:1920px;"><div data-layer="background"><img src="https://cdn.example/bg.png" style="width:1080px;height:1920px;"></div><div data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Hola</h1></div></div>""";
+
+        var result = Validator.Validate(ValidOutput(markup), BuildBrand(), BuildSpec());
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.Code : "n/a")}");
+    }
+
+    [Fact]
+    public void BrAndEmphasisTags_InContent_Pass()
+    {
+        // GIVEN line breaks (<br>) and inline emphasis (<strong>) — common in multi-line body copy.
+        var markup =
+            """<div class="composition" style="width:1080px;height:1920px;"><div data-layer="background" style="background:#000000;"></div><div data-layer="content"><p class="slot" data-slot="body" data-max-lines="4" style="font-family:Inter;color:#FFFFFF;">Linea uno<br>Linea <strong>dos</strong></p></div></div>""";
+
+        var result = Validator.Validate(ValidOutput(markup), BuildBrand(), BuildSpec());
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.Code : "n/a")}");
+    }
+
+    [Fact]
+    public void HtmlNamedEntities_Pass()
+    {
+        // GIVEN HTML named entities XML does not define (&nbsp; &mdash; &eacute;).
+        var markup =
+            """<div class="composition" style="width:1080px;height:1920px;"><div data-layer="background" style="background:#000000;"></div><div data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Caf&eacute;&nbsp;&mdash;&nbsp;resumen</h1></div></div>""";
+
+        var result = Validator.Validate(ValidOutput(markup), BuildBrand(), BuildSpec());
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.Code : "n/a")}");
+    }
+
+    [Fact]
+    public void BareAmpersandInText_Passes()
+    {
+        // GIVEN a raw ampersand in text content (e.g. a brand name) — invalid raw XML.
+        var markup =
+            """<div class="composition" style="width:1080px;height:1920px;"><div data-layer="background" style="background:#000000;"></div><div data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Tom & Jerry &amp; Co</h1></div></div>""";
+
+        var result = Validator.Validate(ValidOutput(markup), BuildBrand(), BuildSpec());
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.Code : "n/a")}");
+    }
+
+    [Fact]
+    public void DisallowedTag_StillRejected()
+    {
+        // GIVEN a structurally well-formed composition that contains a tag outside the allow-list.
+        // The relaxed normalization must NOT let genuinely off-schema markup through.
+        var markup =
+            """<div class="composition" style="width:1080px;height:1920px;"><div data-layer="background" style="background:#000000;"></div><div data-layer="content"><script>doEvil()</script></div></div>""";
+
+        var result = Validator.Validate(ValidOutput(markup), BuildBrand(), BuildSpec());
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("visual-guardrail.invalid-markup", result.Error.Code);
+    }
 }

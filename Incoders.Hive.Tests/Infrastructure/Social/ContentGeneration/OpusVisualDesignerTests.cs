@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Domain.Social.ContentGeneration;
@@ -146,7 +147,7 @@ public sealed class OpusVisualDesignerTests
     // -----------------------------------------------------------------------
 
     private static OpusVisualDesigner BuildDesigner(IAiCompletionGateway gateway) =>
-        new OpusVisualDesigner(gateway);
+        new OpusVisualDesigner(gateway, new StubAiSelector());
 
     private static VisualCompositionSpec BuildSpec() =>
         new VisualCompositionSpec(
@@ -173,6 +174,13 @@ public sealed class OpusVisualDesignerTests
 
     private static string BuildSuccessMarkup() =>
         """<div class="composition" data-format="flyer" style="width:1080px;height:1920px;background:#111111;"><div class="layer-background" data-layer="background" style="background:#111111;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;font-size:48px;">Your Brand Headline</h1></div></div>""";
+}
+
+/// <summary>Stub AI selector — mirrors the org's configured AI (provider + model) for the designer.</summary>
+file sealed class StubAiSelector : IDefaultAiSelector
+{
+    public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
+        Task.FromResult(Result.Success(new DefaultAiSelection("claude", "claude-sonnet-4-6")));
 }
 
 // -----------------------------------------------------------------------

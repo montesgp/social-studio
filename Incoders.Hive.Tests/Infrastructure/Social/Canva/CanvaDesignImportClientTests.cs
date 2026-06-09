@@ -17,7 +17,7 @@ namespace Incoders.Hive.Tests.Infrastructure.Social.Canva;
 ///
 /// <para>
 /// Canva Design Import flow:
-/// 1. POST /rest/v1/imports (multipart, pptx bytes + title) → returns <c>{ jobId }</c>
+/// 1. POST /rest/v1/imports (octet-stream body + Import-Metadata header) → returns <c>{ job: { id } }</c>
 /// 2. GET  /rest/v1/imports/{jobId} (poll) → returns <c>{ status: "in_progress"|"success"|"failed", result: { designs: [{ urls: { edit_url } }] } }</c>
 /// </para>
 ///
@@ -210,6 +210,45 @@ public sealed class CanvaDesignImportClientTests
         Assert.Equal(FakeAccessToken, submitRequest.Headers.Authorization?.Parameter);
     }
 
+    // ─── Submit request format (Canva contract) ──────────────────────────────
+
+    [Fact]
+    public async Task ImportAsync_Submit_UsesOctetStreamBody_AndImportMetadataHeader()
+    {
+        // Canva's Create design import job requires a RAW octet-stream body + Import-Metadata header.
+        // Regression for the 502: the client previously sent multipart/form-data, which Canva rejects.
+        var rawBytes = new byte[] { 0x50, 0x4B, 0x03, 0x04 }; // PK magic
+        string? contentType = null;
+        string? importMetadata = null;
+        byte[]? sentBody = null;
+
+        var handler = new InspectingFakeHttpMessageHandler(
+            async req =>
+            {
+                contentType = req.Content?.Headers.ContentType?.MediaType;
+                importMetadata = req.Headers.TryGetValues("Import-Metadata", out var values)
+                    ? values.FirstOrDefault()
+                    : null;
+                sentBody = req.Content is null ? null : await req.Content.ReadAsByteArrayAsync();
+            },
+            BuildSubmitResponse(FakeJobId),
+            BuildPollSuccessResponse(FakeJobId, FakeEditUrl));
+
+        var client = CreateClient(handler);
+
+        var result = await client.ImportAsync(rawBytes, FakeAccessToken, "Acme Client", CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.Code : "n/a")}");
+        Assert.Equal("application/octet-stream", contentType);
+        // The body must be the raw PPTX bytes — NOT wrapped in a multipart envelope.
+        Assert.NotNull(sentBody);
+        Assert.Equal(rawBytes, sentBody!);
+        // Import-Metadata must be present with the Base64 title + MIME type.
+        Assert.False(string.IsNullOrWhiteSpace(importMetadata), "Import-Metadata header must be sent");
+        Assert.Contains("title_base64", importMetadata!);
+        Assert.Contains("mime_type", importMetadata!);
+    }
+
     // ─── No Autofill / Brand Templates endpoints ─────────────────────────────
 
     [Fact]
@@ -388,6 +427,40 @@ internal sealed class BoundedInProgressFakeHttpMessageHandler : HttpMessageHandl
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         });
+    }
+}
+
+/// <summary>
+/// Runs an async inspector against the FIRST request (before it is disposed) so tests can assert
+/// on the submit body/headers, then returns pre-configured responses in sequence.
+/// </summary>
+internal sealed class InspectingFakeHttpMessageHandler : HttpMessageHandler
+{
+    private readonly Func<HttpRequestMessage, Task> _onFirstRequest;
+    private readonly FakeResponse[] _responses;
+    private int _callIndex;
+
+    public InspectingFakeHttpMessageHandler(Func<HttpRequestMessage, Task> onFirstRequest, params FakeResponse[] responses)
+    {
+        _onFirstRequest = onFirstRequest;
+        _responses = responses;
+    }
+
+    protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        if (_callIndex == 0)
+            await _onFirstRequest(request);
+
+        var index = Math.Min(_callIndex, _responses.Length - 1);
+        _callIndex++;
+
+        var r = _responses[index];
+        return new HttpResponseMessage(r.StatusCode)
+        {
+            Content = new StringContent(r.Body, Encoding.UTF8, "application/json"),
+        };
     }
 }
 

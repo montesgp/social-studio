@@ -1,8 +1,11 @@
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Incoders.Hive.Infrastructure.Social.Canva;
 
@@ -40,6 +43,9 @@ public sealed class CanvaDesignImportClient : ICanvaDesignImportClient
     // Canva Connect API base URL (verified against Canva Connect API docs, 2026)
     private const string CanvaImportUrl = "https://api.canva.com/rest/v1/imports";
 
+    private const string PptxMimeType =
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
     // Poll budget: 12 attempts × 5 s = 60 s max before returning a typed timeout error.
     // Kept conservative to avoid hammering the rate limit (~20 req/min/user).
     private const int MaxPollAttempts = 12;
@@ -47,13 +53,14 @@ public sealed class CanvaDesignImportClient : ICanvaDesignImportClient
 
     private readonly HttpClient _httpClient;
     private readonly TimeSpan _pollInterval;
+    private readonly ILogger<CanvaDesignImportClient> _logger;
 
     /// <summary>
     /// Production constructor — uses the default 5-second poll interval.
     /// DI registers this via <c>AddHttpClient&lt;ICanvaDesignImportClient, CanvaDesignImportClient&gt;</c>.
     /// </summary>
-    public CanvaDesignImportClient(HttpClient httpClient)
-        : this(httpClient, DefaultPollInterval)
+    public CanvaDesignImportClient(HttpClient httpClient, ILogger<CanvaDesignImportClient>? logger = null)
+        : this(httpClient, DefaultPollInterval, logger)
     {
     }
 
@@ -61,11 +68,12 @@ public sealed class CanvaDesignImportClient : ICanvaDesignImportClient
     /// Testable constructor — accepts a custom poll interval to keep unit tests fast.
     /// Pass <see cref="TimeSpan.Zero"/> or a very short value in tests to avoid 5-second delays.
     /// </summary>
-    internal CanvaDesignImportClient(HttpClient httpClient, TimeSpan pollInterval)
+    internal CanvaDesignImportClient(HttpClient httpClient, TimeSpan pollInterval, ILogger<CanvaDesignImportClient>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         _httpClient = httpClient;
         _pollInterval = pollInterval;
+        _logger = logger ?? NullLogger<CanvaDesignImportClient>.Instance;
     }
 
     /// <inheritdoc/>
@@ -98,20 +106,24 @@ public sealed class CanvaDesignImportClient : ICanvaDesignImportClient
         string? designTitle,
         CancellationToken ct)
     {
-        using var content = new MultipartFormDataContent();
-
+        // Canva Design Import expects a RAW application/octet-stream body (the file bytes) plus an
+        // Import-Metadata header — NOT multipart/form-data. Sending multipart makes Canva reject the
+        // request, which surfaces to the user as a 502 on export.
+        // Docs: https://www.canva.dev/docs/connect/api-reference/design-imports/create-design-import-job/
         var fileContent = new ByteArrayContent(pptxBytes);
-        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation");
-        // Canva titles the imported design from the upload filename — use the caller's title.
-        var fileName = $"{SanitizeFileName(designTitle) ?? "presentation"}.pptx";
-        content.Add(fileContent, "file", fileName);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
 
         var request = new HttpRequestMessage(HttpMethod.Post, CanvaImportUrl)
         {
-            Content = content,
+            Content = fileContent,
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        // Import-Metadata carries the (Base64-encoded) design title + MIME type. Added without
+        // validation because the JSON value contains characters HttpClient would otherwise reject.
+        request.Headers.TryAddWithoutValidation("Import-Metadata", BuildImportMetadata(designTitle));
+
+        _logger.LogInformation(
+            "Canva import SUBMIT: POST {Url} ({Bytes} bytes, octet-stream).", CanvaImportUrl, pptxBytes.Length);
 
         HttpResponseMessage response;
         try
@@ -120,32 +132,53 @@ public sealed class CanvaDesignImportClient : ICanvaDesignImportClient
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
+            _logger.LogWarning(ex, "Canva import SUBMIT threw (network/cancel).");
             return Result.Failure<string>(CanvaImportErrors.ApiFailure);
         }
 
+        var body = await response.Content.ReadAsStringAsync(ct);
+
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            _logger.LogWarning("Canva import SUBMIT unauthorized (HTTP 401). Body: {Body}", Truncate(body));
             return Result.Failure<string>(CanvaImportErrors.Unauthorized);
+        }
 
         if (!response.IsSuccessStatusCode)
+        {
+            // THIS is the line that finally surfaces why Canva rejects the import (e.g. bad scope,
+            // unsupported file, malformed Import-Metadata). Previously swallowed into an opaque 502.
+            _logger.LogWarning("Canva import SUBMIT failed: HTTP {Status}. Body: {Body}",
+                (int)response.StatusCode, Truncate(body));
             return Result.Failure<string>(CanvaImportErrors.ApiFailure);
-
-        var json = await response.Content.ReadAsStringAsync(ct);
+        }
 
         CanvaImportJobResponse? parsed;
         try
         {
-            parsed = JsonSerializer.Deserialize<CanvaImportJobResponse>(json);
+            parsed = JsonSerializer.Deserialize<CanvaImportJobResponse>(body);
         }
         catch
         {
+            _logger.LogWarning("Canva import SUBMIT: could not parse response. Body: {Body}", Truncate(body));
             return Result.Failure<string>(CanvaImportErrors.ApiFailure);
         }
 
         var jobId = parsed?.Job?.Id;
         if (string.IsNullOrWhiteSpace(jobId))
+        {
+            _logger.LogWarning("Canva import SUBMIT: response had no job id. Body: {Body}", Truncate(body));
             return Result.Failure<string>(CanvaImportErrors.ApiFailure);
+        }
 
+        _logger.LogInformation("Canva import SUBMIT accepted. Job {JobId}.", jobId);
         return Result.Success(jobId);
+    }
+
+    private static string Truncate(string? value, int max = 1000)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        return value.Length <= max ? value : value[..max] + "…";
     }
 
     // ─── Private: poll ───────────────────────────────────────────────────────
@@ -189,21 +222,29 @@ public sealed class CanvaDesignImportClient : ICanvaDesignImportClient
                 return Result.Failure<CanvaImportResult>(CanvaImportErrors.ApiFailure);
             }
 
+            var body = await response.Content.ReadAsStringAsync(ct);
+
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _logger.LogWarning("Canva import POLL unauthorized (HTTP 401). Body: {Body}", Truncate(body));
                 return Result.Failure<CanvaImportResult>(CanvaImportErrors.Unauthorized);
+            }
 
             if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Canva import POLL failed: HTTP {Status}. Body: {Body}",
+                    (int)response.StatusCode, Truncate(body));
                 return Result.Failure<CanvaImportResult>(CanvaImportErrors.ApiFailure);
-
-            var json = await response.Content.ReadAsStringAsync(ct);
+            }
 
             CanvaImportJobResponse? pollResult;
             try
             {
-                pollResult = JsonSerializer.Deserialize<CanvaImportJobResponse>(json);
+                pollResult = JsonSerializer.Deserialize<CanvaImportJobResponse>(body);
             }
             catch
             {
+                _logger.LogWarning("Canva import POLL: could not parse response. Body: {Body}", Truncate(body));
                 return Result.Failure<CanvaImportResult>(CanvaImportErrors.ApiFailure);
             }
 
@@ -215,38 +256,42 @@ public sealed class CanvaDesignImportClient : ICanvaDesignImportClient
                 var designId = pollResult?.Job?.Result?.Designs?.FirstOrDefault()?.Id ?? string.Empty;
 
                 if (string.IsNullOrWhiteSpace(editUrl))
+                {
+                    _logger.LogWarning("Canva import POLL: status success but no edit_url. Body: {Body}", Truncate(body));
                     return Result.Failure<CanvaImportResult>(CanvaImportErrors.ApiFailure);
+                }
 
+                _logger.LogInformation("Canva import SUCCESS. Design {DesignId}.", designId);
                 var expiresAt = DateTimeOffset.UtcNow.AddDays(30);
                 return Result.Success(new CanvaImportResult(designId, editUrl, expiresAt));
             }
 
             if (status == "failed")
+            {
+                // Canva reports the failure reason in the job body — log it verbatim.
+                _logger.LogWarning("Canva import job reported FAILED. Body: {Body}", Truncate(body));
                 return Result.Failure<CanvaImportResult>(CanvaImportErrors.ApiFailure);
+            }
 
             // status == "in_progress" — continue polling
         }
 
         // Exhausted all attempts without success
+        _logger.LogWarning("Canva import POLL exhausted budget ({Attempts} attempts) without completion.", MaxPollAttempts);
         return Result.Failure<CanvaImportResult>(CanvaImportErrors.Timeout);
     }
 
     /// <summary>
-    /// Reduces a free-form title to a safe upload filename stem (Canva derives the design name
-    /// from it). Strips path/quote characters and clamps length. Returns null when blank.
+    /// Builds the <c>Import-Metadata</c> header value: a compact JSON object with the Base64-encoded
+    /// design title and the file MIME type. Base64 lets titles with emojis/accents ride an HTTP header.
+    /// Canva caps the unencoded title at 50 characters.
     /// </summary>
-    private static string? SanitizeFileName(string? title)
+    private static string BuildImportMetadata(string? designTitle)
     {
-        if (string.IsNullOrWhiteSpace(title)) return null;
-
-        var cleaned = new string(title
-            .Trim()
-            .Select(c => char.IsLetterOrDigit(c) || c is ' ' or '-' or '_' ? c : '-')
-            .ToArray())
-            .Trim();
-
-        if (cleaned.Length > 80) cleaned = cleaned[..80].Trim();
-        return string.IsNullOrWhiteSpace(cleaned) ? null : cleaned;
+        var title = string.IsNullOrWhiteSpace(designTitle) ? "presentation" : designTitle.Trim();
+        if (title.Length > 50) title = title[..50].Trim();
+        var titleBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(title));
+        return $"{{\"title_base64\":\"{titleBase64}\",\"mime_type\":\"{PptxMimeType}\"}}";
     }
 
     // ─── Private response DTOs ────────────────────────────────────────────────

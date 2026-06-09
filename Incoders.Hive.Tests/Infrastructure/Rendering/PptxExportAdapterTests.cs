@@ -64,6 +64,77 @@ public sealed class PptxExportAdapterTests
     }
 
     // ------------------------------------------------------------------
+    // Structural validity (Canva import contract)
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task BuildAsync_ProducesSchemaValidPptx_WithThemeOnMaster()
+    {
+        // Canva's Design Import rejects schema-invalid PPTX with an opaque "internal_error". Guard the
+        // structural contract that PowerPoint silently repairs but Canva does not: zero OpenXML
+        // schema-validation errors AND a theme attached to the slide master.
+        var env = StubMarkupBuilder.BuildFlyerEnvelope();
+        var result = await Adapter.BuildAsync(env, CancellationToken.None);
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
+
+        using var ms = new MemoryStream(result.Value);
+        using var doc = PresentationDocument.Open(ms, false);
+
+        var master = doc.PresentationPart!.SlideMasterParts.FirstOrDefault();
+        Assert.NotNull(master);
+        Assert.NotNull(master!.ThemePart);
+
+        var validator = new DocumentFormat.OpenXml.Validation.OpenXmlValidator(
+            DocumentFormat.OpenXml.FileFormatVersions.Office2019);
+        var errors = validator.Validate(doc).ToList();
+
+        Assert.True(errors.Count == 0,
+            "PPTX must be schema-valid for Canva import. Errors:\n" +
+            string.Join("\n", errors.Select(e => $"- {e.Part?.Uri} {e.Node?.LocalName}: {e.Description}")));
+    }
+
+    [Fact]
+    public async Task BuildAsync_MapsTextFidelity_BoldItalicCapsSpacingLineSpacing()
+    {
+        // Higher-fidelity Canva export: the editable text box must carry the captured CSS styling so
+        // it stops looking thin/crude vs the Chromium render. Bold is the single biggest visual gap.
+        var markup =
+            """<div class="composition" style="width:1080px;height:1920px;"><div data-layer="background" style="background:#000000;"></div><div data-layer="content"><h1 data-slot="headline" style="font-family:Oswald;color:#FFFFFF;">Hola</h1></div></div>""";
+        var geometry = new[]
+        {
+            new SlotGeometryEntry(
+                Slot: "headline", X: 40, Y: 200, Width: 1000, Height: 220,
+                FontFamily: "Oswald", FontSizePx: 96, Color: "rgb(255,255,255)", TextAlign: "center",
+                FontWeight: "800", FontStyle: "italic", LineHeightPx: 110, LetterSpacingPx: 2.5,
+                TextTransform: "uppercase"),
+        };
+        var envelope = new CompositionSpecEnvelope(
+            SchemaVersion: CompositionSpecEnvelope.CurrentSchemaVersion,
+            Markup: markup,
+            Canvas: new CanvasDimensions(1080, 1920, 96),
+            SlotGeometry: geometry,
+            BackgroundImageRef: null);
+
+        var result = await Adapter.BuildAsync(envelope, CancellationToken.None);
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
+
+        using var ms = new MemoryStream(result.Value);
+        using var doc = PresentationDocument.Open(ms, false);
+        var slide = doc.PresentationPart!.SlideParts.First().Slide!;
+
+        var runProps = slide.Descendants<A.Run>().First().RunProperties!;
+        Assert.True(runProps.Bold?.Value == true, "font-weight 800 must map to bold");
+        Assert.True(runProps.Italic?.Value == true, "font-style italic must map to italic");
+        Assert.Equal(A.TextCapsValues.All, runProps.Capital?.Value);
+        Assert.True(runProps.Spacing is not null && runProps.Spacing.Value > 0, "letter-spacing must map to spc");
+        Assert.NotNull(slide.Descendants<A.LineSpacing>().FirstOrDefault());
+
+        var validator = new DocumentFormat.OpenXml.Validation.OpenXmlValidator(
+            DocumentFormat.OpenXml.FileFormatVersions.Office2019);
+        Assert.Empty(validator.Validate(doc));
+    }
+
+    // ------------------------------------------------------------------
     // Slide dimensions — px → EMU via 9525 EMU/px (96 dpi default)
     // ------------------------------------------------------------------
 

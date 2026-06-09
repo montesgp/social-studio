@@ -120,6 +120,11 @@ public sealed record CanvasDimensions(int Width, int Height, int Dpi);
 /// <param name="FontSizePx">Computed <c>font-size</c> in px. 0 if not measurable.</param>
 /// <param name="Color">Computed <c>color</c> (CSS color string). Null if not measurable.</param>
 /// <param name="TextAlign">Computed <c>text-align</c>. Null if not measurable.</param>
+/// <param name="FontWeight">Computed <c>font-weight</c> (e.g. <c>"700"</c>). Null if not measured. Optional (additive, schema v1-compatible).</param>
+/// <param name="FontStyle">Computed <c>font-style</c> (<c>"italic"</c>/<c>"normal"</c>). Null if not measured.</param>
+/// <param name="LineHeightPx">Computed <c>line-height</c> in px. 0 when <c>normal</c>/not measured.</param>
+/// <param name="LetterSpacingPx">Computed <c>letter-spacing</c> in px. 0 when <c>normal</c>/not measured.</param>
+/// <param name="TextTransform">Computed <c>text-transform</c> (e.g. <c>"uppercase"</c>). Null if not measured.</param>
 public sealed record SlotGeometryEntry(
     string Slot,
     double X,
@@ -129,4 +134,9 @@ public sealed record SlotGeometryEntry(
     string? FontFamily,
     double FontSizePx,
     string? Color,
-    string? TextAlign);
+    string? TextAlign,
+    string? FontWeight = null,
+    string? FontStyle = null,
+    double LineHeightPx = 0,
+    double LetterSpacingPx = 0,
+    string? TextTransform = null);

@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
@@ -106,6 +107,9 @@ public sealed class B1bDiWiringTests
         // Stub AI gateway — OpusVisualDesigner takes IAiCompletionGateway
         services.AddScoped<IAiCompletionGateway, StubAiGatewayForDi>();
 
+        // Stub AI selector — OpusVisualDesigner resolves the org's provider/model through it.
+        services.AddScoped<IDefaultAiSelector, StubAiSelectorForDi>();
+
         // Logging — required by HtmlChromiumContentRenderer (ILogger<HtmlChromiumContentRenderer>)
         services.AddLogging();
 
@@ -137,4 +141,10 @@ file sealed class StubAiGatewayForDi : IAiCompletionGateway
     public Task<Result<AiJsonCompletionResponse<TResponse>>> CompleteJsonAsync<TResponse>(
         AiJsonCompletionRequest request, CancellationToken ct = default) where TResponse : notnull =>
         throw new NotImplementedException("DI stub — not called in wiring test.");
+}
+
+file sealed class StubAiSelectorForDi : IDefaultAiSelector
+{
+    public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
+        Task.FromResult(Result.Success(new DefaultAiSelection("claude", "claude-sonnet-4-6")));
 }

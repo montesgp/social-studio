@@ -597,8 +597,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     try {
       // Canva requires localhost redirect URIs to use 127.0.0.1 (not "localhost"). Normalize only
       // the local host; prod origins pass through unchanged — still fully env-derived, no config.
-      const origin = window.location.origin.replace("://localhost", "://127.0.0.1");
-      const redirectUri = `${origin}/hive-api/api/integrations/${integration.providerKey}/callback`;
+      const popupOrigin = window.location.origin.replace("://localhost", "://127.0.0.1");
+      const redirectUri = `${popupOrigin}/hive-api/api/integrations/${integration.providerKey}/callback`;
       // Provider dispatch — extend here when another OAuth connector is added.
       const { authorizeUrl } = await getCanvaAuthorizeUrl(
         selectedOrganizationId,
@@ -606,7 +606,59 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
         redirectUri,
         token
       );
-      window.location.href = authorizeUrl;
+
+      // OAuth in a popup (like "Sign in with Google"): the main app never navigates away, so the
+      // session stays intact even though the OAuth round-trip happens on the 127.0.0.1 origin. The
+      // popup's result page postMessages the outcome back here; then we refresh the integrations.
+      const popup = window.open(authorizeUrl, "canva-oauth-connect", "popup=yes,width=620,height=780");
+      if (!popup) {
+        // Popups blocked — fall back to a full-page redirect.
+        window.location.href = authorizeUrl;
+        return;
+      }
+
+      // Held in a const ref-object so the listener and the closed-poller can share/clear it.
+      const timer: { id?: ReturnType<typeof setInterval> } = {};
+      const onMessage = (event: MessageEvent) => {
+        if (event.origin !== popupOrigin) {
+          return;
+        }
+        const data = event.data as { type?: string; status?: string; reason?: string };
+        if (data?.type !== "canva-oauth-result") {
+          return;
+        }
+        window.removeEventListener("message", onMessage);
+        if (timer.id) {
+          clearInterval(timer.id);
+        }
+        try {
+          popup.close();
+        } catch {
+          // ignore
+        }
+        if (data.status === "connected") {
+          toast.success(
+            "Canva connected",
+            `${integration.providerDisplayName} is now connected for the organization.`
+          );
+          if (selectedOrganizationId && token) {
+            void loadOverview(selectedOrganizationId, token, false);
+          }
+        } else {
+          setError(`Canva connection failed${data.reason ? `: ${data.reason}` : ""}.`);
+        }
+      };
+
+      window.addEventListener("message", onMessage);
+      // Clean up the listener if the user closes the popup without completing.
+      timer.id = setInterval(() => {
+        if (popup.closed) {
+          window.removeEventListener("message", onMessage);
+          if (timer.id) {
+            clearInterval(timer.id);
+          }
+        }
+      }, 800);
     } catch (err) {
       setError((err as ApiError).message ?? "Failed to start the connection.");
     }

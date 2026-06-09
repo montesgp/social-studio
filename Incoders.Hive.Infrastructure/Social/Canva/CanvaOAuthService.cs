@@ -45,10 +45,20 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
     private const string PkceCacheKeyPrefix = "canva:pkce:";
     private static readonly TimeSpan PkceTtl = TimeSpan.FromMinutes(10);
 
+    /// <summary>
+    /// Default Connect API scopes used when the org leaves the <c>scopes</c> credential blank.
+    /// Mirrors the placeholder advertised by the Canva connector seeder ("Leave blank to use the
+    /// default set"). A blank scope makes Canva reject the authorization / yields a token that the
+    /// Design Import API (<c>design:content:write</c>) cannot use — so a sensible default is required.
+    /// </summary>
+    private const string DefaultScopes =
+        "asset:read asset:write brandtemplate:meta:read design:meta:read design:content:read design:content:write profile:read";
+
     private readonly ICanvaUserTokenRepository _tokenRepository;
     private readonly ICacheStore _cache;
     private readonly IIntegrationResolver _integrationResolver;
     private readonly IIntegrationSecretProtector _protector;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly HttpClient _httpClient;
     private readonly TimeProvider _timeProvider;
 
@@ -57,6 +67,7 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
         ICacheStore cache,
         IIntegrationResolver integrationResolver,
         IIntegrationSecretProtector protector,
+        IUnitOfWork unitOfWork,
         HttpClient httpClient,
         TimeProvider timeProvider)
     {
@@ -64,6 +75,7 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(integrationResolver);
         ArgumentNullException.ThrowIfNull(protector);
+        ArgumentNullException.ThrowIfNull(unitOfWork);
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
@@ -71,6 +83,7 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
         _cache = cache;
         _integrationResolver = integrationResolver;
         _protector = protector;
+        _unitOfWork = unitOfWork;
         _httpClient = httpClient;
         _timeProvider = timeProvider;
     }
@@ -92,6 +105,12 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
 
         if (string.IsNullOrWhiteSpace(clientId))
             return Result.Failure<string>(CanvaOAuthErrors.ClientIdMissing);
+
+        // The admin may leave scopes blank (it is an optional credential). Fall back to the default
+        // Connect scope set so the authorization is never sent with an empty scope — which Canva
+        // rejects and which would otherwise yield a token unusable for Design Import.
+        if (string.IsNullOrWhiteSpace(scopes))
+            scopes = DefaultScopes;
 
         // PKCE: generate verifier (random 32-byte / Base64Url → 43-char URL-safe string)
         var verifier = GeneratePkceVerifier();
@@ -176,6 +195,11 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
         }
 
         await _tokenRepository.UpsertAsync(tokenEntity, ct);
+
+        // Commit the unit of work — the repository only tracks the change; without this the token
+        // row is discarded when the request scope ends (the bug that left canva_user_tokens empty
+        // even after a successful authorize, yielding canva.not_connected / 409 on export).
+        await _unitOfWork.SaveChangesAsync(ct);
         return Result.Success();
     }
 
@@ -260,6 +284,9 @@ public sealed class CanvaOAuthService : ICanvaOAuthService
         try
         {
             await _tokenRepository.UpsertAsync(token, ct);
+            // Commit the rotation. SaveChanges is also where the xmin (D2) concurrency conflict
+            // surfaces — keep it inside the try so the reread-on-conflict path below handles it.
+            await _unitOfWork.SaveChangesAsync(ct);
             return Result.Success(newTokens.AccessToken);
         }
         catch (DbUpdateConcurrencyException)

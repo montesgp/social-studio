@@ -51,6 +51,8 @@ file static class SlotGeometryScript
             const s = window.getComputedStyle(el);
             const ff = (s.fontFamily || '').split(',')[0].replace(/[""']/g, '').trim();
             const fsPx = parseFloat(s.fontSize) || 0;
+            const lhPx = parseFloat(s.lineHeight);    // 'normal' -> NaN
+            const lsPx = parseFloat(s.letterSpacing); // 'normal' -> NaN
             return {
                 slot: el.getAttribute('data-slot') || '',
                 x: r.x,
@@ -60,7 +62,12 @@ file static class SlotGeometryScript
                 fontFamily: ff || null,
                 fontSizePx: fsPx,
                 color: s.color || null,
-                textAlign: s.textAlign || null
+                textAlign: s.textAlign || null,
+                fontWeight: s.fontWeight || null,
+                fontStyle: s.fontStyle || null,
+                lineHeightPx: isNaN(lhPx) ? 0 : lhPx,
+                letterSpacingPx: isNaN(lsPx) ? 0 : lsPx,
+                textTransform: s.textTransform || null
             };
         })
     ";
@@ -310,7 +317,12 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
                 FontFamily: string.IsNullOrWhiteSpace(e.FontFamily) ? null : e.FontFamily,
                 FontSizePx: e.FontSizePx,
                 Color: string.IsNullOrWhiteSpace(e.Color) ? null : e.Color,
-                TextAlign: string.IsNullOrWhiteSpace(e.TextAlign) ? null : e.TextAlign))
+                TextAlign: string.IsNullOrWhiteSpace(e.TextAlign) ? null : e.TextAlign,
+                FontWeight: string.IsNullOrWhiteSpace(e.FontWeight) ? null : e.FontWeight,
+                FontStyle: string.IsNullOrWhiteSpace(e.FontStyle) ? null : e.FontStyle,
+                LineHeightPx: e.LineHeightPx,
+                LetterSpacingPx: e.LetterSpacingPx,
+                TextTransform: string.IsNullOrWhiteSpace(e.TextTransform) ? null : e.TextTransform))
             .ToList();
     }
 
@@ -440,4 +452,9 @@ file sealed class SlotGeometryDto
     public double FontSizePx { get; set; }
     public string? Color { get; set; }
     public string? TextAlign { get; set; }
+    public string? FontWeight { get; set; }
+    public string? FontStyle { get; set; }
+    public double LineHeightPx { get; set; }
+    public double LetterSpacingPx { get; set; }
+    public string? TextTransform { get; set; }
 }

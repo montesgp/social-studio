@@ -6,6 +6,8 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.Clients;
 using MediatR;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Export;
 
@@ -49,6 +51,7 @@ public sealed class ExportPackageToCanvaCommandHandler
     private readonly IPptxExportAdapter _pptxAdapter;
     private readonly ICanvaDesignImportClient _importClient;
     private readonly ISocialClientRepository _clientRepository;
+    private readonly ILogger<ExportPackageToCanvaCommandHandler> _logger;
 
     public ExportPackageToCanvaCommandHandler(
         IContentGenerationJobRepository jobRepository,
@@ -57,7 +60,8 @@ public sealed class ExportPackageToCanvaCommandHandler
         ICanvaOAuthService oauthService,
         IPptxExportAdapter pptxAdapter,
         ICanvaDesignImportClient importClient,
-        ISocialClientRepository clientRepository)
+        ISocialClientRepository clientRepository,
+        ILogger<ExportPackageToCanvaCommandHandler>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(jobRepository);
         ArgumentNullException.ThrowIfNull(formatResultRepository);
@@ -74,16 +78,23 @@ public sealed class ExportPackageToCanvaCommandHandler
         _pptxAdapter = pptxAdapter;
         _importClient = importClient;
         _clientRepository = clientRepository;
+        _logger = logger ?? NullLogger<ExportPackageToCanvaCommandHandler>.Instance;
     }
 
     public async Task<Result<ExportFormatToCanvaResponse>> Handle(
         ExportPackageToCanvaCommand command,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation(
+            "Export package to Canva START: job {JobId}, org {OrgId}, orgIntegration {OrgIntegrationId}.",
+            command.JobId, command.OrganizationId, command.OrganizationIntegrationId);
+
         // 1. Tenant-scoped job lookup
         var job = await _jobRepository.GetByIdAsync(command.JobId, command.OrganizationId, cancellationToken);
         if (job is null)
         {
+            _logger.LogWarning("Export package to Canva: job {JobId} not found for org {OrgId}.",
+                command.JobId, command.OrganizationId);
             return Result.Failure<ExportFormatToCanvaResponse>(ContentGenerationErrors.JobNotFound);
         }
 
@@ -106,14 +117,23 @@ public sealed class ExportPackageToCanvaCommandHandler
         if (envelopes.Count == 0)
         {
             // No editable visual composition in this job (e.g. only a text format).
+            _logger.LogWarning(
+                "Export package to Canva: job {JobId} has no editable visual compositions (formats present: {Formats}).",
+                command.JobId, string.Join(",", byFormat.Keys));
             return Result.Failure<ExportFormatToCanvaResponse>(ContentGenerationErrors.NotExportable);
         }
+
+        _logger.LogInformation("Export package to Canva: job {JobId} aggregated {Pages} editable page(s).",
+            command.JobId, envelopes.Count);
 
         // 3. Check the ORG has a connected Canva account (org-level shared connection).
         var existingToken = await _tokenRepository.GetAsync(
             CanvaOrgConnection.SharedUserId, command.OrganizationIntegrationId, cancellationToken);
         if (existingToken is null)
         {
+            _logger.LogWarning(
+                "Export package to Canva: no Canva token for orgIntegration {OrgIntegrationId} (not connected).",
+                command.OrganizationIntegrationId);
             return Result.Failure<ExportFormatToCanvaResponse>(CanvaExportErrors.NotConnected);
         }
 
@@ -129,8 +149,13 @@ public sealed class ExportPackageToCanvaCommandHandler
         var buildResult = await _pptxAdapter.BuildManyAsync(envelopes, cancellationToken);
         if (buildResult.IsFailure)
         {
+            _logger.LogWarning("Export package to Canva: PPTX build failed for job {JobId}: {Code}.",
+                command.JobId, buildResult.Error.Code);
             return Result.Failure<ExportFormatToCanvaResponse>(buildResult.Error);
         }
+
+        _logger.LogInformation("Export package to Canva: built PPTX ({Bytes} bytes) for job {JobId}, importing…",
+            buildResult.Value.Length, command.JobId);
 
         // 6. Title the design after the client (best-effort; falls back to a generic name).
         var designTitle = await ResolveClientNameAsync(job.ClientId, command.OrganizationId, cancellationToken);
@@ -143,14 +168,21 @@ public sealed class ExportPackageToCanvaCommandHandler
         {
             if (string.Equals(importResult.Error.Code, UnauthorizedImportErrorCode, StringComparison.OrdinalIgnoreCase))
             {
+                _logger.LogWarning(
+                    "Export package to Canva: import unauthorized for job {JobId} — revoking token, reconnect required.",
+                    command.JobId);
                 await _oauthService.RevokeAsync(CanvaOrgConnection.SharedUserId, command.OrganizationIntegrationId, cancellationToken);
                 return Result.Failure<ExportFormatToCanvaResponse>(CanvaExportErrors.ReconnectRequired);
             }
 
+            _logger.LogWarning("Export package to Canva: import failed for job {JobId}: {Code}.",
+                command.JobId, importResult.Error.Code);
             return Result.Failure<ExportFormatToCanvaResponse>(importResult.Error);
         }
 
         var canvaResult = importResult.Value;
+        _logger.LogInformation("Export package to Canva OK: job {JobId} → design {DesignId}.",
+            command.JobId, canvaResult.DesignId);
         return Result.Success(new ExportFormatToCanvaResponse(
             DesignId: canvaResult.DesignId,
             EditUrl: canvaResult.EditUrl,
