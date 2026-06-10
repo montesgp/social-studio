@@ -8,7 +8,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 /// B1a passthrough <see cref="IVisualDesigner"/>: a true no-op that signals the pipeline to skip
 /// the designer+guardrail stage entirely and fall through to the existing
 /// <c>LocalSvgContentRenderer</c> slot-raster path — preserving current rendering intact
-/// until B1b ships the real Opus designer.
+/// until B1b ships the real AI designer.
 ///
 /// <para>
 /// <see cref="IsActive"/> returns <c>false</c>. The processor checks this flag BEFORE calling
@@ -18,9 +18,9 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 /// </para>
 ///
 /// <para>
-/// B1b's Infrastructure DI registration (OpusVisualDesigner) REPLACES this via
+/// B1b's Infrastructure DI registration (AiVisualDesigner) REPLACES this via
 /// <c>services.AddScoped</c> after the Application layer registers this as a Try-fallback.
-/// OpusVisualDesigner sets <c>IsActive = true</c> so the full designer+guardrail chain runs.
+/// AiVisualDesigner sets <c>IsActive = true</c> so the full designer+guardrail chain runs.
 /// </para>
 /// </summary>
 internal sealed class NoOpVisualDesigner : IVisualDesigner

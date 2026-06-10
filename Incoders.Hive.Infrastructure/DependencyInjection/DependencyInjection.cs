@@ -269,7 +269,7 @@ public static class DependencyInjection
         // override Rendering:Engine to "Skia" to fall back to the slot-raster renderer entirely.
         //
         // B1b: registers the configured IContentRenderer (Chromium + pooled browser, or Skia) and the
-        // real OpusVisualDesigner (IVisualDesigner, IsActive=true) — REPLACING the Application-layer
+        // real AiVisualDesigner (IVisualDesigner, IsActive=true) — REPLACING the Application-layer
         // NoOpVisualDesigner and any default LocalSvgContentRenderer. This is what makes the
         // flyer/carousel designer pipeline genuinely ACTIVE in production.
         services.AddB1bRenderingAndDesigner(configuration);

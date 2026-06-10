@@ -79,8 +79,8 @@ public static class ContentGenerationServiceExtensions
         services.AddScoped<IVisualGuardrailValidator, VisualGuardrailValidator>();
 
         // No-op designer: B1a passthrough that keeps designed-raster formats on their CURRENT
-        // rendering behavior (SkiaSharp slot raster) until B1b ships the real Opus designer.
-        // Infrastructure SHOULD override this with OpusVisualDesigner in AddRenderingAndPackaging.
+        // rendering behavior (SkiaSharp slot raster) until B1b ships the real AI designer.
+        // Infrastructure SHOULD override this with AiVisualDesigner in AddRenderingAndPackaging.
         // TryAdd ensures Infrastructure's real registration wins.
         services.TryAddScoped<IVisualDesigner, NoOpVisualDesigner>();
 

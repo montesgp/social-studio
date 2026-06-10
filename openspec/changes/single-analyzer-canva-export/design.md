@@ -135,7 +135,7 @@ Fix the write site so the **success** persist path serializes this envelope inst
 
 **Rejected:**
 - *Dedicated `designer_markup` column + migration* — adds a migration and a second nullable jsonb column duplicating the role of an already-mapped, unused one. No benefit; more surface.
-- *On-demand re-design (`IVisualDesigner.ComposeAsync` again)* — expensive (another Opus call) and **non-deterministic** (different markup each time → geometry drift, broken Canva edit-URL reproducibility). Rejected by the proposal already.
+- *On-demand re-design (`IVisualDesigner.ComposeAsync` again)* — expensive (another AI designer call) and **non-deterministic** (different markup each time → geometry drift, broken Canva edit-URL reproducibility). Rejected by the proposal already.
 
 **Risk + mitigation:** column name (`composition_spec_json`) now slightly under-describes its content. Mitigated by `schemaVersion` in the envelope and a one-line entity doc-comment; a future rename is a cosmetic migration, not a data migration.
 
@@ -157,13 +157,13 @@ Fix the write site so the **success** persist path serializes this envelope inst
 ### D3 — Persist Playwright-measured geometry; PPTX adapter stays Chromium-free
 
 **Verified facts (real code):**
-- The B1b designer contract guarantees slot **identity** (`data-slot`, `OpusVisualDesigner.cs:167`) and a `background`/`content` layer split (`OpusVisualDesigner.cs:165`), but **not** geometry. Stub markup (`IVisualDesignerContractTests` `BuildStubMarkup`, renderer test `BuildSampleHtml`) carries `width/height/color/font-family` inline but **no `position`/`left`/`top`** — confirming geometry is not guaranteed.
+- The B1b designer contract guarantees slot **identity** (`data-slot`, `AiVisualDesigner.cs:167`) and a `background`/`content` layer split (`AiVisualDesigner.cs:165`), but **not** geometry. Stub markup (`IVisualDesignerContractTests` `BuildStubMarkup`, renderer test `BuildSampleHtml`) carries `width/height/color/font-family` inline but **no `position`/`left`/`top`** — confirming geometry is not guaranteed.
 - The success render ALREADY runs Chromium (`HtmlChromiumContentRenderer.cs:111-136`): it sets HTML content and screenshots. Adding one `page.$$eval('[data-slot]', …getBoundingClientRect…)` call during that existing page lifetime is cheap and side-effect-free.
 
 **Decision:** During the existing render pass, capture per-`data-slot` `getBoundingClientRect` (x, y, width, height) plus computed `fontFamily`, `fontSizePx`, `color`, `textAlign`, and persist that array in the `composition_spec_json` envelope (D1). The **PPTX adapter takes geometry + markup as plain inputs** and emits OpenXML text boxes at EMU-converted coordinates. The adapter never imports Playwright.
 
 **Rejected:**
-- *Prescribe `position:absolute` in the designer/template contract* — forces a B1b designer/renderer contract change (explicitly OUT of scope per the proposal), constrains Opus's layout freedom (flex/grid produce better visuals), and is fragile if a future model ignores the instruction.
+- *Prescribe `position:absolute` in the designer/template contract* — forces a B1b designer/renderer contract change (explicitly OUT of scope per the proposal), constrains the configured AI model's layout freedom (flex/grid produce better visuals), and is fragile if a future model ignores the instruction.
 - *Measure live via Playwright inside the PPTX adapter at download time* — makes the PPTX adapter Chromium-dependent, breaking the offline unit-test requirement and adding a second render on every download.
 
 **Forward-compat impact (B1b):** none — no change to designer or renderer markup contract; geometry capture is an additive read on the page we already render. **Offline testability:** preserved — the PPTX adapter is pure (markup + geometry → bytes).
@@ -208,7 +208,7 @@ Fix the write site so the **success** persist path serializes this envelope inst
 | Risk | Severity | Mitigation |
 |------|----------|------------|
 | `composition_spec_json` semantic drift (D1 reuse) | Low | `schemaVersion` envelope + doc-comment; cosmetic rename deferrable |
-| Geometry capture misses slots if Opus emits nested/transformed slots | Medium | Capture computed rect (post-layout) — handles flex/grid/transform; slots without rect fall back to a deterministic stacked layout, logged |
+| Geometry capture misses slots if the configured AI emits nested/transformed slots | Medium | Capture computed rect (post-layout) — handles flex/grid/transform; slots without rect fall back to a deterministic stacked layout, logged |
 | Canva Design Import job latency/timeout | Medium | Bounded poll budget + typed timeout error; UI shows retry affordance |
 | Single-use refresh race under multi-tab (D2) | Medium→Low | `xmin` concurrency + reread-on-conflict; integration-guarded test |
 | PR exceeds 400-line budget (~900-1180 lines) | Accepted | `size:exception` (user-approved); work-unit commits in seam order make the diff navigable |

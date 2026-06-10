@@ -20,27 +20,27 @@ namespace Incoders.Hive.Tests.Infrastructure.Rendering;
 /// <c>AddContentGeneration()</c>. They prove that in production:
 /// </para>
 /// <list type="bullet">
-///   <item><description><see cref="IVisualDesigner"/> resolves to the real <see cref="OpusVisualDesigner"/> with <c>IsActive == true</c> (NOT the no-op).</description></item>
+///   <item><description><see cref="IVisualDesigner"/> resolves to the real <see cref="AiVisualDesigner"/> with <c>IsActive == true</c> (NOT the no-op).</description></item>
 ///   <item><description><see cref="IContentRenderer"/> resolves to the engine named in the <c>Rendering</c> config section.</description></item>
 /// </list>
 /// <para>
 /// Before this fix, <c>AddB1bRenderingAndDesigner</c> was never called from <c>AddInfrastructure</c>,
 /// so the production graph resolved <c>NoOpVisualDesigner</c> (IsActive=false) and the unconditional
-/// <c>LocalSvgContentRenderer</c> — leaving the Opus designer INERT.
+/// <c>LocalSvgContentRenderer</c> — leaving the AI designer INERT.
 /// </para>
 /// </summary>
 public sealed class B1bProductionCompositionTests
 {
     [Fact]
-    public void ProductionComposition_DefaultConfig_DesignerIsActiveOpus()
+    public void ProductionComposition_DefaultConfig_DesignerIsActiveAi()
     {
         var sp = BuildProductionLikeGraph(engine: null); // no Engine key → default Chromium
 
         var designer = sp.GetRequiredService<IVisualDesigner>();
 
-        Assert.IsType<OpusVisualDesigner>(designer);
+        Assert.IsType<AiVisualDesigner>(designer);
         Assert.True(designer.IsActive,
-            "Production wiring MUST resolve the active OpusVisualDesigner — the feature was INERT when it resolved the no-op.");
+            "Production wiring MUST resolve the active AiVisualDesigner — the feature was INERT when it resolved the no-op.");
     }
 
     [Fact]
@@ -100,10 +100,10 @@ public sealed class B1bProductionCompositionTests
     {
         var services = new ServiceCollection();
 
-        // Provider gateway dependency of OpusVisualDesigner (real one needs Infrastructure plumbing).
+        // Provider gateway dependency of AiVisualDesigner (real one needs Infrastructure plumbing).
         services.AddScoped<IAiCompletionGateway, StubProductionAiGateway>();
 
-        // AI selector dependency of OpusVisualDesigner (resolves the org's provider/model).
+        // AI selector dependency of AiVisualDesigner (resolves the org's provider/model).
         services.AddScoped<IDefaultAiSelector, StubProductionAiSelector>();
 
         // Logging — required by HtmlChromiumContentRenderer (ILogger<HtmlChromiumContentRenderer>)
@@ -145,3 +145,4 @@ file sealed class StubProductionAiSelector : IDefaultAiSelector
     public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
         Task.FromResult(Result.Success(new DefaultAiSelection("claude", "claude-sonnet-4-6")));
 }
+

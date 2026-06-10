@@ -45,8 +45,8 @@ Review feedback #4 and #5 share one user expectation: an asset the platform gene
 
 The exploration's gate verdict is **Conditional PASS**, and the proposal relies on it: **no designer or renderer change is needed.**
 
-- Every text node is tagged `data-slot="{name}"` (`OpusVisualDesigner.cs:166`, system-prompt Rule 4), so the PPTX builder can enumerate text boxes and read their copy.
-- The background is isolated under `<div data-layer="background">` vs. `<div data-layer="content">` (`OpusVisualDesigner.cs:163`, Rule 3), so a text-less background image is extractable by re-rendering with the content layer hidden.
+- Every text node is tagged `data-slot="{name}"` (`AiVisualDesigner.cs:166`, system-prompt Rule 4), so the PPTX builder can enumerate text boxes and read their copy.
+- The background is isolated under `<div data-layer="background">` vs. `<div data-layer="content">` (`AiVisualDesigner.cs:163`, Rule 3), so a text-less background image is extractable by re-rendering with the content layer hidden.
 - `VisualGuardrailValidator` validates tags/palette/typography/overflow but does **not** strip `data-slot`/`data-layer`, so the markup that reaches the exporter is the markup that cleared guardrails.
 
 The "Conditional" qualifier is real: the contract guarantees slot **identity**, not slot **geometry**. Mapping HTML positions to PPTX text-box coordinates is the highest implementation risk and is captured as an open design question, not a designer change.
@@ -58,7 +58,7 @@ The export endpoint runs **on demand**, after generation, so it must retrieve th
 - The validated markup exists only in memory during render: `ContentGenerationJobProcessor.cs:316` sets `DesignerMarkup = guarded.Value.Markup` on the in-memory spec.
 - Every persistence path then drops it: `CompositionSpecJson: null` at `ContentGenerationJobProcessor.cs:722, 737, 763, 789`.
 
-Important nuance confirmed against the code: a nullable `composition_spec_json` jsonb column **already exists** on the format-result row (`ContentGenerationFormatResultData.cs:21`, mapped in `AppIdentityDbContext.cs:724`, persisted through `EfContentGenerationFormatResultRepository.cs:31`). So the persistence gap is a **write-time** gap, not a missing column. Whether B3 reuses that existing column or adds a dedicated `designer_markup` column — and therefore whether a migration is strictly required — is a design decision flagged below, not a foregone conclusion. Either way, persisting the validated markup is **in-scope and non-negotiable**: without it, export is impossible without an expensive, non-deterministic re-design (a second Opus call).
+Important nuance confirmed against the code: a nullable `composition_spec_json` jsonb column **already exists** on the format-result row (`ContentGenerationFormatResultData.cs:21`, mapped in `AppIdentityDbContext.cs:724`, persisted through `EfContentGenerationFormatResultRepository.cs:31`). So the persistence gap is a **write-time** gap, not a missing column. Whether B3 reuses that existing column or adds a dedicated `designer_markup` column — and therefore whether a migration is strictly required — is a design decision flagged below, not a foregone conclusion. Either way, persisting the validated markup is **in-scope and non-negotiable**: without it, export is impossible without an expensive, non-deterministic re-design (a second AI designer call).
 
 ## Approach — seams and hexagonal placement
 
@@ -88,7 +88,7 @@ The user has explicitly chosen a **single PR** over chained PRs, with full knowl
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | **400-line budget breach** (~900-1180 lines in one PR) | Reviewer fatigue, missed defects | `size:exception` accepted by the user; work-unit commits make the diff navigable seam by seam; tests land with each unit. |
-| **PPTX coordinate fragility** | Text boxes misplaced if Opus emits flex/grid instead of absolute positions | Open design question (below): prescribe `position:absolute` on slots vs. measure via Playwright `getBoundingClientRect`. Highest implementation risk. |
+| **PPTX coordinate fragility** | Text boxes misplaced if the configured AI emits flex/grid instead of absolute positions | Open design question (below): prescribe `position:absolute` on slots vs. measure via Playwright `getBoundingClientRect`. Highest implementation risk. |
 | **Canva refresh-token race** | Single-use rotating refresh token fails under concurrent (multi-tab) use | Open design question (below): serialize refresh per `(userId, integrationId)`. Edge case for solo use, real for multi-tab. |
 | **Background re-render cost** | Extra Chromium pass per export to extract the background-only image | Re-render with `[data-layer="content"]` hidden, reusing `ChromiumBrowserPool`; export is on-demand and infrequent, so cost is acceptable. |
 | **Markup-persistence migration** | Schema/migration change in a strict-gated repo | A nullable `composition_spec_json` column already exists; design phase decides reuse vs. dedicated column, minimizing or avoiding migration surface. |

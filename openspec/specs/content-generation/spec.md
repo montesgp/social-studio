@@ -358,16 +358,19 @@ not `.txt`.
 
 The repository MUST contain both `docs/architecture/diagrams/single-analyzer-flow.excalidraw`
 and `docs/architecture/diagrams/single-analyzer-flow.md`. The `.excalidraw` file MUST be
-valid Type 2 Excalidraw JSON following the `content-plan-flow` conventions (color palette,
-rectangle+text+arrow schema, Virgil font). The `.md` companion MUST include a Mermaid
-flowchart and legend. Together they MUST accurately depict the current single-analyzer
-happy path through packaging and MUST include a DOWNLOAD vs EXPORT-TO-CANVA decision
-node with the Canva branch explicitly marked as a Phase B placeholder.
+valid Type 2 Excalidraw JSON using a simple rectangle+text+arrow schema. The `.md`
+companion MUST include a Mermaid sequence/flow diagram and a short responsibility legend.
+Together they MUST accurately depict the current single-analyzer happy path from URL
+analysis through generation and delivery. The diagram MUST show that AI provider/model
+selection is organization-integration-driven, that data extraction is owned by the data
+provider adapter, that Incoders Social owns persistence/guardrails/rendering, and that
+Download and Send to Canva reuse persisted assets/composition specs instead of re-running
+the visual designer.
 
 *No runtime GIVEN/WHEN/THEN scenario — acceptance is verified by diagram review before merge.*
 
-**Acceptance criterion:** Both files exist, follow `content-plan-flow` conventions, show
-the complete happy path, and include a correctly labelled Phase B Canva decision node.
+**Acceptance criterion:** Both files exist, show the complete happy path, and make the
+responsibility split understandable without knowing the implementation classes.
 
 ---
 

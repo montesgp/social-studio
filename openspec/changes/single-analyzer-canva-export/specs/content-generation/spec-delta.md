@@ -113,7 +113,7 @@ produce structurally identical presentations (same slide count, same text-box co
 presence).
 
 This requirement enables offline testing and ensures that an export request never triggers a
-non-deterministic Opus composition.
+non-deterministic AI composition.
 
 #### Scenario: Repeated export of the same format produces structurally identical output (PPTX-03-a)
 
@@ -180,3 +180,4 @@ The spec scenario PPTX-02-d says the system returns a "clear, user-facing error"
 persisted. The implementation returns **HTTP 409 Conflict** with error code `content-gen.not_exportable`.
 HTTP 422 is not in the project's error-type infrastructure — `ErrorType.Conflict` maps to 409 via
 `ResultExtensions.StatusCodeFor`. The observable behavior matches the intent of the scenario.
+

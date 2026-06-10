@@ -218,7 +218,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// Production bug: OpusVisualDesigner.ComposeAsync ran from the render loop with NO ambient
+    /// Production bug: AiVisualDesigner.ComposeAsync ran from the render loop with NO ambient
     /// ProviderCallContext, so the instrumentation decorator threw "ProviderCallContext.Current is
     /// null" and EVERY flyer/carousel failed. The processor MUST open a Begin() scope around the
     /// designer call (mirroring how the content generators scope their own provider calls).

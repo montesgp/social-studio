@@ -13,32 +13,32 @@ namespace Incoders.Hive.Tests.Infrastructure.Rendering;
 /// <summary>
 /// B1b TDD tests for DI wiring and engine selection (Task 9.1).
 /// Verifies:
-///   - OpusVisualDesigner is registered as IVisualDesigner (replaces no-op)
+///   - AiVisualDesigner is registered as IVisualDesigner (replaces no-op)
 ///   - Engine selection: Skia config → LocalSvgContentRenderer; Chromium config → HtmlChromiumContentRenderer
-///   - IsActive = true for OpusVisualDesigner
+///   - IsActive = true for AiVisualDesigner
 /// Design: Decision 11 (config-selectable engine), 13 (pipeline wiring).
 /// </summary>
 public sealed class B1bDiWiringTests
 {
     // -----------------------------------------------------------------------
-    // Task 9.1 RED: OpusVisualDesigner registered as IVisualDesigner
+    // Task 9.1 RED: AiVisualDesigner registered as IVisualDesigner
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void DI_OpusVisualDesigner_RegisteredAs_IVisualDesigner()
+    public void DI_AiVisualDesigner_RegisteredAs_IVisualDesigner()
     {
         var sp = BuildServiceProvider(engine: "chromium");
         var designer = sp.GetRequiredService<IVisualDesigner>();
-        Assert.IsType<OpusVisualDesigner>(designer);
+        Assert.IsType<AiVisualDesigner>(designer);
     }
 
     [Fact]
-    public void DI_OpusVisualDesigner_IsActive_IsTrue()
+    public void DI_AiVisualDesigner_IsActive_IsTrue()
     {
         var sp = BuildServiceProvider(engine: "chromium");
         var designer = sp.GetRequiredService<IVisualDesigner>();
         Assert.True(designer.IsActive,
-            "OpusVisualDesigner.IsActive must be true — it is the real, active designer.");
+            "AiVisualDesigner.IsActive must be true — it is the real, active designer.");
     }
 
     // -----------------------------------------------------------------------
@@ -104,10 +104,10 @@ public sealed class B1bDiWiringTests
     {
         var services = new ServiceCollection();
 
-        // Stub AI gateway — OpusVisualDesigner takes IAiCompletionGateway
+        // Stub AI gateway — AiVisualDesigner takes IAiCompletionGateway
         services.AddScoped<IAiCompletionGateway, StubAiGatewayForDi>();
 
-        // Stub AI selector — OpusVisualDesigner resolves the org's provider/model through it.
+        // Stub AI selector — AiVisualDesigner resolves the org's provider/model through it.
         services.AddScoped<IDefaultAiSelector, StubAiSelectorForDi>();
 
         // Logging — required by HtmlChromiumContentRenderer (ILogger<HtmlChromiumContentRenderer>)

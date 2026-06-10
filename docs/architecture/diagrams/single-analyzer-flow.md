@@ -1,88 +1,72 @@
-# Single Analyzer — happy path (Fase A)
+# Single Analyzer — flujo de responsabilidades
 
-Cómo se pasa de un URL de contenido a un `package.zip` descargable, con la rama de exportación a Canva marcada como placeholder de Fase B.
-Diseño asociado: [`design.md`](../../../openspec/changes/single-analyzer-fase-a/design.md).
+Mapa simple para entender **quién hace qué** desde que un usuario analiza un contenido hasta que descarga el paquete o lo envía a Canva.
+La fuente editable es [`single-analyzer-flow.excalidraw`](./single-analyzer-flow.excalidraw).
 
-> Fuente editable: [`single-analyzer-flow.excalidraw`](./single-analyzer-flow.excalidraw) (abrir en https://excalidraw.com).
-> El Mermaid de abajo es la versión que renderiza directo en GitHub y es la fuente versionada de referencia.
+La idea central: **Opus no es una dependencia del flujo**. El agente/modelo usado para análisis, generación y diseño visual se resuelve desde la configuración de la organización en **Settings → Integrations**.
 
 ```mermaid
-flowchart TD
-    INPUT["Submit URL + clientId"]
+sequenceDiagram
+    autonumber
+    actor User as Usuario
+    participant Hive as Incoders Social
+    participant Data as Data Provider (Apify/Data365)
+    participant AI as AI Provider (modelo configurado)
+    participant Store as DB / Storage
+    participant Canva as Canva
 
-    subgraph analysis["SingleContentAnalysis — pipeline de estados"]
-        direction TB
-        ANALYZE["analyzeSingleContent (202)"]
-        POLL["Poll: Requested → ResolvingContent\n→ ContentResolved → Analyzing → Analyzed"]
-        ANALYZE --> POLL
+    User->>Hive: Analyze Content (URL + cliente opcional)
+    Hive->>Hive: Crea SingleContentAnalysis<br/>resuelve provider/model desde Settings → Integrations
+    Hive->>Data: URL + plataforma + capability/actor
+    Data-->>Hive: Snapshot del contenido<br/>métricas, transcript, media, raw payload
+    Hive->>Store: Persiste snapshot normalizado
+    Hive->>AI: Snapshot + prompt single-analyzer.analysis.v1
+    AI-->>Hive: Analysis JSON<br/>hooks, audiencia, patrones, ideas base
+    Hive->>Store: Persiste análisis reutilizable
+
+    User->>Hive: Generate (cliente + formatos)
+    Hive->>Store: Lee analysis + client.data<br/>brand manual, strategy, calendar, objectives
+    Hive->>AI: Por formato: analysis + client.data + prompt del formato
+    AI-->>Hive: Payload del formato<br/>idea/copy/publication data adaptada al cliente
+
+    alt flyer / carousel
+        Hive->>AI: Visual spec + brand + background selection<br/>prompt visual-designer/v1
+        AI-->>Hive: HTML/CSS visual
+        Hive->>Hive: Guardrails + hard-enforce manual background si existe
+        Hive->>Store: Persiste asset renderizado + composition_spec
+    else script / texto
+        Hive->>Store: Persiste Markdown/text asset
     end
 
-    subgraph generation["ContentGenerationJob"]
-        direction TB
-        REQPKG["requestPackage (202)"]
-        JOBPOLL["ContentGenerationJob — poll"]
-        REQPKG --> JOBPOLL
+    User->>Hive: Download package o Send to Canva
+    alt Download
+        Hive->>Store: Lee assets + composition_spec
+        Hive-->>User: package.zip<br/>manifest + PPTX editable + Markdown
+    else Send to Canva
+        Hive->>Store: Lee la misma composition_spec
+        Hive->>Canva: PPTX bytes + token de integración Canva
+        Canva-->>Hive: designId + editUrl
+        Hive-->>User: Abre editUrl de Canva
     end
-
-    subgraph orchestrator["ContentPackageOrchestrator — per-format generation"]
-        direction TB
-        BRAND["BrandSnapshot load"]
-        GEN["per-format generate\n(AI → composer)"]
-        VISUAL["VisualCompositionService"]
-        RENDER["IContentRenderer\nPNG | .md | .txt"]
-        BRAND --> GEN --> VISUAL --> RENDER
-    end
-
-    STORAGE["assets stored per client\n(folder = client display name, sanitized)"]
-    ZIP["GeneratedPackageBuilder — frozen ZIP"]
-
-    INPUT --> ANALYZE
-    POLL -->|"Analyzed"| REQPKG
-    JOBPOLL -->|"Complete"| BRAND
-    RENDER --> STORAGE --> ZIP
-
-    ZIP --> DEC{"Download vs\nExport to Canva?"}
-
-    DEC -->|"Download"| PKG["Download package.zip"]
-    DEC -.->|"Fase B"| CANVA["Export to Canva\n(Fase B — placeholder)"]
-
-    classDef inputNode fill:#a5d8ff,stroke:#4a9eed,color:#0b2545;
-    classDef pipelineNode fill:#d0bfff,stroke:#8b5cf6,color:#2e1065;
-    classDef decisionNode fill:#fff3bf,stroke:#f59e0b,color:#7c2d12;
-    classDef terminalOk fill:#b2f2bb,stroke:#22c55e,color:#14532d;
-    classDef phaseBNode fill:#fff3bf,stroke:#f59e0b,color:#7c2d12,stroke-dasharray:6 4,opacity:0.7;
-
-    class INPUT inputNode;
-    class ANALYZE,POLL,REQPKG,JOBPOLL,BRAND,GEN,VISUAL,RENDER,STORAGE,ZIP pipelineNode;
-    class DEC decisionNode;
-    class PKG terminalOk;
-    class CANVA phaseBNode;
 ```
 
-> **Nota:** Ambas ramas (`Download` y `Export to Canva`) deben producir formatos compatibles con Canva. La integración directa con Canva está fuera del alcance de Fase A.
+## Lectura rápida
 
-## Leyenda
+| Momento | Responsable | Datos que viajan | Resultado |
+|---|---|---|---|
+| Analyze Content | Incoders Social + Data Provider | URL, plataforma, actor/capability | Snapshot normalizado del contenido |
+| AI Analysis | Incoders Social + AI configurada | Snapshot + prompt `single-analyzer.analysis.v1` | Hooks, patrones, audiencia, ideas base |
+| Generate | Incoders Social + AI configurada | Analysis + `client.data` + formatos | Payload adaptado por formato |
+| Visual Design | Incoders Social + AI configurada | Spec visual + brand manual + background selection | HTML/CSS validable para flyer/carousel |
+| Render / Package | Incoders Social | Markup validado + assets persistidos | PPTX/Markdown/manifest |
+| Send to Canva | Incoders Social + Canva | PPTX bytes + token Canva de la organización | Canva `editUrl` |
 
-- **Entrada (azul)** — el nodo `Submit URL + clientId` es el punto de entrada del pipeline. `clientId` es opcional; sin él, no se puede generar el paquete de contenido.
-- **Pipeline (morado)** — etapas de procesamiento:
-  - `analyzeSingleContent (202)` — encola el job de análisis y devuelve inmediatamente.
-  - Poll de estados `Requested → ResolvingContent → ContentResolved → Analyzing → Analyzed` — el frontend poll hasta `Analyzed`.
-  - `requestPackage (202)` — encola el `ContentGenerationJob` y devuelve inmediatamente.
-  - `ContentPackageOrchestrator` — orquesta la generación por formato: carga el `BrandSnapshot`, invoca el AI composer por formato, pasa el resultado a `VisualCompositionService`, renderiza via `IContentRenderer`.
-  - `IContentRenderer` — branch por `OutputKind`: `Text` → `.txt`, `Markdown` → `.md` (`reel-script.md`, `text/markdown; charset=utf-8`), default → raster PNG.
-  - `assets stored per client` — assets almacenados con carpeta = nombre display del cliente (sanitizado, no slugificado).
-  - `GeneratedPackageBuilder` — construye el ZIP inmutable (`frozen`).
-- **Decisión (ámbar)** — `Download vs Export to Canva?` — el nodo de decisión terminal.
-- **Terminal verde** — `Download package.zip` — ruta disponible en Fase A.
-- **Placeholder Fase B (ámbar punteado)** — `Export to Canva` — fuera del alcance de Fase A; reservado para integración directa con la API de Canva.
+## Respuesta a la duda de proceso
 
-## Notas de implementación
+No es “todo junto” en una sola llamada. El flujo está separado así:
 
-| Aspecto | Decisión |
-|---|---|
-| `reel-script` output | `OutputKind = Markdown` → archivo `reel-script.md`, MIME `text/markdown; charset=utf-8`, timestamps en negrita `**0:00**`, emojis preservados verbatim |
-| Folder de cliente (ZIP) | `NormalizeFolderName(client.Name)` — sanitize-only: elimina 9 chars ilegales + C0/0x7F, trim leading/trailing dot y espacio, guard de device names (NUL→NUL\_). Sin slugificación, sin ToLowerInvariant |
-| Folder de cliente (Assemble) | `AssembleGeneratedPackageQueryHandler` resuelve el nombre via `ISocialClientRepository.GetByIdAsync` — mismo `NormalizeFolderName`, fallback a GUID si el cliente no existe |
-| `IContentRenderer` branch order | `Text` → `.txt` first, luego `Markdown` → `.md`, default → raster PNG |
-| Canva | Ambas ramas producen formatos Canva-compatibles; la integración directa es Fase B |
-| Spec IDs cubiertos | RS-01, RS-02, RS-03 (Markdown reel-script), PKG-01, PKG-02 (display-name folders), DIAG-01 (este diagrama) |
+1. **Análisis**: primero obtenemos contenido desde el data provider y luego pedimos a la AI un análisis general del contenido.
+2. **Generación**: cuando el usuario genera, tomamos ese análisis persistido + datos del cliente seleccionado y pedimos a la AI contenido adaptado por formato.
+3. **Diseño visual**: para flyer/carousel hay una llamada adicional al diseñador visual AI para producir HTML/CSS, que después Incoders valida, renderiza y convierte en entregables editables.
+4. **Entrega**: descarga y Canva reutilizan la misma composición persistida; **no se re-diseña con AI al exportar**.
+

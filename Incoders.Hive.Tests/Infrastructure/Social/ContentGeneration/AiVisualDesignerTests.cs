@@ -9,13 +9,13 @@ using Incoders.Hive.Infrastructure.Social.ContentGeneration;
 namespace Incoders.Hive.Tests.Infrastructure.Social.ContentGeneration;
 
 /// <summary>
-/// B1b TDD tests for <see cref="OpusVisualDesigner"/>.
-/// Tasks: 8.1 — mock AI gateway; no real Opus call.
-/// Design: Decision 5 (Opus-as-Designer), 9 (PromptVersionKey deterministic const).
+/// B1b TDD tests for <see cref="AiVisualDesigner"/>.
+/// Tasks: 8.1 — mock AI gateway; no real AI designer call.
+/// Design: Decision 5 (AI-as-Designer), 9 (PromptVersionKey deterministic const).
 /// NOTE: Tier-2 multimodal (BackgroundSelection.References image input) is a follow-up.
 ///       This test suite marks the IMAGE-INPUT path as "follow-up flagged" per the apply instructions.
 /// </summary>
-public sealed class OpusVisualDesignerTests
+public sealed class AiVisualDesignerTests
 {
     private static readonly Guid OrgId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
@@ -24,11 +24,11 @@ public sealed class OpusVisualDesignerTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void OpusVisualDesigner_IsActive_ReturnsTrue()
+    public void AiVisualDesigner_IsActive_ReturnsTrue()
     {
         var designer = BuildDesigner(new StubAiGateway(BuildSuccessMarkup()));
         Assert.True(designer.IsActive,
-            "OpusVisualDesigner.IsActive must return true — it is the real designer that replaces NoOpVisualDesigner.");
+            "AiVisualDesigner.IsActive must return true — it is the real designer that replaces NoOpVisualDesigner.");
     }
 
     // -----------------------------------------------------------------------
@@ -146,8 +146,8 @@ public sealed class OpusVisualDesignerTests
     // Helpers
     // -----------------------------------------------------------------------
 
-    private static OpusVisualDesigner BuildDesigner(IAiCompletionGateway gateway) =>
-        new OpusVisualDesigner(gateway, new StubAiSelector());
+    private static AiVisualDesigner BuildDesigner(IAiCompletionGateway gateway) =>
+        new AiVisualDesigner(gateway, new StubAiSelector());
 
     private static VisualCompositionSpec BuildSpec() =>
         new VisualCompositionSpec(
@@ -195,7 +195,7 @@ file sealed class StubAiGateway(string markupToReturn) : IAiCompletionGateway
         where TResponse : notnull
     {
         // Return the markup string wrapped in whatever TResponse shape is expected.
-        // For OpusVisualDesigner, TResponse = OpusHtmlResponse (a simple wrapper record).
+        // For AiVisualDesigner, TResponse = AiVisualDesignResponse (a simple wrapper record).
         // We serialize markupToReturn into a JSON string the gateway would return.
         var json = JsonSerializer.Serialize(new { markup = markupToReturn });
         TResponse payload;

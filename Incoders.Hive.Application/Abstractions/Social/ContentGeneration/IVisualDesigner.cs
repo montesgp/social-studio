@@ -19,7 +19,7 @@ namespace Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 /// <see cref="ComposeAsync"/>. When <c>false</c>, the designer+guardrail stage is skipped
 /// entirely and processing falls through to the legacy renderer (B1a passthrough behavior).
 /// This lets B1a ship a registered no-op without disrupting current rendering; B1b's real
-/// Opus designer sets <c>IsActive = true</c> and the stage runs normally.
+/// AI designer sets <c>IsActive = true</c> and the stage runs normally.
 /// </summary>
 public interface IVisualDesigner
 {

@@ -294,7 +294,7 @@ public sealed class ContentGenerationJobProcessor
                     // (IsActive=false, e.g. B1a's NoOpVisualDesigner), this entire block is skipped
                     // and processing falls through to the legacy renderer below — preserving
                     // pre-B1a rendering behavior exactly. Only a real, active designer (B1b's
-                    // OpusVisualDesigner, IsActive=true) triggers the designer+guardrail chain.
+                    // AiVisualDesigner, IsActive=true) triggers the designer+guardrail chain.
                     if (_designer is not null
                         && _designer.IsActive
                         && _guardrails is not null

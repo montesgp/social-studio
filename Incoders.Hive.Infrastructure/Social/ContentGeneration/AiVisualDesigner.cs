@@ -12,12 +12,7 @@ namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
 /// Real <see cref="IVisualDesigner"/> implementation that calls the ORGANIZATION's configured
 /// default AI (provider + model) via <see cref="IAiCompletionGateway"/> to produce brand-bound
 /// HTML/CSS markup. The model is NOT hardcoded — it follows Settings → Integrations → default AI
-/// (the request passes null provider/model so the gateway resolves the org default).
-///
-/// <para>
-/// NOTE: the type name is historical ("Opus"); it is model-agnostic now. Rename to
-/// <c>AiVisualDesigner</c> is a safe follow-up.
-/// </para>
+/// by resolving <see cref="IDefaultAiSelector"/> for each organization/job.
 ///
 /// <para>
 /// <see cref="IsActive"/> returns <c>true</c> — this is the live designer that replaces
@@ -25,7 +20,7 @@ namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
 /// </para>
 ///
 /// <para>
-/// Design: Decision 5 (Opus-as-Designer), Decision 9 (PromptVersionKey deterministic const
+/// Design: Decision 5 (AI-as-Designer), Decision 9 (PromptVersionKey deterministic const
 /// "visual-designer/v1"), Decision 10 (forward-compat layered markup: data-layer bg/content,
 /// data-slot, data-max-lines).
 /// </para>
@@ -36,7 +31,7 @@ namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
 /// See FOLLOW-UP note in tests and risks section of apply-progress.
 /// </para>
 /// </summary>
-public sealed class OpusVisualDesigner : IVisualDesigner
+public sealed class AiVisualDesigner : IVisualDesigner
 {
     private const string CapabilityKey = "content-generation";
     private const string PromptVersion = "visual-designer/v1";
@@ -46,7 +41,7 @@ public sealed class OpusVisualDesigner : IVisualDesigner
     private readonly IAiCompletionGateway _gateway;
     private readonly IDefaultAiSelector _aiSelector;
 
-    public OpusVisualDesigner(IAiCompletionGateway gateway, IDefaultAiSelector aiSelector)
+    public AiVisualDesigner(IAiCompletionGateway gateway, IDefaultAiSelector aiSelector)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(aiSelector);
@@ -55,7 +50,7 @@ public sealed class OpusVisualDesigner : IVisualDesigner
     }
 
     /// <inheritdoc />
-    /// <value>Always <c>true</c> — this is the active, live Opus designer.</value>
+    /// <value>Always <c>true</c> — this is the active, live AI designer.</value>
     public bool IsActive => true;
 
     /// <inheritdoc />
@@ -88,7 +83,7 @@ public sealed class OpusVisualDesigner : IVisualDesigner
             PreferredProviderKey: selection.Value.ProviderKey,
             PreferredModel: selection.Value.Model);
 
-        var gatewayResult = await _gateway.CompleteJsonAsync<OpusHtmlResponse>(request, cancellationToken);
+        var gatewayResult = await _gateway.CompleteJsonAsync<AiVisualDesignResponse>(request, cancellationToken);
 
         if (gatewayResult.IsFailure)
         {
@@ -99,7 +94,7 @@ public sealed class OpusVisualDesigner : IVisualDesigner
         if (string.IsNullOrWhiteSpace(markup))
         {
             return Result.Failure<VisualDesignOutput>(
-                Error.Failure("visual-designer.empty-markup", "Opus returned empty markup."));
+                Error.Failure("visual-designer.empty-markup", "AI designer returned empty markup."));
         }
 
         // IsValid = false — guardrails have not run yet (per VD-01 contract).
@@ -247,8 +242,8 @@ public sealed class OpusVisualDesigner : IVisualDesigner
 }
 
 /// <summary>
-/// Response wrapper for the Opus HTML generation call.
+/// Response wrapper for the configured AI visual-design call.
 /// The AI gateway deserializes the JSON payload into this shape.
 /// </summary>
-public sealed record OpusHtmlResponse(
+public sealed record AiVisualDesignResponse(
     [property: JsonPropertyName("markup")] string Markup);
