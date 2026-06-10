@@ -144,6 +144,7 @@ See `docs/architecture/diagrams/profile-analysis-flow.md` for the full diagram.
 | AI flow | `profile-analyzer.analysis.v1` — distinct from `single-analyzer.analysis.v1` |
 | Impute | Reuses existing BrandManual/ContentPlan/GeneralStrategy write commands — idempotent |
 | Frontend | Lazy-loaded `ProfileAnalyzerModule` — recharts isolated to this module |
+| PDF export | Profile dashboard export captures the visible dashboard sections as screen-faithful images before composing the PDF, avoiding browser print reflow that can reorder charts or split cards |
 
 ### Operator Setup
 

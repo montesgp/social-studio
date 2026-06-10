@@ -33,6 +33,7 @@ const WEEKDAY_LABELS: Record<string, string> = {
 
 interface AvgViewsByWeekdayChartProps {
   stats: ProfileStatsDto | null;
+  captureMode?: boolean;
 }
 
 interface ChartEntry {
@@ -72,7 +73,10 @@ function buildChartData(stats: ProfileStatsDto | null): ChartEntry[] {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function AvgViewsByWeekdayChart({ stats }: AvgViewsByWeekdayChartProps) {
+export function AvgViewsByWeekdayChart({
+  stats,
+  captureMode = false,
+}: AvgViewsByWeekdayChartProps) {
   const data = buildChartData(stats);
 
   return (
@@ -118,6 +122,7 @@ export function AvgViewsByWeekdayChart({ stats }: AvgViewsByWeekdayChartProps) {
               <Bar
                 dataKey="views"
                 fill="hsl(var(--primary))"
+                isAnimationActive={!captureMode}
                 radius={[3, 3, 0, 0]}
                 maxBarSize={40}
               />

@@ -27,11 +27,17 @@ interface ProfileDashboardProps {
   token: string | undefined;
   /** Called when user requests a new analysis from this view. */
   onReset: () => void;
+  isPdfCaptureMode?: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboardProps) {
+export function ProfileDashboard({
+  analysisId,
+  token,
+  onReset,
+  isPdfCaptureMode = false,
+}: ProfileDashboardProps) {
   const [dashboard, setDashboard] = useState<ProfileDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -100,37 +106,54 @@ export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboar
 
   return (
     <div className="space-y-6" data-profile-dashboard-ready="true">
-      {/* Profile header */}
-      <div className="flex items-start gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">
-            Profile analysis
-          </h2>
-          <p className="text-xs text-muted-foreground/70 font-mono mt-0.5">
-            {dashboard.profileUrlOrHandle}
-          </p>
+      <div className="space-y-6" data-pdf-section="profile-summary">
+        {/* Profile header */}
+        <div className="flex items-start gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">
+              Profile analysis
+            </h2>
+            <p className="text-xs text-muted-foreground/70 font-mono mt-0.5">
+              {dashboard.profileUrlOrHandle}
+            </p>
+          </div>
         </div>
-      </div>
 
-      {/* Overview metrics cards */}
-      <OverviewCards dashboard={dashboard} />
+        {/* Overview metrics cards */}
+        <OverviewCards dashboard={dashboard} />
+      </div>
 
       {/* Charts section — only when stats are available */}
       {hasChartData && (
-        <Card className="border-border/40 bg-background/60">
+        <Card
+          className="border-border/40 bg-background/60"
+          data-pdf-section="profile-charts"
+        >
           <CardContent className="pt-4 pb-4 space-y-5">
             <div className="grid gap-5 lg:grid-cols-2">
-              <AvgViewsByWeekdayChart stats={dashboard.stats} />
-              <ContentTypeMixChart stats={dashboard.stats} />
+              <AvgViewsByWeekdayChart
+                stats={dashboard.stats}
+                captureMode={isPdfCaptureMode}
+              />
+              <ContentTypeMixChart
+                stats={dashboard.stats}
+                captureMode={isPdfCaptureMode}
+              />
             </div>
-            <EngagementTrendChart stats={dashboard.stats} />
+            <EngagementTrendChart
+              stats={dashboard.stats}
+              captureMode={isPdfCaptureMode}
+            />
           </CardContent>
         </Card>
       )}
 
       {/* AI narrative */}
       {hasAiAnalysis && (
-        <Card className="border-border/40 bg-background/60">
+        <Card
+          className="border-border/40 bg-background/60"
+          data-pdf-section="profile-ai-analysis"
+        >
           <CardContent className="pt-4 pb-4">
             <AiNarrativePanel aiAnalysis={dashboard.aiAnalysis} />
           </CardContent>
@@ -139,7 +162,10 @@ export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboar
 
       {/* Comparison vs objectives — only for client-linked analyses */}
       {hasComparison && (
-        <Card className="border-border/40 bg-background/60">
+        <Card
+          className="border-border/40 bg-background/60"
+          data-pdf-section="profile-comparison"
+        >
           <CardContent className="pt-4 pb-4">
             <ComparisonVsObjectivesPanel
               clientId={dashboard.clientId}
@@ -170,7 +196,10 @@ export function ProfileDashboard({ analysisId, token, onReset }: ProfileDashboar
 
       {/* Graceful empty state: no data at all (PA-18) */}
       {!hasChartData && !hasAiAnalysis && (
-        <div className="flex items-center justify-center h-20 rounded-md border border-border/30 border-dashed">
+        <div
+          className="flex items-center justify-center h-20 rounded-md border border-border/30 border-dashed"
+          data-pdf-section="profile-empty-state"
+        >
           <p className="text-xs text-muted-foreground/60">
             No data available for this analysis
           </p>

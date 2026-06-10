@@ -4,7 +4,7 @@
 // Segments: Image / Video / Carousel percentages from stats.contentTypeMix.
 // Graceful empty state when contentTypeMix is absent or empty (PA-18).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   PieChart,
   Pie,
@@ -37,6 +37,7 @@ const CONTENT_TYPE_LABELS: Record<string, string> = {
 
 interface ContentTypeMixChartProps {
   stats: ProfileStatsDto | null;
+  captureMode?: boolean;
 }
 
 interface PieEntry {
@@ -92,9 +93,18 @@ function renderLabel({
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ContentTypeMixChart({ stats }: ContentTypeMixChartProps) {
+export function ContentTypeMixChart({
+  stats,
+  captureMode = false,
+}: ContentTypeMixChartProps) {
   const data = buildPieData(stats);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (captureMode) {
+      setActiveIndex(null);
+    }
+  }, [captureMode]);
 
   return (
     <div className="space-y-2">
@@ -106,9 +116,9 @@ export function ContentTypeMixChart({ stats }: ContentTypeMixChartProps) {
       ) : (
         <div
           className="relative h-48"
-          onMouseLeave={() => setActiveIndex(null)}
+          onMouseLeave={captureMode ? undefined : () => setActiveIndex(null)}
         >
-          {activeIndex !== null && data[activeIndex] && (
+          {!captureMode && activeIndex !== null && data[activeIndex] && (
             <div className="pointer-events-none absolute right-0 top-0 z-50 min-w-[120px] rounded-md border border-border/60 bg-popover/95 px-3 py-2 shadow-md backdrop-blur-sm">
               <div className="flex items-center gap-2">
                 <span
@@ -125,7 +135,7 @@ export function ContentTypeMixChart({ stats }: ContentTypeMixChartProps) {
             </div>
           )}
           <ResponsiveContainer width="100%" height="100%">
-            <PieChart onMouseLeave={() => setActiveIndex(null)}>
+            <PieChart onMouseLeave={captureMode ? undefined : () => setActiveIndex(null)}>
               <Pie
                 data={data}
                 cx="50%"
@@ -133,9 +143,12 @@ export function ContentTypeMixChart({ stats }: ContentTypeMixChartProps) {
                 innerRadius={42}
                 outerRadius={72}
                 dataKey="value"
+                isAnimationActive={!captureMode}
                 labelLine={false}
                 label={renderLabel}
-                onMouseEnter={(_, i) => setActiveIndex(i)}
+                onMouseEnter={
+                  captureMode ? undefined : (_, i) => setActiveIndex(i)
+                }
               >
                 {data.map((_, i) => (
                   <Cell

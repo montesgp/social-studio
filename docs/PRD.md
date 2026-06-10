@@ -94,6 +94,7 @@ As a community manager, I want to analyse an Instagram account (my client's own 
 - CM can initiate a profile analysis by selecting a client + own Instagram account, or by pasting a profile URL.
 - Analysis runs in the background; CM polls for status via a progress indicator.
 - On completion, a dashboard shows: engagement metrics, weekday performance charts, content type mix, AI narrative (summary, strengths, weaknesses, opportunities, recommendations).
+- The CM can export the visible profile dashboard as a PDF that preserves the on-screen layout, chart positioning, and complete sections deterministically.
 - When a client is linked, a comparison panel shows detected account state vs. stated objectives.
 - CM can select individual detected fields and impute them into the client's Brand Manual, Content Plan, or General Strategy (per-field, opt-in, confirmed before applying).
 - Diagnostics (actor ids, fallback indicator, posts counts, AI provider) are persisted per run.

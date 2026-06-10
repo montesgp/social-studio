@@ -5,6 +5,7 @@
 // This file is the React.lazy target from page.tsx (see AnalyzerPageWithModeSwitch).
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { flushSync } from "react-dom";
 import { History, Trash2, RefreshCw, BarChart3 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +15,7 @@ import { AnalysisOverlay } from "@/components/social/analysis-overlay";
 import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
 import { ProfileDashboard } from "@/components/social/profile-analyzer/dashboard/ProfileDashboard";
 import { useAccessToken } from "@/components/auth/use-access-token";
-import { exportElementToPdf } from "@/lib/export/pdf-export";
+import { exportScreenElementToPdf } from "@/lib/export/screen-pdf-export";
 import { openWhatsAppSupport } from "@/lib/support/support";
 import {
   analyzeProfile,
@@ -130,6 +131,7 @@ export function ProfileAnalyzerModule() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isPdfCaptureMode, setIsPdfCaptureMode] = useState(false);
 
   // In-progress poll state (active while flow.stage === "polling")
   const [pollStatus, setPollStatus] = useState<ProfileAnalysisStatus | null>(null);
@@ -348,7 +350,10 @@ export function ProfileAnalyzerModule() {
           : flow.stage === "viewing"
           ? flow.analysisId
           : "profile";
-      await exportElementToPdf(element, {
+      flushSync(() => {
+        setIsPdfCaptureMode(true);
+      });
+      await exportScreenElementToPdf(element, {
         filename: `profile-analysis-${analysisId}.pdf`,
       });
     } catch (err: unknown) {
@@ -358,6 +363,9 @@ export function ProfileAnalyzerModule() {
           : "Could not export the profile analysis PDF.";
       setExportError(message);
     } finally {
+      flushSync(() => {
+        setIsPdfCaptureMode(false);
+      });
       setIsExportingPdf(false);
     }
   }, [flow, isExportingPdf]);
@@ -461,6 +469,7 @@ export function ProfileAnalyzerModule() {
             analysisId={flow.response.id}
             token={token}
             onReset={handleReset}
+            isPdfCaptureMode={isPdfCaptureMode}
           />
         </div>
       )}
@@ -472,6 +481,7 @@ export function ProfileAnalyzerModule() {
             analysisId={flow.analysisId}
             token={token}
             onReset={handleReset}
+            isPdfCaptureMode={isPdfCaptureMode}
           />
         </div>
       )}

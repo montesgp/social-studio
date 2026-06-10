@@ -15,6 +15,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { useId } from "react";
 import type { ProfileStatsDto } from "@/lib/api/types/profile-analyzer";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -33,6 +34,7 @@ const WEEKDAY_LABELS: Record<string, string> = {
 
 interface EngagementTrendChartProps {
   stats: ProfileStatsDto | null;
+  captureMode?: boolean;
 }
 
 interface ChartEntry {
@@ -71,8 +73,14 @@ function buildChartData(stats: ProfileStatsDto | null): ChartEntry[] {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function EngagementTrendChart({ stats }: EngagementTrendChartProps) {
+export function EngagementTrendChart({
+  stats,
+  captureMode = false,
+}: EngagementTrendChartProps) {
   const data = buildChartData(stats);
+  const chartId = useId().replace(/:/g, "");
+  const likesGradientId = `${chartId}-grad-likes`;
+  const commentsGradientId = `${chartId}-grad-comments`;
 
   return (
     <div className="space-y-2">
@@ -90,11 +98,11 @@ export function EngagementTrendChart({ stats }: EngagementTrendChartProps) {
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
               <defs>
-                <linearGradient id="gradLikes" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id={likesGradientId} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
                   <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                 </linearGradient>
-                <linearGradient id="gradComments" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id={commentsGradientId} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="hsl(142 71% 45%)" stopOpacity={0.3} />
                   <stop offset="95%" stopColor="hsl(142 71% 45%)" stopOpacity={0} />
                 </linearGradient>
@@ -137,7 +145,8 @@ export function EngagementTrendChart({ stats }: EngagementTrendChartProps) {
                 dataKey="likes"
                 stroke="hsl(var(--primary))"
                 strokeWidth={2}
-                fill="url(#gradLikes)"
+                fill={`url(#${likesGradientId})`}
+                isAnimationActive={!captureMode}
                 dot={false}
               />
               <Area
@@ -145,7 +154,8 @@ export function EngagementTrendChart({ stats }: EngagementTrendChartProps) {
                 dataKey="comments"
                 stroke="hsl(142 71% 45%)"
                 strokeWidth={2}
-                fill="url(#gradComments)"
+                fill={`url(#${commentsGradientId})`}
+                isAnimationActive={!captureMode}
                 dot={false}
               />
             </AreaChart>
