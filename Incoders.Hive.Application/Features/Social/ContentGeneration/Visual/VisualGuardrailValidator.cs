@@ -262,8 +262,93 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
                 .Replace("\"", "&quot;");
         });
 
-        // 2) Self-close void elements (<img ...> -> <img ... />).
-        return VoidElementRegex.Replace(withEntities, "<${tag}${attrs} />");
+        // 2) XML rejects raw '<' inside attribute values or text. Chromium is more forgiving,
+        // and designers often use tiny CSS decorations like content:"<". Escape only the
+        // parser-only copy so we can still validate render-safe HTML structurally.
+        var withSafeAngles = EscapeRawLessThanForXml(withEntities);
+
+        // 3) Self-close void elements (<img ...> -> <img ... />).
+        return VoidElementRegex.Replace(withSafeAngles, "<${tag}${attrs} />");
+    }
+
+    private static string EscapeRawLessThanForXml(string markup)
+    {
+        var output = new System.Text.StringBuilder(markup.Length);
+        var insideTag = false;
+        char? quote = null;
+
+        for (var i = 0; i < markup.Length; i++)
+        {
+            var ch = markup[i];
+
+            if (insideTag)
+            {
+                if (quote is not null)
+                {
+                    if (ch == quote.Value)
+                    {
+                        quote = null;
+                        output.Append(ch);
+                    }
+                    else if (ch == '<')
+                    {
+                        output.Append("&lt;");
+                    }
+                    else
+                    {
+                        output.Append(ch);
+                    }
+
+                    continue;
+                }
+
+                if (ch is '"' or '\'')
+                {
+                    quote = ch;
+                    output.Append(ch);
+                    continue;
+                }
+
+                if (ch == '>')
+                {
+                    insideTag = false;
+                }
+
+                output.Append(ch);
+                continue;
+            }
+
+            if (ch == '<')
+            {
+                if (StartsHtmlMarkup(markup, i))
+                {
+                    insideTag = true;
+                    output.Append(ch);
+                }
+                else
+                {
+                    output.Append("&lt;");
+                }
+
+                continue;
+            }
+
+            output.Append(ch);
+        }
+
+        return output.ToString();
+    }
+
+    private static bool StartsHtmlMarkup(string markup, int index)
+    {
+        if (index + 1 >= markup.Length)
+        {
+            return false;
+        }
+
+        var next = markup[index + 1];
+        return char.IsLetter(next)
+            || next is '/' or '!' or '?';
     }
 
     private static string Truncate(string value, int max) =>

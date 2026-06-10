@@ -5,7 +5,8 @@ Define capabilities, constraints, invariants, events, and acceptance criteria fo
 
 ## Capabilities
 - Compose visual content specs (reels, carousels, text cards, etc.) from brand snapshot and AI-generated content.
-- Render visual specs to multiple output formats (SVG, PNG, Markdown).
+- Produce visual deliverables as editable PPTX for flyer/carousel and Markdown for scripts.
+- Use image files only as brand/manual background inputs or internal non-deliverable implementation details.
 - Package generated assets into downloadable archives (frozen-ZIP, assemble-on-demand).
 - Derive package folder names from client display names, sanitized for cross-OS compatibility.
 - Deliver reel-script output as structured, readable Markdown with bold timestamps and scene separation.
@@ -20,12 +21,132 @@ Define capabilities, constraints, invariants, events, and acceptance criteria fo
 - Reel-script output MUST be human-readable with clear scene separation.
 - Asset paths MUST NOT expose internal GUIDs to end users in downloadable archives.
 - Renderer dispatch MUST be exhaustive over `CompositionOutputKind` enum values.
+- Visual guardrail schema validation MUST tolerate browser-renderable HTML syntax in the parser-only validation copy (for example raw `<` characters inside attribute values) while still rejecting unsafe/off-schema tags.
 
 ## Acceptance Criteria
 - Downloadable package folder names match frontend client labels (no slugification or GUIDs).
 - Reel-script is delivered as `.md` (Markdown) with newline separation and bold timestamps.
 - All renderer output kinds are explicitly handled; no silent defaults or fallback strings.
 - Cross-OS sanitization preserves client display names (accents, spaces, symbols) where safe.
+- Failed generation jobs must not create visible package file entries for formats that did not render.
+- Regeneration for the same analysis/client/format is blocked after two failed attempts to prevent repeated AI-token spend.
+- Retry-AI analysis for a single-content analysis is blocked after two failed AI-stage attempts and the attempt counter is persisted server-side.
+- Package-level "Send to Canva" must mirror the package download ready/disabled state.
+- Package downloads assembled from stored assets MUST always include `manifest.json` at the ZIP root.
+- Package downloads assembled from stored assets MUST organize deliverables as `{client-folder}/{format-folder}/{file}`.
+- Package downloads assembled from stored assets MUST deliver `flyer` and `carousel` as editable PPTX files, not PNG/JPG primary deliverables.
+- Package downloads assembled from stored assets MUST deliver `reel-script` as `script/script.md`.
+- Package downloads assembled from stored assets MUST NOT include `editable-package.pptx` at the ZIP root.
+- If a client has an applicable background template for the requested visual format, that template MUST be hard-enforced as the PPTX background even if the AI proposes a different background.
+- If a client has no forced background template, the creative background may be generated from the client's brand manual and the AI proposal.
+- Package download and package-level "Send to Canva" actions MUST persist action counts/timestamps in the database.
+- Flyer visual generation must not fail solely because the visual designer emitted browser-renderable HTML that is stricter than XML.
+
+---
+
+## Single Analyzer Package Failure Safety — Change: single-analyzer-failure-safety
+
+### Requirement: SAFETY-01 — No Phantom Package Entries After Failed Generation
+
+The Package tab MUST render generated format files only from successful persisted assets or successful
+job status, never from a generation request being merely queued. A failed job that produced no rendered
+asset MUST leave the package tree empty for that format.
+
+#### Scenario: Failed flyer generation does not show flyer.png
+
+- GIVEN a single-analyzer generation job requested the `flyer` format
+- AND the job failed before a rendered flyer asset was persisted
+- WHEN the user opens the Package tab
+- THEN no `flyer` deliverable is shown under the client folder
+- AND the package download remains disabled until at least one format has succeeded
+
+### Requirement: SAFETY-02 — Regeneration Locks After Two Failed Attempts
+
+For each `(analysis, client, format)` scope, the system MUST count failed per-format attempts across
+jobs. Once the count reaches `2`, new generation/regeneration requests for that format MUST be rejected
+by the backend and the frontend MUST disable the relevant regenerate controls with an explanatory hint.
+
+#### Scenario: Second failed flyer attempt locks regeneration
+
+- GIVEN `flyer` generation failed once for an analysis/client pair
+- AND a subsequent `flyer` regeneration failed again for the same analysis/client pair
+- WHEN the user attempts to regenerate `flyer` a third time
+- THEN the backend rejects the request with a handled conflict error
+- AND the frontend disables the regenerate control
+- AND the frontend explains that regeneration is blocked to avoid burning AI tokens
+
+### Requirement: SAFETY-03 — Canva Package Action Mirrors Download Readiness
+
+When the organization has Canva configured, the Package tab's "Send to Canva" action MUST be visible
+beside the package download action and MUST use the same generated-content readiness state.
+
+#### Scenario: Package not ready disables both package actions
+
+- GIVEN no generated package content is ready
+- WHEN the Package tab is rendered
+- THEN the package download action is disabled
+- AND the "Send to Canva" action is also disabled
+
+#### Scenario: Package ready enables both package actions
+
+- GIVEN at least one package format is successfully generated and the package can be downloaded
+- WHEN the Package tab is rendered
+- THEN the package download action is enabled
+- AND the "Send to Canva" action is enabled when Canva is configured
+
+### Requirement: SAFETY-04 — URL Input Preserves Long Social URLs
+
+The single-content URL analyzer input MUST allocate the available row width to the URL field so common
+Instagram and TikTok URLs can be reviewed before submission without shrinking surrounding containers.
+
+### Requirement: SAFETY-05 — Retry-AI Locks After Two Failed AI Attempts
+
+For each single-content analysis, the backend MUST persist failed AI-analysis attempts. Once the count
+reaches `2`, the Retry AI action MUST be rejected by the backend and disabled in the frontend with a
+hint explaining that the lock prevents repeated AI-credit spend.
+
+#### Scenario: Second failed AI retry locks further retry
+
+- GIVEN an analysis has a persisted content snapshot
+- AND the initial AI analysis failed
+- AND one Retry AI attempt also failed
+- WHEN the user attempts Retry AI again
+- THEN the backend rejects the request with a conflict error
+- AND the frontend disables Retry AI with a cost-control hint
+
+### Requirement: PKG-03 — Assemble Package Uses Client-First Editable Deliverables
+
+Assemble-on-demand package downloads MUST include `manifest.json` at the ZIP root. For every client
+with generated content, the ZIP MUST contain one folder per generated format. Visual formats are
+delivered as editable PPTX files under their format folder; script content is delivered as Markdown.
+The assembled package MUST NOT place `editable-package.pptx` or visual PNG/JPG primary deliverables
+at the ZIP root or directly inside the client folder.
+
+#### Scenario: Stored-asset package contains client-first manifest and format folders
+
+- GIVEN a client named `"Incoders"` has generated `flyer`, `carousel`, and `reel-script` formats
+- AND the visual formats have persisted composition specs
+- WHEN the user downloads the assembled package
+- THEN the ZIP contains `manifest.json`
+- AND the ZIP contains `Incoders/flyer/flyer.pptx`
+- AND the ZIP contains `Incoders/carousel/slide_1.pptx`
+- AND the ZIP contains `Incoders/script/script.md`
+- AND the ZIP does not contain `editable-package.pptx` at the root
+- AND `manifest.json` includes the generated publication description when present
+- AND `manifest.json` categorizes formats under `clients.Incoders.formats`
+
+### Requirement: PKG-04 — Package Actions Are Persisted
+
+Every successful package download or package-level Send to Canva action MUST increment its persisted
+counter and store the last action timestamp/user for the generated package row.
+
+#### Scenario: Download and Canva send update package action state
+
+- GIVEN a generated package exists for a completed job
+- WHEN the user downloads the package
+- THEN the package download count and last downloaded timestamp are updated
+- WHEN the user sends the package to Canva
+- THEN the Canva send count and last sent timestamp are updated
 
 ---
 
@@ -329,8 +450,8 @@ The Domain aggregate `ClientBrandManual` MUST enforce the invariant: for any giv
 `SelectBackgroundTemplate(formatKey)` on composers MUST follow a strict tier-priority dispatch:
 
 1. **Tier-1 (ForcedDefault)**: if a `BackgroundEntry` with `Tier = ForcedDefault` and `IsFormatDefault = true` exists for the given `formatKey`, that entry MUST be returned. No generation and no external call MUST be triggered.
-2. **Tier-2 (Reference)**: if no ForcedDefault exists, all entries with `Tier = Reference` (regardless of `FormatKey` match) MUST be returned as a collection for use as multimodal style guides by the designer stage.
-3. **Tier-3 (Creative)**: if neither ForcedDefault nor Reference entries exist, the selection result MUST indicate creative generation — the designer stage generates brand-bound output freely.
+2. **Tier-2 (ManualTemplate/Reference)**: if no ForcedDefault exists, all applicable manual background entries MUST be returned as a collection. Applicable means `FormatKey` is empty/global or matches the requested format. This includes legacy/default `Creative` entries because old manuals did not classify templates.
+3. **Tier-3 (Creative)**: if no applicable manual background entry exists, the selection result MUST indicate creative generation — the designer stage/generator can create a brand-bound background freely.
 
 The method MUST return a discriminated result type (`BackgroundSelection`) that carries the tier and its payload (entry / reference list / none) so callers never need to re-inspect raw entries.
 
@@ -341,6 +462,15 @@ The method MUST return a discriminated result type (`BackgroundSelection`) that 
 - THEN the result is `BackgroundSelection.ForcedDefault` carrying `Url = "https://cdn.example.com/bg.png"`
 - AND no generation flag is set and no external call is made
 
+#### Scenario: Tier-1 forced default is hard-enforced before render/export
+
+- GIVEN a client has a forced default background template for `flyer`
+- AND the AI designer returns markup with a different generated background
+- WHEN the content generation pipeline renders the flyer
+- THEN the background layer passed to rendering uses the forced brand-manual template URL
+- AND the AI-generated background layer is not used as the final background
+- AND text/content components remain available for editable PPTX export
+
 #### Scenario: Tier-2 reference list is returned when no forced default exists
 
 - GIVEN a brand snapshot with two entries both having `Tier = Reference`
@@ -348,9 +478,17 @@ The method MUST return a discriminated result type (`BackgroundSelection`) that 
 - WHEN `SelectBackgroundTemplate("flyer")` is called
 - THEN the result is `BackgroundSelection.References` carrying both reference entries
 
-#### Scenario: Tier-3 creative is returned when no structured entries exist
+#### Scenario: Legacy/default manual background is still treated as a template
 
-- GIVEN a brand snapshot with no ForcedDefault and no Reference entries (only Creative or empty)
+- GIVEN a brand snapshot with one background image entry whose `Tier = Creative`
+- AND the entry has no `FormatKey`
+- WHEN `SelectBackgroundTemplate("flyer")` is called
+- THEN the result is `BackgroundSelection.References` carrying that entry
+- AND the pipeline uses that manual image as the rendered background
+
+#### Scenario: Tier-3 creative is returned when no manual templates exist
+
+- GIVEN a brand snapshot with no background template entries
 - WHEN `SelectBackgroundTemplate("flyer")` is called
 - THEN the result is `BackgroundSelection.Creative`
 

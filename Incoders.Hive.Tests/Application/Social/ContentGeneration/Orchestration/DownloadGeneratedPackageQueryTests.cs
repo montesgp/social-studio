@@ -12,6 +12,7 @@ public sealed class DownloadGeneratedPackageQueryTests
 {
     private static readonly Guid OrgId = Guid.NewGuid();
     private static readonly Guid OtherOrgId = Guid.NewGuid();
+    private static readonly Guid UserId = Guid.NewGuid();
 
     // ─── Happy path: completed job returns storage ref ────────────────────
 
@@ -28,12 +29,14 @@ public sealed class DownloadGeneratedPackageQueryTests
         var storage = new FakePackageStorage(packageStream);
         var handler = new DownloadGeneratedPackageQueryHandler(jobRepo, packageRepo, storage);
 
-        var query = new DownloadGeneratedPackageQuery(JobId: jobId, OrganizationId: OrgId);
+        var query = new DownloadGeneratedPackageQuery(JobId: jobId, OrganizationId: OrgId, UserId: UserId);
         var result = await handler.Handle(query, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.NotNull(result.Value.StorageRef);
         Assert.NotNull(result.Value.ContentStream);
+        Assert.Equal(1, packageRepo.MarkDownloadedCalls);
+        Assert.Equal(UserId, packageRepo.LastDownloadedByUserId);
     }
 
     // ─── Job status not completed → NotFound ────────────────────────────────
@@ -159,10 +162,19 @@ file sealed class FakePackageRepo : IGeneratedPackageRepository
 {
     private readonly GeneratedPackage? _package;
     public FakePackageRepo(GeneratedPackage? package) => _package = package;
+    public int MarkDownloadedCalls { get; private set; }
+    public Guid? LastDownloadedByUserId { get; private set; }
 
     public Task InsertAsync(GeneratedPackage package, CancellationToken ct) => Task.CompletedTask;
     public Task<GeneratedPackage?> GetByJobIdAsync(Guid jobId, Guid organizationId, CancellationToken ct) =>
         Task.FromResult(_package?.JobId == jobId ? _package : null);
+
+    public Task MarkDownloadedAsync(Guid jobId, Guid organizationId, Guid? userId, DateTime downloadedAtUtc, CancellationToken ct)
+    {
+        MarkDownloadedCalls++;
+        LastDownloadedByUserId = userId;
+        return Task.CompletedTask;
+    }
 }
 
 file sealed class FakePackageStorage : IGeneratedPackageStorage

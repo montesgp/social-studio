@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 
 namespace Incoders.Hive.Tests.Domain.Social.SingleAnalyzer;
@@ -170,5 +171,58 @@ public sealed class PatternSetTests
         var set = PatternSet.Create(new[] { item }, emptyItems, emptyItems).Value;
 
         Assert.IsAssignableFrom<IReadOnlyList<PatternItem>>(set.CommunicationPatterns);
+    }
+
+    [Fact]
+    public void SingleAnalyzerAnalysis_WithPatternSet_DeserializesFromAiJson()
+    {
+        const string json = """
+            {
+              "summary": "Resumen",
+              "detectedHooks": ["Hook"],
+              "likelyAudience": "Audience",
+              "narrativeStructure": "Problem solution",
+              "strengths": ["Strong hook"],
+              "weaknesses": ["Needs shorter CTA"],
+              "derivedIdeas": [
+                {
+                  "title": "Idea",
+                  "concept": "Concept",
+                  "rationale": "Rationale",
+                  "score": {
+                    "novelty": 4,
+                    "clientFit": 4,
+                    "platformFit": 4,
+                    "hookQuality": 4,
+                    "feasibility": 4,
+                    "expectedEngagement": 4
+                  }
+                }
+              ],
+              "clientAdaptationRecommendations": ["Adapt"],
+              "confidence": 0.86,
+              "warnings": [],
+              "patterns": {
+                "communicationPatterns": [
+                  {
+                    "name": "Open loop",
+                    "evidence": "Starts with a curiosity gap",
+                    "confidence": 0.91
+                  }
+                ],
+                "emotionalPatterns": [],
+                "conversionPatterns": []
+              }
+            }
+            """;
+
+        var parsed = JsonSerializer.Deserialize<SingleAnalyzerAnalysis>(
+            json,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        Assert.NotNull(parsed);
+        Assert.NotNull(parsed!.Patterns);
+        Assert.True(parsed.Validate().IsSuccess);
+        Assert.Equal("Open loop", parsed.Patterns!.CommunicationPatterns[0].Name);
     }
 }

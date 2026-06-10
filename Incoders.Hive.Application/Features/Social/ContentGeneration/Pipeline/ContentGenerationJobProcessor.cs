@@ -350,15 +350,25 @@ public sealed class ContentGenerationJobProcessor
                             break; // Renderer NOT called — fail the format
                         }
 
-                        // Guardrails passed: promote spec to Html kind with validated markup.
+                        // Guardrails passed. If the client defined a template background for this
+                        // format, Incoders-Hive must hard-enforce it instead of merely trusting the
+                        // AI to obey the prompt. The AI/content generators provide the copy slots,
+                        // but the final markup uses a deterministic, high-contrast, non-overlapping
+                        // layout on top of the brand-manual background template.
+                        var enforcedBackground = ResolveEnforcedBackground(selection);
+                        var validatedMarkup = enforcedBackground is not null
+                            ? BuildTemplateBackedMarkup(spec, enforcedBackground)
+                            : guarded.Value.Markup;
+
+                        // Promote spec to Html kind with validated/enforced markup.
                         spec = spec with
                         {
                             OutputKind = CompositionOutputKind.Html,
-                            DesignerMarkup = guarded.Value.Markup,
+                            DesignerMarkup = validatedMarkup,
                         };
 
                         // WU-1 D1: capture the validated markup and canvas dimensions for persistence.
-                        capturedMarkup = guarded.Value.Markup;
+                        capturedMarkup = validatedMarkup;
                         capturedDimensions = spec.Dimensions;
                     }
 
@@ -897,6 +907,200 @@ public sealed class ContentGenerationJobProcessor
             UpdatedAt: now), ct);
     }
 
+    private static EnforcedBackgroundTemplate? ResolveEnforcedBackground(BackgroundSelection selection)
+    {
+        if (selection is BackgroundSelection.ForcedDefault forcedDefault)
+        {
+            return new EnforcedBackgroundTemplate(
+                forcedDefault.Url,
+                forcedDefault.Name,
+                "brand-manual-forced-default");
+        }
+
+        if (selection is BackgroundSelection.References references)
+        {
+            var first = references.Entries.FirstOrDefault(entry => !string.IsNullOrWhiteSpace(entry.Url));
+            if (first is not null)
+            {
+                return new EnforcedBackgroundTemplate(
+                    first.Url,
+                    first.Name,
+                    "brand-manual-template");
+            }
+        }
+
+        return null;
+    }
+
+    private static string BuildTemplateBackedMarkup(
+        VisualCompositionSpec spec,
+        EnforcedBackgroundTemplate background)
+    {
+        var isCarousel = string.Equals(spec.FormatKey, "carousel", StringComparison.OrdinalIgnoreCase);
+        var width = spec.Dimensions.Width;
+        var height = spec.Dimensions.Height;
+        var headingFont = CssString(spec.Typography.HeadingFamily);
+        var bodyFont = CssString(spec.Typography.BodyFamily);
+        var safeUrl = Html(background.Url);
+        var safeName = Html(string.IsNullOrWhiteSpace(background.Name) ? "Brand background template" : background.Name);
+        var source = Html(background.Source);
+
+        var title = FirstSlot(spec.CopySlots, isCarousel ? ["title", "headline"] : ["headline", "title"])
+            ?? (isCarousel ? "Carousel" : "Flyer");
+        var subtitle = FirstSlot(spec.CopySlots, ["subtitle", "body", "text"]);
+        var body = isCarousel
+            ? null
+            : FirstSlot(spec.CopySlots, ["body", "callouts"]);
+        var cta = FirstSlot(spec.CopySlots, ["cta"]);
+        var signature = FirstSlot(spec.CopySlots, ["signature"]);
+
+        var content = isCarousel
+            ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont)
+            : BuildFlyerTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont);
+
+        var backgroundDecor = isCarousel
+            ? """
+              <div style="position:absolute;left:64px;right:64px;top:140px;bottom:140px;border-radius:46px;background:rgba(0,0,0,0.52);box-shadow:0 28px 80px rgba(0,0,0,0.32);"></div>
+              <div style="position:absolute;left:64px;right:64px;bottom:140px;height:10px;border-radius:999px;background:rgba(255,255,255,0.82);"></div>
+              """
+            : """
+              <div style="position:absolute;left:56px;right:56px;top:170px;bottom:150px;border-radius:56px;background:rgba(0,0,0,0.50);box-shadow:0 32px 90px rgba(0,0,0,0.34);"></div>
+              <div style="position:absolute;left:88px;top:205px;width:168px;height:10px;border-radius:999px;background:rgba(255,255,255,0.86);"></div>
+              """;
+
+        return $$"""
+            <div class="composition" data-format="{{Html(spec.FormatKey)}}" style="position:relative;width:{{width}}px;height:{{height}}px;overflow:hidden;background:#000000;">
+              <div data-layer="background" style="position:absolute;inset:0;width:100%;height:100%;overflow:hidden;">
+                <img src="{{safeUrl}}" alt="{{safeName}}" data-background-source="{{source}}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" />
+                <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0.18) 0%,rgba(0,0,0,0.35) 46%,rgba(0,0,0,0.62) 100%);"></div>
+                {{backgroundDecor}}
+              </div>
+              <div data-layer="content" style="position:absolute;inset:0;width:100%;height:100%;">
+                {{content}}
+              </div>
+            </div>
+            """;
+    }
+
+    private static string BuildFlyerTemplateSlots(
+        string title,
+        string? subtitle,
+        string? body,
+        string? cta,
+        string? signature,
+        string headingFont,
+        string bodyFont)
+    {
+        var slots = new List<string>
+        {
+            Slot(
+                "h1",
+                "headline",
+                title,
+                "position:absolute;left:96px;top:255px;width:888px;min-height:260px;" +
+                $"font-family:{headingFont},system-ui,sans-serif;font-size:88px;line-height:0.98;" +
+                "font-weight:900;letter-spacing:-2.5px;color:#FFFFFF;text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
+                3)
+        };
+
+        AddSlot(slots, "p", "subtitle", subtitle,
+            "position:absolute;left:100px;top:575px;width:825px;min-height:122px;" +
+            $"font-family:{bodyFont},system-ui,sans-serif;font-size:36px;line-height:1.16;" +
+            "font-weight:600;color:#FFFFFF;text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
+            3);
+
+        AddSlot(slots, "p", "body", body,
+            "position:absolute;left:100px;top:745px;width:825px;min-height:210px;" +
+            $"font-family:{bodyFont},system-ui,sans-serif;font-size:30px;line-height:1.24;" +
+            "font-weight:400;color:#F8FAFC;text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
+            5);
+
+        AddSlot(slots, "p", "cta", cta,
+            "position:absolute;left:100px;bottom:245px;width:640px;min-height:58px;" +
+            $"font-family:{bodyFont},system-ui,sans-serif;font-size:34px;line-height:1.05;" +
+            "font-weight:800;color:#FFFFFF;text-transform:uppercase;letter-spacing:1.2px;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
+            2);
+
+        AddSlot(slots, "p", "signature", signature,
+            "position:absolute;right:98px;bottom:190px;width:460px;min-height:42px;" +
+            $"font-family:{bodyFont},system-ui,sans-serif;font-size:25px;line-height:1.1;" +
+            "font-weight:600;color:#E5E7EB;text-align:right;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
+            1);
+
+        return string.Join(Environment.NewLine, slots);
+    }
+
+    private static string BuildCarouselTemplateSlots(
+        string title,
+        string? subtitle,
+        string? cta,
+        string headingFont,
+        string bodyFont)
+    {
+        var slots = new List<string>
+        {
+            Slot(
+                "h1",
+                "title",
+                title,
+                "position:absolute;left:104px;top:235px;width:872px;min-height:230px;" +
+                $"font-family:{headingFont},system-ui,sans-serif;font-size:74px;line-height:1.02;" +
+                "font-weight:900;letter-spacing:-1.8px;color:#FFFFFF;text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
+                3)
+        };
+
+        AddSlot(slots, "p", "subtitle", subtitle,
+            "position:absolute;left:108px;top:540px;width:815px;min-height:310px;" +
+            $"font-family:{bodyFont},system-ui,sans-serif;font-size:38px;line-height:1.22;" +
+            "font-weight:500;color:#F8FAFC;text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.62);",
+            6);
+
+        AddSlot(slots, "p", "cta", cta,
+            "position:absolute;left:108px;bottom:220px;width:760px;min-height:58px;" +
+            $"font-family:{bodyFont},system-ui,sans-serif;font-size:28px;line-height:1.1;" +
+            "font-weight:800;color:#FFFFFF;text-transform:uppercase;letter-spacing:1.1px;text-shadow:0 3px 18px rgba(0,0,0,0.62);",
+            2);
+
+        return string.Join(Environment.NewLine, slots);
+    }
+
+    private static void AddSlot(
+        ICollection<string> slots,
+        string tag,
+        string slotName,
+        string? value,
+        string style,
+        int maxLines)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            slots.Add(Slot(tag, slotName, value, style, maxLines));
+        }
+    }
+
+    private static string Slot(string tag, string slotName, string value, string style, int maxLines) =>
+        $"<{tag} class=\"slot\" data-slot=\"{Html(slotName)}\" data-max-lines=\"{maxLines}\" style=\"{style}\">{Html(value)}</{tag}>";
+
+    private static string? FirstSlot(IReadOnlyDictionary<string, string> slots, IReadOnlyList<string> names)
+    {
+        foreach (var name in names)
+        {
+            if (slots.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static string Html(string value) => System.Net.WebUtility.HtmlEncode(value);
+
+    private static string CssString(string value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? "system-ui"
+            : "'" + value.Replace("\\", "\\\\").Replace("'", "\\'", StringComparison.Ordinal) + "'";
+
     private static string FormatException(Exception ex)
     {
         var msg = ex.Message?.Trim() ?? string.Empty;
@@ -954,4 +1158,9 @@ public sealed class ContentGenerationJobProcessor
         string? OutputJson,
         IReadOnlyList<string> InferredFields,
         string? AiErrorCode);
+
+    private sealed record EnforcedBackgroundTemplate(
+        string Url,
+        string Name,
+        string Source);
 }

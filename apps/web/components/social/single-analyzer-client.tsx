@@ -45,6 +45,7 @@ import type {
   ContentFormatKey,
   ContentGenerationJobStatus,
   GeneratedPackageManifest,
+  PackageActionState,
 } from "@/lib/api/types";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { useSocialNetworks } from "@/hooks/use-social-networks";
@@ -92,6 +93,8 @@ const POLL_INTERVAL_MS = 2500;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min hard cap so the overlay can't hang forever
 const FALLBACK_THUMBNAIL_PATH = "/images/thumbnail-unavailable.svg";
 const MAX_REGENERATION_OBJECTION_LENGTH = 1000;
+const MAX_FORMAT_FAILURE_ATTEMPTS = 2;
+const MAX_AI_ANALYSIS_FAILURE_ATTEMPTS = 2;
 
 // Ordered stages shown in the progress overlay — mapped to backend statuses.
 const ANALYSIS_STEPS: Array<{
@@ -515,10 +518,15 @@ function isKnownFormatKey(key: string): key is ContentFormatKey {
   return (ALL_FORMAT_KEYS as string[]).includes(key);
 }
 
+function packageManifestKeyToContentFormatKey(key: string): ContentFormatKey | null {
+  if (key === "script") return "reel-script";
+  return isKnownFormatKey(key) ? key : null;
+}
+
 /** Default filenames shown in the Package tab tree when the backend manifest is absent. */
 const FORMAT_FILE_NAMES: Record<ContentFormatKey, string> = {
-  "reel-script": "reel-script.md",
-  flyer: "flyer.png",
+  "reel-script": "script.md",
+  flyer: "flyer.pptx",
   carousel: "carousel/",
   "content-idea": "content-idea.txt",
   "cta-variation": "cta-variation.txt",
@@ -544,6 +552,24 @@ function resolveFormatFilename(formatKey: ContentFormatKey, manifestFilename?: s
     return base + expectedExt;
   }
   return manifestFilename;
+}
+
+function resolvePackageFormatFolder(formatKey: ContentFormatKey): string {
+  return formatKey === "reel-script" ? "script" : formatKey;
+}
+
+function resolvePackageFormatFiles(
+  formatKey: ContentFormatKey,
+  assets: { filename: string; index: number }[]
+): string[] {
+  if (formatKey === "flyer") return ["flyer.pptx"];
+  if (formatKey === "reel-script") return ["script.md"];
+  if (formatKey === "carousel") {
+    const orderedAssets = [...assets].sort((a, b) => a.index - b.index);
+    return (orderedAssets.length > 0 ? orderedAssets : [{ index: 1, filename: "slide_1" }])
+      .map((_, index) => `slide_${index + 1}.pptx`);
+  }
+  return [resolveFormatFilename(formatKey)];
 }
 
 function SocialTabletPreview({
@@ -588,21 +614,46 @@ function RegenerationChoicePanel({
   onRegenerate,
   onWithObjections,
   disabled = false,
+  blockedHint,
 }: {
   onRegenerate: () => void;
   onWithObjections: () => void;
   disabled?: boolean;
+  blockedHint?: string | null;
 }) {
+  const isBlocked = Boolean(blockedHint);
+
   return (
-    <div className="flex flex-wrap gap-2 rounded-md border border-border/40 bg-muted/20 p-2">
-      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onRegenerate} disabled={disabled}>
-        <RefreshCw className="h-3 w-3" />
-        Regenerate
-      </Button>
-      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onWithObjections} disabled={disabled}>
-        <AlertTriangle className="h-3 w-3" />
-        With objections
-      </Button>
+    <div className="rounded-md border border-border/40 bg-muted/20 p-2">
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 text-xs"
+          onClick={onRegenerate}
+          disabled={disabled || isBlocked}
+          title={blockedHint ?? undefined}
+        >
+          <RefreshCw className="h-3 w-3" />
+          Regenerate
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 text-xs"
+          onClick={onWithObjections}
+          disabled={disabled || isBlocked}
+          title={blockedHint ?? undefined}
+        >
+          <AlertTriangle className="h-3 w-3" />
+          With objections
+        </Button>
+      </div>
+      {blockedHint && (
+        <p className="mt-2 text-[10px] leading-relaxed text-destructive">
+          {blockedHint}
+        </p>
+      )}
     </div>
   );
 }
@@ -822,6 +873,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     token: effectiveToken,
     enabled: packageJobId !== null,
   });
+  const refreshPackageJob = packageJob.refresh;
 
   const packageUiStatus: ContentGenerationJobStatus | null =
     packageJob.status ?? (isRequestingPackage ? "Queued" : null);
@@ -872,9 +924,18 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         packageJob.status === "PartialSuccess";
       const fromManifest: ContentFormatKey[] =
         fromPerFormatStatus.length === 0 && isTerminalSuccess && packageJob.manifest?.formats
-          ? Object.keys(packageJob.manifest.formats).filter(isKnownFormatKey)
+          ? Object.keys(packageJob.manifest.formats)
+              .map(packageManifestKeyToContentFormatKey)
+              .filter((formatKey): formatKey is ContentFormatKey => formatKey !== null)
           : [];
-      return Array.from(new Set([...fromPerFormatStatus, ...fromManifest]));
+      const fromClientManifest: ContentFormatKey[] =
+        fromPerFormatStatus.length === 0 && isTerminalSuccess && packageJob.manifest?.clients
+          ? Object.values(packageJob.manifest.clients)
+              .flatMap((clientManifest) => Object.keys(clientManifest.formats ?? {}))
+              .map(packageManifestKeyToContentFormatKey)
+              .filter((formatKey): formatKey is ContentFormatKey => formatKey !== null)
+          : [];
+      return Array.from(new Set([...fromPerFormatStatus, ...fromManifest, ...fromClientManifest]));
     },
     [packageJob.perFormatStatus, packageJob.status, packageJob.manifest]
   );
@@ -948,7 +1009,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       let filename: string;
 
       if (shouldAssemble && analysisId) {
-        ({ blob, filename } = await assemblePackage(analysisId, undefined, { token: effectiveToken }));
+        ({ blob, filename } = await assemblePackage(
+          analysisId,
+          { jobId: packageJobId },
+          { token: effectiveToken }
+        ));
       } else {
         ({ blob, filename } = await downloadPackageFile(packageJobId!, { token: effectiveToken }));
       }
@@ -962,13 +1027,14 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       a.click();
       a.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      void refreshPackageJob();
     } catch (e) {
       const err = e as { message?: string };
       setPackageJobError({ message: err?.message ?? "Failed to download package.zip." });
     } finally {
       setIsDownloadingPackage(false);
     }
-  }, [packageJobId, isDownloadingPackage, effectiveToken, videoResult?.id, canAssembleFromStoredAssets]);
+  }, [packageJobId, isDownloadingPackage, effectiveToken, videoResult?.id, canAssembleFromStoredAssets, refreshPackageJob]);
 
   const downloadFormatAsPptxFile = useCallback(async (formatKey: string) => {
     if (isDownloadingPptx) return;
@@ -1010,7 +1076,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     if (isExportingToCanva) return;
     const analysisId = videoResult?.id;
     const jobId = packageJobId;
-    if (!analysisId || !jobId) return;
+    if (!analysisId || !jobId) {
+      setPackageJobError({
+        message: "This format is not ready for Canva yet. Finish a successful generation first.",
+      });
+      return;
+    }
     setIsExportingToCanva(true);
     setPackageJobError(null);
     try {
@@ -1064,7 +1135,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     if (isExportingToCanva) return;
     const analysisId = videoResult?.id;
     const jobId = packageJobId;
-    if (!analysisId || !jobId) return;
+    if (!analysisId || !jobId) {
+      setPackageJobError({
+        message: "Package is not ready for Canva yet. Finish a successful generation first.",
+      });
+      return;
+    }
     setIsExportingToCanva(true);
     setPackageJobError(null);
     try {
@@ -1072,6 +1148,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         token: effectiveToken,
       });
       window.open(result.editUrl, "_blank", "noopener,noreferrer");
+      void refreshPackageJob();
     } catch (e) {
       const err = e as { message?: string; code?: string };
       const code = err.code ?? "";
@@ -1088,7 +1165,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     } finally {
       setIsExportingToCanva(false);
     }
-  }, [packageJobId, isExportingToCanva, effectiveToken, videoResult?.id, canvaOrgIntegrationId]);
+  }, [packageJobId, isExportingToCanva, effectiveToken, videoResult?.id, canvaOrgIntegrationId, refreshPackageJob]);
 
   useEffect(() => {
     setDuplicateAnalysisPrompt(null);
@@ -1486,6 +1563,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
       if (final.status === "Failed") {
         // Snapshot is still on screen from the previous run; just refresh the error banner.
+        if (final.snapshot) {
+          const partial = mapBackendResponseToResult(final, selectedOrganizationId);
+          setVideoResult(partial);
+        }
         setError({
           code: final.failureCode ?? "social.single_analyzer.analysis_failed",
           message: final.failureMessageKey ?? "Analysis failed. Please try again.",
@@ -1617,22 +1698,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setPackageRequestedFormats([formatKey]);
       setPackageJobId(response.jobId);
       setPackageJobClientId(selectedClientId || null);
-      setLocalFormatsByClient((prev) => {
-        const clientKey = localClientKey(selectedClientId);
-        const existingFormats = prev[clientKey] ?? {};
-        const existing = existingFormats[formatKey];
-        return {
-          ...prev,
-          [clientKey]: {
-            ...existingFormats,
-            [formatKey]: {
-              content: "",
-              generatedAt: new Date().toISOString(),
-              regenerationCount: existing ? existing.regenerationCount + 1 : 0,
-            },
-          },
-        };
-      });
       setDeletedFormatKeys((prev) => {
         const next = new Set(prev);
         next.delete(scopedFormatKey(selectedClientId, formatKey));
@@ -1731,6 +1796,30 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     (selectedClientId ? hasStoredFormatsForClient(selectedClientId) : false) ||
     hasAnyStoredGeneratedFormat;
   const canDownloadPackage = hasAnyGeneratedFormat && packageDownloadAvailable;
+  const selectedFormatKey = formatForMutationMode();
+  const getFormatFailureCount = useCallback(
+    (formatKey: ContentFormatKey) => packageJob.perFormatFailureCounts[formatKey] ?? 0,
+    [packageJob.perFormatFailureCounts]
+  );
+  const getBlockedFormats = useCallback(
+    (formats: ContentFormatKey[]) =>
+      formats.filter((format) => getFormatFailureCount(format) >= MAX_FORMAT_FAILURE_ATTEMPTS),
+    [getFormatFailureCount]
+  );
+  const getRegenerationBlockedHint = useCallback(
+    (formats: ContentFormatKey[]) => {
+      const blocked = getBlockedFormats(formats);
+      if (blocked.length === 0) return null;
+
+      const labels = blocked.map((format) => FORMAT_LABELS[format]).join(", ");
+      return `${labels} reached ${MAX_FORMAT_FAILURE_ATTEMPTS} failed generation attempts. Regeneration is blocked to prevent burning AI tokens; contact support before trying again.`;
+    },
+    [getBlockedFormats]
+  );
+  const selectedFormatRegenerationBlockedHint =
+    getRegenerationBlockedHint([selectedFormatKey]);
+  const allFormatsRegenerationBlockedHint =
+    getRegenerationBlockedHint(SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS);
 
   async function handlePackageAction() {
     if (isDownloadingPackage || isRequestingPackage || packageGenerationIsRunning) return;
@@ -1785,6 +1874,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     if (!videoResult) return;
     const mode = modeOverride ?? mutationMode;
     const formatKey = formatForMutationMode(mode);
+    const blockedHint = getRegenerationBlockedHint([formatKey]);
+    if (blockedHint) {
+      setPackageJobError({ message: blockedHint });
+      return;
+    }
     const currentObjection = resolveRegenerationObjection(includeObjection);
     if (includeObjection && !currentObjection) return;
     const existingFormats = getExistingGeneratedFormats([formatKey]);
@@ -1859,6 +1953,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   async function handleConvertAll(includeObjection = false) {
     if (!videoResult || isRequestingPackage) return;
+    const blockedHint = getRegenerationBlockedHint(SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS);
+    if (blockedHint) {
+      setPackageJobError({ message: blockedHint });
+      return;
+    }
     const currentObjection = resolveRegenerationObjection(includeObjection);
     if (includeObjection && !currentObjection) return;
     const existingFormats = getExistingGeneratedFormats(SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS);
@@ -2137,7 +2236,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   const pendingRegenerationLabels =
     pendingRegeneration?.existingFormats.map((format) => FORMAT_LABELS[format]).join(", ") ?? "";
-  const selectedFormatKey = formatForMutationMode();
   const selectedFormatRegenerationTarget: RegenerationTarget = {
     kind: "single",
     mode: mutationMode,
@@ -2172,6 +2270,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     Boolean(videoResult?.description) &&
     !shouldHideDuplicatedDescription &&
     !shouldHideVideoDescription;
+  const aiAnalysisFailedAttemptCount = videoResult?.aiAnalysisFailedAttemptCount ?? 0;
+  const isAiAnalysisRetryBlocked =
+    Boolean(videoResult?.isAiAnalysisRetryBlocked) ||
+    aiAnalysisFailedAttemptCount >= MAX_AI_ANALYSIS_FAILURE_ATTEMPTS;
+  const aiAnalysisRetryBlockedHint =
+    `AI analysis reached ${MAX_AI_ANALYSIS_FAILURE_ATTEMPTS} failed attempts. ` +
+    "Retry is blocked to prevent burning AI credits; contact support and we'll inspect the blocker.";
 
   const handleVideoThumbnailError = useCallback((event: SyntheticEvent<HTMLImageElement>) => {
     if (event.currentTarget.src.includes(FALLBACK_THUMBNAIL_PATH)) return;
@@ -2287,7 +2392,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
               <CardContent className="pt-0 space-y-3">
                 {inputMode === "url" ? (
                   <div className="space-y-1.5">
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                       <Input
                         placeholder={urlInputPlaceholder}
                         value={urlInput}
@@ -2295,13 +2400,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                         onKeyDown={(e) => {
                           if (e.key === "Enter") void loadVideoByUrl();
                         }}
-                        className="h-8 text-xs"
+                        className="h-8 min-w-0 text-xs"
                       />
                       <Button
                         size="sm"
                         onClick={() => void loadVideoByUrl()}
                         disabled={isLoading || isCheckingDuplicate || !canAnalyzeByUrl}
-                        className="h-8 px-3 text-xs"
+                        className="h-8 shrink-0 px-3 text-xs"
                       >
                         {isLoading || isCheckingDuplicate ? (
                           <RefreshCw className="h-3 w-3 animate-spin" />
@@ -2497,15 +2602,23 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                 {error && videoResult ? (
                   // Partial success: extraction worked, AI failed. Retry ONLY the AI stage using
                   // the persisted snapshot — no Apify call, no extra extraction tokens.
-                  <Button
-                    variant="outline"
-                    className="w-full h-8 text-xs mt-1"
-                    onClick={() => void retryAiAnalysis(videoResult.id)}
-                    disabled={isLoading}
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                    Retry AI analysis
-                  </Button>
+                  <div className="space-y-1">
+                    <Button
+                      variant="outline"
+                      className="w-full h-8 text-xs mt-1"
+                      onClick={() => void retryAiAnalysis(videoResult.id)}
+                      disabled={isLoading || isAiAnalysisRetryBlocked}
+                      title={isAiAnalysisRetryBlocked ? aiAnalysisRetryBlockedHint : undefined}
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      Retry AI analysis
+                    </Button>
+                    {isAiAnalysisRetryBlocked && (
+                      <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-300">
+                        {aiAnalysisRetryBlockedHint}
+                      </p>
+                    )}
+                  </div>
                 ) : !isAnalyzed ? (
                   <Button
                     className="w-full h-8 text-xs mt-1"
@@ -2678,10 +2791,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             }}
                             disabled={
                                 packageGenerationIsRunning ||
-                                packageGenerationClientMissing
+                                packageGenerationClientMissing ||
+                                Boolean(allFormatsRegenerationBlockedHint)
                               }
                             title={
-                              shouldRegenerateAllFormats
+                              allFormatsRegenerationBlockedHint
+                                ? allFormatsRegenerationBlockedHint
+                                : shouldRegenerateAllFormats
                                 ? "Regenerate all formats. The latest generated content will be replaced after confirmation."
                                 : packageGenerationClientMissing
                                 ? "Pick a client before generating branded content."
@@ -2709,6 +2825,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             )}
                           </Button>
                         </div>
+                        {allFormatsRegenerationBlockedHint && (
+                          <p className="text-[10px] leading-relaxed text-destructive">
+                            {allFormatsRegenerationBlockedHint}
+                          </p>
+                        )}
                         {isAllFormatsChoiceOpen && (
                           <RegenerationChoicePanel
                             onRegenerate={() => startSimpleRegeneration(allFormatsRegenerationTarget)}
@@ -2717,6 +2838,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                               packageGenerationIsRunning ||
                               packageGenerationClientMissing
                             }
+                            blockedHint={allFormatsRegenerationBlockedHint}
                           />
                         )}
                         {isAllFormatsObjectionOpen && (
@@ -2844,12 +2966,19 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 disabled={
                                   generatingConversion !== null ||
                                   packageGenerationIsRunning ||
-                                  packageGenerationClientMissing
+                                  packageGenerationClientMissing ||
+                                  Boolean(selectedFormatRegenerationBlockedHint)
                                 }
+                                title={selectedFormatRegenerationBlockedHint ?? undefined}
                               >
                                 <RefreshCw className="h-3 w-3" />
                                 Regenerate {mutationMode}
                               </Button>
+                              {selectedFormatRegenerationBlockedHint && (
+                                <p className="text-[10px] leading-relaxed text-destructive">
+                                  {selectedFormatRegenerationBlockedHint}
+                                </p>
+                              )}
                               {isSelectedFormatChoiceOpen && (
                                 <RegenerationChoicePanel
                                   onRegenerate={() => startSimpleRegeneration(selectedFormatRegenerationTarget)}
@@ -2859,6 +2988,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                     packageGenerationIsRunning ||
                                     packageGenerationClientMissing
                                   }
+                                  blockedHint={selectedFormatRegenerationBlockedHint}
                                 />
                               )}
                               {isSelectedFormatObjectionOpen && (
@@ -2901,7 +3031,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                     variant="outline"
                                     className="h-8 text-xs"
                                     onClick={() => void downloadFormatAsPptxFile(selectedFormatKey)}
-                                    disabled={isDownloadingPptx || isFormatMutating || packageGenerationIsRunning}
+                                    disabled={
+                                      isDownloadingPptx ||
+                                      isExportingToCanva ||
+                                      isFormatMutating ||
+                                      packageGenerationIsRunning
+                                    }
                                     title="Download this format as an editable PowerPoint presentation."
                                   >
                                     {isDownloadingPptx ? (
@@ -2927,7 +3062,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                     variant="outline"
                                     className="h-8 text-xs"
                                     onClick={() => void exportFormatToCanvaFile(selectedFormatKey)}
-                                    disabled={isExportingToCanva || isFormatMutating || packageGenerationIsRunning}
+                                    disabled={
+                                      isExportingToCanva ||
+                                      isDownloadingPptx ||
+                                      isFormatMutating ||
+                                      packageGenerationIsRunning
+                                    }
                                     title="Export this format to Canva as an editable design. Requires Canva connection."
                                   >
                                     {isExportingToCanva ? (
@@ -2962,7 +3102,14 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                               disabled={
                                 generatingConversion !== null ||
                                 packageGenerationIsRunning ||
-                                packageGenerationClientMissing
+                                packageGenerationClientMissing ||
+                                Boolean(selectedFormatRegenerationBlockedHint)
+                              }
+                              title={
+                                selectedFormatRegenerationBlockedHint ??
+                                (hasExistingFormatForCurrentMode
+                                  ? `Regenerate ${mutationMode}. The latest generated content will be replaced after confirmation.`
+                                  : undefined)
                               }
                             >
                               {generatingConversion === mutationMode ? (
@@ -2976,6 +3123,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 `Generate ${mutationMode}`
                               )}
                             </Button>
+                            {selectedFormatRegenerationBlockedHint && (
+                              <p className="text-[10px] leading-relaxed text-destructive">
+                                {selectedFormatRegenerationBlockedHint}
+                              </p>
+                            )}
                             {hasExistingFormatForCurrentMode && isSelectedFormatChoiceOpen && (
                               <RegenerationChoicePanel
                                 onRegenerate={() => startSimpleRegeneration(selectedFormatRegenerationTarget)}
@@ -2985,6 +3137,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                   packageGenerationIsRunning ||
                                   packageGenerationClientMissing
                                 }
+                                blockedHint={selectedFormatRegenerationBlockedHint}
                               />
                             )}
                             {isSelectedFormatObjectionOpen && (
@@ -3062,10 +3215,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     clientLabels={Object.fromEntries(
                       clients.map((c) => [c.id, c.name])
                     )}
+                    actionState={packageJob.packageActionState}
                     onDownload={() => void handlePackageAction()}
-                    canSendToCanva={
-                      canvaConfigured && canDownloadPackage && packageJobId !== null
-                    }
+                    showSendToCanva={canvaConfigured}
+                    canSendToCanva={canDownloadPackage && packageJobId !== null}
                     isSendingToCanva={isExportingToCanva}
                     onSendToCanva={() => void sendPackageToCanva()}
                   />
@@ -3239,8 +3392,11 @@ interface PackageTabContentProps {
   /** INC-6: Maps clientId → human-readable folder slug, so the tree shows the client
    *  instead of an opaque GUID. Falls back to a truncated id when a client is unknown. */
   clientLabels: Record<string, string>;
+  actionState: PackageActionState | null;
   onDownload: () => void;
-  /** True when the org has Canva configured AND there is a package + current job to export. */
+  /** True when the organization has Canva configured, so the mirror action should be visible. */
+  showSendToCanva: boolean;
+  /** True when the Canva action is allowed to run; mirrors the package download ready-state. */
   canSendToCanva: boolean;
   isSendingToCanva: boolean;
   onSendToCanva: () => void;
@@ -3257,7 +3413,9 @@ function PackageTabContent({
   clientFolderName,
   clientPackages,
   clientLabels,
+  actionState,
   onDownload,
+  showSendToCanva,
   canSendToCanva,
   isSendingToCanva,
   onSendToCanva,
@@ -3321,33 +3479,27 @@ function PackageTabContent({
               </div>
               {/* Format files — indented inside client folder */}
               {clientEntry.formats.map((formatEntry) => {
-                const isCarousel = formatEntry.formatKey === "carousel";
+                const formatFolder = resolvePackageFormatFolder(formatEntry.formatKey);
+                const files = resolvePackageFormatFiles(formatEntry.formatKey, formatEntry.assets);
                 return (
                   <div key={formatEntry.formatKey}>
                     {/* Format row */}
                     <div className="pl-6 flex items-center gap-1.5 py-0.5">
-                      {isCarousel ? (
-                        <FolderOpen className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                      ) : formatEntry.filename.endsWith(".png") || formatEntry.filename.endsWith(".jpg") ? (
-                        <FileImage className="h-3.5 w-3.5 text-blue-400 shrink-0" />
-                      ) : (
-                        <FileText className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-                      )}
+                      <FolderOpen className="h-3.5 w-3.5 text-amber-400 shrink-0" />
                       <span className="font-mono text-xs text-foreground/80 truncate">
-                        {isCarousel ? "carousel/" : formatEntry.filename}
+                        {formatFolder}/
                       </span>
                       <span className="ml-auto inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 shrink-0">
                         Generated
                       </span>
                     </div>
-                    {/* Carousel slide children — styled identically to a single-file format row
-                        (e.g. flyer.png): same icon, color and text weight; only the indent reflects
-                        that they live inside the carousel/ folder. */}
-                    {isCarousel && formatEntry.assets.map((asset) => (
-                      <div key={asset.index} className="pl-12 flex items-center gap-1.5 py-0.5">
-                        <FileImage className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                    {/* Deliverable files are shown as the downloadable package contract, not the
+                        stored render-preview asset rows. Flyer/carousel are editable PPTX; script is MD. */}
+                    {files.map((filename) => (
+                      <div key={filename} className="pl-12 flex items-center gap-1.5 py-0.5">
+                        <FileText className="h-3.5 w-3.5 text-violet-400 shrink-0" />
                         <span className="font-mono text-xs text-foreground/80 truncate">
-                          {asset.filename}
+                          {filename}
                         </span>
                       </div>
                     ))}
@@ -3433,12 +3585,25 @@ function PackageTabContent({
         )}
       </div>
 
+      {actionState && (actionState.downloadCount > 0 || actionState.canvaSendCount > 0) && (
+        <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+          <div className="rounded-md border border-border/40 bg-muted/20 px-2 py-1.5">
+            <span className="font-medium text-foreground/70">Downloaded</span>
+            <span className="ml-1">×{actionState.downloadCount}</span>
+          </div>
+          <div className="rounded-md border border-border/40 bg-muted/20 px-2 py-1.5">
+            <span className="font-medium text-foreground/70">Sent to Canva</span>
+            <span className="ml-1">×{actionState.canvaSendCount}</span>
+          </div>
+        </div>
+      )}
+
       {/* Download button */}
       <Button
         size="sm"
         className="w-full h-9 text-xs"
         onClick={onDownload}
-        disabled={!hasAnyGeneratedFormat || !canDownloadPackage || isLoading}
+        disabled={!hasAnyGeneratedFormat || !canDownloadPackage || isLoading || isSendingToCanva}
         title={
           !hasAnyGeneratedFormat
             ? "Generate at least one format first."
@@ -3462,14 +3627,28 @@ function PackageTabContent({
 
       {/* Send to Canva — only when the org has Canva configured. Sends the visual package
           (flyer + carousel slides) as ONE editable multi-page Canva design. */}
-      {canSendToCanva && (
+      {showSendToCanva && (
         <Button
           size="sm"
           variant="outline"
           className="w-full h-9 text-xs"
           onClick={onSendToCanva}
-          disabled={isSendingToCanva || isLoading}
-          title="Send the visual package (flyer + carousel) to Canva as one editable design."
+          disabled={
+            !hasAnyGeneratedFormat ||
+            !canDownloadPackage ||
+            !canSendToCanva ||
+            isLoading ||
+            isSendingToCanva
+          }
+          title={
+            !hasAnyGeneratedFormat
+              ? "Generate at least one format first."
+              : !canDownloadPackage
+              ? "Package is not ready yet."
+              : !canSendToCanva
+              ? "A current generation job is required before sending this package to Canva."
+              : "Send the visual package (flyer + carousel) to Canva as one editable design."
+          }
         >
           {isSendingToCanva ? (
             <span className="flex items-center gap-2">

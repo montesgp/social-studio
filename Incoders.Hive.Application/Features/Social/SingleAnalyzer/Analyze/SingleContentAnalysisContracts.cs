@@ -90,7 +90,10 @@ public sealed record SingleAnalyzerStatusResponse(
     string? FailureMessageKey,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc,
-    DateTime? CompletedAtUtc)
+    DateTime? CompletedAtUtc,
+    int AiAnalysisFailedAttemptCount = 0,
+    bool IsAiAnalysisRetryBlocked = false,
+    DateTime? AiAnalysisRetryBlockedAtUtc = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -124,7 +127,10 @@ public sealed record SingleAnalyzerStatusResponse(
             record.FailureMessageKey,
             record.CreatedAtUtc,
             record.UpdatedAtUtc,
-            record.CompletedAtUtc);
+            record.CompletedAtUtc,
+            record.AiAnalysisFailedAttemptCount,
+            record.AiAnalysisFailedAttemptCount >= SingleContentAnalyzer.MaxAiAnalysisFailedAttempts,
+            record.AiAnalysisRetryBlockedAtUtc);
     }
 }
 

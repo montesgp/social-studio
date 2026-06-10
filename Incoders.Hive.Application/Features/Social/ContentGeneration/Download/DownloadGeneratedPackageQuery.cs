@@ -1,3 +1,4 @@
+using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
 using Incoders.Hive.Domain.Common;
@@ -11,7 +12,8 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Download;
 /// </summary>
 public sealed record DownloadGeneratedPackageQuery(
     Guid JobId,
-    Guid OrganizationId) : IRequest<Result<DownloadGeneratedPackageResponse>>;
+    Guid OrganizationId,
+    Guid? UserId = null) : IRequest<Result<DownloadGeneratedPackageResponse>>;
 
 /// <summary>
 /// Response containing the storage reference and an open read stream for the ZIP.
@@ -36,11 +38,13 @@ public sealed class DownloadGeneratedPackageQueryHandler
     private readonly IContentGenerationJobRepository _jobRepository;
     private readonly IGeneratedPackageRepository _packageRepository;
     private readonly IGeneratedPackageStorage _packageStorage;
+    private readonly IClock? _clock;
 
     public DownloadGeneratedPackageQueryHandler(
         IContentGenerationJobRepository jobRepository,
         IGeneratedPackageRepository packageRepository,
-        IGeneratedPackageStorage packageStorage)
+        IGeneratedPackageStorage packageStorage,
+        IClock? clock = null)
     {
         ArgumentNullException.ThrowIfNull(jobRepository);
         ArgumentNullException.ThrowIfNull(packageRepository);
@@ -49,6 +53,7 @@ public sealed class DownloadGeneratedPackageQueryHandler
         _jobRepository = jobRepository;
         _packageRepository = packageRepository;
         _packageStorage = packageStorage;
+        _clock = clock;
     }
 
     public async Task<Result<DownloadGeneratedPackageResponse>> Handle(
@@ -89,6 +94,13 @@ public sealed class DownloadGeneratedPackageQueryHandler
         // Open the stored ZIP stream
         var storageRef = new StoredPackageRef(package.StorageUri);
         var stream = await _packageStorage.OpenAsync(storageRef, cancellationToken);
+
+        await _packageRepository.MarkDownloadedAsync(
+            job.Id,
+            job.OrganizationId,
+            query.UserId,
+            _clock?.UtcNow ?? DateTime.UtcNow,
+            cancellationToken);
 
         return Result.Success(new DownloadGeneratedPackageResponse(storageRef, stream));
     }

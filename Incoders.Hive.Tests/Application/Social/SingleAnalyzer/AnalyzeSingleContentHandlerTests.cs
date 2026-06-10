@@ -145,7 +145,53 @@ public sealed class AnalyzeSingleContentHandlerTests
         Assert.Equal("integrations.ai_json_invalid", result.Error.Code);
         Assert.Equal(SingleContentAnalysisStatus.Failed, harness.Repository.StoredAnalysis!.Status);
         Assert.Equal("integrations.ai_json_invalid", harness.Repository.StoredAnalysis.FailureCode);
+        Assert.Equal(1, harness.Repository.StoredAnalysis.AiAnalysisFailedAttemptCount);
+        Assert.Null(harness.Repository.StoredAnalysis.AiAnalysisRetryBlockedAtUtc);
         Assert.Null(harness.Repository.StoredAnalysis.AnalysisJson);
+    }
+
+    [Fact]
+    public async Task Handler_BlocksRetryAiAfterSecondFailedAiAttempt()
+    {
+        var organizationId = Guid.NewGuid();
+        var harness = new SingleAnalyzerHarness(Now)
+        {
+            ContentResult = Result.Success(new SocialContentResolution(Snapshot("youtube", warnings: []), [])),
+            AiResult = Result.Failure<AiJsonCompletionResponse<SingleAnalyzerAnalysis>>(IntegrationErrors.AiJsonInvalid)
+        };
+
+        var first = await harness.Analyzer.AnalyzeAsync(
+            new SingleContentAnalysisRequest(
+                organizationId,
+                Guid.NewGuid(),
+                "https://youtu.be/abc123",
+                ClientId: null,
+                PreferredExtractionProviderKey: null),
+            CancellationToken.None);
+
+        Assert.True(first.IsFailure);
+
+        await harness.Analyzer.RetryAiOnlyAsync(
+            harness.Repository.StoredAnalysis!.Id,
+            organizationId,
+            CancellationToken.None);
+
+        Assert.Equal(2, harness.Repository.StoredAnalysis!.AiAnalysisFailedAttemptCount);
+        Assert.NotNull(harness.Repository.StoredAnalysis.AiAnalysisRetryBlockedAtUtc);
+
+        var retryHandler = new RetryAiAnalysisHandler(
+            harness.Repository,
+            harness.UnitOfWork,
+            harness.Clock,
+            harness.Queue);
+
+        var retry = await retryHandler.Handle(
+            new RetryAiAnalysisCommand(harness.Repository.StoredAnalysis.Id, organizationId),
+            CancellationToken.None);
+
+        Assert.True(retry.IsFailure);
+        Assert.Equal("social.single_analyzer.ai_retry_blocked", retry.Error.Code);
+        Assert.DoesNotContain(harness.Queue.Enqueued, job => job.Kind == SingleAnalysisJobKind.RetryAi);
     }
 
     [Fact]

@@ -698,6 +698,9 @@ export interface SingleAnalyzerStatusResponse {
   createdAtUtc: string;
   updatedAtUtc: string;
   completedAtUtc: string | null;
+  aiAnalysisFailedAttemptCount?: number;
+  isAiAnalysisRetryBlocked?: boolean;
+  aiAnalysisRetryBlockedAtUtc?: string | null;
 }
 
 export interface Provenance {
@@ -762,6 +765,8 @@ export type ContentFormatKey =
   | "caption"
   | "hook";
 
+export type PackageManifestFormatKey = ContentFormatKey | "script" | "editable-package";
+
 export interface GeneratePackageRequest {
   clientId?: string | null;
   requestedFormats: ContentFormatKey[];
@@ -787,14 +792,39 @@ export interface FormatPublicationMetadata {
   description: string;
 }
 
+/** File-level manifest metadata for assembled package entries. */
+export interface PackageManifestFileMetadata {
+  filename: string;
+  relative_path: string;
+  mime: string;
+  size_bytes: number;
+  content_hash: string;
+}
+
 /** Manifest metadata for a single rendered format asset. */
 export interface FormatAssetMetadata {
-  formatKey: ContentFormatKey;
+  formatKey?: PackageManifestFormatKey;
+  format_key?: PackageManifestFormatKey;
   mime: string;
   filename: string;
-  sizeBytes: number;
-  contentHash: string;
+  relative_path?: string;
+  sizeBytes?: number;
+  size_bytes?: number;
+  contentHash?: string;
+  content_hash?: string;
   publication?: FormatPublicationMetadata | null;
+  files?: PackageManifestFileMetadata[];
+  assets?: PackageManifestFileMetadata[];
+}
+
+/** Client-first manifest section used by assembled downloadable packages. */
+export interface GeneratedPackageClientManifest {
+  client_folder_name: string;
+  formats?: Partial<Record<PackageManifestFormatKey, FormatAssetMetadata>>;
+  inferred_fields?: string[];
+  warnings?: string[];
+  total_size_bytes?: number;
+  has_stored_assets?: boolean;
 }
 
 /**
@@ -804,10 +834,14 @@ export interface FormatAssetMetadata {
  * result that did NOT make it to the persisted JSON. Consumers must defensive-default these.
  */
 export interface GeneratedPackageManifest {
-  formats?: Partial<Record<ContentFormatKey, FormatAssetMetadata>>;
+  clients?: Record<string, GeneratedPackageClientManifest>;
+  /** Legacy flat manifest shape kept for already-persisted jobs. */
+  formats?: Partial<Record<PackageManifestFormatKey, FormatAssetMetadata>>;
   inferredFields?: string[];
+  inferred_fields?: string[];
   warnings?: string[];
   totalSizeBytes?: number;
+  total_size_bytes?: number;
   /** Normalized client subfolder used inside the ZIP (e.g. "acme-corp"). Present in packages
    *  generated after the per-client folder feature; absent in legacy flat-layout packages.
    *  NOTE: the backend serializes with snake_case so this key is `client_folder_name` in JSON. */
@@ -820,6 +854,13 @@ export interface GeneratedPackageManifest {
   has_stored_assets?: boolean;
 }
 
+export interface PackageActionState {
+  downloadCount: number;
+  lastDownloadedAtUtc: string | null;
+  canvaSendCount: number;
+  lastSentToCanvaAtUtc: string | null;
+}
+
 /**
  * Response from GET /api/social/content-generation-jobs/{jobId}/status.
  * perFormatStatus is a flat dict: formatKey → status string (e.g. "Rendered", "Failed").
@@ -829,9 +870,13 @@ export interface ContentGenerationJobStatusResponse {
   jobId: string;
   status: ContentGenerationJobStatus;
   perFormatStatus: Partial<Record<ContentFormatKey, string>>;
+  /** Failed attempts per format across jobs for this analysis/client scope. */
+  perFormatFailureCounts: Partial<Record<ContentFormatKey, number>>;
   manifest: GeneratedPackageManifest | null;
   /** Failure reason from the backend (codes embedded), used to show actionable error guidance. */
   statusReason: string | null;
+  /** Persisted package actions, used to show previous downloads/sends and discourage abuse. */
+  packageActionState: PackageActionState | null;
 }
 
 // ── INC-6: Multi-client package tree types ────────────────────────────────────

@@ -4,8 +4,9 @@ namespace Incoders.Hive.Domain.Social.ContentGeneration;
 /// Discriminated result of tier-aware background selection (BG-03).
 /// Closed hierarchy — callers must exhaust all cases.
 /// Tier-1: ForcedDefault — no generation needed; the designated image is used as-is.
-/// Tier-2: References  — reference images passed as multimodal style guides to the designer.
-/// Tier-3: Creative    — the designer generates a brand-bound background freely.
+/// Tier-2: References  — manual template/reference images available for the format. The first
+///                       applicable entry is used as the concrete background by the pipeline.
+/// Tier-3: Creative    — no applicable manual template exists; the designer can generate freely.
 /// </summary>
 public abstract record BackgroundSelection
 {
@@ -18,8 +19,9 @@ public abstract record BackgroundSelection
     public sealed record ForcedDefault(string Url, string Name) : BackgroundSelection;
 
     /// <summary>
-    /// Tier-2: one or more reference images are available as visual style guides.
-    /// Passed to the designer as multimodal inputs.
+    /// Tier-2: one or more manual template/reference images are available. Product behavior uses
+    /// the first applicable entry as the background, while still passing the set to the designer
+    /// as creative guidance.
     /// </summary>
     public sealed record References(IReadOnlyList<BrandBackgroundTemplateSnapshot> Entries) : BackgroundSelection;
 

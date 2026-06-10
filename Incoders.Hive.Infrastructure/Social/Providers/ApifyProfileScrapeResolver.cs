@@ -261,7 +261,7 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
         int attemptNumber,
         CancellationToken ct)
     {
-        var input = adapter.BuildProfileActorInput(username, maxPostsPerProfile: 12);
+        var input = adapter.BuildProfileActorInput(actorId, username, maxPostsPerProfile: 12);
         var body = JsonSerializer.Serialize(input, JsonOptions);
         var url = $"https://api.apify.com/v2/acts/{Uri.EscapeDataString(actorId)}/run-sync-get-dataset-items?token={Uri.EscapeDataString(apiKey)}";
 

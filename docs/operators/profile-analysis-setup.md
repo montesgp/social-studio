@@ -18,7 +18,7 @@ This guide tells an operator exactly what to configure so the Profile Analyzer f
 
 ## Required actor_mappings_json entries
 
-Use the **Apify connector UI** (Settings → Integrations → Apify → actor mappings) to add two Instagram actor entries. The UI stores `variantKey: "default"` automatically — no manual JSON editing is needed.
+Use the **Apify connector UI** (Settings → Integrations → Apify → actor mappings) to add two Instagram actor entries for the profile analyzer. If you edit JSON directly, use explicit `variantKey: "profile"` entries so the profile analyzer does not collide with the single-video analyzer.
 
 If you do edit the JSON directly, add these two objects to the existing `actor_mappings_json` array in this exact order:
 
@@ -26,23 +26,27 @@ If you do edit the JSON directly, add these two objects to the existing `actor_m
 [
   {
     "networkKey": "instagram",
-    "actorId": "get-leads~all-in-one-instagram-scraper"
+    "variantKey": "profile",
+    "actorId": "get-leads~all-in-one-instagram-scraper",
+    "isPrimary": true
   },
   {
     "networkKey": "instagram",
-    "actorId": "apify~instagram-profile-scraper"
+    "variantKey": "profile",
+    "actorId": "apify~instagram-profile-scraper",
+    "isPrimary": false
   }
 ]
 ```
 
-> `variantKey` is optional when using the UI. The UI persists `"default"` automatically and the resolver accepts it. If you prefer an explicit override, you may set `"variantKey": "profile"` — the resolver prefers it over `"default"` when both exist.
+> `isPrimary` controls default actor selection when present. If omitted, JSON array order is used. Keep `get-leads~all-in-one-instagram-scraper` primary unless you intentionally want the official Apify actor to run first.
 
 | Position | Role | Actor slug | Apify actor id |
 |---|---|---|---|
 | `[0]` — first entry | Default actor | `get-leads~all-in-one-instagram-scraper` | `iMcuOj3FW9xLIbqET` |
 | `[1]` — second entry | Backup actor (automatic fallback) | `apify~instagram-profile-scraper` | `dSCLg0C3YEZ83HzYX` |
 
-> Array order matters. The system reads array position to determine which actor is default and which is backup. Do not reorder these entries.
+> Array order still matters when `isPrimary` is absent. When `isPrimary` is present, the primary entry is tried first and the remaining entries are used as fallback candidates.
 
 ---
 
@@ -50,20 +54,21 @@ If you do edit the JSON directly, add these two objects to the existing `actor_m
 
 | Topic | Decision |
 |---|---|
-| **variantKey** | The integrations UI stores `"default"` for every actor mapping. The resolver first looks for an explicit `"profile"` entry; if none exists it accepts `"default"` entries for the same network. A manual `"profile"` entry (if present) always wins over `"default"`. |
-| **Automatic backup fallback** | If the default actor fails (transport error, HTTP error, empty dataset, or no `resultType=="profile"` item in the response), the system automatically retries with the backup actor once in the same pipeline run. No user action needed. |
+| **variantKey** | Profile Analyzer resolution uses explicit `"profile"` entries. This isolates profile scraping from the single-video Instagram actor. |
+| **Actor-specific input** | `get-leads/all-in-one-instagram-scraper` receives `scrapeMode: "instagram-profile-scraper"`, `profiles[]`, `maxPostsPerProfile`, and `proxyTier: "residential"`. `apify/instagram-profile-scraper` receives `usernames[]`. Do not force one payload shape onto both actors. |
+| **Automatic backup fallback** | If the default actor fails (transport error, HTTP error, empty dataset, input-validation item, or no mappable profile item), the system automatically retries with the backup actor once in the same pipeline run. No user action needed. |
 | **Fallback scope** | Fallback applies ONLY to `variantKey="profile"`. The single-video scrape path is unaffected. |
-| **Missing entries** | If no entry with `networkKey="instagram"` exists (neither `variantKey="profile"` nor `"default"`), every profile analysis request fails immediately with HTTP 422 and code `Integration.ProfileActorNotConfigured`. No Apify call is made. |
+| **Missing entries** | If no entry with `networkKey="instagram"` and `variantKey="profile"` exists, every profile analysis request fails immediately with HTTP 422 and code `Integration.ProfileActorNotConfigured`. No Apify call is made. |
 | **Diagnostics** | Every completed run (success or failure) stores `ProviderDiagnosticsJson` with `actor_id`, `fallback_used`, `posts_received`, `posts_processed`, `degraded_post_count`, `ai_provider_key`, and `ai_model`. Inspect this field via the GET `/api/social/profile-analyzer/{id}` endpoint. |
-| **Proxy** | The adapter enforces RESIDENTIAL proxy (`apifyProxyGroups: ["RESIDENTIAL"]`) for all profile scrapes. Instagram blocks datacenter IPs. Ensure your Apify subscription includes residential proxy credits. |
+| **Proxy** | For the get-leads actor, the adapter sends `proxyTier: "residential"` because Instagram aggressively rate-limits datacenter traffic. The official Apify profile actor has its own `usernames[]` input schema and does not use the get-leads proxy fields. |
 
 ---
 
 ## Checklist
 
-- [ ] `actor_mappings_json` contains entry `[0]` with `networkKey="instagram"` and `actorId="get-leads~all-in-one-instagram-scraper"` (variantKey `"default"` or `"profile"`).
-- [ ] `actor_mappings_json` contains entry `[1]` with `networkKey="instagram"` and `actorId="apify~instagram-profile-scraper"` (variantKey `"default"` or `"profile"`).
-- [ ] Array order is preserved (default first, backup second).
+- [ ] `actor_mappings_json` contains entry `[0]` with `networkKey="instagram"`, `variantKey="profile"`, `actorId="get-leads~all-in-one-instagram-scraper"`, and `isPrimary=true`.
+- [ ] `actor_mappings_json` contains entry `[1]` with `networkKey="instagram"`, `variantKey="profile"`, `actorId="apify~instagram-profile-scraper"`, and `isPrimary=false`.
+- [ ] Array order is preserved unless `isPrimary` is intentionally used to change the default actor.
 - [ ] Existing single-video entries are untouched.
 - [ ] Apify subscription includes RESIDENTIAL proxy credits.
 - [ ] A test profile analysis completes with `status: Analyzed`.

@@ -544,6 +544,12 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
             entity.Property(x => x.FailureCode).HasMaxLength(128);
             entity.Property(x => x.FailureMessageKey).HasMaxLength(200);
+            entity.Property(x => x.AiAnalysisFailedAttemptCount)
+                .HasColumnName("ai_analysis_failed_attempt_count")
+                .IsRequired()
+                .HasDefaultValue(0);
+            entity.Property(x => x.AiAnalysisRetryBlockedAtUtc)
+                .HasColumnName("ai_analysis_retry_blocked_at_utc");
             entity.Property(x => x.PatternSetJson)
                 .HasColumnName("pattern_set_json")
                 .HasColumnType("jsonb");
@@ -751,6 +757,18 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.ManifestJson).HasColumnName("manifest_json").HasColumnType("jsonb").IsRequired();
             entity.Property(x => x.ExpiresAt).HasColumnName("expires_at");
             entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.DownloadCount)
+                .HasColumnName("download_count")
+                .IsRequired()
+                .HasDefaultValue(0);
+            entity.Property(x => x.LastDownloadedAtUtc).HasColumnName("last_downloaded_at_utc");
+            entity.Property(x => x.LastDownloadedByUserId).HasColumnName("last_downloaded_by_user_id");
+            entity.Property(x => x.CanvaSendCount)
+                .HasColumnName("canva_send_count")
+                .IsRequired()
+                .HasDefaultValue(0);
+            entity.Property(x => x.LastSentToCanvaAtUtc).HasColumnName("last_sent_to_canva_at_utc");
+            entity.Property(x => x.LastSentToCanvaByUserId).HasColumnName("last_sent_to_canva_by_user_id");
 
             // 1:1 with job — unique FK
             entity.HasIndex(x => x.JobId)

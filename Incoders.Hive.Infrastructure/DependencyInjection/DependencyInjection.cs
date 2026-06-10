@@ -159,6 +159,7 @@ public static class DependencyInjection
         services.AddScoped<IClientBrandSnapshotLoader, EfClientBrandSnapshotLoader>();
         services.AddScoped<IContentGenerationJobRepository, EfContentGenerationJobRepository>();
         services.AddScoped<IContentGenerationFormatResultRepository, EfContentGenerationFormatResultRepository>();
+        services.AddScoped<IContentGenerationFailurePolicy, EfContentGenerationFailurePolicy>();
         services.AddScoped<IGeneratedPackageRepository, EfGeneratedPackageRepository>();
         services.AddScoped<IContentGenerationFormatAssetRepository, EfContentGenerationFormatAssetRepository>();
         // Per-platform Apify scrape adapters (ISocialPlatformScrapeAdapter)

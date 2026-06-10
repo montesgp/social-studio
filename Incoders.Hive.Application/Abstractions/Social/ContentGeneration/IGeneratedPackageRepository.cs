@@ -8,6 +8,22 @@ public interface IGeneratedPackageRepository
     Task InsertAsync(GeneratedPackage package, CancellationToken ct);
 
     Task<GeneratedPackage?> GetByJobIdAsync(Guid jobId, Guid organizationId, CancellationToken ct);
+
+    Task MarkDownloadedAsync(
+        Guid jobId,
+        Guid organizationId,
+        Guid? userId,
+        DateTime downloadedAtUtc,
+        CancellationToken ct) =>
+        Task.CompletedTask;
+
+    Task MarkSentToCanvaAsync(
+        Guid jobId,
+        Guid organizationId,
+        Guid? userId,
+        DateTime sentAtUtc,
+        CancellationToken ct) =>
+        Task.CompletedTask;
 }
 
 /// <summary>
@@ -20,4 +36,16 @@ public sealed record GeneratedPackage(
     long SizeBytes,
     string ManifestJson,
     DateTime? ExpiresAt,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    int DownloadCount = 0,
+    DateTime? LastDownloadedAtUtc = null,
+    Guid? LastDownloadedByUserId = null,
+    int CanvaSendCount = 0,
+    DateTime? LastSentToCanvaAtUtc = null,
+    Guid? LastSentToCanvaByUserId = null);
+
+public sealed record GeneratedPackageActionState(
+    int DownloadCount,
+    DateTime? LastDownloadedAtUtc,
+    int CanvaSendCount,
+    DateTime? LastSentToCanvaAtUtc);

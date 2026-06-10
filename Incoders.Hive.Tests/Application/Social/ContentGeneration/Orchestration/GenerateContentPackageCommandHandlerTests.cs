@@ -177,6 +177,35 @@ public sealed class GenerateContentPackageCommandHandlerTests
         Assert.Single(queue.Enqueued);
     }
 
+    [Fact]
+    public async Task Handle_FormatHasTwoFailedAttempts_ReturnsConflictAndDoesNotEnqueue()
+    {
+        var analysis = MakeAnalysisRecord(OrgId);
+        var analysisRepo = new FakeAnalysisRepository(analysis);
+        var jobRepo = new FakeContentGenerationJobRepository();
+        var queue = new FakeContentGenerationJobQueue();
+        var failurePolicy = new FakeContentGenerationFailurePolicy(new Dictionary<string, int>
+        {
+            ["flyer"] = GenerateContentPackageCommandHandler.MaxFailedAttemptsPerFormat,
+        });
+        var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue, failurePolicy);
+
+        var command = new GenerateContentPackageCommand(
+            OrganizationId: OrgId,
+            ClientId: ClientId,
+            AnalysisId: AnalysisId,
+            RequestedFormats: ["flyer"],
+            CorrelationId: null);
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ErrorType.Conflict, result.Error.Type);
+        Assert.Equal("content-gen.regeneration-blocked", result.Error.Code);
+        Assert.Empty(jobRepo.Inserted);
+        Assert.Empty(queue.Enqueued);
+    }
+
     // ─── Cross-tenant: analysis belongs to a different org ──────────────────
 
     [Fact]
@@ -384,4 +413,22 @@ file sealed class FakeContentGenerationJobQueue : IContentGenerationJobQueue
 
     public IAsyncEnumerable<Guid> DequeueAllAsync(CancellationToken ct) =>
         throw new NotSupportedException("Not needed in this test.");
+}
+
+file sealed class FakeContentGenerationFailurePolicy(
+    IReadOnlyDictionary<string, int> counts) : IContentGenerationFailurePolicy
+{
+    public Task<IReadOnlyDictionary<string, int>> CountFailedAttemptsByFormatAsync(
+        Guid organizationId,
+        Guid analysisId,
+        Guid clientId,
+        IReadOnlyCollection<string> formatKeys,
+        CancellationToken cancellationToken)
+    {
+        var result = formatKeys
+            .Where(counts.ContainsKey)
+            .ToDictionary(format => format, format => counts[format], StringComparer.OrdinalIgnoreCase);
+
+        return Task.FromResult<IReadOnlyDictionary<string, int>>(result);
+    }
 }

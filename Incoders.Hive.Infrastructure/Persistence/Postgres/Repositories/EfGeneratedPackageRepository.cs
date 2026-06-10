@@ -30,6 +30,50 @@ public sealed class EfGeneratedPackageRepository : IGeneratedPackageRepository
         return entity is null ? null : Map(entity);
     }
 
+    public async Task MarkDownloadedAsync(
+        Guid jobId,
+        Guid organizationId,
+        Guid? userId,
+        DateTime downloadedAtUtc,
+        CancellationToken ct)
+    {
+        var entity = await _db.GeneratedPackages
+            .Include(x => x.Job)
+            .FirstOrDefaultAsync(x => x.JobId == jobId && x.Job!.OrganizationId == organizationId, ct);
+
+        if (entity is null)
+        {
+            return;
+        }
+
+        entity.DownloadCount += 1;
+        entity.LastDownloadedAtUtc = downloadedAtUtc;
+        entity.LastDownloadedByUserId = userId;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task MarkSentToCanvaAsync(
+        Guid jobId,
+        Guid organizationId,
+        Guid? userId,
+        DateTime sentAtUtc,
+        CancellationToken ct)
+    {
+        var entity = await _db.GeneratedPackages
+            .Include(x => x.Job)
+            .FirstOrDefaultAsync(x => x.JobId == jobId && x.Job!.OrganizationId == organizationId, ct);
+
+        if (entity is null)
+        {
+            return;
+        }
+
+        entity.CanvaSendCount += 1;
+        entity.LastSentToCanvaAtUtc = sentAtUtc;
+        entity.LastSentToCanvaByUserId = userId;
+        await _db.SaveChangesAsync(ct);
+    }
+
     private static GeneratedPackageData Map(GeneratedPackage p) => new()
     {
         Id = p.Id,
@@ -39,6 +83,12 @@ public sealed class EfGeneratedPackageRepository : IGeneratedPackageRepository
         ManifestJson = p.ManifestJson,
         ExpiresAt = p.ExpiresAt,
         CreatedAt = p.CreatedAt,
+        DownloadCount = p.DownloadCount,
+        LastDownloadedAtUtc = p.LastDownloadedAtUtc,
+        LastDownloadedByUserId = p.LastDownloadedByUserId,
+        CanvaSendCount = p.CanvaSendCount,
+        LastSentToCanvaAtUtc = p.LastSentToCanvaAtUtc,
+        LastSentToCanvaByUserId = p.LastSentToCanvaByUserId,
     };
 
     private static GeneratedPackage Map(GeneratedPackageData e) => new(
@@ -48,5 +98,11 @@ public sealed class EfGeneratedPackageRepository : IGeneratedPackageRepository
         SizeBytes: e.SizeBytes,
         ManifestJson: e.ManifestJson,
         ExpiresAt: e.ExpiresAt,
-        CreatedAt: e.CreatedAt);
+        CreatedAt: e.CreatedAt,
+        DownloadCount: e.DownloadCount,
+        LastDownloadedAtUtc: e.LastDownloadedAtUtc,
+        LastDownloadedByUserId: e.LastDownloadedByUserId,
+        CanvaSendCount: e.CanvaSendCount,
+        LastSentToCanvaAtUtc: e.LastSentToCanvaAtUtc,
+        LastSentToCanvaByUserId: e.LastSentToCanvaByUserId);
 }

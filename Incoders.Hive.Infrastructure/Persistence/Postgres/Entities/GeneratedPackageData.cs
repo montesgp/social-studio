@@ -29,6 +29,18 @@ public sealed class GeneratedPackageData
 
     public DateTime CreatedAt { get; set; }
 
+    public int DownloadCount { get; set; }
+
+    public DateTime? LastDownloadedAtUtc { get; set; }
+
+    public Guid? LastDownloadedByUserId { get; set; }
+
+    public int CanvaSendCount { get; set; }
+
+    public DateTime? LastSentToCanvaAtUtc { get; set; }
+
+    public Guid? LastSentToCanvaByUserId { get; set; }
+
     // Navigation
     public ContentGenerationJobData? Job { get; set; }
 }

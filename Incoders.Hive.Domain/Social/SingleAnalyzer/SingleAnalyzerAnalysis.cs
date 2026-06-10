@@ -63,7 +63,8 @@ public sealed record SingleAnalyzerAnalysis(
             || ClientAdaptationRecommendations is null
             || ClientAdaptationRecommendations.Count == 0
             || Confidence is < 0 or > 1
-            || DerivedIdeas.Any(x => !x.IsValid()))
+            || DerivedIdeas.Any(x => !x.IsValid())
+            || (Patterns is not null && !Patterns.IsValid()))
         {
             return Result.Failure(SingleAnalyzerErrors.AnalysisInvalid);
         }

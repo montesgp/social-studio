@@ -130,7 +130,10 @@ public sealed class OpusVisualDesigner : IVisualDesigner
                 BackgroundUrl: fd.Url,
                 BackgroundName: fd.Name,
                 ReferenceUrls: null,
-                Description: $"Use the exact background image at URL: {fd.Url}"),
+                Description:
+                    "MANDATORY: use the exact brand-manual background template as the full-bleed " +
+                    $"background image. Do not invent, replace, recolor, crop creatively, or add generated " +
+                    $"background art. Template URL: {fd.Url}"),
 
             BackgroundSelection.References refs => new BackgroundGuidanceDto(
                 Tier: "references",
@@ -138,9 +141,12 @@ public sealed class OpusVisualDesigner : IVisualDesigner
                 BackgroundName: null,
                 ReferenceUrls: refs.Entries.Select(e => e.Url).ToArray(),
                 Description:
-                    // FOLLOW-UP: when IAiCompletionGateway supports multimodal vision blocks,
-                    // pass the reference images as image inputs rather than URLs in text.
-                    "Use these reference images for visual style guidance (text-only fallback — vision is a follow-up): "
+                    // Product rule: Incoders-Hive will hard-enforce the first applicable manual
+                    // template as the actual rendered background. The URLs are still passed so the
+                    // agent can align copy/hierarchy with the image it will be placed on.
+                    "Manual background templates are available. Incoders-Hive will use the first applicable " +
+                    "template as the actual full-bleed background; design only the text hierarchy/components " +
+                    "that sit on top of it. Template URLs: "
                     + string.Join(", ", refs.Entries.Select(e => e.Url))),
 
             BackgroundSelection.Creative => new BackgroundGuidanceDto(

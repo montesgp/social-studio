@@ -63,32 +63,107 @@ public sealed class ApifyProfileScrapeAdapterTests
         Assert.Null(result);
     }
 
-    // ── PA-04: RESIDENTIAL proxy present in built actor input ──────────────────
+    // ── PA-04: actor-specific inputs keep Apify contracts valid ───────────────
 
     [Fact]
-    public void BuildActorInput_IncludesResidentialProxyGroup()
+    public void BuildActorInput_ForGetLeadsActor_UsesProfilesAndProxyTier()
     {
         var adapter = new InstagramProfileApifyScrapeAdapter();
 
-        var input = adapter.BuildProfileActorInput("testbrand", maxPostsPerProfile: 12);
+        var input = adapter.BuildProfileActorInput(
+            "get-leads/all-in-one-instagram-scraper",
+            "testbrand",
+            maxPostsPerProfile: 12);
         var json = JsonSerializer.Serialize(input);
 
-        Assert.Contains("RESIDENTIAL", json);
-        Assert.Contains("useApifyProxy", json);
-        Assert.Contains("apifyProxyGroups", json);
+        Assert.Contains("\"profiles\"", json);
+        Assert.Contains("\"testbrand\"", json);
+        Assert.Contains("\"scrapeMode\":\"instagram-profile-scraper\"", json);
+        Assert.Contains("\"maxPostsPerProfile\":12", json);
+        Assert.Contains("\"proxyTier\":\"residential\"", json);
+        Assert.DoesNotContain("\"proxy\"", json);
+        Assert.DoesNotContain("\"usernames\"", json);
     }
 
     [Fact]
-    public void BuildActorInput_IncludesScrapeModeAndProfile()
+    public void BuildActorInput_ForOfficialApifyProfileActor_UsesUsernames()
     {
         var adapter = new InstagramProfileApifyScrapeAdapter();
 
-        var input = adapter.BuildProfileActorInput("testbrand", maxPostsPerProfile: 12);
+        var input = adapter.BuildProfileActorInput(
+            "apify/instagram-profile-scraper",
+            "testbrand",
+            maxPostsPerProfile: 12);
         var json = JsonSerializer.Serialize(input);
 
-        Assert.Contains("instagram-profile-scraper", json);
-        Assert.Contains("testbrand", json);
-        Assert.Contains("maxPostsPerProfile", json);
+        Assert.Contains("\"usernames\"", json);
+        Assert.Contains("\"testbrand\"", json);
+        Assert.DoesNotContain("\"profiles\"", json);
+        Assert.DoesNotContain("\"scrapeMode\"", json);
+        Assert.DoesNotContain("\"proxy\"", json);
+    }
+
+    [Fact]
+    public void MapProfileResponse_MapsOfficialApifyProfileObjectWithoutResultType()
+    {
+        var adapter = new InstagramProfileApifyScrapeAdapter();
+        var json = JsonSerializer.Serialize(new[]
+        {
+            new
+            {
+                inputUrl = "https://www.instagram.com/testbrand",
+                id = "242598499",
+                username = "testbrand",
+                followersCount = 150000,
+                followsCount = 200,
+                postsCount = 100,
+                verified = true,
+                isBusinessAccount = true,
+                businessCategoryName = "Marketing",
+                latestPosts = new[]
+                {
+                    new
+                    {
+                        shortCode = "ABC123",
+                        mediaType = "Image",
+                        likesCount = 1200,
+                        commentsCount = 30,
+                        timestamp = "2026-05-01T10:00:00.000Z",
+                        ownerUsername = "testbrand",
+                        hashtags = new[] { "marketing" }
+                    }
+                }
+            }
+        });
+
+        var result = adapter.MapProfileResponse(json);
+
+        Assert.NotNull(result);
+        Assert.Equal("testbrand", result!.Profile.Username);
+        Assert.Equal("242598499", result.Profile.InstagramId);
+        Assert.True(result.Profile.IsVerified);
+        var post = Assert.Single(result.AllPosts);
+        Assert.Equal("ABC123", post.PostId);
+        Assert.Equal("242598499", post.OwnerId);
+    }
+
+    [Fact]
+    public void MapProfileResponse_DoesNotMapInputValidationErrorAsProfile()
+    {
+        var adapter = new InstagramProfileApifyScrapeAdapter();
+        var json = JsonSerializer.Serialize(new[]
+        {
+            new
+            {
+                resultType = "input_validation_error",
+                message = "Unknown input field proxy",
+                hint = "Use proxyTier instead."
+            }
+        });
+
+        var result = adapter.MapProfileResponse(json);
+
+        Assert.Null(result);
     }
 
     // ── Post mapping: all posts carried raw including non-owner ────────────────

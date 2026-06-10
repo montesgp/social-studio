@@ -48,4 +48,8 @@ public static class SingleAnalyzerErrors
     public static readonly Error AnalysisFailed = Error.Failure(
         "social.single_analyzer.analysis_failed",
         "social.single_analyzer.errors.analysis_failed");
+
+    public static readonly Error AiRetryBlocked = Error.Conflict(
+        "social.single_analyzer.ai_retry_blocked",
+        "social.single_analyzer.errors.ai_retry_blocked");
 }

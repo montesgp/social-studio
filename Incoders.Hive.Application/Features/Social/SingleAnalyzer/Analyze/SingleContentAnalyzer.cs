@@ -15,6 +15,7 @@ namespace Incoders.Hive.Application.Features.Social.SingleAnalyzer.Analyze;
 public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
 {
     private const string FlowKey = "single-analyzer";
+    internal const int MaxAiAnalysisFailedAttempts = 2;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -159,7 +160,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             _logger.LogWarning(
                 "Single Analyzer retry-AI: analysis {AnalysisId} has no persisted snapshot; cannot retry AI without re-scraping.",
                 analysisId);
-            await PersistFailureAsync(analysis, SingleAnalyzerErrors.AnalysisFailed, [], cancellationToken);
+            await PersistFailureAsync(analysis, SingleAnalyzerErrors.AnalysisFailed, [], cancellationToken, countAiFailure: true);
             return;
         }
 
@@ -170,7 +171,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
                 "Single Analyzer retry-AI: AI provider selection failed for org {OrganizationId}: {ErrorCode}.",
                 organizationId,
                 selectedAi.Error.Code);
-            await PersistFailureAsync(analysis, selectedAi.Error, [], cancellationToken);
+            await PersistFailureAsync(analysis, selectedAi.Error, [], cancellationToken, countAiFailure: true);
             return;
         }
 
@@ -201,7 +202,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
                 ex,
                 "Single Analyzer retry-AI: persisted snapshot for {AnalysisId} is not valid JSON.",
                 analysis.Id);
-            await PersistFailureAsync(analysis, SingleAnalyzerErrors.AnalysisFailed, [], cancellationToken);
+            await PersistFailureAsync(analysis, SingleAnalyzerErrors.AnalysisFailed, [], cancellationToken, countAiFailure: true);
             return;
         }
 
@@ -236,7 +237,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             _logger.LogError(ex, "Single Analyzer retry-AI: analysis {AnalysisId} threw.", analysis.Id);
-            await PersistFailureAsync(analysis, SingleAnalyzerErrors.AnalysisFailed, [], CancellationToken.None);
+            await PersistFailureAsync(analysis, SingleAnalyzerErrors.AnalysisFailed, [], CancellationToken.None, countAiFailure: true);
             return;
         }
 
@@ -247,14 +248,14 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
                 analysis.Id,
                 selectedAi.Value.ProviderKey,
                 ai.Error.Code);
-            await PersistFailureAsync(analysis, ai.Error, [], cancellationToken);
+            await PersistFailureAsync(analysis, ai.Error, [], cancellationToken, countAiFailure: true);
             return;
         }
 
         var aiValidation = ai.Value.Payload.Validate();
         if (aiValidation.IsFailure)
         {
-            await PersistFailureAsync(analysis, aiValidation.Error, [], cancellationToken);
+            await PersistFailureAsync(analysis, aiValidation.Error, [], cancellationToken, countAiFailure: true);
             return;
         }
 
@@ -441,24 +442,38 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             ctx.AiModel ?? "(provider default)");
 
         Result<AiJsonCompletionResponse<SingleAnalyzerAnalysis>> ai;
-        using (_providerCallContext?.Begin(
-                   request.OrganizationId,
-                   request.ClientId,
-                   workflowKey: FlowKey,
-                   pipelineStepKey: "ai-analysis",
-                   promptVersion: ctx.PromptVersionKey,
-                   correlationId))
+        try
         {
-            ai = await _aiGateway.CompleteJsonAsync<SingleAnalyzerAnalysis>(
-                new AiJsonCompletionRequest(
-                    request.OrganizationId,
-                    analysis.Id,
-                    ctx.AiCapabilityKey,
-                    ctx.PromptVersionKey,
-                    JsonSerializer.Serialize(CreateAiInput(ctx.SourceUrl, content.Value.Snapshot), JsonOptions),
-                    ctx.AiProviderKey,
-                    ctx.AiModel),
-                cancellationToken);
+            using (_providerCallContext?.Begin(
+                       request.OrganizationId,
+                       request.ClientId,
+                       workflowKey: FlowKey,
+                       pipelineStepKey: "ai-analysis",
+                       promptVersion: ctx.PromptVersionKey,
+                       correlationId))
+            {
+                ai = await _aiGateway.CompleteJsonAsync<SingleAnalyzerAnalysis>(
+                    new AiJsonCompletionRequest(
+                        request.OrganizationId,
+                        analysis.Id,
+                        ctx.AiCapabilityKey,
+                        ctx.PromptVersionKey,
+                        JsonSerializer.Serialize(CreateAiInput(ctx.SourceUrl, content.Value.Snapshot), JsonOptions),
+                        ctx.AiProviderKey,
+                        ctx.AiModel),
+                    cancellationToken);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogError(ex, "Single Analyzer: AI analysis threw for analysis {AnalysisId}.", analysis.Id);
+            await PersistFailureAsync(
+                analysis,
+                SingleAnalyzerErrors.AnalysisFailed,
+                content.Value.Diagnostics,
+                CancellationToken.None,
+                countAiFailure: true);
+            return Result.Failure<SingleContentAnalysisResponse>(SingleAnalyzerErrors.AnalysisFailed);
         }
 
         if (ai.IsFailure)
@@ -468,7 +483,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
                 analysis.Id,
                 ctx.AiProviderKey,
                 ai.Error.Code);
-            await PersistFailureAsync(analysis, ai.Error, content.Value.Diagnostics, cancellationToken);
+            await PersistFailureAsync(analysis, ai.Error, content.Value.Diagnostics, cancellationToken, countAiFailure: true);
             return Result.Failure<SingleContentAnalysisResponse>(ai.Error);
         }
 
@@ -479,7 +494,8 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
                 analysis,
                 aiValidation.Error,
                 MergeDiagnostics(content.Value.Diagnostics, ai.Value.Diagnostics),
-                cancellationToken);
+                cancellationToken,
+                countAiFailure: true);
             return Result.Failure<SingleContentAnalysisResponse>(aiValidation.Error);
         }
 
@@ -597,9 +613,14 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         SingleContentAnalysisRecord analysis,
         Error error,
         IReadOnlyList<ProviderFailureDiagnostic> diagnostics,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool countAiFailure = false)
     {
         var now = _clock.UtcNow;
+        var aiFailedAttempts = countAiFailure
+            ? analysis.AiAnalysisFailedAttemptCount + 1
+            : analysis.AiAnalysisFailedAttemptCount;
+
         var failed = analysis with
         {
             Status = SingleContentAnalysisStatus.Failed,
@@ -607,7 +628,13 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             FailureCode = error.Code,
             FailureMessageKey = error.MessageKey,
             UpdatedAtUtc = now,
-            CompletedAtUtc = now
+            CompletedAtUtc = now,
+            AiAnalysisFailedAttemptCount = aiFailedAttempts,
+            AiAnalysisRetryBlockedAtUtc = countAiFailure
+                && aiFailedAttempts >= MaxAiAnalysisFailedAttempts
+                && analysis.AiAnalysisRetryBlockedAtUtc is null
+                    ? now
+                    : analysis.AiAnalysisRetryBlockedAtUtc
         };
 
         await _analyses.UpdateAsync(failed, cancellationToken);

@@ -24,9 +24,36 @@ export interface AnalyzeSingleContentPayload {
 }
 
 const FALLBACK_THUMBNAIL_PATH = "/images/thumbnail-unavailable.svg";
+const BLOCKED_DIRECT_THUMBNAIL_HOST_SUFFIXES = [
+  "fbcdn.net",
+  "cdninstagram.com",
+  "instagram.com",
+];
 
 function normalizeComparableText(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
+}
+
+function isBlockedDirectThumbnailUrl(value: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(value);
+    if (protocol !== "http:" && protocol !== "https:") return true;
+
+    const normalizedHost = hostname.toLowerCase();
+    return BLOCKED_DIRECT_THUMBNAIL_HOST_SUFFIXES.some(
+      (suffix) => normalizedHost === suffix || normalizedHost.endsWith(`.${suffix}`)
+    );
+  } catch {
+    return true;
+  }
+}
+
+function resolveSafeThumbnailUrl(rawValue: string): { thumbnailUrl: string; isFallback: boolean } {
+  if (rawValue.length === 0 || isBlockedDirectThumbnailUrl(rawValue)) {
+    return { thumbnailUrl: FALLBACK_THUMBNAIL_PATH, isFallback: true };
+  }
+
+  return { thumbnailUrl: rawValue, isFallback: false };
 }
 
 /**
@@ -142,7 +169,7 @@ export function mapBackendResponseToResult(
     description.length > 0 &&
     normalizeComparableText(title) === normalizeComparableText(description);
   const rawThumbnailUrl = snapshot?.thumbnailUrl?.trim() ?? "";
-  const hasThumbnail = rawThumbnailUrl.length > 0;
+  const thumbnail = resolveSafeThumbnailUrl(rawThumbnailUrl);
   const resolvedTitle =
     primaryHook && (title.length === 0 || titleEqualsDescription)
       ? primaryHook
@@ -157,7 +184,7 @@ export function mapBackendResponseToResult(
     inputUrl: response.sourceUrl,
     searchQuery: "",
     networkSource: response.platformKey,
-    thumbnailUrl: hasThumbnail ? rawThumbnailUrl : FALLBACK_THUMBNAIL_PATH,
+    thumbnailUrl: thumbnail.thumbnailUrl,
     videoUrl:
       snapshot?.mediaReferences.find((r) => r.kind === "video")?.uri ??
       snapshot?.canonicalUrl ??
@@ -198,6 +225,9 @@ export function mapBackendResponseToResult(
     hashtags: snapshot?.tags ?? [],
     dataSource: "apify",
     primaryHook,
-    isFallbackThumbnail: !hasThumbnail,
+    isFallbackThumbnail: thumbnail.isFallback,
+    aiAnalysisFailedAttemptCount: response.aiAnalysisFailedAttemptCount ?? 0,
+    isAiAnalysisRetryBlocked: response.isAiAnalysisRetryBlocked ?? false,
+    aiAnalysisRetryBlockedAtUtc: response.aiAnalysisRetryBlockedAtUtc ?? null,
   };
 }

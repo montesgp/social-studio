@@ -79,6 +79,57 @@ public sealed class ContentGenerationJobProcessorVisualTests
         Assert.IsType<BackgroundSelection.ForcedDefault>(designerSpy.ReceivedSelection);
     }
 
+    [Fact]
+    public async Task Pipeline_Tier1ForcedDefault_OverridesDesignerBackgroundLayerBeforeRender()
+    {
+        // GIVEN the AI designer returns a generic black background, but the client brand manual
+        // defines a forced default flyer template
+        var rendererSpy = new CapturingGeometryRenderer();
+
+        var processor = BuildProcessor(
+            formatKey: "flyer",
+            payload: new object(),
+            renderer: rendererSpy,
+            designer: new SucceedingDesigner(),
+            guardrails: new PassingGuardrailValidator(),
+            brandWithForcedDefault: true);
+
+        // WHEN processing runs
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        // THEN the renderer receives markup whose background layer is the forced brand template,
+        // not whatever free-form background the AI invented.
+        Assert.True(rendererSpy.WasCalled);
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("https://cdn.example.com/forced-flyer-bg.png", rendererSpy.ReceivedMarkup);
+        Assert.Contains("data-background-source=\"brand-manual-forced-default\"", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("class=\"layer-background\"", rendererSpy.ReceivedMarkup);
+    }
+
+    [Fact]
+    public async Task Pipeline_AnyManualBackgroundTemplate_OverridesDesignerBackgroundLayerBeforeRender()
+    {
+        // GIVEN a client has a background image in the manual, but it is a legacy/default row
+        // rather than a ForcedDefault row
+        var rendererSpy = new CapturingGeometryRenderer();
+
+        var processor = BuildProcessor(
+            formatKey: "flyer",
+            payload: new object(),
+            renderer: rendererSpy,
+            designer: new SucceedingDesigner(),
+            guardrails: new PassingGuardrailValidator(),
+            brandWithLegacyBackground: true);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.True(rendererSpy.WasCalled);
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("https://cdn.example.com/manual-bg.png", rendererSpy.ReceivedMarkup);
+        Assert.Contains("data-background-source=\"brand-manual-template\"", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("class=\"layer-background\"", rendererSpy.ReceivedMarkup);
+    }
+
     // -----------------------------------------------------------------------
     // B1a-fix [RED]: no-op (IsActive=false) designer MUST NOT fail flyer/carousel
     // -----------------------------------------------------------------------
@@ -222,6 +273,26 @@ public sealed class ContentGenerationJobProcessorVisualTests
                 Notes: null),
             null, null);
 
+    private static BrandSnapshot BuildBrandWithLegacyBackground() =>
+        BrandSnapshot.FromBrandData(
+            new BrandManualSnapshot(
+                ColorPalette: new[] { "#FFFFFF", "#000000" },
+                Logos: Array.Empty<string>(),
+                BackgroundTemplates:
+                [
+                    new BrandBackgroundTemplateSnapshot(
+                        "manual-bg",
+                        "https://cdn.example.com/manual-bg.png",
+                        null,
+                        BackgroundTier.Creative,
+                        null,
+                        false)
+                ],
+                Typography: new[] { "Inter" },
+                VoiceAndTone: null,
+                Notes: null),
+            null, null);
+
     private ContentGenerationJobProcessor BuildProcessor(
         string formatKey,
         object payload,
@@ -229,6 +300,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
         IVisualDesigner designer,
         IVisualGuardrailValidator guardrails,
         bool brandWithForcedDefault = false,
+        bool brandWithLegacyBackground = false,
         ProviderCallContext? providerCallContext = null)
     {
         var fakeJob = new ContentGenerationJob(
@@ -281,9 +353,15 @@ public sealed class ContentGenerationJobProcessorVisualTests
 
         var brandLoader = brandWithForcedDefault
             ? (IClientBrandSnapshotLoader)new ForcedDefaultBrandLoader()
+            : brandWithLegacyBackground
+                ? new LegacyBackgroundBrandLoader()
             : new EmptyBrandLoader();
 
-        var brand = brandWithForcedDefault ? BuildBrandWithForcedDefault() : BrandSnapshot.FromBrandData(null, null, null);
+        var brand = brandWithForcedDefault
+            ? BuildBrandWithForcedDefault()
+            : brandWithLegacyBackground
+                ? BuildBrandWithLegacyBackground()
+                : BrandSnapshot.FromBrandData(null, null, null);
 
         return new ContentGenerationJobProcessor(
             jobs: new SimpleJobRepository(fakeJob),
@@ -319,6 +397,33 @@ file sealed class SpyRenderer : IContentRenderer
         var bytes = System.Text.Encoding.UTF8.GetBytes($"fake-{spec.FormatKey}-content");
         var asset = RenderedAsset.Create(spec.FormatKey, "text/plain", $"{spec.FormatKey}.txt", bytes);
         return Task.FromResult(Result<RenderedAsset>.Success(asset));
+    }
+}
+
+file sealed class CapturingGeometryRenderer : IContentRendererWithGeometry
+{
+    public bool WasCalled { get; private set; }
+    public string? ReceivedMarkup { get; private set; }
+
+    public Task<Result<RenderedAsset>> RenderAsync(VisualCompositionSpec spec, RenderOptions opts, CancellationToken ct)
+    {
+        WasCalled = true;
+        ReceivedMarkup = spec.DesignerMarkup;
+        var bytes = System.Text.Encoding.UTF8.GetBytes($"fake-{spec.FormatKey}-content");
+        var asset = RenderedAsset.Create(spec.FormatKey, "image/png", $"{spec.FormatKey}.png", bytes);
+        return Task.FromResult(Result<RenderedAsset>.Success(asset));
+    }
+
+    public Task<Result<RenderedAssetWithGeometry>> RenderWithGeometryAsync(
+        VisualCompositionSpec spec,
+        RenderOptions opts,
+        CancellationToken ct)
+    {
+        WasCalled = true;
+        ReceivedMarkup = spec.DesignerMarkup;
+        var bytes = System.Text.Encoding.UTF8.GetBytes($"fake-{spec.FormatKey}-content");
+        var asset = RenderedAsset.Create(spec.FormatKey, "image/png", $"{spec.FormatKey}.png", bytes);
+        return Task.FromResult(Result.Success(new RenderedAssetWithGeometry(asset, [], null)));
     }
 }
 
@@ -496,6 +601,30 @@ file sealed class ForcedDefaultBrandLoader : IClientBrandSnapshotLoader
                     BackgroundTier.ForcedDefault,
                     "flyer",
                     true)
+            ],
+            Typography: new[] { "Inter" },
+            VoiceAndTone: null,
+            Notes: null);
+        return Task.FromResult(BrandSnapshot.FromBrandData(brand, null, null));
+    }
+}
+
+file sealed class LegacyBackgroundBrandLoader : IClientBrandSnapshotLoader
+{
+    public Task<BrandSnapshot> LoadAsync(Guid orgId, Guid clientId, CancellationToken ct = default)
+    {
+        var brand = new BrandManualSnapshot(
+            ColorPalette: new[] { "#FFFFFF", "#000000" },
+            Logos: Array.Empty<string>(),
+            BackgroundTemplates:
+            [
+                new BrandBackgroundTemplateSnapshot(
+                    "manual-bg",
+                    "https://cdn.example.com/manual-bg.png",
+                    null,
+                    BackgroundTier.Creative,
+                    null,
+                    false)
             ],
             Typography: new[] { "Inter" },
             VoiceAndTone: null,

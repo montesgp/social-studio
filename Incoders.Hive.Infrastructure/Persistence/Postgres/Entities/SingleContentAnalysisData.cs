@@ -34,6 +34,10 @@ public sealed class SingleContentAnalysisData
     /// </summary>
     public string? PatternSetJson { get; set; }
 
+    public int AiAnalysisFailedAttemptCount { get; set; }
+
+    public DateTime? AiAnalysisRetryBlockedAtUtc { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
 
     public DateTime UpdatedAtUtc { get; set; }

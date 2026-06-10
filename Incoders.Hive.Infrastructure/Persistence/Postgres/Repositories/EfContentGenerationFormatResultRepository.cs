@@ -53,6 +53,23 @@ public sealed class EfContentGenerationFormatResultRepository : IContentGenerati
         return entities.Select(Map).ToList();
     }
 
+    public async Task<IReadOnlyList<ContentGenerationFormatResult>> ListByIdsAsync(
+        IReadOnlySet<Guid> resultIds,
+        CancellationToken ct)
+    {
+        if (resultIds.Count == 0)
+        {
+            return [];
+        }
+
+        var entities = await _db.ContentGenerationFormatResults
+            .AsNoTracking()
+            .Where(x => resultIds.Contains(x.Id))
+            .ToListAsync(ct);
+
+        return entities.Select(Map).ToList();
+    }
+
     private static ContentGenerationFormatResultData Map(ContentGenerationFormatResult r) => new()
     {
         Id = r.Id,

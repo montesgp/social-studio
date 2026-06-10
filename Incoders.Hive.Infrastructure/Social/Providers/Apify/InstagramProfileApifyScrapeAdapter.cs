@@ -41,20 +41,52 @@ internal sealed class InstagramProfileApifyScrapeAdapter
     // ── Input builder ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Builds the Apify actor input for the instagram-profile-scraper.
-    /// RESIDENTIAL proxy is MANDATORY — Instagram blocks datacenter IPs immediately (obs #513).
+    /// Builds the default get-leads all-in-one profile actor input.
+    /// Kept for existing unit tests and call sites; production code should prefer the
+    /// actor-aware overload because Apify profile actors do not share one input schema.
     /// </summary>
     public object BuildProfileActorInput(string username, int maxPostsPerProfile = 12) => new
     {
         scrapeMode = "instagram-profile-scraper",
         profiles = new[] { username },
         maxPostsPerProfile,
-        proxy = new
-        {
-            useApifyProxy = true,
-            apifyProxyGroups = new[] { "RESIDENTIAL" }
-        }
+        proxyTier = "residential"
     };
+
+    /// <summary>
+    /// Builds the Apify actor input using the schema required by the selected actor.
+    /// </summary>
+    /// <remarks>
+    /// The get-leads all-in-one actor uses <c>profiles[]</c> plus <c>scrapeMode</c>.
+    /// The official <c>apify/instagram-profile-scraper</c> actor uses <c>usernames[]</c>.
+    /// Mixing these schemas is not harmless: the official actor returns HTTP 400, and
+    /// get-leads emits an input-validation dataset item instead of a profile result.
+    /// </remarks>
+    public object BuildProfileActorInput(
+        string actorId,
+        string username,
+        int maxPostsPerProfile = 12)
+    {
+        if (IsOfficialApifyProfileActor(actorId))
+        {
+            return new
+            {
+                usernames = new[] { username },
+                includeAboutSection = false
+            };
+        }
+
+        return BuildProfileActorInput(username, maxPostsPerProfile);
+    }
+
+    private static bool IsOfficialApifyProfileActor(string actorId)
+    {
+        var normalized = actorId.Trim().Replace('~', '/');
+        return string.Equals(
+            normalized,
+            "apify/instagram-profile-scraper",
+            StringComparison.OrdinalIgnoreCase);
+    }
 
     // ── Response mapping ──────────────────────────────────────────────────────
 
@@ -68,10 +100,18 @@ internal sealed class InstagramProfileApifyScrapeAdapter
         using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "[]" : json);
         if (doc.RootElement.ValueKind != JsonValueKind.Array)
         {
+            if (LooksLikeProfileResult(doc.RootElement))
+            {
+                var (rootResult, _) = MapProfileElement(doc.RootElement, warnOnNonEmptyReels: false);
+                return rootResult;
+            }
+
             return null;
         }
 
-        // PA-06: find by resultType == "profile", NOT by positional index [0]
+        // PA-06: Prefer resultType == "profile", NOT positional index [0].
+        // The official apify/instagram-profile-scraper returns direct profile objects
+        // without resultType, so fall back to the first object that is profile-shaped.
         JsonElement? profileElement = null;
         foreach (var item in doc.RootElement.EnumerateArray())
         {
@@ -80,6 +120,18 @@ internal sealed class InstagramProfileApifyScrapeAdapter
             {
                 profileElement = item;
                 break;
+            }
+        }
+
+        if (!profileElement.HasValue)
+        {
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (LooksLikeProfileResult(item))
+                {
+                    profileElement = item;
+                    break;
+                }
             }
         }
 
@@ -103,6 +155,11 @@ internal sealed class InstagramProfileApifyScrapeAdapter
         using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "[]" : json);
         if (doc.RootElement.ValueKind != JsonValueKind.Array)
         {
+            if (LooksLikeProfileResult(doc.RootElement))
+            {
+                return MapProfileElement(doc.RootElement, warnOnNonEmptyReels: true);
+            }
+
             return (null, false);
         }
 
@@ -114,6 +171,18 @@ internal sealed class InstagramProfileApifyScrapeAdapter
             {
                 profileElement = item;
                 break;
+            }
+        }
+
+        if (!profileElement.HasValue)
+        {
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (LooksLikeProfileResult(item))
+                {
+                    profileElement = item;
+                    break;
+                }
             }
         }
 
@@ -168,8 +237,12 @@ internal sealed class InstagramProfileApifyScrapeAdapter
         bool warnOnNonEmptyReels)
     {
         var snapshot = MapSnapshot(el);
-        var allPosts = MapPosts(el, "latestPosts");
-        var (reels, warningEmitted) = MapReels(el, warnOnNonEmptyReels);
+        var allPosts = MapPosts(el, "latestPosts", snapshot.InstagramId, snapshot.Username);
+        var (reels, warningEmitted) = MapReels(
+            el,
+            warnOnNonEmptyReels,
+            snapshot.InstagramId,
+            snapshot.Username);
         var aggregates = MapAggregates(el, allPosts.Count, allPosts.Count, 0);
 
         return (new ProfileMappingResult(snapshot, allPosts, reels, aggregates), warningEmitted);
@@ -185,11 +258,15 @@ internal sealed class InstagramProfileApifyScrapeAdapter
         MedianDaysBetweenPosts: GetDouble(el, "medianDaysBetweenPosts"),
         ProfilePicUrl: GetString(el, "profilePicUrl"),
         Biography: GetString(el, "biography"),
-        IsVerified: GetBool(el, "isVerified"),
+        IsVerified: GetBool(el, "isVerified") || GetBool(el, "verified"),
         IsBusinessAccount: GetBool(el, "isBusinessAccount"),
         BusinessCategoryName: GetString(el, "businessCategoryName"));
 
-    private static IReadOnlyList<ProfilePost> MapPosts(JsonElement el, string arrayKey)
+    private static IReadOnlyList<ProfilePost> MapPosts(
+        JsonElement el,
+        string arrayKey,
+        string profileInstagramId,
+        string profileUsername)
     {
         if (!el.TryGetProperty(arrayKey, out var postsEl)
             || postsEl.ValueKind != JsonValueKind.Array)
@@ -200,7 +277,7 @@ internal sealed class InstagramProfileApifyScrapeAdapter
         var posts = new List<ProfilePost>();
         foreach (var postEl in postsEl.EnumerateArray())
         {
-            var post = MapSinglePost(postEl);
+            var post = MapSinglePost(postEl, profileInstagramId, profileUsername);
             if (post is not null)
             {
                 posts.Add(post);
@@ -212,7 +289,9 @@ internal sealed class InstagramProfileApifyScrapeAdapter
 
     private (IReadOnlyList<ProfilePost> Reels, bool WarningEmitted) MapReels(
         JsonElement el,
-        bool warnOnNonEmptyReels)
+        bool warnOnNonEmptyReels,
+        string profileInstagramId,
+        string profileUsername)
     {
         if (!el.TryGetProperty("latestReels", out var reelsEl)
             || reelsEl.ValueKind != JsonValueKind.Array
@@ -235,7 +314,7 @@ internal sealed class InstagramProfileApifyScrapeAdapter
         var reels = new List<ProfilePost>();
         foreach (var reelEl in reelsEl.EnumerateArray())
         {
-            var reel = MapSinglePost(reelEl);
+            var reel = MapSinglePost(reelEl, profileInstagramId, profileUsername);
             if (reel is not null)
             {
                 reels.Add(reel);
@@ -245,12 +324,25 @@ internal sealed class InstagramProfileApifyScrapeAdapter
         return (reels, warnOnNonEmptyReels && reels.Count > 0);
     }
 
-    private static ProfilePost? MapSinglePost(JsonElement postEl)
+    private static ProfilePost? MapSinglePost(
+        JsonElement postEl,
+        string profileInstagramId,
+        string profileUsername)
     {
-        var postId = GetString(postEl, "postId") ?? GetString(postEl, "id") ?? string.Empty;
+        var postId = GetString(postEl, "postId")
+            ?? GetString(postEl, "id")
+            ?? GetString(postEl, "shortCode")
+            ?? string.Empty;
         var mediaType = GetString(postEl, "mediaType") ?? GetString(postEl, "type") ?? "Image";
         var ownerId = GetString(postEl, "ownerId") ?? string.Empty;
         var ownerUsername = GetString(postEl, "ownerUsername") ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(ownerId)
+            && !string.IsNullOrWhiteSpace(profileInstagramId)
+            && !string.IsNullOrWhiteSpace(ownerUsername)
+            && string.Equals(ownerUsername, profileUsername, StringComparison.OrdinalIgnoreCase))
+        {
+            ownerId = profileInstagramId;
+        }
 
         // Timestamp — parse ISO 8601
         DateTimeOffset timestamp = default;
@@ -378,6 +470,32 @@ internal sealed class InstagramProfileApifyScrapeAdapter
 
     private static bool GetBool(JsonElement el, string key) =>
         el.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.True;
+
+    private static bool LooksLikeProfileResult(JsonElement el)
+    {
+        if (el.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        var resultType = GetString(el, "resultType");
+        if (!string.IsNullOrWhiteSpace(resultType)
+            && !string.Equals(resultType, "profile", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var hasUsername = !string.IsNullOrWhiteSpace(GetString(el, "username"));
+        var hasProfileIdentity =
+            !string.IsNullOrWhiteSpace(GetString(el, "instagramId"))
+            || !string.IsNullOrWhiteSpace(GetString(el, "id"));
+        var hasProfileMetrics =
+            el.TryGetProperty("followersCount", out _)
+            || el.TryGetProperty("postsCount", out _)
+            || el.TryGetProperty("latestPosts", out _);
+
+        return hasUsername && hasProfileIdentity && hasProfileMetrics;
+    }
 }
 
 /// <summary>

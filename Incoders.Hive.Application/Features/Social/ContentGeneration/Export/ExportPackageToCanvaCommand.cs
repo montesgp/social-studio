@@ -1,8 +1,8 @@
 using Incoders.Hive.Application.Abstractions.Integrations;
+using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
-using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.Clients;
 using MediatR;
@@ -41,16 +41,15 @@ public sealed class ExportPackageToCanvaCommandHandler
 {
     private const string UnauthorizedImportErrorCode = "canva.import.unauthorized";
 
-    // Visual formats, in slide order. Text formats have no composition spec and are skipped.
-    private static readonly string[] VisualFormatOrder = ["flyer", "carousel"];
-
     private readonly IContentGenerationJobRepository _jobRepository;
     private readonly IContentGenerationFormatResultRepository _formatResultRepository;
+    private readonly IGeneratedPackageRepository? _packageRepository;
     private readonly ICanvaUserTokenRepository _tokenRepository;
     private readonly ICanvaOAuthService _oauthService;
     private readonly IPptxExportAdapter _pptxAdapter;
     private readonly ICanvaDesignImportClient _importClient;
     private readonly ISocialClientRepository _clientRepository;
+    private readonly IClock? _clock;
     private readonly ILogger<ExportPackageToCanvaCommandHandler> _logger;
 
     public ExportPackageToCanvaCommandHandler(
@@ -61,6 +60,8 @@ public sealed class ExportPackageToCanvaCommandHandler
         IPptxExportAdapter pptxAdapter,
         ICanvaDesignImportClient importClient,
         ISocialClientRepository clientRepository,
+        IGeneratedPackageRepository? packageRepository = null,
+        IClock? clock = null,
         ILogger<ExportPackageToCanvaCommandHandler>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(jobRepository);
@@ -78,6 +79,8 @@ public sealed class ExportPackageToCanvaCommandHandler
         _pptxAdapter = pptxAdapter;
         _importClient = importClient;
         _clientRepository = clientRepository;
+        _packageRepository = packageRepository;
+        _clock = clock;
         _logger = logger ?? NullLogger<ExportPackageToCanvaCommandHandler>.Instance;
     }
 
@@ -101,30 +104,6 @@ public sealed class ExportPackageToCanvaCommandHandler
         // 2. Aggregate the editable composition envelopes across all visual formats of the job,
         //    flyer first then carousel slides. Each format may carry one (flyer) or many (carousel).
         var formatResults = await _formatResultRepository.ListByJobAsync(command.JobId, cancellationToken);
-        var byFormat = formatResults
-            .GroupBy(r => r.FormatKey, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-
-        var envelopes = new List<CompositionSpecEnvelope>();
-        foreach (var formatKey in VisualFormatOrder)
-        {
-            if (byFormat.TryGetValue(formatKey, out var result))
-            {
-                envelopes.AddRange(CompositionSpecJson.ParseList(result.CompositionSpecJson));
-            }
-        }
-
-        if (envelopes.Count == 0)
-        {
-            // No editable visual composition in this job (e.g. only a text format).
-            _logger.LogWarning(
-                "Export package to Canva: job {JobId} has no editable visual compositions (formats present: {Formats}).",
-                command.JobId, string.Join(",", byFormat.Keys));
-            return Result.Failure<ExportFormatToCanvaResponse>(ContentGenerationErrors.NotExportable);
-        }
-
-        _logger.LogInformation("Export package to Canva: job {JobId} aggregated {Pages} editable page(s).",
-            command.JobId, envelopes.Count);
 
         // 3. Check the ORG has a connected Canva account (org-level shared connection).
         var existingToken = await _tokenRepository.GetAsync(
@@ -145,8 +124,12 @@ public sealed class ExportPackageToCanvaCommandHandler
             return Result.Failure<ExportFormatToCanvaResponse>(tokenResult.Error);
         }
 
-        // 5. Build the multi-page PPTX (offline, deterministic) — one slide per envelope.
-        var buildResult = await _pptxAdapter.BuildManyAsync(envelopes, cancellationToken);
+        // 5. Build the multi-page PPTX (offline, deterministic) through the same path used
+        // by assemble/download. This keeps Download and Send to Canva aligned.
+        var buildResult = await PackagePptxComposer.BuildAsync(
+            formatResults,
+            _pptxAdapter,
+            cancellationToken);
         if (buildResult.IsFailure)
         {
             _logger.LogWarning("Export package to Canva: PPTX build failed for job {JobId}: {Code}.",
@@ -181,6 +164,16 @@ public sealed class ExportPackageToCanvaCommandHandler
         }
 
         var canvaResult = importResult.Value;
+        if (_packageRepository is not null)
+        {
+            await _packageRepository.MarkSentToCanvaAsync(
+                command.JobId,
+                command.OrganizationId,
+                command.UserId,
+                _clock?.UtcNow ?? DateTime.UtcNow,
+                cancellationToken);
+        }
+
         _logger.LogInformation("Export package to Canva OK: job {JobId} → design {DesignId}.",
             command.JobId, canvaResult.DesignId);
         return Result.Success(new ExportFormatToCanvaResponse(

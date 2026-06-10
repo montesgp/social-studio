@@ -81,7 +81,9 @@ public sealed record SingleContentAnalysisRecord(
     string? FailureMessageKey,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc,
-    DateTime? CompletedAtUtc);
+    DateTime? CompletedAtUtc,
+    int AiAnalysisFailedAttemptCount = 0,
+    DateTime? AiAnalysisRetryBlockedAtUtc = null);
 
 public sealed record SingleContentAnalysisHistoryItem(
     Guid Id,

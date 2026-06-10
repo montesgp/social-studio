@@ -26,7 +26,11 @@ public sealed record ContentGenerationJobStatusResponse(
     // visual-guardrail.off-palette: …]") so the UI can show actionable guidance and route to
     // support instead of nudging a blind, token-burning retry. Optional/last so existing
     // positional constructions keep compiling.
-    string? StatusReason = null);
+    string? StatusReason = null,
+    // Cost-control telemetry: failed attempts per format across jobs for this analysis/client.
+    // The UI uses this to disable regeneration controls after the backend threshold is reached.
+    IReadOnlyDictionary<string, int>? PerFormatFailureCounts = null,
+    GeneratedPackageActionState? PackageActionState = null);
 
 /// <summary>
 /// Handles <see cref="ContentGenerationJobStatusQuery"/>: loads the job and its format results.
@@ -37,16 +41,22 @@ public sealed class ContentGenerationJobStatusQueryHandler
 {
     private readonly IContentGenerationJobRepository _jobRepository;
     private readonly IContentGenerationFormatResultRepository _formatResultRepository;
+    private readonly IContentGenerationFailurePolicy? _failurePolicy;
+    private readonly IGeneratedPackageRepository? _packageRepository;
 
     public ContentGenerationJobStatusQueryHandler(
         IContentGenerationJobRepository jobRepository,
-        IContentGenerationFormatResultRepository formatResultRepository)
+        IContentGenerationFormatResultRepository formatResultRepository,
+        IContentGenerationFailurePolicy? failurePolicy = null,
+        IGeneratedPackageRepository? packageRepository = null)
     {
         ArgumentNullException.ThrowIfNull(jobRepository);
         ArgumentNullException.ThrowIfNull(formatResultRepository);
 
         _jobRepository = jobRepository;
         _formatResultRepository = formatResultRepository;
+        _failurePolicy = failurePolicy;
+        _packageRepository = packageRepository;
     }
 
     public async Task<Result<ContentGenerationJobStatusResponse>> Handle(
@@ -68,12 +78,51 @@ public sealed class ContentGenerationJobStatusQueryHandler
         var formatResults = await _formatResultRepository.ListByJobAsync(job.Id, cancellationToken);
 
         var perFormatStatus = formatResults.ToDictionary(r => r.FormatKey, r => r.Status);
+        var failureCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        if (_failurePolicy is not null && job.ClientId is { } clientId && clientId != Guid.Empty)
+        {
+            var formatKeys = GenerateContentPackageCommandHandler.KnownFormatKeys
+                .ToList();
+
+            var counted = await _failurePolicy.CountFailedAttemptsByFormatAsync(
+                job.OrganizationId,
+                job.AnalysisId,
+                clientId,
+                formatKeys,
+                cancellationToken);
+
+            foreach (var (formatKey, count) in counted)
+            {
+                failureCounts[formatKey] = count;
+            }
+        }
+
+        GeneratedPackageActionState? actionState = null;
+        if (_packageRepository is not null)
+        {
+            var package = await _packageRepository.GetByJobIdAsync(
+                job.Id,
+                job.OrganizationId,
+                cancellationToken);
+
+            if (package is not null)
+            {
+                actionState = new GeneratedPackageActionState(
+                    package.DownloadCount,
+                    package.LastDownloadedAtUtc,
+                    package.CanvaSendCount,
+                    package.LastSentToCanvaAtUtc);
+            }
+        }
 
         return Result.Success(new ContentGenerationJobStatusResponse(
             JobId: job.Id,
             Status: job.Status,
             PerFormatStatus: perFormatStatus,
             ManifestJson: job.ManifestJson,
-            StatusReason: job.StatusReason));
+            StatusReason: job.StatusReason,
+            PerFormatFailureCounts: failureCounts,
+            PackageActionState: actionState));
     }
 }

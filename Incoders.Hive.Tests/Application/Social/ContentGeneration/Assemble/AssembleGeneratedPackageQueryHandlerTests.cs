@@ -1,7 +1,9 @@
 using System.IO.Compression;
+using System.Text;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Assemble;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.Clients;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
@@ -42,18 +44,71 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
             UpdatedAt: updatedAtUtc ?? DateTime.UtcNow,
             JobCreatedAtUtc: jobCreatedAtUtc ?? DateTime.UtcNow);
 
+    private static ContentGenerationFormatResult MakeFormatResult(
+        Guid id,
+        Guid jobId,
+        string formatKey,
+        string? compositionSpecJson = null,
+        string? outputJson = null,
+        string? inferredFieldsJson = null,
+        DateTime? updatedAtUtc = null) =>
+        new(
+            Id: id,
+            JobId: jobId,
+            FormatKey: formatKey,
+            Status: "Rendered",
+            OutputJson: outputJson,
+            CompositionSpecJson: compositionSpecJson,
+            RenderedAssetUri: null,
+            InferredFieldsJson: inferredFieldsJson,
+            PromptVersion: "test.v1",
+            ErrorCode: null,
+            CreatedAt: updatedAtUtc ?? DateTime.UtcNow,
+            UpdatedAt: updatedAtUtc ?? DateTime.UtcNow);
+
+    private static string EnvelopeJson(string marker) =>
+        $$"""{"schemaVersion":1,"markup":"<div data-slot=\"headline\">{{marker}}</div>","canvas":{"width":1080,"height":1920,"dpi":96},"slotGeometry":[]}""";
+
+    private static string EnvelopeArrayJson(params string[] markers) =>
+        "[" + string.Join(",", markers.Select(EnvelopeJson)) + "]";
+
+    private static byte[] PptxBytesForEnvelope(CompositionSpecEnvelope envelope) =>
+        Encoding.UTF8.GetBytes($"pptx:{envelope.Markup}");
+
+    private static async Task<byte[]> ReadEntryBytesAsync(ZipArchive zip, string entryName)
+    {
+        var entry = zip.GetEntry(entryName);
+        Assert.NotNull(entry);
+
+        await using var stream = entry!.Open();
+        using var memory = new MemoryStream();
+        await stream.CopyToAsync(memory);
+        return memory.ToArray();
+    }
+
+    private static async Task<string> ReadEntryTextAsync(ZipArchive zip, string entryName) =>
+        Encoding.UTF8.GetString(await ReadEntryBytesAsync(zip, entryName));
+
     private static AssembleGeneratedPackageQueryHandler BuildHandler(
         Dictionary<string, byte[]> storageFiles,
         IReadOnlyList<FormatAssetRow> rows,
         Guid ownerOrgId,
         Guid analysisId,
-        ISocialClientRepository? clientRepository = null)
+        ISocialClientRepository? clientRepository = null,
+        IContentGenerationFormatResultRepository? formatResultRepository = null,
+        IPptxExportAdapter? pptxAdapter = null)
     {
         var storage = new FakeAssetStorage(storageFiles);
         var assetRepo = new FakeAssetRepository(rows, ownerOrgId, analysisId);
         var analysisRepo = new FakeAnalysisRepository(ownerOrgId, analysisId);
         var clientRepo = clientRepository ?? new FakeClientRepository([]);
-        return new AssembleGeneratedPackageQueryHandler(storage, assetRepo, analysisRepo, clientRepo);
+        return new AssembleGeneratedPackageQueryHandler(
+            storage,
+            assetRepo,
+            analysisRepo,
+            clientRepo,
+            formatResultRepository,
+            pptxAdapter);
     }
 
     // ─── T4.1.1 — Multi-client selection → correct ZIP entries ────────────────
@@ -66,20 +121,33 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         // not an oversight in test setup.
         var resultId1 = Guid.NewGuid();
         var resultId2 = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
 
         var rows = new List<FormatAssetRow>
         {
             MakeRow(resultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
-            MakeRow(resultId2, 0, $"{OrgId}/{ClientId2}/{AnalysisId}/reel-script.txt", "reel-script.txt", "text/plain"),
+            MakeRow(resultId2, 0, $"{OrgId}/{ClientId2}/{AnalysisId}/reel-script.md", "reel-script.md", "text/markdown"),
         };
 
         var files = new Dictionary<string, byte[]>
         {
             [$"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png"] = "client1-flyer-bytes"u8.ToArray(),
-            [$"{OrgId}/{ClientId2}/{AnalysisId}/reel-script.txt"] = "client2-reel-bytes"u8.ToArray(),
+            [$"{OrgId}/{ClientId2}/{AnalysisId}/reel-script.md"] = "client2-reel-bytes"u8.ToArray(),
         };
 
-        var handler = BuildHandler(files, rows, OrgId, AnalysisId);
+        var formatResults = new[]
+        {
+            MakeFormatResult(resultId1, jobId, "flyer", EnvelopeJson("client-1-flyer")),
+            MakeFormatResult(resultId2, jobId, "reel-script"),
+        };
+
+        var handler = BuildHandler(
+            files,
+            rows,
+            OrgId,
+            AnalysisId,
+            formatResultRepository: new FakeFormatResultRepository(formatResults),
+            pptxAdapter: new FakePptxAdapter(PptxBytesForEnvelope));
 
         var selection = new AssembleSelection([
             new ClientSelection(ClientId1, null),
@@ -87,7 +155,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         ]);
 
         var result = await handler.Handle(
-            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection),
+            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection, SourceJobId: jobId),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -95,8 +163,10 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read, leaveOpen: false);
         var entries = zip.Entries.Select(e => e.FullName).ToList();
 
-        Assert.Contains(entries, e => e.StartsWith($"{ClientId1}/") && e.Contains("flyer.png"));
-        Assert.Contains(entries, e => e.StartsWith($"{ClientId2}/") && e.Contains("reel-script.txt"));
+        Assert.Contains($"{ClientId1}/flyer/flyer.pptx", entries);
+        Assert.Contains($"{ClientId2}/script/script.md", entries);
+        Assert.DoesNotContain($"{ClientId1}/flyer.png", entries);
+        Assert.DoesNotContain($"{ClientId2}/reel-script.md", entries);
     }
 
     // ─── T4.1.2 — Missing asset (404 from storage) → skipped, ZIP still succeeds
@@ -108,14 +178,14 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
 
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+            MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/reel-script.md", "reel-script.md", "text/markdown"),
             MakeRow(resultId, 1, $"{OrgId}/{ClientId1}/{AnalysisId}/hook.txt", "hook.txt", "text/plain"),
         };
 
         // hook.txt NOT in storage → storage returns NotFound for it
         var files = new Dictionary<string, byte[]>
         {
-            [$"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png"] = "flyer-bytes"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/reel-script.md"] = "script-bytes"u8.ToArray(),
         };
 
         var handler = BuildHandler(files, rows, OrgId, AnalysisId);
@@ -130,7 +200,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read);
         var entries = zip.Entries.Select(e => e.FullName).ToList();
 
-        Assert.Contains(entries, e => e.Contains("flyer.png"));
+        Assert.Contains($"{ClientId1}/script/script.md", entries);
         Assert.DoesNotContain(entries, e => e.Contains("hook.txt"));
     }
 
@@ -157,6 +227,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
     public async Task Handle_CarouselAssets_PlacedUnderCarouselSubfolder()
     {
         var resultId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
 
         var rows = new List<FormatAssetRow>
         {
@@ -172,11 +243,19 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
             [$"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png"] = "slide2-bytes"u8.ToArray(),
         };
 
-        var handler = BuildHandler(files, rows, OrgId, AnalysisId);
+        var handler = BuildHandler(
+            files,
+            rows,
+            OrgId,
+            AnalysisId,
+            formatResultRepository: new FakeFormatResultRepository([
+                MakeFormatResult(resultId, jobId, "carousel", EnvelopeArrayJson("slide-one", "slide-two")),
+            ]),
+            pptxAdapter: new FakePptxAdapter(PptxBytesForEnvelope));
 
         var selection = new AssembleSelection([new ClientSelection(ClientId1, null)]);
         var result = await handler.Handle(
-            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection),
+            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection, SourceJobId: jobId),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -184,8 +263,10 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read);
         var entries = zip.Entries.Select(e => e.FullName).ToList();
 
-        Assert.Contains($"{ClientId1}/carousel/slide_1.png", entries);
-        Assert.Contains($"{ClientId1}/carousel/slide_2.png", entries);
+        Assert.Contains($"{ClientId1}/carousel/slide_1.pptx", entries);
+        Assert.Contains($"{ClientId1}/carousel/slide_2.pptx", entries);
+        Assert.DoesNotContain($"{ClientId1}/carousel/slide_1.png", entries);
+        Assert.DoesNotContain($"{ClientId1}/carousel/slide_2.png", entries);
         Assert.DoesNotContain($"{ClientId1}/slide_1.png", entries);
     }
 
@@ -196,6 +277,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
     {
         var oldResultId = Guid.Parse("99999999-9999-9999-9999-999999999999");
         var newResultId = Guid.Parse("88888888-8888-8888-8888-888888888888");
+        var jobId = Guid.NewGuid();
         var oldJobCreatedAt = DateTime.UtcNow.AddMinutes(-20);
         var newJobCreatedAt = DateTime.UtcNow.AddMinutes(-2);
 
@@ -223,32 +305,41 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
             [$"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_5.png"] = "stale-slide-5"u8.ToArray(),
         };
 
-        var handler = BuildHandler(files, rows, OrgId, AnalysisId);
+        var handler = BuildHandler(
+            files,
+            rows,
+            OrgId,
+            AnalysisId,
+            formatResultRepository: new FakeFormatResultRepository([
+                MakeFormatResult(newResultId, jobId, "carousel", EnvelopeArrayJson("new-slide-1", "new-slide-2", "new-slide-3"), updatedAtUtc: newJobCreatedAt),
+            ]),
+            pptxAdapter: new FakePptxAdapter(PptxBytesForEnvelope));
         var selection = new AssembleSelection([new ClientSelection(ClientId1, null)]);
         var result = await handler.Handle(
-            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection),
+            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection, SourceJobId: jobId),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read);
         var entries = zip.Entries.Select(e => e.FullName).OrderBy(e => e).ToList();
 
-        Assert.Equal(3, entries.Count);
+        Assert.Equal(4, entries.Count);
         Assert.Equal(
             [
-                $"{ClientId1}/carousel/slide_1.png",
-                $"{ClientId1}/carousel/slide_2.png",
-                $"{ClientId1}/carousel/slide_3.png",
+                $"{ClientId1}/carousel/slide_1.pptx",
+                $"{ClientId1}/carousel/slide_2.pptx",
+                $"{ClientId1}/carousel/slide_3.pptx",
+                "manifest.json",
             ],
             entries);
-        Assert.DoesNotContain($"{ClientId1}/carousel/slide_4.png", entries);
-        Assert.DoesNotContain($"{ClientId1}/carousel/slide_5.png", entries);
+        Assert.DoesNotContain($"{ClientId1}/carousel/slide_4.pptx", entries);
+        Assert.DoesNotContain($"{ClientId1}/carousel/slide_5.pptx", entries);
     }
 
     // ─── T4.1.5 — Empty storage → valid empty ZIP ────────────────────────────
 
     [Fact]
-    public async Task Handle_NoAssetsInStorage_ReturnsSuccessWithEmptyZip()
+    public async Task Handle_NoAssetsInStorage_ReturnsSuccessWithManifestOnlyZip()
     {
         var handler = BuildHandler(new Dictionary<string, byte[]>(), [], OrgId, AnalysisId);
 
@@ -259,7 +350,99 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
 
         Assert.True(result.IsSuccess);
         using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read);
-        Assert.Empty(zip.Entries);
+        Assert.Equal(["manifest.json"], zip.Entries.Select(e => e.FullName));
+    }
+
+    [Fact]
+    public async Task Handle_AssembledZip_UsesClientFirstFormatFoldersManifestAndEditableFormatFiles()
+    {
+        var flyerResultId = Guid.NewGuid();
+        var carouselResultId = Guid.NewGuid();
+        var scriptResultId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+        var rows = new List<FormatAssetRow>
+        {
+            MakeRow(flyerResultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+            MakeRow(carouselResultId, 1, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png", "slide_1.png"),
+            MakeRow(carouselResultId, 2, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png", "slide_2.png"),
+            MakeRow(scriptResultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/reel-script.md", "reel-script.md", "text/markdown"),
+        };
+        var files = new Dictionary<string, byte[]>
+        {
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png"] = "flyer-bytes"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png"] = "slide-1-bytes"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png"] = "slide-2-bytes"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/reel-script.md"] = "# Script\n\nUse this on social."u8.ToArray(),
+        };
+        var client = Client.Restore(
+            new ClientId(ClientId1), OrgId, "Incoders",
+            null, true, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = BuildHandler(
+            files,
+            rows,
+            OrgId,
+            AnalysisId,
+            new FakeClientRepository([client]),
+            formatResultRepository: new FakeFormatResultRepository([
+                MakeFormatResult(
+                    flyerResultId,
+                    jobId,
+                    "flyer",
+                    EnvelopeJson("flyer"),
+                    """{"publicationDescription":"Caption for the client account."}""",
+                    """["brand.voice"]"""),
+                MakeFormatResult(
+                    carouselResultId,
+                    jobId,
+                    "carousel",
+                    EnvelopeArrayJson("carousel-one", "carousel-two")),
+                MakeFormatResult(scriptResultId, jobId, "reel-script"),
+            ]),
+            pptxAdapter: new FakePptxAdapter(PptxBytesForEnvelope));
+
+        var result = await handler.Handle(
+            new AssembleGeneratedPackageQuery(
+                AnalysisId,
+                OrgId,
+                new AssembleSelection([new ClientSelection(ClientId1, null)]),
+                SourceJobId: jobId),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read);
+        var entries = zip.Entries.Select(e => e.FullName).OrderBy(e => e).ToList();
+
+        Assert.Equal(
+            [
+                "Incoders/carousel/slide_1.pptx",
+                "Incoders/carousel/slide_2.pptx",
+                "Incoders/flyer/flyer.pptx",
+                "Incoders/script/script.md",
+                "manifest.json",
+            ],
+            entries);
+        Assert.DoesNotContain("editable-package.pptx", entries);
+        Assert.DoesNotContain("Incoders/flyer.png", entries);
+        Assert.DoesNotContain("Incoders/carousel/slide_1.png", entries);
+
+        var flyerBytes = await ReadEntryBytesAsync(zip, "Incoders/flyer/flyer.pptx");
+        Assert.Equal(PptxBytesForEnvelope(CompositionSpecJson.ParseList(EnvelopeJson("flyer"))[0]), flyerBytes);
+
+        var script = await ReadEntryTextAsync(zip, "Incoders/script/script.md");
+        Assert.StartsWith("# Script", script, StringComparison.Ordinal);
+
+        var manifestJson = await ReadEntryTextAsync(zip, "manifest.json");
+        Assert.Contains("\"clients\"", manifestJson);
+        Assert.Contains("\"Incoders\"", manifestJson);
+        Assert.Contains("\"client_folder_name\": \"Incoders\"", manifestJson);
+        Assert.Contains("\"relative_path\": \"Incoders/flyer/flyer.pptx\"", manifestJson);
+        Assert.Contains("\"relative_path\": \"Incoders/carousel/slide_1.pptx\"", manifestJson);
+        Assert.Contains("\"relative_path\": \"Incoders/script/script.md\"", manifestJson);
+        Assert.Contains("\"mime\": \"application/vnd.openxmlformats-officedocument.presentationml.presentation\"", manifestJson);
+        Assert.Contains("\"mime\": \"text/markdown\"", manifestJson);
+        Assert.Contains("publication", manifestJson);
+        Assert.Contains("Caption for the client account.", manifestJson);
     }
 
     // ─── T4.1.6 — Filename includes analysisId ────────────────────────────────
@@ -285,6 +468,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
     {
         // Given client with display name "Acme Corp" and known GUID
         var resultId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
         var rows = new List<FormatAssetRow>
         {
             MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
@@ -299,11 +483,20 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
             null, true, DateTime.UtcNow, DateTime.UtcNow);
         var clientRepo = new FakeClientRepository([client]);
 
-        var handler = BuildHandler(files, rows, OrgId, AnalysisId, clientRepo);
+        var handler = BuildHandler(
+            files,
+            rows,
+            OrgId,
+            AnalysisId,
+            clientRepo,
+            formatResultRepository: new FakeFormatResultRepository([
+                MakeFormatResult(resultId, jobId, "flyer", EnvelopeJson("flyer")),
+            ]),
+            pptxAdapter: new FakePptxAdapter(PptxBytesForEnvelope));
 
         var selection = new AssembleSelection([new ClientSelection(ClientId1, null)]);
         var result = await handler.Handle(
-            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection),
+            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection, SourceJobId: jobId),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -312,7 +505,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         var entries = zip.Entries.Select(e => e.FullName).ToList();
 
         // Folder must be display name, NOT the GUID
-        Assert.Contains(entries, e => e.StartsWith("Acme Corp/") && e.Contains("flyer.png"));
+        Assert.Contains("Acme Corp/flyer/flyer.pptx", entries);
         Assert.DoesNotContain(entries, e => e.StartsWith($"{ClientId1}/"));
     }
 
@@ -321,6 +514,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
     {
         // Given client with display name containing reserved chars (PKG-02 same sanitizer as PKG-01)
         var resultId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
         var rows = new List<FormatAssetRow>
         {
             MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
@@ -335,11 +529,20 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
             null, true, DateTime.UtcNow, DateTime.UtcNow);
         var clientRepo = new FakeClientRepository([client]);
 
-        var handler = BuildHandler(files, rows, OrgId, AnalysisId, clientRepo);
+        var handler = BuildHandler(
+            files,
+            rows,
+            OrgId,
+            AnalysisId,
+            clientRepo,
+            formatResultRepository: new FakeFormatResultRepository([
+                MakeFormatResult(resultId, jobId, "flyer", EnvelopeJson("flyer")),
+            ]),
+            pptxAdapter: new FakePptxAdapter(PptxBytesForEnvelope));
 
         var selection = new AssembleSelection([new ClientSelection(ClientId1, null)]);
         var result = await handler.Handle(
-            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection),
+            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection, SourceJobId: jobId),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -347,7 +550,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         var entries = zip.Entries.Select(e => e.FullName).ToList();
 
         // : / ? stripped; no slug dashes added
-        Assert.Contains(entries, e => e.StartsWith("ClientNameTest/") && e.Contains("flyer.png"));
+        Assert.Contains("ClientNameTest/flyer/flyer.pptx", entries);
     }
 
     [Fact]
@@ -355,6 +558,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
     {
         // Given a client GUID with no matching client record → fallback to GUID string
         var resultId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
         var rows = new List<FormatAssetRow>
         {
             MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
@@ -367,11 +571,20 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         // Empty client repo — no client record for ClientId1
         var clientRepo = new FakeClientRepository([]);
 
-        var handler = BuildHandler(files, rows, OrgId, AnalysisId, clientRepo);
+        var handler = BuildHandler(
+            files,
+            rows,
+            OrgId,
+            AnalysisId,
+            clientRepo,
+            formatResultRepository: new FakeFormatResultRepository([
+                MakeFormatResult(resultId, jobId, "flyer", EnvelopeJson("flyer")),
+            ]),
+            pptxAdapter: new FakePptxAdapter(PptxBytesForEnvelope));
 
         var selection = new AssembleSelection([new ClientSelection(ClientId1, null)]);
         var result = await handler.Handle(
-            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection),
+            new AssembleGeneratedPackageQuery(AnalysisId, OrgId, selection, SourceJobId: jobId),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -379,7 +592,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         var entries = zip.Entries.Select(e => e.FullName).ToList();
 
         // Fallback: folder is the GUID string when client not found
-        Assert.Contains(entries, e => e.StartsWith($"{ClientId1}/") && e.Contains("flyer.png"));
+        Assert.Contains($"{ClientId1}/flyer/flyer.pptx", entries);
     }
 }
 
@@ -429,6 +642,49 @@ file sealed class FakeAssetRepository(
 
     public Task DeleteByFormatResultIdAsync(Guid formatResultId, CancellationToken ct) =>
         Task.CompletedTask;
+}
+
+file sealed class FakeFormatResultRepository(IReadOnlyList<ContentGenerationFormatResult> results)
+    : IContentGenerationFormatResultRepository
+{
+    public Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct) =>
+        Task.FromResult(result);
+
+    public Task<IReadOnlyList<ContentGenerationFormatResult>> ListByJobAsync(Guid jobId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>(
+            results.Where(result => result.JobId == jobId).ToList());
+
+    public Task<IReadOnlyList<ContentGenerationFormatResult>> ListByIdsAsync(
+        IReadOnlySet<Guid> resultIds,
+        CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>(
+            results.Where(result => resultIds.Contains(result.Id)).ToList());
+}
+
+file sealed class FakePptxAdapter : IPptxExportAdapter
+{
+    private readonly Func<CompositionSpecEnvelope, byte[]> _buildOne;
+    private readonly Func<IReadOnlyList<CompositionSpecEnvelope>, byte[]> _buildMany;
+
+    public FakePptxAdapter(byte[] pptxBytes)
+        : this(_ => pptxBytes, _ => pptxBytes)
+    {
+    }
+
+    public FakePptxAdapter(
+        Func<CompositionSpecEnvelope, byte[]> buildOne,
+        Func<IReadOnlyList<CompositionSpecEnvelope>, byte[]>? buildMany = null)
+    {
+        _buildOne = buildOne;
+        _buildMany = buildMany ?? (envelopes => Encoding.UTF8.GetBytes(
+            string.Join("\n", envelopes.Select(envelope => $"pptx:{envelope.Markup}"))));
+    }
+
+    public Task<Result<byte[]>> BuildAsync(CompositionSpecEnvelope envelope, CancellationToken ct) =>
+        Task.FromResult(Result.Success(_buildOne(envelope)));
+
+    public Task<Result<byte[]>> BuildManyAsync(IReadOnlyList<CompositionSpecEnvelope> envelopes, CancellationToken ct) =>
+        Task.FromResult(Result.Success(_buildMany(envelopes)));
 }
 
 file sealed class FakeClientRepository(IReadOnlyList<Client> clients) : ISocialClientRepository

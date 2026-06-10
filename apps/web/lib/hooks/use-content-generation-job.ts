@@ -61,13 +61,16 @@ function reducer(state: HookState, action: HookAction): HookState {
 export interface UseContentGenerationJobResult {
   status: ContentGenerationJobStatus | null;
   perFormatStatus: ContentGenerationJobStatusResponse["perFormatStatus"];
+  perFormatFailureCounts: ContentGenerationJobStatusResponse["perFormatFailureCounts"];
   manifest: GeneratedPackageManifest | null;
+  packageActionState: ContentGenerationJobStatusResponse["packageActionState"];
   /** Backend failure reason (codes embedded) when the job did not succeed. */
   statusReason: string | null;
   isLoading: boolean;
   isPolling: boolean;
   isError: boolean;
   error: Error | null;
+  refresh: () => Promise<void>;
 }
 
 // ── Hook implementation ───────────────────────────────────────────────────────
@@ -108,6 +111,22 @@ export function useContentGenerationJob(
     },
     [token]
   );
+
+  const refresh = useCallback(async () => {
+    if (!jobId || !enabled) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const response = await fetchStatus(jobId, controller.signal);
+      if (response && !controller.signal.aborted) {
+        dispatch({ type: "FETCH_SUCCESS", payload: response });
+      }
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        dispatch({ type: "FETCH_ERROR", payload: err instanceof Error ? err : new Error(String(err)) });
+      }
+    }
+  }, [jobId, enabled, fetchStatus]);
 
   useEffect(() => {
     if (!jobId || !enabled) {
@@ -177,11 +196,14 @@ export function useContentGenerationJob(
   return {
     status: data?.status ?? null,
     perFormatStatus: data?.perFormatStatus ?? {},
+    perFormatFailureCounts: data?.perFormatFailureCounts ?? {},
     manifest: data?.manifest ?? null,
+    packageActionState: data?.packageActionState ?? null,
     statusReason: data?.statusReason ?? null,
     isLoading: state.phase === "loading",
     isPolling: state.phase === "polling",
     isError: state.phase === "error",
     error: state.phase === "error" ? state.error : null,
+    refresh,
   };
 }

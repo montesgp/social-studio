@@ -17,6 +17,7 @@ public sealed class GenerateContentPackageCommandHandler
     : IRequestHandler<GenerateContentPackageCommand, Result<GenerateContentPackageResponse>>
 {
     internal const int MaxRegenerationObjectionLength = 1000;
+    internal const int MaxFailedAttemptsPerFormat = 2;
 
     /// <summary>The 7 supported format keys.</summary>
     internal static readonly IReadOnlySet<string> KnownFormatKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -33,11 +34,13 @@ public sealed class GenerateContentPackageCommandHandler
     private readonly ISingleContentAnalysisRepository _analysisRepository;
     private readonly IContentGenerationJobRepository _jobRepository;
     private readonly IContentGenerationJobQueue _queue;
+    private readonly IContentGenerationFailurePolicy? _failurePolicy;
 
     public GenerateContentPackageCommandHandler(
         ISingleContentAnalysisRepository analysisRepository,
         IContentGenerationJobRepository jobRepository,
-        IContentGenerationJobQueue queue)
+        IContentGenerationJobQueue queue,
+        IContentGenerationFailurePolicy? failurePolicy = null)
     {
         ArgumentNullException.ThrowIfNull(analysisRepository);
         ArgumentNullException.ThrowIfNull(jobRepository);
@@ -46,6 +49,7 @@ public sealed class GenerateContentPackageCommandHandler
         _analysisRepository = analysisRepository;
         _jobRepository = jobRepository;
         _queue = queue;
+        _failurePolicy = failurePolicy;
     }
 
     public async Task<Result<GenerateContentPackageResponse>> Handle(
@@ -99,6 +103,32 @@ public sealed class GenerateContentPackageCommandHandler
                 ContentGenerationErrors.ClientRequired);
         }
 
+        var normalizedRequestedFormats = command.RequestedFormats
+            .Select(format => format.Trim().ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (_failurePolicy is not null)
+        {
+            var failedAttempts = await _failurePolicy.CountFailedAttemptsByFormatAsync(
+                command.OrganizationId,
+                command.AnalysisId,
+                effectiveClientId.Value,
+                normalizedRequestedFormats,
+                cancellationToken);
+
+            var blockedFormat = normalizedRequestedFormats
+                .FirstOrDefault(format =>
+                    failedAttempts.TryGetValue(format, out var count) &&
+                    count >= MaxFailedAttemptsPerFormat);
+
+            if (blockedFormat is not null)
+            {
+                return Result.Failure<GenerateContentPackageResponse>(
+                    ContentGenerationErrors.FormatRegenerationBlocked(blockedFormat, MaxFailedAttemptsPerFormat));
+            }
+        }
+
         // Create and persist the job
         var jobId = Guid.NewGuid();
         var correlationId = command.CorrelationId ?? Guid.NewGuid();
@@ -108,7 +138,7 @@ public sealed class GenerateContentPackageCommandHandler
             OrganizationId: command.OrganizationId,
             ClientId: effectiveClientId,
             AnalysisId: command.AnalysisId,
-            RequestedFormats: command.RequestedFormats,
+            RequestedFormats: normalizedRequestedFormats,
             Status: "Queued",
             StatusReason: null,
             ErrorCode: null,
@@ -166,4 +196,9 @@ public static class ContentGenerationErrors
         Error.Conflict(
             "content-gen.not-exportable",
             "This format does not have a persisted composition spec and cannot be exported as PPTX.");
+
+    public static Error FormatRegenerationBlocked(string formatKey, int maxFailedAttempts) =>
+        Error.Conflict(
+            "content-gen.regeneration-blocked",
+            $"Generation for {formatKey} is blocked after {maxFailedAttempts} failed attempts. Contact support before trying again.");
 }

@@ -1015,9 +1015,21 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<int>("CanvaSendCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("canva_send_count");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<int>("DownloadCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("download_count");
 
                     b.Property<DateTime?>("ExpiresAt")
                         .HasColumnType("timestamp with time zone")
@@ -1026,6 +1038,22 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.Property<Guid>("JobId")
                         .HasColumnType("uuid")
                         .HasColumnName("job_id");
+
+                    b.Property<DateTime?>("LastDownloadedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_downloaded_at_utc");
+
+                    b.Property<Guid?>("LastDownloadedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_downloaded_by_user_id");
+
+                    b.Property<DateTime?>("LastSentToCanvaAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_sent_to_canva_at_utc");
+
+                    b.Property<Guid?>("LastSentToCanvaByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_sent_to_canva_by_user_id");
 
                     b.Property<string>("ManifestJson")
                         .IsRequired()
@@ -1582,6 +1610,16 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<int>("AiAnalysisFailedAttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("ai_analysis_failed_attempt_count");
+
+                    b.Property<DateTime?>("AiAnalysisRetryBlockedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ai_analysis_retry_blocked_at_utc");
 
                     b.Property<string>("AnalysisJson")
                         .HasColumnType("text")

@@ -38,6 +38,9 @@ export interface SingleAnalyzerResult {
   dataSource?: "apify" | "mock";
   primaryHook?: string | null;
   isFallbackThumbnail?: boolean;
+  aiAnalysisFailedAttemptCount?: number;
+  isAiAnalysisRetryBlocked?: boolean;
+  aiAnalysisRetryBlockedAtUtc?: string | null;
 }
 
 const analyzerSessions = new Map<string, SingleAnalyzerResult>();

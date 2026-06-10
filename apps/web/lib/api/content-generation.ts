@@ -50,6 +50,8 @@ interface RawJobStatusResponse {
   jobId: string;
   status: ContentGenerationJobStatus;
   perFormatStatus: Record<string, string>;
+  perFormatFailureCounts?: Record<string, number> | null;
+  packageActionState?: ContentGenerationJobStatusResponse["packageActionState"];
   manifestJson: string | null;
   statusReason: string | null;
 }
@@ -83,8 +85,11 @@ function normalizeStatusResponse(raw: RawJobStatusResponse): ContentGenerationJo
     jobId: raw.jobId,
     status: raw.status,
     perFormatStatus: raw.perFormatStatus as ContentGenerationJobStatusResponse["perFormatStatus"],
+    perFormatFailureCounts:
+      (raw.perFormatFailureCounts ?? {}) as ContentGenerationJobStatusResponse["perFormatFailureCounts"],
     manifest: parseManifest(raw.manifestJson),
     statusReason: raw.statusReason ?? null,
+    packageActionState: raw.packageActionState ?? null,
   };
 }
 
@@ -157,6 +162,7 @@ export interface AssembleClientSelection {
 /** Request body for POST .../package/assemble */
 export interface AssemblePackageRequest {
   clients?: AssembleClientSelection[];
+  jobId?: string | null;
 }
 
 /**

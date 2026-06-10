@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Incoders.Hive.Domain.Common;
 
 namespace Incoders.Hive.Domain.Social.SingleAnalyzer;
@@ -7,10 +8,11 @@ namespace Incoders.Hive.Domain.Social.SingleAnalyzer;
 /// </summary>
 public sealed record PatternItem
 {
-    private PatternItem(string name, string evidence, double confidence)
+    [JsonConstructor]
+    public PatternItem(string name, string evidence, double confidence)
     {
-        Name = name;
-        Evidence = evidence;
+        Name = Normalize(name);
+        Evidence = Normalize(evidence);
         Confidence = confidence;
     }
 
@@ -21,16 +23,21 @@ public sealed record PatternItem
     /// <summary>Confidence score in the range [0.0, 1.0].</summary>
     public double Confidence { get; }
 
+    public bool IsValid() =>
+        !string.IsNullOrWhiteSpace(Name)
+        && !string.IsNullOrWhiteSpace(Evidence)
+        && Confidence is >= 0.0 and <= 1.0;
+
     public static Result<PatternItem> Create(string name, string evidence, double confidence)
     {
-        if (string.IsNullOrWhiteSpace(name)
-            || string.IsNullOrWhiteSpace(evidence)
-            || confidence < 0.0
-            || confidence > 1.0)
+        var item = new PatternItem(name, evidence, confidence);
+        if (!item.IsValid())
         {
             return Result.Failure<PatternItem>(SingleAnalyzerPatternErrors.PatternItemInvalid);
         }
 
-        return Result.Success(new PatternItem(name.Trim(), evidence.Trim(), confidence));
+        return Result.Success(item);
     }
+
+    private static string Normalize(string? value) => (value ?? string.Empty).Trim();
 }

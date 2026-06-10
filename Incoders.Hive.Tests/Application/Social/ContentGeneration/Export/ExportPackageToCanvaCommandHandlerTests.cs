@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Integrations;
+using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Export;
@@ -40,6 +41,7 @@ public sealed class ExportPackageToCanvaCommandHandlerTests
         var pptx = new CapturingPptxAdapter(Result.Success(new byte[] { 0x50, 0x4B }));
         var import = new RecordingImportClient(
             Result.Success(new CanvaImportResult("d-1", "https://canva.com/design/d-1/edit", DateTimeOffset.UtcNow.AddDays(30))));
+        var packageRepo = new PkgPackageRepo();
 
         var handler = new ExportPackageToCanvaCommandHandler(
             new PkgJobRepo(MakeJob(OrgId)),
@@ -48,7 +50,9 @@ public sealed class ExportPackageToCanvaCommandHandlerTests
             new PkgOAuthService("access-token"),
             pptx,
             import,
-            new PkgClientRepo());
+            new PkgClientRepo(),
+            packageRepo,
+            new FixedClock(new DateTime(2026, 6, 9, 12, 0, 0, DateTimeKind.Utc)));
 
         var result = await handler.Handle(
             new ExportPackageToCanvaCommand(JobId, OrgId, OrgIntegrationId, UserId), CancellationToken.None);
@@ -56,6 +60,9 @@ public sealed class ExportPackageToCanvaCommandHandlerTests
         Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.Code : "n/a")}");
         Assert.Equal("https://canva.com/design/d-1/edit", result.Value.EditUrl);
         Assert.True(import.WasCalled, "ImportAsync must be called.");
+        Assert.Equal(new byte[] { 0x50, 0x4B }, import.LastPptxBytes);
+        Assert.Equal(1, packageRepo.MarkSentToCanvaCalls);
+        Assert.Equal(UserId, packageRepo.LastSentByUserId);
         // flyer (1) + carousel (2) = 3 editable pages; reel-script excluded.
         Assert.Equal(3, pptx.LastEnvelopeCount);
     }
@@ -175,14 +182,39 @@ file sealed class RecordingImportClient(Result<CanvaImportResult> response) : IC
 {
     public bool WasCalled { get; private set; }
     public string? LastDesignTitle { get; private set; }
+    public byte[]? LastPptxBytes { get; private set; }
 
     public Task<Result<CanvaImportResult>> ImportAsync(
         byte[] pptxBytes, string accessToken, string? designTitle = null, CancellationToken ct = default)
     {
         WasCalled = true;
         LastDesignTitle = designTitle;
+        LastPptxBytes = pptxBytes;
         return Task.FromResult(response);
     }
+}
+
+file sealed class PkgPackageRepo : IGeneratedPackageRepository
+{
+    public int MarkSentToCanvaCalls { get; private set; }
+    public Guid? LastSentByUserId { get; private set; }
+
+    public Task InsertAsync(GeneratedPackage package, CancellationToken ct) => Task.CompletedTask;
+
+    public Task<GeneratedPackage?> GetByJobIdAsync(Guid jobId, Guid organizationId, CancellationToken ct) =>
+        Task.FromResult<GeneratedPackage?>(null);
+
+    public Task MarkSentToCanvaAsync(Guid jobId, Guid organizationId, Guid? userId, DateTime sentAtUtc, CancellationToken ct)
+    {
+        MarkSentToCanvaCalls++;
+        LastSentByUserId = userId;
+        return Task.CompletedTask;
+    }
+}
+
+file sealed class FixedClock(DateTime utcNow) : IClock
+{
+    public DateTime UtcNow => utcNow;
 }
 
 file sealed class PkgJobRepo(ContentGenerationJob job) : IContentGenerationJobRepository

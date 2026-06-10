@@ -102,6 +102,11 @@ public sealed class RetryAiAnalysisHandler
             return Result.Failure<SingleAnalyzerStatusResponse>(SingleAnalyzerErrors.NotFound);
         }
 
+        if (analysis.AiAnalysisFailedAttemptCount >= SingleContentAnalyzer.MaxAiAnalysisFailedAttempts)
+        {
+            return Result.Failure<SingleAnalyzerStatusResponse>(SingleAnalyzerErrors.AiRetryBlocked);
+        }
+
         if (string.IsNullOrWhiteSpace(analysis.ContentSnapshotJson))
         {
             // No persisted snapshot → can't retry AI in isolation. Caller should re-submit the URL.

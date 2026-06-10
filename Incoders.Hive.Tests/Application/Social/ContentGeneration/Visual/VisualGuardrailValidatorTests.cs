@@ -290,6 +290,20 @@ public sealed class VisualGuardrailValidatorTests
     }
 
     [Fact]
+    public void RawLessThanInsideAttributeValue_Passes()
+    {
+        // GIVEN render-safe HTML with a CSS decorative character in an inline style.
+        // XmlDocument rejects raw '<' inside attributes, but Chromium renders it; this exact
+        // parser strictness was blocking flyer generation after the visual designer succeeded.
+        var markup =
+            """<div class="composition" style="width:1080px;height:1920px;"><div data-layer="background" style="background:#000000;"></div><div data-layer="content"><span class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;content:'<';">Hola</span></div></div>""";
+
+        var result = Validator.Validate(ValidOutput(markup), BuildBrand(), BuildSpec());
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.Code : "n/a")}");
+    }
+
+    [Fact]
     public void DisallowedTag_StillRejected()
     {
         // GIVEN a structurally well-formed composition that contains a tag outside the allow-list.

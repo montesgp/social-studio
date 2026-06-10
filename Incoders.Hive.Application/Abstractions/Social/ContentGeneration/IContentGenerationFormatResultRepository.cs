@@ -12,6 +12,11 @@ public interface IContentGenerationFormatResultRepository
     Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct);
 
     Task<IReadOnlyList<ContentGenerationFormatResult>> ListByJobAsync(Guid jobId, CancellationToken ct);
+
+    Task<IReadOnlyList<ContentGenerationFormatResult>> ListByIdsAsync(
+        IReadOnlySet<Guid> resultIds,
+        CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>([]);
 }
 
 /// <summary>

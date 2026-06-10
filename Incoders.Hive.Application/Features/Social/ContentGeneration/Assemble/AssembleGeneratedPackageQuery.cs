@@ -1,10 +1,15 @@
 using System.IO.Compression;
+using System.Text;
+using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Packaging;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.Clients;
+using Incoders.Hive.Domain.Social.ContentGeneration;
 using MediatR;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Assemble;
@@ -29,7 +34,9 @@ public sealed record AssembleSelection(IReadOnlyList<ClientSelection> Clients);
 public sealed record AssembleGeneratedPackageQuery(
     Guid AnalysisId,
     Guid OrganizationId,
-    AssembleSelection Selection) : IRequest<Result<AssembleGeneratedPackageResponse>>;
+    AssembleSelection Selection,
+    Guid? SourceJobId = null,
+    Guid? UserId = null) : IRequest<Result<AssembleGeneratedPackageResponse>>;
 
 /// <summary>
 /// Response: open readable ZIP stream + suggested download filename.
@@ -49,27 +56,43 @@ public sealed record AssembleGeneratedPackageResponse(
 ///    <see cref="ISingleContentAnalysisRepository.GetByIdAsync"/> — cross-tenant → NotFound.
 /// 2. Load all asset rows for the analysis/org from the repository.
 /// 3. For each selected client (filtered by <see cref="ClientSelection.FormatKeys"/> when provided),
-///    open each asset from <see cref="IGeneratedAssetStorage.OpenAsync"/>.
-///    - 404 (NotFound) → skip that entry silently with a warning entry name; never abort the whole ZIP.
-/// 4. Write a ZIP where each entry is laid out as <c>{clientId}/{assetFilename}</c>.
-///    Carousel slides keep their <c>carousel/slide_N.png</c> sub-path, so the final
-///    ZIP entry is <c>{clientId}/carousel/slide_N.png</c>.
+///    materialize supported format deliverables under <c>{client-folder}/{format}/...</c>.
+///    Visual formats (<c>flyer</c>, <c>carousel</c>) are exported as editable PPTX from persisted
+///    composition specs; script is copied as Markdown from durable storage.
+/// 4. Write <c>manifest.json</c> at the ZIP root using the client-first manifest contract.
 /// 5. Return the seekable MemoryStream + Content-Disposition filename.
 /// </para>
 /// </summary>
 public sealed class AssembleGeneratedPackageQueryHandler
     : IRequestHandler<AssembleGeneratedPackageQuery, Result<AssembleGeneratedPackageResponse>>
 {
+    private const string PptxMime = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    private const string MarkdownMime = "text/markdown";
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+    };
+
     private readonly IGeneratedAssetStorage _assetStorage;
     private readonly IContentGenerationFormatAssetRepository _assetRepository;
     private readonly ISingleContentAnalysisRepository _analysisRepository;
     private readonly ISocialClientRepository _clientRepository;
+    private readonly IContentGenerationFormatResultRepository? _formatResultRepository;
+    private readonly IPptxExportAdapter? _pptxAdapter;
+    private readonly IGeneratedPackageRepository? _packageRepository;
+    private readonly IClock? _clock;
 
     public AssembleGeneratedPackageQueryHandler(
         IGeneratedAssetStorage assetStorage,
         IContentGenerationFormatAssetRepository assetRepository,
         ISingleContentAnalysisRepository analysisRepository,
-        ISocialClientRepository clientRepository)
+        ISocialClientRepository clientRepository,
+        IContentGenerationFormatResultRepository? formatResultRepository = null,
+        IPptxExportAdapter? pptxAdapter = null,
+        IGeneratedPackageRepository? packageRepository = null,
+        IClock? clock = null)
     {
         ArgumentNullException.ThrowIfNull(assetStorage);
         ArgumentNullException.ThrowIfNull(assetRepository);
@@ -80,6 +103,10 @@ public sealed class AssembleGeneratedPackageQueryHandler
         _assetRepository = assetRepository;
         _analysisRepository = analysisRepository;
         _clientRepository = clientRepository;
+        _formatResultRepository = formatResultRepository;
+        _pptxAdapter = pptxAdapter;
+        _packageRepository = packageRepository;
+        _clock = clock;
     }
 
     public async Task<Result<AssembleGeneratedPackageResponse>> Handle(
@@ -137,6 +164,25 @@ public sealed class AssembleGeneratedPackageQueryHandler
                         ? new HashSet<string>(c.FormatKeys, StringComparer.OrdinalIgnoreCase)
                         : null);
 
+        var selectedRows = latestRows
+            .Where(parsed => selectedClientIds is null || selectedClientIds.Contains(parsed.ClientId))
+            .Where(parsed =>
+            {
+                if (!clientFormatFilter.TryGetValue(parsed.ClientId, out var allowedFormats)
+                    || allowedFormats is null)
+                {
+                    return true;
+                }
+
+                return allowedFormats.Contains(parsed.FormatKey);
+            })
+            .ToList();
+
+        var selectedFormatResults = await ResolveSelectedFormatResultsAsync(
+            query.SourceJobId,
+            selectedRows,
+            cancellationToken);
+
         // 4. Build the ZIP in memory
         // For large carousels this is bounded by the carousel size — the design calls
         // for MemoryStream (temp-file approach is an INC-4 optimization deferred to INC-5+).
@@ -146,58 +192,475 @@ public sealed class AssembleGeneratedPackageQueryHandler
         {
             var writtenEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var parsed in latestRows)
+            var manifest = await WritePackageEntriesAsync(
+                archive,
+                selectedRows,
+                selectedFormatResults,
+                clientFolders,
+                writtenEntries,
+                cancellationToken);
+
+            var manifestJson = JsonSerializer.Serialize(manifest, JsonOptions);
+            var manifestEntry = archive.CreateEntry("manifest.json", CompressionLevel.Optimal);
+            await using (var manifestStream = manifestEntry.Open())
             {
-                // Only include selected clients (null selectedClientIds = wildcard = include all)
-                if (selectedClientIds is not null && !selectedClientIds.Contains(parsed.ClientId))
-                    continue;
-
-                // Apply per-client format filter if provided
-                if (clientFormatFilter.TryGetValue(parsed.ClientId, out var allowedFormats)
-                    && allowedFormats is not null)
-                {
-                    if (!allowedFormats.Contains(parsed.FormatKey))
-                        continue;
-                }
-
-                // Open asset from storage — 404 → skip silently
-                var openResult = await _assetStorage.OpenAsync(parsed.Row.StoragePath, cancellationToken);
-                if (openResult.IsFailure)
-                {
-                    // Missing asset: skip without aborting the whole ZIP
-                    continue;
-                }
-
-                using var assetStream = openResult.Value;
-
-                // ZIP entry path: {clientFolder}/{relativeFilename}
-                // clientFolder is the sanitized display name (PKG-02); falls back to GUID string
-                // when the client record is not found.
-                // The DB filename is intentionally a leaf for carousel slides; the storage path
-                // is authoritative for preserving subfolders such as carousel/slide_1.png.
-                var folder = clientFolders.TryGetValue(parsed.ClientId, out var folderName)
-                    ? folderName
-                    : parsed.ClientId.ToString();
-                var entryName = $"{folder}/{parsed.RelativeAssetPath}";
-                if (!writtenEntries.Add(entryName))
-                {
-                    continue;
-                }
-
-                var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
-
-                await using var entryStream = entry.Open();
-                await assetStream.Content.CopyToAsync(entryStream, cancellationToken);
+                var manifestBytes = Encoding.UTF8.GetBytes(manifestJson);
+                await manifestStream.WriteAsync(manifestBytes, cancellationToken);
             }
         }
 
         memStream.Position = 0;
+
+        if (query.SourceJobId is { } sourceJobId
+            && _packageRepository is not null
+            && _clock is not null)
+        {
+            await _packageRepository.MarkDownloadedAsync(
+                sourceJobId,
+                query.OrganizationId,
+                query.UserId,
+                _clock.UtcNow,
+                cancellationToken);
+        }
 
         var filename = $"content-package-{query.AnalysisId}.zip";
         return Result.Success(new AssembleGeneratedPackageResponse(memStream, filename));
     }
 
     // ─── Private helpers ──────────────────────────────────────────────────────
+
+    private async Task<IReadOnlyList<ContentGenerationFormatResult>> ResolveSelectedFormatResultsAsync(
+        Guid? sourceJobId,
+        IReadOnlyList<ParsedFormatAsset> selectedRows,
+        CancellationToken ct)
+    {
+        if (_formatResultRepository is null)
+        {
+            return [];
+        }
+
+        if (sourceJobId is { } jobId && jobId != Guid.Empty)
+        {
+            return await _formatResultRepository.ListByJobAsync(jobId, ct);
+        }
+
+        var ids = selectedRows
+            .Select(r => r.Row.FormatResultId)
+            .Where(id => id != Guid.Empty)
+            .ToHashSet();
+
+        return await _formatResultRepository.ListByIdsAsync(ids, ct);
+    }
+
+    private async Task<AssembledPackageManifest> WritePackageEntriesAsync(
+        ZipArchive archive,
+        IReadOnlyList<ParsedFormatAsset> selectedRows,
+        IReadOnlyList<ContentGenerationFormatResult> selectedFormatResults,
+        IReadOnlyDictionary<Guid, string> clientFolders,
+        HashSet<string> writtenEntries,
+        CancellationToken ct)
+    {
+        var globalWarnings = new List<string>();
+        var clients = new SortedDictionary<string, AssembledClientManifest>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var clientGroup in selectedRows.GroupBy(row => row.ClientId))
+        {
+            var folder = clientFolders.TryGetValue(clientGroup.Key, out var folderName)
+                ? folderName
+                : clientGroup.Key.ToString();
+
+            var clientWarnings = new List<string>();
+            var formats = new SortedDictionary<string, AssembledFormatManifest>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var formatGroup in clientGroup.GroupBy(row => row.FormatKey, StringComparer.OrdinalIgnoreCase))
+            {
+                var packageFormatKey = NormalizePackageFormatKey(formatGroup.Key);
+                if (packageFormatKey is null)
+                {
+                    clientWarnings.Add($"Unsupported package format '{formatGroup.Key}' was skipped.");
+                    continue;
+                }
+
+                AssembledFormatManifest? formatManifest = packageFormatKey switch
+                {
+                    "flyer" => await TryWriteFlyerAsync(
+                        archive,
+                        folder,
+                        formatGroup.ToList(),
+                        selectedFormatResults,
+                        writtenEntries,
+                        clientWarnings,
+                        ct),
+                    "carousel" => await TryWriteCarouselAsync(
+                        archive,
+                        folder,
+                        formatGroup.ToList(),
+                        selectedFormatResults,
+                        writtenEntries,
+                        clientWarnings,
+                        ct),
+                    "script" => await TryWriteScriptAsync(
+                        archive,
+                        folder,
+                        formatGroup.OrderBy(row => row.Row.AssetIndex).ToList(),
+                        writtenEntries,
+                        clientWarnings,
+                        ct),
+                    _ => null,
+                };
+
+                if (formatManifest is not null)
+                {
+                    formats[packageFormatKey] = formatManifest;
+                }
+            }
+
+            if (formats.Count == 0)
+            {
+                continue;
+            }
+
+            var resultIds = clientGroup
+                .Select(row => row.Row.FormatResultId)
+                .Where(id => id != Guid.Empty)
+                .ToHashSet();
+
+            var inferredFields = selectedFormatResults
+                .Where(result => resultIds.Contains(result.Id))
+                .SelectMany(result => ReadInferredFields(result.InferredFieldsJson))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var totalSize = formats.Values.Sum(format => format.SizeBytes);
+            clients[folder] = new AssembledClientManifest(
+                ClientFolderName: folder,
+                Formats: formats,
+                InferredFields: inferredFields,
+                Warnings: clientWarnings,
+                TotalSizeBytes: totalSize,
+                HasStoredAssets: true);
+
+            globalWarnings.AddRange(clientWarnings.Select(warning => $"{folder}: {warning}"));
+        }
+
+        return new AssembledPackageManifest(
+            Clients: clients,
+            TotalSizeBytes: clients.Values.Sum(client => client.TotalSizeBytes),
+            Warnings: globalWarnings);
+    }
+
+    private async Task<AssembledFormatManifest?> TryWriteFlyerAsync(
+        ZipArchive archive,
+        string clientFolder,
+        IReadOnlyList<ParsedFormatAsset> rows,
+        IReadOnlyList<ContentGenerationFormatResult> selectedFormatResults,
+        HashSet<string> writtenEntries,
+        List<string> warnings,
+        CancellationToken ct)
+    {
+        var result = ResolveFormatResult(rows, selectedFormatResults);
+        var envelopes = CompositionSpecJson.ParseList(result?.CompositionSpecJson);
+        if (_pptxAdapter is null || result is null || envelopes.Count == 0)
+        {
+            warnings.Add("flyer skipped because no editable composition spec was available.");
+            return null;
+        }
+
+        var buildResult = envelopes.Count == 1
+            ? await _pptxAdapter.BuildAsync(envelopes[0], ct)
+            : await _pptxAdapter.BuildManyAsync(envelopes, ct);
+
+        if (buildResult.IsFailure)
+        {
+            warnings.Add($"flyer skipped because PPTX export failed: {buildResult.Error.Code}.");
+            return null;
+        }
+
+        var file = await WriteBytesEntryAsync(
+            archive,
+            writtenEntries,
+            $"{clientFolder}/flyer/flyer.pptx",
+            buildResult.Value,
+            PptxMime,
+            ct);
+
+        return file is null
+            ? null
+            : BuildFormatManifest("flyer", file, ResolvePublicationMetadata("flyer", result.OutputJson));
+    }
+
+    private async Task<AssembledFormatManifest?> TryWriteCarouselAsync(
+        ZipArchive archive,
+        string clientFolder,
+        IReadOnlyList<ParsedFormatAsset> rows,
+        IReadOnlyList<ContentGenerationFormatResult> selectedFormatResults,
+        HashSet<string> writtenEntries,
+        List<string> warnings,
+        CancellationToken ct)
+    {
+        var result = ResolveFormatResult(rows, selectedFormatResults);
+        var envelopes = CompositionSpecJson.ParseList(result?.CompositionSpecJson);
+        if (_pptxAdapter is null || result is null || envelopes.Count == 0)
+        {
+            warnings.Add("carousel skipped because no editable composition spec was available.");
+            return null;
+        }
+
+        var files = new List<AssembledFileManifest>();
+        for (var i = 0; i < envelopes.Count; i++)
+        {
+            var buildResult = await _pptxAdapter.BuildAsync(envelopes[i], ct);
+            if (buildResult.IsFailure)
+            {
+                warnings.Add($"carousel slide {i + 1} skipped because PPTX export failed: {buildResult.Error.Code}.");
+                continue;
+            }
+
+            var file = await WriteBytesEntryAsync(
+                archive,
+                writtenEntries,
+                $"{clientFolder}/carousel/slide_{i + 1}.pptx",
+                buildResult.Value,
+                PptxMime,
+                ct);
+
+            if (file is not null)
+            {
+                files.Add(file);
+            }
+        }
+
+        if (files.Count == 0)
+        {
+            return null;
+        }
+
+        return BuildFormatManifest(
+            "carousel",
+            files,
+            ResolvePublicationMetadata("carousel", result.OutputJson),
+            aggregateFilename: "carousel/",
+            aggregateRelativePath: $"{clientFolder}/carousel/");
+    }
+
+    private async Task<AssembledFormatManifest?> TryWriteScriptAsync(
+        ZipArchive archive,
+        string clientFolder,
+        IReadOnlyList<ParsedFormatAsset> rows,
+        HashSet<string> writtenEntries,
+        List<string> warnings,
+        CancellationToken ct)
+    {
+        foreach (var row in rows)
+        {
+            var openResult = await _assetStorage.OpenAsync(row.Row.StoragePath, ct);
+            if (openResult.IsFailure)
+            {
+                warnings.Add($"script source asset '{row.Row.Filename}' was missing and was skipped.");
+                continue;
+            }
+
+            await using var sourceStream = openResult.Value.Content;
+            using var memory = new MemoryStream();
+            await sourceStream.CopyToAsync(memory, ct);
+
+            var file = await WriteBytesEntryAsync(
+                archive,
+                writtenEntries,
+                $"{clientFolder}/script/script.md",
+                memory.ToArray(),
+                MarkdownMime,
+                ct);
+
+            return file is null
+                ? null
+                : BuildFormatManifest("script", file, publication: null);
+        }
+
+        return null;
+    }
+
+    private static ContentGenerationFormatResult? ResolveFormatResult(
+        IReadOnlyList<ParsedFormatAsset> rows,
+        IReadOnlyList<ContentGenerationFormatResult> selectedFormatResults)
+    {
+        var rowResultIds = rows
+            .Select(row => row.Row.FormatResultId)
+            .Where(id => id != Guid.Empty)
+            .ToHashSet();
+
+        var fromRowId = selectedFormatResults
+            .Where(result => rowResultIds.Contains(result.Id))
+            .OrderByDescending(result => result.UpdatedAt)
+            .FirstOrDefault();
+
+        if (fromRowId is not null)
+        {
+            return fromRowId;
+        }
+
+        var rawFormatKey = rows.FirstOrDefault()?.FormatKey;
+        return rawFormatKey is null
+            ? null
+            : selectedFormatResults
+                .Where(result => string.Equals(result.FormatKey, rawFormatKey, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(result => result.UpdatedAt)
+                .FirstOrDefault();
+    }
+
+    private static async Task<AssembledFileManifest?> WriteBytesEntryAsync(
+        ZipArchive archive,
+        HashSet<string> writtenEntries,
+        string relativePath,
+        byte[] bytes,
+        string mime,
+        CancellationToken ct)
+    {
+        if (!writtenEntries.Add(relativePath))
+        {
+            return null;
+        }
+
+        var entry = archive.CreateEntry(relativePath, CompressionLevel.Optimal);
+        await using var entryStream = entry.Open();
+        await entryStream.WriteAsync(bytes, ct);
+
+        return new AssembledFileManifest(
+            Filename: Path.GetFileName(relativePath),
+            RelativePath: relativePath,
+            Mime: mime,
+            SizeBytes: bytes.LongLength,
+            ContentHash: ComputeStablePseudoHash(bytes));
+    }
+
+    private static AssembledFormatManifest BuildFormatManifest(
+        string formatKey,
+        AssembledFileManifest file,
+        PublicationMetadata? publication) =>
+        BuildFormatManifest(formatKey, [file], publication, file.Filename, file.RelativePath);
+
+    private static AssembledFormatManifest BuildFormatManifest(
+        string formatKey,
+        IReadOnlyList<AssembledFileManifest> files,
+        PublicationMetadata? publication,
+        string aggregateFilename,
+        string aggregateRelativePath)
+    {
+        var size = files.Sum(file => file.SizeBytes);
+        return new AssembledFormatManifest(
+            FormatKey: formatKey,
+            Mime: files.Count == 1 ? files[0].Mime : PptxMime,
+            Filename: aggregateFilename,
+            RelativePath: aggregateRelativePath,
+            SizeBytes: size,
+            ContentHash: ComputeCombinedHash(files),
+            Publication: publication,
+            Files: files,
+            Assets: files);
+    }
+
+    private static string? NormalizePackageFormatKey(string formatKey)
+    {
+        if (string.Equals(formatKey, "flyer", StringComparison.OrdinalIgnoreCase))
+        {
+            return "flyer";
+        }
+
+        if (string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase))
+        {
+            return "carousel";
+        }
+
+        if (string.Equals(formatKey, "script", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(formatKey, "reel-script", StringComparison.OrdinalIgnoreCase))
+        {
+            return "script";
+        }
+
+        return null;
+    }
+
+    private static PublicationMetadata? ResolvePublicationMetadata(string formatKey, string? outputJson)
+    {
+        if (!string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(formatKey, "flyer", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(outputJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(outputJson);
+            if (!document.RootElement.TryGetProperty("publicationDescription", out var property)
+                || property.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            var description = property.GetString()?.Trim();
+            return string.IsNullOrWhiteSpace(description)
+                ? null
+                : new PublicationMetadata(description);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static IReadOnlyList<string> ReadInferredFields(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            return document.RootElement
+                .EnumerateArray()
+                .Where(item => item.ValueKind == JsonValueKind.String)
+                .Select(item => item.GetString())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!)
+                .ToList();
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string ComputeStablePseudoHash(byte[] bytes)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(bytes);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string ComputeCombinedHash(IReadOnlyList<AssembledFileManifest> files)
+    {
+        if (files.Count == 1)
+        {
+            return files[0].ContentHash;
+        }
+
+        var combined = string.Join(
+            "|",
+            files.Select(file => $"{file.RelativePath}:{file.ContentHash}"));
+        return ComputeStablePseudoHash(Encoding.UTF8.GetBytes(combined));
+    }
 
     /// <summary>
     /// Resolves display-name folder segments for a set of client GUIDs within the given organization.
@@ -335,4 +798,35 @@ public sealed class AssembleGeneratedPackageQueryHandler
         string RelativeAssetPath,
         string FormatKey,
         FormatAssetRow Row);
+
+    private sealed record AssembledPackageManifest(
+        IReadOnlyDictionary<string, AssembledClientManifest> Clients,
+        long TotalSizeBytes,
+        IReadOnlyList<string> Warnings);
+
+    private sealed record AssembledClientManifest(
+        string ClientFolderName,
+        IReadOnlyDictionary<string, AssembledFormatManifest> Formats,
+        IReadOnlyList<string> InferredFields,
+        IReadOnlyList<string> Warnings,
+        long TotalSizeBytes,
+        bool HasStoredAssets);
+
+    private sealed record AssembledFormatManifest(
+        string FormatKey,
+        string Mime,
+        string Filename,
+        string RelativePath,
+        long SizeBytes,
+        string ContentHash,
+        PublicationMetadata? Publication,
+        IReadOnlyList<AssembledFileManifest> Files,
+        IReadOnlyList<AssembledFileManifest> Assets);
+
+    private sealed record AssembledFileManifest(
+        string Filename,
+        string RelativePath,
+        string Mime,
+        long SizeBytes,
+        string ContentHash);
 }

@@ -89,6 +89,8 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
         row.ProviderDiagnosticsJson = analysis.ProviderDiagnosticsJson;
         row.FailureCode = analysis.FailureCode;
         row.FailureMessageKey = analysis.FailureMessageKey;
+        row.AiAnalysisFailedAttemptCount = analysis.AiAnalysisFailedAttemptCount;
+        row.AiAnalysisRetryBlockedAtUtc = analysis.AiAnalysisRetryBlockedAtUtc;
         row.CreatedAtUtc = analysis.CreatedAtUtc;
         row.UpdatedAtUtc = analysis.UpdatedAtUtc;
         row.CompletedAtUtc = analysis.CompletedAtUtc;
@@ -291,6 +293,8 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
         ProviderDiagnosticsJson = analysis.ProviderDiagnosticsJson,
         FailureCode = analysis.FailureCode,
         FailureMessageKey = analysis.FailureMessageKey,
+        AiAnalysisFailedAttemptCount = analysis.AiAnalysisFailedAttemptCount,
+        AiAnalysisRetryBlockedAtUtc = analysis.AiAnalysisRetryBlockedAtUtc,
         CreatedAtUtc = analysis.CreatedAtUtc,
         UpdatedAtUtc = analysis.UpdatedAtUtc,
         CompletedAtUtc = analysis.CompletedAtUtc,
@@ -312,5 +316,7 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
         row.FailureMessageKey,
         row.CreatedAtUtc,
         row.UpdatedAtUtc,
-        row.CompletedAtUtc);
+        row.CompletedAtUtc,
+        row.AiAnalysisFailedAttemptCount,
+        row.AiAnalysisRetryBlockedAtUtc);
 }

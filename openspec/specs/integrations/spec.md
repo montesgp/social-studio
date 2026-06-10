@@ -45,21 +45,27 @@ The Apify `actor_mappings_json` credential MUST contain two entries for profile 
   {
     "networkKey": "instagram",
     "variantKey": "profile",
-    "actorId": "get-leads~all-in-one-instagram-scraper"
+    "actorId": "get-leads~all-in-one-instagram-scraper",
+    "isPrimary": true
   },
   {
     "networkKey": "instagram",
     "variantKey": "profile",
-    "actorId": "apify~instagram-profile-scraper"
+    "actorId": "apify~instagram-profile-scraper",
+    "isPrimary": false
   }
 ]
 ```
 
 Where:
-- Entry `[0]` (array-first) is the **default actor** (`defaultActorId = iMcuOj3FW9xLIbqET`).
+- Entry `[0]` is the **default actor** (`defaultActorId = iMcuOj3FW9xLIbqET`) when `isPrimary=true` or when no primary flag is present.
 - Entry `[1]` (array-second) is the **backup actor** (`backupActorId = dSCLg0C3YEZ83HzYX`).
-- JSON array order is preserved by `List<T>` deserialisation; no explicit `priority` field is needed.
+- JSON array order is preserved by `List<T>` deserialisation; `isPrimary` may be used to make the default explicit.
 - The existing single-video entry (`networkKey="instagram"` without `variantKey="profile"`) MUST remain untouched.
+- The profile scrape adapter MUST build actor-specific inputs:
+  - `get-leads/all-in-one-instagram-scraper`: `scrapeMode="instagram-profile-scraper"`, `profiles[]`, `maxPostsPerProfile`, `proxyTier="residential"`.
+  - `apify/instagram-profile-scraper`: `usernames[]`.
+- The profile response mapper MUST accept both `resultType=="profile"` dataset items and direct profile objects from the official Apify actor, while treating `input_validation_error`, `quality_report`, and `bandwidth_report` as non-profile items.
 
 #### Scenario: Profile entries resolve correct actor ids (INT-01)
 
@@ -76,7 +82,7 @@ Where:
 
 ### Automatic Backup-Actor Fallback Behavior (INT-02)
 
-When the **default actor** for `(networkKey="instagram", variantKey="profile")` returns an Apify-level transport error, a non-2xx HTTP response, an empty dataset, or an array with no item where `resultType == "profile"`, the system:
+When the **default actor** for `(networkKey="instagram", variantKey="profile")` returns an Apify-level transport error, a non-2xx HTTP response, an empty dataset, an input-validation item, or no mappable profile item (`resultType == "profile"` or a direct profile object), the system:
 
 1. Records a `ProviderFailureDiagnostic` for the failed attempt.
 2. Automatically retries using the **backup actor** once — in the same pipeline run — without user intervention.

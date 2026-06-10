@@ -212,6 +212,41 @@ public sealed class PptxExportAdapterTests
         Assert.Contains(texts, t => t!.Contains("Learn More", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task BuildAsync_DataSlot_HtmlDecodesNumericEntities()
+    {
+        var markup = """
+            <div class="composition" style="width:1080px;height:1920px;">
+              <div data-layer="background"></div>
+              <div data-layer="content">
+                <h1 data-slot="headline">5 perfiles imprescindibles&#8230;</h1>
+              </div>
+            </div>
+            """;
+        var envelope = new CompositionSpecEnvelope(
+            SchemaVersion: CompositionSpecEnvelope.CurrentSchemaVersion,
+            Markup: markup,
+            Canvas: new CanvasDimensions(1080, 1920, 96),
+            SlotGeometry:
+            [
+                new SlotGeometryEntry(
+                    Slot: "headline", X: 30, Y: 200, Width: 900, Height: 80,
+                    FontFamily: "Inter", FontSizePx: 48, Color: "#000000", TextAlign: "left")
+            ],
+            BackgroundImageRef: null);
+
+        var result = await Adapter.BuildAsync(envelope, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
+        var texts = GetTextShapes(result.Value)
+            .Select(ExtractText)
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .ToList();
+
+        Assert.Contains(texts, text => text == "5 perfiles imprescindibles…");
+        Assert.DoesNotContain(texts, text => text!.Contains("&#8230;", StringComparison.Ordinal));
+    }
+
     // ------------------------------------------------------------------
     // Geometry → EMU coordinates (D3)
     // ------------------------------------------------------------------

@@ -59,13 +59,14 @@ public sealed class BackgroundSelectorTests
     }
 
     // -----------------------------------------------------------------------
-    // BG-03 Scenario 3: Tier-3 creative returned when no structured entries exist
+    // BG-03 Scenario 3: legacy/default manual templates are still used
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Tier3_Creative_WhenNoStructuredEntries()
+    public void Tier2_LegacyCreativeTemplate_ReturnedWhenClientDefinedBackground()
     {
-        // GIVEN snapshot has no ForcedDefault and no Reference entries (Creative only)
+        // GIVEN snapshot has a legacy/default Creative-tier entry. Older brand manuals did not
+        // classify background rows, but a user-defined image is still a template and must be used.
         var templates = new[]
         {
             new BrandBackgroundTemplateSnapshot("creative-bg", "https://cdn.example.com/creative.png", null,
@@ -75,7 +76,17 @@ public sealed class BackgroundSelectorTests
         // WHEN SelectBackgroundTemplate("flyer") called
         var result = BackgroundSelector.Select(templates, "flyer");
 
-        // THEN result is BackgroundSelection.Creative
+        // THEN result is BackgroundSelection.References so the pipeline can enforce it as a manual template.
+        var refs = Assert.IsType<BackgroundSelection.References>(result);
+        Assert.Single(refs.Entries);
+        Assert.Equal("https://cdn.example.com/creative.png", refs.Entries[0].Url);
+    }
+
+    [Fact]
+    public void Tier3_Creative_WhenNoManualTemplatesExist()
+    {
+        var result = BackgroundSelector.Select([], "flyer");
+
         Assert.IsType<BackgroundSelection.Creative>(result);
     }
 

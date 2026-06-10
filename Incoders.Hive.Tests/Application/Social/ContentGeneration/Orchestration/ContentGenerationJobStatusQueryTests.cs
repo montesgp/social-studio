@@ -62,6 +62,32 @@ public sealed class ContentGenerationJobStatusQueryTests
         Assert.Equal(manifestJson, result.Value.ManifestJson);
     }
 
+    [Fact]
+    public async Task Handle_ExistingJob_ReturnsPerFormatFailureCounts()
+    {
+        var jobId = Guid.NewGuid();
+        var job = MakeJob(jobId, OrgId, "Failed", clientId: Guid.NewGuid());
+        var jobRepo = new FakeJobRepository(job);
+        var formatResultRepo = new FakeFormatResultRepository(
+        [
+            MakeFormatResult(jobId, "flyer", "RenderFailed"),
+        ]);
+        var failurePolicy = new FakeFailurePolicy(new Dictionary<string, int>
+        {
+            ["flyer"] = 2,
+            ["carousel"] = 1,
+        });
+        var handler = new ContentGenerationJobStatusQueryHandler(jobRepo, formatResultRepo, failurePolicy);
+
+        var query = new ContentGenerationJobStatusQuery(JobId: jobId, OrganizationId: OrgId);
+        var result = await handler.Handle(query, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, result.Value.PerFormatFailureCounts!["flyer"]);
+        Assert.Equal(1, result.Value.PerFormatFailureCounts!["carousel"]);
+    }
+
+
     // ─── Cross-tenant: returns NotFound ──────────────────────────────────────
 
     [Fact]
@@ -102,11 +128,12 @@ public sealed class ContentGenerationJobStatusQueryTests
 
     private static ContentGenerationJob MakeJob(
         Guid id, Guid orgId, string status,
-        string? manifestJson = null) =>
+        string? manifestJson = null,
+        Guid? clientId = null) =>
         new(
             Id: id,
             OrganizationId: orgId,
-            ClientId: null,
+            ClientId: clientId,
             AnalysisId: Guid.NewGuid(),
             RequestedFormats: ["carousel", "flyer"],
             Status: status,
@@ -178,4 +205,22 @@ file sealed class FakeFormatResultRepository : IContentGenerationFormatResultRep
 
     public Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct) =>
         Task.FromResult(result);
+}
+
+file sealed class FakeFailurePolicy(
+    IReadOnlyDictionary<string, int> counts) : IContentGenerationFailurePolicy
+{
+    public Task<IReadOnlyDictionary<string, int>> CountFailedAttemptsByFormatAsync(
+        Guid organizationId,
+        Guid analysisId,
+        Guid clientId,
+        IReadOnlyCollection<string> formatKeys,
+        CancellationToken cancellationToken)
+    {
+        var result = formatKeys
+            .Where(counts.ContainsKey)
+            .ToDictionary(format => format, format => counts[format], StringComparer.OrdinalIgnoreCase);
+
+        return Task.FromResult<IReadOnlyDictionary<string, int>>(result);
+    }
 }

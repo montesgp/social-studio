@@ -439,6 +439,7 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
             var inner = m.Groups["inner"].Value;
             // Strip nested HTML tags and normalize whitespace
             var text = StripTagsRegex.Replace(inner, string.Empty).Trim();
+            text = System.Net.WebUtility.HtmlDecode(text);
             text = Regex.Replace(text, @"\s+", " ");
             result[slot] = text;
         }

@@ -125,7 +125,8 @@ public sealed record AssembleClientSelectionRequest(
 
 /// <summary>Request body for the assemble-package endpoint.</summary>
 public sealed record AssemblePackageRequest(
-    IReadOnlyList<AssembleClientSelectionRequest>? Clients);
+    IReadOnlyList<AssembleClientSelectionRequest>? Clients,
+    Guid? JobId = null);
 
 /// <summary>Request body for the regenerate-format endpoint.</summary>
 public sealed record RegenerateFormatRequest(
@@ -225,6 +226,7 @@ public static class ContentGenerationEndpointFacade
         AssemblePackageRequest body,
         ISender sender,
         ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
         CancellationToken cancellationToken)
     {
         if (currentTenant.TenantId is not { } tenantId)
@@ -241,7 +243,12 @@ public static class ContentGenerationEndpointFacade
         var selection = new AssembleSelection(clients);
 
         var result = await sender.Send(
-            new AssembleGeneratedPackageQuery(analysisId, tenantId.Value, selection),
+            new AssembleGeneratedPackageQuery(
+                analysisId,
+                tenantId.Value,
+                selection,
+                SourceJobId: body.JobId,
+                UserId: currentUser.UserId),
             cancellationToken);
 
         return result.Match(response =>
@@ -368,13 +375,14 @@ public static class ContentGenerationEndpointFacade
         Guid jobId,
         ISender sender,
         ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
         CancellationToken cancellationToken)
     {
         if (currentTenant.TenantId is not { } tenantId)
             return OrganizationRequired.ToProblem();
 
         var result = await sender.Send(
-            new DownloadGeneratedPackageQuery(jobId, tenantId.Value),
+            new DownloadGeneratedPackageQuery(jobId, tenantId.Value, currentUser.UserId),
             cancellationToken);
 
         return result.Match(response =>

@@ -165,10 +165,10 @@ public sealed class ApifyProfileScrapeResolverTests
         Assert.True(result.Value.IsPartial);
     }
 
-    // ── PA-04: RESIDENTIAL proxy present in the request body ─────────────────
+    // ── PA-04: actor-specific request body ───────────────────────────────────
 
     [Fact]
-    public async Task ResolveAsync_ActorInput_ContainsResidentialProxy()
+    public async Task ResolveAsync_GetLeadsActorInput_ContainsResidentialProxyTier()
     {
         var capturingHandler = new CapturingBodyHandler(GoldenFixture);
 
@@ -181,8 +181,58 @@ public sealed class ApifyProfileScrapeResolverTests
             CancellationToken.None);
 
         Assert.NotNull(capturingHandler.CapturedBody);
-        Assert.Contains("RESIDENTIAL", capturingHandler.CapturedBody);
-        Assert.Contains("instagram-profile-scraper", capturingHandler.CapturedBody);
+        Assert.Contains("\"profiles\"", capturingHandler.CapturedBody);
+        Assert.Contains("\"proxyTier\":\"residential\"", capturingHandler.CapturedBody);
+        Assert.Contains("\"instagram-profile-scraper\"", capturingHandler.CapturedBody);
+        Assert.DoesNotContain("\"proxy\"", capturingHandler.CapturedBody);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OfficialApifyProfileActor_UsesUsernamesInput()
+    {
+        var officialMappingsJson = JsonSerializer.Serialize(new[]
+        {
+            new { networkKey = "instagram", variantKey = "profile", actorId = "apify/instagram-profile-scraper", isPrimary = true }
+        });
+        var officialFixture = JsonSerializer.Serialize(new[]
+        {
+            new
+            {
+                id = "242598499",
+                username = "testbrand",
+                followersCount = 150000,
+                followsCount = 200,
+                postsCount = 100,
+                verified = true,
+                latestPosts = new[]
+                {
+                    new
+                    {
+                        shortCode = "ABC123",
+                        mediaType = "Image",
+                        likesCount = 1200,
+                        commentsCount = 30,
+                        timestamp = "2026-05-01T10:00:00.000Z",
+                        ownerUsername = "testbrand"
+                    }
+                }
+            }
+        });
+        var capturingHandler = new CapturingBodyHandler(officialFixture);
+
+        var resolver = new ApifyProfileScrapeResolver(
+            MakeCredential(mappingsJson: officialMappingsJson),
+            new StaticHttpClientFactory(capturingHandler));
+
+        var result = await resolver.ResolveAsync(
+            MakeRequest(Guid.NewGuid(), Guid.NewGuid()),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.Code : "n/a")}");
+        Assert.NotNull(capturingHandler.CapturedBody);
+        Assert.Contains("\"usernames\"", capturingHandler.CapturedBody);
+        Assert.Contains("\"testbrand\"", capturingHandler.CapturedBody);
+        Assert.DoesNotContain("\"profiles\"", capturingHandler.CapturedBody);
     }
 
     // ── PA-24: default actor used first; actorId corresponds to profile mapping ──
