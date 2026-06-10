@@ -32,7 +32,8 @@ public sealed record ProfileScrapeRequest(
     Guid? ClientId,
     string ProfileUrlOrHandle,
     string PlatformKey,
-    string CapabilityKey);
+    string CapabilityKey,
+    IReadOnlyList<string>? PreferredActorIds = null);
 
 /// <summary>
 /// Output contract from <see cref="IProfileScrapeResolver"/>.

@@ -22,7 +22,8 @@ public sealed record SocialContentRequest(
     string SourceUrl,
     string NormalizedUrl,
     string PlatformKey,
-    string CapabilityKey);
+    string CapabilityKey,
+    string? ActorId = null);
 
 public sealed record SocialContentResolutionRequest(
     Guid OrganizationId,
@@ -30,7 +31,8 @@ public sealed record SocialContentResolutionRequest(
     Guid? ClientId,
     string SourceUrl,
     string? PlatformHint,
-    string? PreferredProviderKey);
+    string? PreferredProviderKey,
+    IReadOnlyList<string>? PreferredActorIds = null);
 
 public sealed record SocialContentResolution(
     SocialContentSnapshot Snapshot,

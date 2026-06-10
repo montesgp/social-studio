@@ -2,6 +2,7 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Common;
@@ -28,6 +29,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
     private readonly IContentAnalysisProfileProvider _profileProvider;
     private readonly IContentAnalysisPreflight? _preflight;
     private readonly ProviderCallContext? _providerCallContext;
+    private readonly IWorkflowConfigurationResolver? _workflowResolver;
     private readonly ILogger<SingleContentAnalyzer> _logger;
 
     public SingleContentAnalyzer(
@@ -40,6 +42,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         IContentAnalysisProfileProvider profileProvider,
         IContentAnalysisPreflight? preflight = null,
         ProviderCallContext? providerCallContext = null,
+        IWorkflowConfigurationResolver? workflowResolver = null,
         ILogger<SingleContentAnalyzer>? logger = null)
     {
         _analyses = analyses;
@@ -51,6 +54,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         _profileProvider = profileProvider;
         _preflight = preflight;
         _providerCallContext = providerCallContext;
+        _workflowResolver = workflowResolver;
         _logger = logger ?? NullLogger<SingleContentAnalyzer>.Instance;
     }
 
@@ -164,7 +168,10 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             return;
         }
 
-        var selectedAi = await _defaultAiSelector.SelectAsync(organizationId, cancellationToken);
+        var selectedAi = await ResolveAiSelectionAsync(
+            organizationId,
+            analysisType: "content-analysis",
+            cancellationToken);
         if (selectedAi.IsFailure)
         {
             _logger.LogWarning(
@@ -318,9 +325,13 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         var aiCapabilityKey = profile?.AiCapabilityKey ?? "ai-analysis";
         var promptVersionKey = profile?.PromptVersionKey ?? "single-analyzer.analysis.v1";
         var extractionProviderKey = request.PreferredExtractionProviderKey ?? profile?.ExtractionProviderKey ?? "apify";
+        IReadOnlyList<string>? extractionActorIds = null;
 
         // AI provider selection is org-integration-driven (CAP3-MUST-04): is_default_ai → last configured.
-        var selectedAi = await _defaultAiSelector.SelectAsync(request.OrganizationId, cancellationToken);
+        var selectedAi = await ResolveAiSelectionAsync(
+            request.OrganizationId,
+            analysisType: "content-analysis",
+            cancellationToken);
         if (selectedAi.IsFailure)
         {
             _logger.LogWarning(
@@ -328,6 +339,39 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
                 request.OrganizationId,
                 selectedAi.Error.Code);
             return Result.Failure<AnalysisContext>(selectedAi.Error);
+        }
+
+        if (_workflowResolver is not null)
+        {
+            var scrapeRoute = await _workflowResolver.ResolveStepAsync(
+                new WorkflowStepResolutionRequest(
+                    request.OrganizationId,
+                    FlowKey,
+                    "content-analysis",
+                    "scrape-video",
+                    "scrape-video",
+                    platformKey),
+                cancellationToken);
+
+            if (scrapeRoute.IsSuccess && scrapeRoute.Value.Count > 0)
+            {
+                extractionProviderKey = scrapeRoute.Value[0].ProviderKey;
+                extractionActorIds = scrapeRoute.Value
+                    .Select(x => x.ActorId)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x!)
+                    .ToList();
+
+                _logger.LogInformation(
+                    "WorkflowConfigurationResolved OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} NetworkKey={NetworkKey} ProviderKey={ProviderKey} ActorIds={ActorIds}",
+                    request.OrganizationId,
+                    FlowKey,
+                    "content-analysis",
+                    "scrape-video",
+                    platformKey,
+                    extractionProviderKey,
+                    string.Join(",", extractionActorIds));
+            }
         }
 
         // PRE-FLIGHT (hard prerequisite): every external API must be reachable before we start.
@@ -358,7 +402,8 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             aiCapabilityKey,
             promptVersionKey,
             selectedAi.Value.ProviderKey,
-            selectedAi.Value.Model));
+            selectedAi.Value.Model,
+            extractionActorIds));
     }
 
     /// <summary>Runs extraction + AI on an already-created record, persisting status as it goes.</summary>
@@ -396,7 +441,8 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
                     request.ClientId,
                     ctx.SourceUrl.OriginalUrl,
                     ctx.PlatformKey,
-                    ctx.ExtractionProviderKey),
+                    ctx.ExtractionProviderKey,
+                    ctx.ExtractionActorIds),
                 cancellationToken);
         }
 
@@ -544,11 +590,55 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
     private sealed record AnalysisContext(
         SingleAnalyzerSourceUrl SourceUrl,
         string PlatformKey,
-        string ExtractionProviderKey,
-        string AiCapabilityKey,
-        string PromptVersionKey,
-        string AiProviderKey,
-        string? AiModel);
+            string ExtractionProviderKey,
+            string AiCapabilityKey,
+            string PromptVersionKey,
+            string AiProviderKey,
+            string? AiModel,
+            IReadOnlyList<string>? ExtractionActorIds);
+
+    private async Task<Result<DefaultAiSelection>> ResolveAiSelectionAsync(
+        Guid organizationId,
+        string analysisType,
+        CancellationToken cancellationToken)
+    {
+        if (_workflowResolver is not null)
+        {
+            var route = await _workflowResolver.ResolveStepAsync(
+                new WorkflowStepResolutionRequest(
+                    organizationId,
+                    FlowKey,
+                    analysisType,
+                    "analyze-content",
+                    "ai-analysis",
+                    null),
+                cancellationToken);
+
+            if (route.IsFailure)
+            {
+                return Result.Failure<DefaultAiSelection>(route.Error);
+            }
+
+            var candidate = route.Value.FirstOrDefault();
+            if (candidate is not null)
+            {
+                _logger.LogInformation(
+                    "WorkflowStepResolved OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority} IsFallback={IsFallback}",
+                    organizationId,
+                    FlowKey,
+                    analysisType,
+                    "analyze-content",
+                    candidate.ProviderKey,
+                    candidate.ModelId ?? "(provider default)",
+                    candidate.Priority,
+                    candidate.Priority > 1);
+
+                return Result.Success(new DefaultAiSelection(candidate.ProviderKey, candidate.ModelId));
+            }
+        }
+
+        return await _defaultAiSelector.SelectAsync(organizationId, cancellationToken);
+    }
 
     private static Result ValidateRequest(SingleContentAnalysisRequest request)
     {

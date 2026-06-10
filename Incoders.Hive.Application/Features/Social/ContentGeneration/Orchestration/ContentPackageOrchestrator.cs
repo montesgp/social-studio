@@ -1,7 +1,9 @@
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Domain.Common;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -16,6 +18,7 @@ public sealed class ContentPackageOrchestrator : IContentGenerationOrchestrator
     private readonly FormatContentGeneratorRegistry _registry;
     private readonly IClientBrandSnapshotLoader _brandLoader;
     private readonly IDefaultAiSelector _aiSelector;
+    private readonly IWorkflowConfigurationResolver? _workflowResolver;
     private readonly ProviderCallContext _providerCallContext;
     private readonly ILogger<ContentPackageOrchestrator> _logger;
 
@@ -24,6 +27,7 @@ public sealed class ContentPackageOrchestrator : IContentGenerationOrchestrator
         IClientBrandSnapshotLoader brandLoader,
         IDefaultAiSelector aiSelector,
         ProviderCallContext providerCallContext,
+        IWorkflowConfigurationResolver? workflowResolver = null,
         ILogger<ContentPackageOrchestrator>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(generators);
@@ -34,6 +38,7 @@ public sealed class ContentPackageOrchestrator : IContentGenerationOrchestrator
         _registry = new FormatContentGeneratorRegistry(generators);
         _brandLoader = brandLoader;
         _aiSelector = aiSelector;
+        _workflowResolver = workflowResolver;
         _providerCallContext = providerCallContext;
         _logger = logger ?? NullLogger<ContentPackageOrchestrator>.Instance;
     }
@@ -58,7 +63,7 @@ public sealed class ContentPackageOrchestrator : IContentGenerationOrchestrator
         // AI integration, fail every requested format with the selector's error code so the
         // user sees a meaningful "provider not connected" message instead of generic provider
         // errors per-format. Mirrors how the single-analyzer resolves its provider.
-        var selectedAi = await _aiSelector.SelectAsync(request.OrganizationId, cancellationToken);
+        var selectedAi = await ResolveGenerationAiAsync(request.OrganizationId, cancellationToken);
         if (selectedAi.IsFailure)
         {
             _logger.LogWarning(
@@ -136,5 +141,47 @@ public sealed class ContentPackageOrchestrator : IContentGenerationOrchestrator
         if (failedCount == 0) return OrchestratorStatus.Succeeded;
         if (succeededCount == 0) return OrchestratorStatus.Failed;
         return OrchestratorStatus.Partial;
+    }
+
+    private async Task<Result<DefaultAiSelection>> ResolveGenerationAiAsync(
+        Guid organizationId,
+        CancellationToken cancellationToken)
+    {
+        if (_workflowResolver is not null)
+        {
+            var route = await _workflowResolver.ResolveStepAsync(
+                new WorkflowStepResolutionRequest(
+                    organizationId,
+                    "single-analyzer",
+                    "content-analysis",
+                    "generate-content",
+                    "ai-generation",
+                    null),
+                cancellationToken);
+
+            if (route.IsFailure)
+            {
+                return Result.Failure<DefaultAiSelection>(route.Error);
+            }
+
+            var candidate = route.Value.FirstOrDefault();
+            if (candidate is not null)
+            {
+                _logger.LogInformation(
+                    "WorkflowStepResolved OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority} IsFallback={IsFallback}",
+                    organizationId,
+                    "single-analyzer",
+                    "content-analysis",
+                    "generate-content",
+                    candidate.ProviderKey,
+                    candidate.ModelId ?? "(provider default)",
+                    candidate.Priority,
+                    candidate.Priority > 1);
+
+                return Result.Success(new DefaultAiSelection(candidate.ProviderKey, candidate.ModelId));
+            }
+        }
+
+        return await _aiSelector.SelectAsync(organizationId, cancellationToken);
     }
 }

@@ -2,8 +2,10 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -35,6 +37,7 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
     private readonly IProfileMetricCalculator _calculator;
     private readonly IAiCompletionGateway _aiGateway;
     private readonly IDefaultAiSelector _defaultAiSelector;
+    private readonly IWorkflowConfigurationResolver? _workflowResolver;
     private readonly ILogger<ProfileAnalyzerOrchestrator> _logger;
     private readonly ProviderCallContext? _providerCallContext;
 
@@ -47,7 +50,8 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         IAiCompletionGateway aiGateway,
         IDefaultAiSelector defaultAiSelector,
         ILogger<ProfileAnalyzerOrchestrator>? logger = null,
-        ProviderCallContext? providerCallContext = null)
+        ProviderCallContext? providerCallContext = null,
+        IWorkflowConfigurationResolver? workflowResolver = null)
     {
         _repository = repository;
         _unitOfWork = unitOfWork;
@@ -56,6 +60,7 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         _calculator = calculator;
         _aiGateway = aiGateway;
         _defaultAiSelector = defaultAiSelector;
+        _workflowResolver = workflowResolver;
         _logger = logger ?? NullLogger<ProfileAnalyzerOrchestrator>.Instance;
         _providerCallContext = providerCallContext;
     }
@@ -122,6 +127,7 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
             analysis.ProfileUrlOrHandle);
 
         // ── Stage 2: Scrape ────────────────────────────────────────────────────
+        var configuredActorIds = await ResolveConfiguredActorIdsAsync(orgId, cancellationToken);
         var scrapeResult = await _scrapeResolver.ResolveAsync(
             new ProfileScrapeRequest(
                 orgId,
@@ -129,7 +135,8 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
                 analysis.ClientId,
                 analysis.ProfileUrlOrHandle,
                 "instagram",
-                "profile"),
+                "profile",
+                configuredActorIds),
             cancellationToken);
 
         if (scrapeResult.IsFailure)
@@ -310,6 +317,96 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
     /// Used by both the full pipeline (RunCoreAsync) and the retry-AI path (RunAnalysisOnlyAsync).
     /// The caller is responsible for ensuring the record is in Analyzing or ProfileScraped/Partial state.
     /// </summary>
+    private async Task<IReadOnlyList<string>?> ResolveConfiguredActorIdsAsync(
+        Guid organizationId,
+        CancellationToken cancellationToken)
+    {
+        if (_workflowResolver is null)
+        {
+            return null;
+        }
+
+        var route = await _workflowResolver.ResolveStepAsync(
+            new WorkflowStepResolutionRequest(
+                organizationId,
+                "single-analyzer",
+                "profile-analysis",
+                "scrape-profile",
+                "scrape-profile",
+                "instagram"),
+            cancellationToken);
+
+        if (route.IsFailure || route.Value.Count == 0)
+        {
+            return null;
+        }
+
+        var actorIds = route.Value
+            .Select(x => x.ActorId)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!)
+            .ToList();
+
+        if (actorIds.Count == 0)
+        {
+            return null;
+        }
+
+        _logger.LogInformation(
+            "WorkflowConfigurationResolved OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} NetworkKey={NetworkKey} ProviderKey={ProviderKey} ActorIds={ActorIds}",
+            organizationId,
+            "single-analyzer",
+            "profile-analysis",
+            "scrape-profile",
+            "instagram",
+            route.Value[0].ProviderKey,
+            string.Join(",", actorIds));
+
+        return actorIds;
+    }
+
+    private async Task<Result<DefaultAiSelection>> ResolveAiSelectionAsync(
+        Guid organizationId,
+        CancellationToken cancellationToken)
+    {
+        if (_workflowResolver is not null)
+        {
+            var route = await _workflowResolver.ResolveStepAsync(
+                new WorkflowStepResolutionRequest(
+                    organizationId,
+                    "single-analyzer",
+                    "profile-analysis",
+                    "analyze-profile",
+                    "ai-analysis",
+                    null),
+                cancellationToken);
+
+            if (route.IsFailure)
+            {
+                return Result.Failure<DefaultAiSelection>(route.Error);
+            }
+
+            var candidate = route.Value.FirstOrDefault();
+            if (candidate is not null)
+            {
+                _logger.LogInformation(
+                    "WorkflowStepResolved OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority} IsFallback={IsFallback}",
+                    organizationId,
+                    "single-analyzer",
+                    "profile-analysis",
+                    "analyze-profile",
+                    candidate.ProviderKey,
+                    candidate.ModelId ?? "(provider default)",
+                    candidate.Priority,
+                    candidate.Priority > 1);
+
+                return Result.Success(new DefaultAiSelection(candidate.ProviderKey, candidate.ModelId));
+            }
+        }
+
+        return await _defaultAiSelector.SelectAsync(organizationId, cancellationToken);
+    }
+
     private async Task RunAiStagesAsync(
         ProfileAnalysis analysis,
         Guid orgId,
@@ -325,7 +422,7 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         CancellationToken cancellationToken)
     {
         // ── Stage 5: AI provider selection ────────────────────────────────────
-        var aiSelection = await _defaultAiSelector.SelectAsync(orgId, cancellationToken);
+        var aiSelection = await ResolveAiSelectionAsync(orgId, cancellationToken);
         if (aiSelection.IsFailure)
         {
             _logger.LogWarning(

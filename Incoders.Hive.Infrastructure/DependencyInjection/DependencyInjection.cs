@@ -136,6 +136,8 @@ public static class DependencyInjection
         services.AddScoped<IIntegrationProviderCatalogRepository, EfIntegrationProviderCatalogRepository>();
         services.AddScoped<IOrganizationIntegrationRepository, EfOrganizationIntegrationRepository>();
         services.AddScoped<IOrganizationIntegrationCredentialRepository, EfOrganizationIntegrationCredentialRepository>();
+        services.AddScoped<IOrganizationAiModelRepository, EfOrganizationAiModelRepository>();
+        services.AddScoped<IWorkflowStepConfigurationRepository, EfWorkflowStepConfigurationRepository>();
         services.AddScoped<ICanvaUserTokenRepository, EfCanvaUserTokenRepository>();
 
         // Canva OAuth PKCE service — per-request scoped; owns the HttpClient for token exchanges.
@@ -183,6 +185,7 @@ public static class DependencyInjection
             nameof(Incoders.Hive.Infrastructure.Social.Providers.ApifySocialContentExtractor),
             nameof(Incoders.Hive.Infrastructure.Social.Providers.ApifyProfileScrapeResolver),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.ClaudeModelClient),
+            nameof(Incoders.Hive.Infrastructure.Ai.Providers.ClaudeModelCatalogClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.OpenAiModelClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.GeminiModelClient),
         ];
@@ -202,6 +205,7 @@ public static class DependencyInjection
         // Pre-flight gate: probes all required provider APIs before the analyzer workflow starts.
         services.AddScoped<IContentAnalysisPreflight, ContentAnalysisPreflight>();
         services.AddScoped<IIntegrationResolver, IntegrationResolver>();
+        services.AddScoped<IWorkflowConfigurationResolver, WorkflowConfigurationResolver>();
         services.AddScoped<IIntegrationCredentialResolver, IntegrationCredentialResolver>();
         services.AddScoped<IProviderFallbackPolicy, ProviderFallbackPolicy>();
         services.AddScoped<IIntegrationExecutionPolicy, IntegrationExecutionPolicy>();

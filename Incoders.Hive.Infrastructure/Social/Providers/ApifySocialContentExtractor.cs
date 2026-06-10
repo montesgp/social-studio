@@ -190,6 +190,11 @@ internal sealed class ApifySocialContentExtractor : ISocialContentExtractor
 
     private string? ResolveActorId(SocialContentRequest request)
     {
+        if (!string.IsNullOrWhiteSpace(request.ActorId))
+        {
+            return request.ActorId.Trim();
+        }
+
         if (ProviderCredentialReader.TryGet(_credential, "actor_mappings_json", out var json)
             && TryResolveMappedActor(json, request.PlatformKey, request.CapabilityKey, out var mappedActorId))
         {

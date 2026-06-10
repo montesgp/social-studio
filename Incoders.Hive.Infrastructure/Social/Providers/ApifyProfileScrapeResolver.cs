@@ -143,7 +143,12 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
         CancellationToken ct)
     {
         // ── Actor resolution ──────────────────────────────────────────────────
-        var actorIds = GetAllMappedActors(mappingsJson, NetworkKey, CapabilityKey);
+        var actorIds = request.PreferredActorIds?
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList()
+            ?? GetAllMappedActors(mappingsJson, NetworkKey, CapabilityKey);
         if (actorIds.Count == 0)
         {
             _logger.LogWarning(

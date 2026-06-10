@@ -32,8 +32,11 @@ import {
   getOrganizationIntegration,
   listIntegrationProviders,
   listOrganizationIntegrations,
+  listWorkflowConfigurations,
   setDefaultAiIntegration,
-  testOrganizationIntegration
+  syncOrganizationAiModels,
+  testOrganizationIntegration,
+  upsertWorkflowConfigurations
 } from "@/lib/api/integrations";
 import { listOrganizations } from "@/lib/api/organizations";
 import {
@@ -44,7 +47,8 @@ import {
   Organization,
   OrganizationIntegration,
   OrganizationIntegrationsOverview,
-  SocialNetwork
+  SocialNetwork,
+  WorkflowStepConfigurationInput
 } from "@/lib/api/types";
 import { listSocialNetworks } from "@/lib/api/social-networks";
 import { Badge } from "@/components/ui/badge";
@@ -99,7 +103,67 @@ interface ApifyActorMappingDraft {
   isPrimary: boolean;
 }
 
+interface WorkflowStepDraft {
+  id: string;
+  analysisType: string;
+  stepKey: string;
+  operationKey: string;
+  networkKey: string;
+  providerKey: string;
+  modelId: string;
+  actorId: string;
+  priority: number;
+  isEnabled: boolean;
+}
+
 const apifyActorMappingsCredentialKey = "actor_mappings_json";
+
+const WORKFLOW_CONFIG_OPTIONS: { value: string; label: string }[] = [
+  { value: "single-analyzer", label: "Single Analyzer" }
+];
+
+const SINGLE_ANALYZER_STEP_TEMPLATES: Omit<WorkflowStepDraft, "id" | "providerKey" | "modelId" | "actorId">[] = [
+  {
+    analysisType: "content-analysis",
+    stepKey: "scrape-video",
+    operationKey: "scrape-video",
+    networkKey: "instagram",
+    priority: 1,
+    isEnabled: true
+  },
+  {
+    analysisType: "content-analysis",
+    stepKey: "analyze-content",
+    operationKey: "ai-analysis",
+    networkKey: "",
+    priority: 1,
+    isEnabled: true
+  },
+  {
+    analysisType: "content-analysis",
+    stepKey: "generate-content",
+    operationKey: "ai-generation",
+    networkKey: "",
+    priority: 1,
+    isEnabled: true
+  },
+  {
+    analysisType: "profile-analysis",
+    stepKey: "scrape-profile",
+    operationKey: "scrape-profile",
+    networkKey: "instagram",
+    priority: 1,
+    isEnabled: true
+  },
+  {
+    analysisType: "profile-analysis",
+    stepKey: "analyze-profile",
+    operationKey: "ai-analysis",
+    networkKey: "",
+    priority: 1,
+    isEnabled: true
+  }
+];
 
 const WORKFLOW_OPTIONS: { value: string; label: string }[] = [
   { value: "social-extraction", label: "Análisis de contenido" },
@@ -253,6 +317,11 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const [defaultAiModel, setDefaultAiModel] = useState<string>("");
   const [modal, setModal] = useState<ModalState | null>(null);
   const [deleteConfirmIntegration, setDeleteConfirmIntegration] = useState<OrganizationIntegration | null>(null);
+  const [syncingModelsProviderKey, setSyncingModelsProviderKey] = useState<string | null>(null);
+  const [selectedWorkflowKey, setSelectedWorkflowKey] = useState<string>("single-analyzer");
+  const [workflowRows, setWorkflowRows] = useState<WorkflowStepDraft[]>([]);
+  const [workflowLoading, setWorkflowLoading] = useState(false);
+  const [workflowSaving, setWorkflowSaving] = useState(false);
 
   useEffect(() => {
     if (!orgInitialized) return;
@@ -290,6 +359,16 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId, isPlatformAdmin, orgInitialized, selectedOrganizationId]);
 
+  useEffect(() => {
+    if (!isPlatformAdmin || !token || !selectedOrganizationId || !selectedWorkflowKey) {
+      setWorkflowRows([]);
+      return;
+    }
+
+    void loadWorkflowConfiguration(selectedOrganizationId, selectedWorkflowKey, token);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlatformAdmin, selectedOrganizationId, selectedWorkflowKey, token]);
+
   const groupedIntegrations = useMemo(() => {
     const map = new Map<string, OrganizationIntegration[]>();
     const items = overview?.integrations ?? [];
@@ -308,6 +387,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     return (overview?.integrations ?? []).filter(
       (integration) => integration.category === "AiModel" && integration.status === "Connected"
     );
+  }, [overview?.integrations]);
+
+  const connectedWorkflowIntegrations = useMemo(() => {
+    return (overview?.integrations ?? []).filter((integration) => integration.status === "Connected");
   }, [overview?.integrations]);
 
   const socialNetworkOptions = useMemo(() => {
@@ -408,6 +491,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     setDefaultAiProviderKey("");
     setDefaultAiModel("");
     setModal(null);
+    setWorkflowRows([]);
     setError(null);
     setRefreshing(false);
   }
@@ -423,6 +507,202 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       await loadOverview(selectedOrganizationId, token);
     } finally {
       setManualRefreshing(false);
+    }
+  }
+
+  function modelsForProvider(providerKey: string) {
+    return overview?.integrations.find((integration) => integration.providerKey === providerKey)?.availableModels
+      ?? providers.find((provider) => provider.key === providerKey)?.availableModels
+      ?? [];
+  }
+
+  function providerCategory(providerKey: string) {
+    return providers.find((provider) => provider.key === providerKey)?.category
+      ?? overview?.integrations.find((integration) => integration.providerKey === providerKey)?.category;
+  }
+
+  function newWorkflowRow(seed?: Partial<WorkflowStepDraft>): WorkflowStepDraft {
+    return {
+      id: crypto.randomUUID(),
+      analysisType: seed?.analysisType ?? "content-analysis",
+      stepKey: seed?.stepKey ?? "",
+      operationKey: seed?.operationKey ?? "",
+      networkKey: seed?.networkKey ?? "",
+      providerKey: seed?.providerKey ?? connectedWorkflowIntegrations[0]?.providerKey ?? "",
+      modelId: seed?.modelId ?? "",
+      actorId: seed?.actorId ?? "",
+      priority: seed?.priority ?? 1,
+      isEnabled: seed?.isEnabled ?? true
+    };
+  }
+
+  async function loadWorkflowConfiguration(organizationId: string, workflowKey: string, accessToken: string) {
+    setWorkflowLoading(true);
+    setError(null);
+
+    try {
+      const data = await listWorkflowConfigurations(organizationId, workflowKey, accessToken);
+      setWorkflowRows(
+        data.steps.map((step) => ({
+          id: step.id,
+          analysisType: step.analysisType,
+          stepKey: step.stepKey,
+          operationKey: step.operationKey ?? "",
+          networkKey: step.networkKey ?? "",
+          providerKey: step.providerKey,
+          modelId: step.modelId ?? "",
+          actorId: step.actorId ?? "",
+          priority: step.priority,
+          isEnabled: step.isEnabled
+        }))
+      );
+    } catch (err) {
+      const message = (err as ApiError).message;
+      setError(message);
+      toast.error("Could not load workflow configuration", message);
+    } finally {
+      setWorkflowLoading(false);
+    }
+  }
+
+  function addWorkflowRow(seed?: Partial<WorkflowStepDraft>) {
+    setWorkflowRows((rows) => [...rows, newWorkflowRow(seed)]);
+  }
+
+  function seedSingleAnalyzerWorkflowRows() {
+    setWorkflowRows((rows) => [
+      ...rows,
+      ...SINGLE_ANALYZER_STEP_TEMPLATES.map((template) => newWorkflowRow(template))
+    ]);
+  }
+
+  function patchWorkflowRow(id: string, patch: Partial<WorkflowStepDraft>) {
+    setWorkflowRows((rows) =>
+      rows.map((row) => {
+        if (row.id !== id) {
+          return row;
+        }
+
+        const next = { ...row, ...patch };
+        if (patch.providerKey && patch.providerKey !== row.providerKey) {
+          next.modelId = "";
+          next.actorId = "";
+        }
+        return next;
+      })
+    );
+  }
+
+  function removeWorkflowRow(id: string) {
+    setWorkflowRows((rows) => rows.filter((row) => row.id !== id));
+  }
+
+  async function saveWorkflowConfiguration() {
+    if (!selectedOrganizationId || !selectedWorkflowKey || !token) {
+      return;
+    }
+
+    const invalid = workflowRows.find(
+      (row) => !row.analysisType.trim() || !row.stepKey.trim() || !row.providerKey.trim() || row.priority <= 0
+    );
+    if (invalid) {
+      toast.error(
+        "Workflow configuration incomplete",
+        "Each row needs analysis type, step, provider, and a priority greater than zero."
+      );
+      return;
+    }
+
+    const aiWithoutModel = workflowRows.find(
+      (row) => providerCategory(row.providerKey) === "AiModel" && !row.modelId.trim()
+    );
+    if (aiWithoutModel) {
+      toast.error(
+        "AI model required",
+        "AI workflow rows need an explicit model synchronized for that organization/provider."
+      );
+      return;
+    }
+
+    const apifyWithoutActor = workflowRows.find(
+      (row) => row.providerKey === "apify" && !row.actorId.trim()
+    );
+    if (apifyWithoutActor) {
+      toast.error("Apify actor required", "Apify workflow rows need an actor id for routing and fallbacks.");
+      return;
+    }
+
+    const steps: WorkflowStepConfigurationInput[] = workflowRows.map((row) => ({
+      analysisType: row.analysisType.trim(),
+      stepKey: row.stepKey.trim(),
+      operationKey: row.operationKey.trim() || null,
+      networkKey: row.networkKey.trim() || null,
+      providerKey: row.providerKey.trim(),
+      modelId: row.modelId.trim() || null,
+      actorId: row.actorId.trim() || null,
+      priority: Number(row.priority),
+      isEnabled: row.isEnabled
+    }));
+
+    setWorkflowSaving(true);
+    setError(null);
+
+    try {
+      const saved = await upsertWorkflowConfigurations(
+        selectedOrganizationId,
+        selectedWorkflowKey,
+        steps,
+        token
+      );
+      setWorkflowRows(
+        saved.steps.map((step) => ({
+          id: step.id,
+          analysisType: step.analysisType,
+          stepKey: step.stepKey,
+          operationKey: step.operationKey ?? "",
+          networkKey: step.networkKey ?? "",
+          providerKey: step.providerKey,
+          modelId: step.modelId ?? "",
+          actorId: step.actorId ?? "",
+          priority: step.priority,
+          isEnabled: step.isEnabled
+        }))
+      );
+      toast.success("Workflow configuration saved", "The next workflow execution will use these routes.");
+    } catch (err) {
+      const message = (err as ApiError).message;
+      setError(message);
+      toast.error("Could not save workflow configuration", message);
+    } finally {
+      setWorkflowSaving(false);
+    }
+  }
+
+  async function runModelSync(integration: OrganizationIntegration) {
+    if (!selectedOrganizationId || !token) {
+      return;
+    }
+
+    setSyncingModelsProviderKey(integration.providerKey);
+    setError(null);
+
+    try {
+      const result = await syncOrganizationAiModels(selectedOrganizationId, integration.providerKey, token);
+      toast.success(
+        "Models synchronized",
+        `${integration.providerDisplayName}: ${result.models.length} available model(s).`
+      );
+      await loadOverview(selectedOrganizationId, token, false);
+      if (modal?.integration.providerKey === integration.providerKey) {
+        const detail = await getOrganizationIntegration(selectedOrganizationId, integration.providerKey, token);
+        setModal((prev) => (prev ? { ...prev, integration: detail } : prev));
+      }
+    } catch (err) {
+      const message = (err as ApiError).message;
+      setError(message);
+      toast.error("Could not synchronize models", message);
+    } finally {
+      setSyncingModelsProviderKey(null);
     }
   }
 
@@ -832,7 +1112,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                   ))}
                 </Select>
                 <ModelSelect
-                  models={providers.find((p) => p.key === defaultAiProviderKey)?.availableModels ?? []}
+                  models={modelsForProvider(defaultAiProviderKey)}
                   value={defaultAiModel}
                   onChange={(v) => setDefaultAiModel(v)}
                   placeholder="Optional model (e.g. gpt-4.1-mini)"
@@ -843,6 +1123,199 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
               </form>
             </CardContent>
           </Card>
+
+          {isPlatformAdmin ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Shield className="h-4 w-4 text-primary" /> Workflow routing by organization
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                        Workflow
+                      </span>
+                      <Select
+                        value={selectedWorkflowKey}
+                        onChange={(event) => setSelectedWorkflowKey(event.target.value)}
+                      >
+                        {WORKFLOW_CONFIG_OPTIONS.map((workflow) => (
+                          <option key={workflow.value} value={workflow.value}>
+                            {workflow.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                        Organization
+                      </span>
+                      <div className="rounded-md border border-border bg-background px-3 py-2 text-sm">
+                        {organizations.find((organization) => organization.id === selectedOrganizationId)?.name
+                          ?? selectedOrganizationId}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={seedSingleAnalyzerWorkflowRows}
+                      disabled={workflowLoading || connectedWorkflowIntegrations.length === 0}
+                    >
+                      <Plus className="h-4 w-4" /> Add Single Analyzer steps
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => addWorkflowRow()}
+                      disabled={workflowLoading || connectedWorkflowIntegrations.length === 0}
+                    >
+                      <Plus className="h-4 w-4" /> Add route
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => void saveWorkflowConfiguration()}
+                      disabled={workflowLoading || workflowSaving || connectedWorkflowIntegrations.length === 0}
+                    >
+                      {workflowSaving ? "Saving..." : "Save workflow"}
+                    </Button>
+                  </div>
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  System-admin only. These rows define the provider/model/actor/fallback priority that the API
+                  resolves at execution time for the selected organization. Do not confuse this with normal org
+                  admin credentials: credentials live above; this table decides HOW the workflow uses them.
+                </p>
+
+                {connectedWorkflowIntegrations.length === 0 ? (
+                  <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                    Connect at least one provider for this organization before routing workflow steps.
+                  </div>
+                ) : workflowRows.length === 0 ? (
+                  <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                    No workflow routes configured yet.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {workflowRows.map((row) => {
+                      const category = providerCategory(row.providerKey);
+                      const modelOptions = modelsForProvider(row.providerKey);
+
+                      return (
+                        <div key={row.id} className="rounded-xl border border-border bg-background/40 p-3">
+                          <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_1fr]">
+                            <div className="space-y-1">
+                              <span className="text-xs font-medium text-muted-foreground">Analysis type</span>
+                              <Input
+                                value={row.analysisType}
+                                onChange={(event) => patchWorkflowRow(row.id, { analysisType: event.target.value })}
+                                placeholder="content-analysis"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-xs font-medium text-muted-foreground">Step</span>
+                              <Input
+                                value={row.stepKey}
+                                onChange={(event) => patchWorkflowRow(row.id, { stepKey: event.target.value })}
+                                placeholder="scrape-video"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-xs font-medium text-muted-foreground">Operation</span>
+                              <Input
+                                value={row.operationKey}
+                                onChange={(event) => patchWorkflowRow(row.id, { operationKey: event.target.value })}
+                                placeholder="ai-analysis"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-xs font-medium text-muted-foreground">Network</span>
+                              <Input
+                                value={row.networkKey}
+                                onChange={(event) => patchWorkflowRow(row.id, { networkKey: event.target.value })}
+                                placeholder="instagram / tiktok"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="mt-3 grid gap-2 md:grid-cols-[1.1fr_1.1fr_1.1fr_0.5fr_auto_auto]">
+                            <div className="space-y-1">
+                              <span className="text-xs font-medium text-muted-foreground">Provider / connector</span>
+                              <Select
+                                value={row.providerKey}
+                                onChange={(event) => patchWorkflowRow(row.id, { providerKey: event.target.value })}
+                              >
+                                <option value="" disabled>
+                                  Select provider
+                                </option>
+                                {connectedWorkflowIntegrations.map((integration) => (
+                                  <option key={integration.providerKey} value={integration.providerKey}>
+                                    {integration.providerDisplayName}
+                                  </option>
+                                ))}
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-xs font-medium text-muted-foreground">Model</span>
+                              <ModelSelect
+                                models={modelOptions}
+                                value={row.modelId}
+                                onChange={(value) => patchWorkflowRow(row.id, { modelId: value })}
+                                placeholder={category === "AiModel" ? "Required for AI steps" : "Only for AI providers"}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-xs font-medium text-muted-foreground">Actor / external id</span>
+                              <Input
+                                value={row.actorId}
+                                onChange={(event) => patchWorkflowRow(row.id, { actorId: event.target.value })}
+                                placeholder={category === "DataExtraction" ? "Apify actor ID" : "Optional connector id"}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-xs font-medium text-muted-foreground">Priority</span>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={row.priority}
+                                onChange={(event) =>
+                                  patchWorkflowRow(row.id, { priority: Number(event.target.value) || 1 })
+                                }
+                              />
+                            </div>
+                            <label className="flex items-center gap-2 pt-6 text-xs text-muted-foreground">
+                              <input
+                                type="checkbox"
+                                checked={row.isEnabled}
+                                onChange={(event) => patchWorkflowRow(row.id, { isEnabled: event.target.checked })}
+                              />
+                              Enabled
+                            </label>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="mt-5"
+                              onClick={() => removeWorkflowRow(row.id)}
+                              aria-label="Remove workflow route"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
 
           {groupedIntegrations.map(([category, integrations]) => (
             <section key={category} className="space-y-3">
@@ -905,6 +1378,22 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                         <Button variant="outline" size="sm" onClick={() => void runTest(integration)}>
                           <Link2 className="h-4 w-4" /> Test connection
                         </Button>
+                        {integration.category === "AiModel" && integration.status === "Connected" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void runModelSync(integration)}
+                            disabled={syncingModelsProviderKey === integration.providerKey}
+                          >
+                            <RefreshCcw
+                              className={cn(
+                                "h-4 w-4",
+                                syncingModelsProviderKey === integration.providerKey && "animate-spin"
+                              )}
+                            />
+                            Sync models
+                          </Button>
+                        ) : null}
                         {integration.integrationId ? (
                           <Button variant="destructive" size="sm" onClick={() => setDeleteConfirmIntegration(integration)}>
                             <Unplug className="h-4 w-4" /> Delete config
@@ -964,11 +1453,35 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Default model (optional)</label>
                   <ModelSelect
-                    models={providers.find((p) => p.key === modal.integration.providerKey)?.availableModels ?? []}
+                    models={modal.integration.availableModels}
                     value={modal.selectedAiModel}
                     onChange={(v) => setModal((prev) => (prev ? { ...prev, selectedAiModel: v } : prev))}
                     placeholder="e.g. gpt-4.1-mini"
                   />
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span>
+                      {modal.integration.availableModels.length > 0
+                        ? `${modal.integration.availableModels.length} organization model(s) available.`
+                        : "No synchronized models yet; manual entry is still allowed as a fallback."}
+                    </span>
+                    {modal.integration.status === "Connected" ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void runModelSync(modal.integration)}
+                        disabled={syncingModelsProviderKey === modal.integration.providerKey}
+                      >
+                        <RefreshCcw
+                          className={cn(
+                            "h-4 w-4",
+                            syncingModelsProviderKey === modal.integration.providerKey && "animate-spin"
+                          )}
+                        />
+                        Sync models
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
 

@@ -128,6 +128,10 @@ public static class IntegrationErrors
         "integrations.ai_model_required",
         "integrations.errors.ai_model_required");
 
+    public static readonly Error AiModelNotAvailable = Error.Validation(
+        "integrations.ai_model_not_available",
+        "integrations.errors.ai_model_not_available");
+
     public static readonly Error AiJsonInvalid = Error.Failure(
         "integrations.ai_json_invalid",
         "integrations.errors.ai_json_invalid");

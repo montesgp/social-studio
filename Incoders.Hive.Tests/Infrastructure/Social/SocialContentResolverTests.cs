@@ -79,10 +79,38 @@ public sealed class SocialContentResolverTests
         Assert.Equal(IntegrationErrors.IntegrationNotConnected.Code, result.Error.Code);
     }
 
-    private static SocialContentSnapshot Snapshot(IReadOnlyList<SocialContentWarning>? warnings = null) =>
+    [Fact]
+    public async Task ResolveAsync_TriesPreferredActorFallbacksInPriorityOrder()
+    {
+        var extractor = new ActorAwareExtractor(
+            failureActorId: "actor-primary",
+            success: Snapshot(platform: "instagram"));
+        var integrationResolver = new StaticIntegrationResolver("apify");
+        var resolver = new SocialContentResolver(integrationResolver, new StaticClientFactory(extractor));
+
+        var result = await resolver.ResolveAsync(
+            new SocialContentResolutionRequest(
+                Guid.NewGuid(),
+                AnalysisId: null,
+                ClientId: null,
+                SourceUrl: "https://www.instagram.com/reel/abc",
+                PlatformHint: "instagram",
+                PreferredProviderKey: "apify",
+                PreferredActorIds: ["actor-primary", "actor-fallback"]),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(["actor-primary", "actor-fallback"], extractor.ActorAttempts);
+        Assert.Single(result.Value.Diagnostics);
+        Assert.Equal("apify", result.Value.Diagnostics[0].ProviderKey);
+    }
+
+    private static SocialContentSnapshot Snapshot(
+        string platform = "tiktok",
+        IReadOnlyList<SocialContentWarning>? warnings = null) =>
         new(
-            "tiktok",
-            "https://www.tiktok.com/@brand/video/123",
+            platform,
+            $"https://www.{platform}.com/@brand/video/123",
             Title: "Hook example",
             Description: null,
             Author: "@brand",
@@ -110,6 +138,31 @@ public sealed class SocialContentResolverTests
             SocialContentRequest request,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(Result.Success(_snapshot));
+    }
+
+    private sealed class ActorAwareExtractor : ISocialContentExtractor
+    {
+        private readonly string _failureActorId;
+        private readonly SocialContentSnapshot _success;
+
+        public ActorAwareExtractor(string failureActorId, SocialContentSnapshot success)
+        {
+            _failureActorId = failureActorId;
+            _success = success;
+        }
+
+        public List<string> ActorAttempts { get; } = [];
+
+        public Task<Result<SocialContentSnapshot>> ExtractAsync(
+            SocialContentRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ActorAttempts.Add(request.ActorId ?? string.Empty);
+            return Task.FromResult(
+                request.ActorId == _failureActorId
+                    ? Result.Failure<SocialContentSnapshot>(IntegrationErrors.ExternalProviderUnavailable)
+                    : Result.Success(_success));
+        }
     }
 
     private sealed class StaticIntegrationResolver : IIntegrationResolver

@@ -260,9 +260,62 @@ export interface OrganizationIntegration {
   supportsManagedByIncoders: boolean;
   supportsSystemDefault: boolean;
   systemDefaultReadOnly: boolean;
+  availableModels: string[];
   credentialFields: IntegrationCredentialField[];
   configuredCredentialKeys: string[];
   credentialValues: Record<string, string>;
+}
+
+export interface OrganizationAiModel {
+  id: string;
+  organizationId: string;
+  providerKey: string;
+  modelId: string;
+  displayName: string;
+  isAvailable: boolean;
+  syncedAtUtc: string;
+}
+
+export interface OrganizationAiModelsResponse {
+  organizationId: string;
+  providerKey: string;
+  lastSyncedAtUtc: string | null;
+  models: OrganizationAiModel[];
+}
+
+export interface WorkflowStepConfiguration {
+  id: string;
+  organizationId: string;
+  workflowKey: string;
+  analysisType: string;
+  stepKey: string;
+  operationKey: string | null;
+  networkKey: string | null;
+  providerKey: string;
+  organizationIntegrationId: string;
+  modelId: string | null;
+  actorId: string | null;
+  priority: number;
+  isEnabled: boolean;
+  updatedAtUtc: string;
+}
+
+export interface WorkflowConfigurationOverview {
+  organizationId: string;
+  workflowKey: string | null;
+  steps: WorkflowStepConfiguration[];
+}
+
+export interface WorkflowStepConfigurationInput {
+  analysisType: string;
+  stepKey: string;
+  operationKey?: string | null;
+  networkKey?: string | null;
+  providerKey: string;
+  modelId?: string | null;
+  actorId?: string | null;
+  priority: number;
+  isEnabled: boolean;
 }
 
 export interface IntegrationSetupChecklistItem {

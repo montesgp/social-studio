@@ -20,6 +20,7 @@ public sealed record OrganizationIntegrationResponse(
     bool SupportsManagedByIncoders,
     bool SupportsSystemDefault,
     bool SystemDefaultReadOnly,
+    IReadOnlyList<string> AvailableModels,
     IReadOnlyList<IntegrationCredentialFieldResponse> CredentialFields,
     IReadOnlyList<string> ConfiguredCredentialKeys,
     IReadOnlyDictionary<string, string> CredentialValues);

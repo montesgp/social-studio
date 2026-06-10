@@ -45,6 +45,15 @@ public sealed class ExternalProviderClientFactory : IExternalProviderClientFacto
             };
         }
 
+        if (clientType == typeof(IAiModelCatalogClient))
+        {
+            return normalized switch
+            {
+                "claude" or "anthropic" => typeof(ClaudeModelCatalogClient),
+                _ => null,
+            };
+        }
+
         if (clientType == typeof(ISocialContentExtractor))
         {
             return normalized switch
