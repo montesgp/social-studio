@@ -53,6 +53,11 @@ public sealed class UpsertWorkflowConfigurationsHandler
             return Result.Failure<WorkflowConfigurationOverviewResponse>(IntegrationErrors.ProviderRouteNotConfigured);
         }
 
+        if (WorkflowConfigurationCatalog.FindWorkflow(workflowKey) is null)
+        {
+            return Result.Failure<WorkflowConfigurationOverviewResponse>(IntegrationErrors.ProviderRouteNotConfigured);
+        }
+
         var rows = new List<WorkflowStepConfigurationRecord>();
         var now = _clock.UtcNow;
         var priorityKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -66,10 +71,31 @@ public sealed class UpsertWorkflowConfigurationsHandler
 
             var analysisType = Normalize(input.AnalysisType);
             var stepKey = Normalize(input.StepKey);
-            var operationKey = NormalizeOrNull(input.OperationKey);
-            var networkKey = NormalizeOrNull(input.NetworkKey);
 
             if (analysisType.Length == 0 || stepKey.Length == 0)
+            {
+                return Result.Failure<WorkflowConfigurationOverviewResponse>(IntegrationErrors.ProviderRouteNotConfigured);
+            }
+
+            var step = WorkflowConfigurationCatalog.FindStep(workflowKey, analysisType, stepKey);
+            if (step is null)
+            {
+                return Result.Failure<WorkflowConfigurationOverviewResponse>(IntegrationErrors.ProviderRouteNotConfigured);
+            }
+
+            var operationKey = step.OperationKey;
+            var networkKey = step.RequiresNetwork
+                ? NormalizeOrNull(input.NetworkKey)
+                : null;
+
+            if (step.RequiresNetwork && networkKey is null)
+            {
+                return Result.Failure<WorkflowConfigurationOverviewResponse>(IntegrationErrors.ProviderRouteNotConfigured);
+            }
+
+            if (networkKey is not null
+                && step.SupportedNetworkKeys.Count > 0
+                && !step.SupportedNetworkKeys.Contains(networkKey, StringComparer.OrdinalIgnoreCase))
             {
                 return Result.Failure<WorkflowConfigurationOverviewResponse>(IntegrationErrors.ProviderRouteNotConfigured);
             }
@@ -87,6 +113,18 @@ public sealed class UpsertWorkflowConfigurationsHandler
                 return Result.Failure<WorkflowConfigurationOverviewResponse>(IntegrationErrors.ProviderNotFound);
             }
 
+            if (step.AllowedProviderCategories.Count > 0
+                && !step.AllowedProviderCategories.Contains(provider.Category))
+            {
+                return Result.Failure<WorkflowConfigurationOverviewResponse>(IntegrationErrors.ProviderRouteNotConfigured);
+            }
+
+            if (step.AllowedProviderKeys.Count > 0
+                && !step.AllowedProviderKeys.Contains(provider.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                return Result.Failure<WorkflowConfigurationOverviewResponse>(IntegrationErrors.ProviderRouteNotConfigured);
+            }
+
             var integration = await _integrations.GetByOrganizationAndProviderAsync(
                 request.OrganizationId,
                 provider.Id,
@@ -97,8 +135,12 @@ public sealed class UpsertWorkflowConfigurationsHandler
                 return Result.Failure<WorkflowConfigurationOverviewResponse>(IntegrationErrors.IntegrationNotConnected);
             }
 
-            var modelId = string.IsNullOrWhiteSpace(input.ModelId) ? null : input.ModelId.Trim();
-            var actorId = string.IsNullOrWhiteSpace(input.ActorId) ? null : input.ActorId.Trim();
+            var modelId = step.SupportsModelSelection && !string.IsNullOrWhiteSpace(input.ModelId)
+                ? input.ModelId.Trim()
+                : null;
+            var actorId = step.SupportsActorSelection && !string.IsNullOrWhiteSpace(input.ActorId)
+                ? input.ActorId.Trim()
+                : null;
 
             if (provider.Category == IntegrationProviderCategory.AiModel)
             {
@@ -159,6 +201,7 @@ public sealed class UpsertWorkflowConfigurationsHandler
         return Result.Success(new WorkflowConfigurationOverviewResponse(
             request.OrganizationId,
             workflowKey,
+            WorkflowConfigurationResponseMapper.ToCatalogResponse(),
             saved.Select(WorkflowConfigurationResponseMapper.ToResponse).ToList()));
     }
 

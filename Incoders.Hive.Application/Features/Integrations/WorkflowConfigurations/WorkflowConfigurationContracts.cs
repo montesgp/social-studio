@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Integrations;
+using Incoders.Hive.Domain.Integrations;
 
 namespace Incoders.Hive.Application.Features.Integrations.WorkflowConfigurations;
 
@@ -18,9 +19,37 @@ public sealed record WorkflowStepConfigurationResponse(
     bool IsEnabled,
     DateTime UpdatedAtUtc);
 
+public sealed record WorkflowStepCatalogResponse(
+    string Key,
+    string Label,
+    string OperationKey,
+    string OperationLabel,
+    string Description,
+    bool RequiresNetwork,
+    IReadOnlyList<string> SupportedNetworkKeys,
+    IReadOnlyList<IntegrationProviderCategory> AllowedProviderCategories,
+    IReadOnlyList<string> AllowedProviderKeys,
+    bool SupportsModelSelection,
+    bool SupportsActorSelection,
+    string? ActorVariantKey);
+
+public sealed record WorkflowAnalysisTypeCatalogResponse(
+    string Key,
+    string Label,
+    IReadOnlyList<WorkflowStepCatalogResponse> Steps);
+
+public sealed record WorkflowCatalogResponse(
+    string Key,
+    string Label,
+    IReadOnlyList<WorkflowAnalysisTypeCatalogResponse> AnalysisTypes);
+
+public sealed record WorkflowConfigurationCatalogResponse(
+    IReadOnlyList<WorkflowCatalogResponse> Workflows);
+
 public sealed record WorkflowConfigurationOverviewResponse(
     Guid OrganizationId,
     string? WorkflowKey,
+    WorkflowConfigurationCatalogResponse Catalog,
     IReadOnlyList<WorkflowStepConfigurationResponse> Steps);
 
 public sealed record WorkflowStepConfigurationInput(
@@ -36,6 +65,9 @@ public sealed record WorkflowStepConfigurationInput(
 
 internal static class WorkflowConfigurationResponseMapper
 {
+    public static WorkflowConfigurationCatalogResponse ToCatalogResponse() =>
+        new(WorkflowConfigurationCatalog.Workflows.Select(ToCatalogResponse).ToList());
+
     public static WorkflowStepConfigurationResponse ToResponse(WorkflowStepConfigurationRecord row) =>
         new(
             row.Id,
@@ -52,5 +84,31 @@ internal static class WorkflowConfigurationResponseMapper
             row.Priority,
             row.IsEnabled,
             row.UpdatedAtUtc);
-}
 
+    private static WorkflowCatalogResponse ToCatalogResponse(WorkflowDefinition workflow) =>
+        new(
+            workflow.Key,
+            workflow.Label,
+            workflow.AnalysisTypes.Select(ToCatalogResponse).ToList());
+
+    private static WorkflowAnalysisTypeCatalogResponse ToCatalogResponse(WorkflowAnalysisTypeDefinition analysisType) =>
+        new(
+            analysisType.Key,
+            analysisType.Label,
+            analysisType.Steps.Select(ToCatalogResponse).ToList());
+
+    private static WorkflowStepCatalogResponse ToCatalogResponse(WorkflowStepDefinition step) =>
+        new(
+            step.Key,
+            step.Label,
+            step.OperationKey,
+            step.OperationLabel,
+            step.Description,
+            step.RequiresNetwork,
+            step.SupportedNetworkKeys,
+            step.AllowedProviderCategories,
+            step.AllowedProviderKeys,
+            step.SupportsModelSelection,
+            step.SupportsActorSelection,
+            step.ActorVariantKey);
+}

@@ -29,6 +29,21 @@ Define platform-level integration catalog and organization-scoped provider confi
 - Users can test provider connections and see status badges.
 - Users can identify readonly/system default providers.
 - Users can select default AI provider/model for the organization.
+- Sysadmins can configure workflow routing from selector-based fields instead of free-text `analysisType`, `stepKey`, `networkKey`, or actor/model ids.
+- The workflow selector catalog is backend-owned so new supported workflow steps appear in the routing UI by extending the shared catalog once, not by rewriting the page form.
+- Workflow routing network selectors are populated from active platform social networks, never from hardcoded UI values.
+- Workflow routing provider selectors show only connected providers compatible with the selected workflow step.
+- Workflow routing AI model selectors are populated from the selected provider connector's synced/available models for that organization.
+- Workflow routing Apify actor selectors are populated from the selected organization's configured `actor_mappings_json` entries for the matching network + variant.
+- Workflow routing is edited per workflow stage, so shared stage selectors (analysis type, step, network) are not duplicated across every route candidate.
+- Sysadmins can drag and drop route candidates inside a workflow stage; the UI automatically persists execution priority from that visual order.
+- Each workflow stage can define one primary route plus one or more enabled backup routes that may switch provider, model, or actor while still using only connected organization integrations.
+
+### Workflow Routing Selector Contract
+
+- `GET /api/integrations/workflow-configurations` returns both the saved rows and the workflow catalog metadata required to render the selector-driven routing UI.
+- The catalog defines workflow key, analysis type, step key, operation key/label, allowed provider categories/keys, network requirements, and whether model/actor selectors apply.
+- The backend validates that persisted workflow rows match the catalog, so unsupported provider/step combinations cannot be saved even if a client sends manual values.
 
 ---
 

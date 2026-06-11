@@ -189,6 +189,59 @@ public sealed class ConfigurableWorkflowIntegrationsTests
         Assert.Equal(IntegrationErrors.AiModelRequired.Code, result.Error.Code);
     }
 
+    [Fact]
+    public async Task UpsertWorkflowConfiguration_RejectsProviderOutsideSupportedCatalog()
+    {
+        var organizationId = Guid.NewGuid();
+        var claude = Provider("claude", IntegrationProviderCategory.AiModel, ["claude-live-sonnet"]);
+        var handler = new UpsertWorkflowConfigurationsHandler(
+            new ProviderCatalog(claude),
+            new IntegrationStore(ConnectedIntegration(organizationId, claude.Id, selectedModel: null)),
+            new WorkflowStepStore(),
+            new UnitOfWorkSpy(),
+            new TestClock(Now));
+
+        var result = await handler.Handle(
+            new UpsertWorkflowConfigurationsCommand(
+                organizationId,
+                "single-analyzer",
+                [
+                    new WorkflowStepConfigurationInput(
+                        "content-analysis",
+                        "scrape-video",
+                        "scrape-video",
+                        "instagram",
+                        "claude",
+                        ModelId: "claude-live-sonnet",
+                        ActorId: null,
+                        Priority: 1,
+                        IsEnabled: true)
+                ]),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(IntegrationErrors.ProviderRouteNotConfigured.Code, result.Error.Code);
+    }
+
+    [Fact]
+    public async Task GetWorkflowConfigurations_ReturnsSelectorCatalog()
+    {
+        var organizationId = Guid.NewGuid();
+        var handler = new GetWorkflowConfigurationsHandler(new WorkflowStepStore());
+
+        var result = await handler.Handle(
+            new GetWorkflowConfigurationsQuery(organizationId, "single-analyzer"),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var workflow = Assert.Single(result.Value.Catalog.Workflows, x => x.Key == "single-analyzer");
+        var profileAnalysis = Assert.Single(workflow.AnalysisTypes, x => x.Key == "profile-analysis");
+        var scrapeProfile = Assert.Single(profileAnalysis.Steps, x => x.Key == "scrape-profile");
+        Assert.Equal("profile", scrapeProfile.ActorVariantKey);
+        Assert.Contains(IntegrationProviderCategory.DataExtraction, scrapeProfile.AllowedProviderCategories);
+        Assert.Equal(["apify"], scrapeProfile.AllowedProviderKeys);
+    }
+
     private static IntegrationProvider Provider(
         string key,
         IntegrationProviderCategory category,

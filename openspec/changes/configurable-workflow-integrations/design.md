@@ -153,14 +153,12 @@ Add:
 4. Filters:
    - organization
    - workflow
-5. Table/editor:
-   - analysis type
-   - step
-   - network/operation
-   - provider
-   - model/actor
-   - priority
-   - enabled
+5. Stage-based editor:
+   - stage shell owns analysis type, step, operation, and network selectors
+   - each stage renders one or more route cards for provider/model/actor selection
+   - route cards are drag-and-drop sortable, and the UI derives priority from the visual order
+   - first card is the primary route; every following card is an explicit backup route/fallback
+   - backup routes may change provider, AI model, or actor as long as the connector is available for the selected organization
 
 ## Logging contract
 
@@ -199,4 +197,3 @@ Every log includes:
 - Single Analyzer tests proving configured provider/model/actor overrides legacy defaults and fallback behavior remains intact.
 - Logging tests using in-memory logger for workflow/step/provider/model/actor/fallback fields.
 - Regression tests for existing test connection behavior and current Single Analyzer happy path.
-

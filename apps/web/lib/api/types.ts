@@ -300,9 +300,41 @@ export interface WorkflowStepConfiguration {
   updatedAtUtc: string;
 }
 
+export interface WorkflowStepCatalog {
+  key: string;
+  label: string;
+  operationKey: string;
+  operationLabel: string;
+  description: string;
+  requiresNetwork: boolean;
+  supportedNetworkKeys: string[];
+  allowedProviderCategories: IntegrationProviderCategory[];
+  allowedProviderKeys: string[];
+  supportsModelSelection: boolean;
+  supportsActorSelection: boolean;
+  actorVariantKey: string | null;
+}
+
+export interface WorkflowAnalysisTypeCatalog {
+  key: string;
+  label: string;
+  steps: WorkflowStepCatalog[];
+}
+
+export interface WorkflowCatalog {
+  key: string;
+  label: string;
+  analysisTypes: WorkflowAnalysisTypeCatalog[];
+}
+
+export interface WorkflowConfigurationCatalog {
+  workflows: WorkflowCatalog[];
+}
+
 export interface WorkflowConfigurationOverview {
   organizationId: string;
   workflowKey: string | null;
+  catalog: WorkflowConfigurationCatalog;
   steps: WorkflowStepConfiguration[];
 }
 

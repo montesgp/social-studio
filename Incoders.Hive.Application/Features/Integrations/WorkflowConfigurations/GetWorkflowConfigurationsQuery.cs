@@ -37,7 +37,7 @@ public sealed class GetWorkflowConfigurationsHandler
         return Result.Success(new WorkflowConfigurationOverviewResponse(
             request.OrganizationId,
             string.IsNullOrWhiteSpace(request.WorkflowKey) ? null : request.WorkflowKey.Trim().ToLowerInvariant(),
+            WorkflowConfigurationResponseMapper.ToCatalogResponse(),
             rows.Select(WorkflowConfigurationResponseMapper.ToResponse).ToList()));
     }
 }
-
