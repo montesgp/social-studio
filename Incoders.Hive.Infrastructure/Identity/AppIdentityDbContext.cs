@@ -274,7 +274,6 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
             entity.Property(x => x.SelectedAiModel).HasMaxLength(200);
             entity.Property(x => x.IsReadOnly).IsRequired();
-            entity.Property(x => x.IsDefaultAi).IsRequired();
             entity.HasIndex(x => new { x.OrganizationId, x.ProviderId }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Status });
 

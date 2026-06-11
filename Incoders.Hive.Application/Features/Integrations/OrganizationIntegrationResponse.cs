@@ -12,7 +12,6 @@ public sealed record OrganizationIntegrationResponse(
     IntegrationConnectionMode ConnectionMode,
     IntegrationStatus Status,
     bool IsReadOnly,
-    bool IsDefaultAi,
     string? SelectedAiModel,
     DateTime? LastTestedAtUtc,
     string? LastError,

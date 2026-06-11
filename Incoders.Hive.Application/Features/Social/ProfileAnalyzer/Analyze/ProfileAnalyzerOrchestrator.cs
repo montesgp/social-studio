@@ -6,6 +6,7 @@ using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -36,7 +37,6 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
     private readonly IProfileScrapeResolver _scrapeResolver;
     private readonly IProfileMetricCalculator _calculator;
     private readonly IAiCompletionGateway _aiGateway;
-    private readonly IDefaultAiSelector _defaultAiSelector;
     private readonly IWorkflowConfigurationResolver? _workflowResolver;
     private readonly ILogger<ProfileAnalyzerOrchestrator> _logger;
     private readonly ProviderCallContext? _providerCallContext;
@@ -48,7 +48,6 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         IProfileScrapeResolver scrapeResolver,
         IProfileMetricCalculator calculator,
         IAiCompletionGateway aiGateway,
-        IDefaultAiSelector defaultAiSelector,
         ILogger<ProfileAnalyzerOrchestrator>? logger = null,
         ProviderCallContext? providerCallContext = null,
         IWorkflowConfigurationResolver? workflowResolver = null)
@@ -59,7 +58,6 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         _scrapeResolver = scrapeResolver;
         _calculator = calculator;
         _aiGateway = aiGateway;
-        _defaultAiSelector = defaultAiSelector;
         _workflowResolver = workflowResolver;
         _logger = logger ?? NullLogger<ProfileAnalyzerOrchestrator>.Instance;
         _providerCallContext = providerCallContext;
@@ -365,47 +363,173 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         return actorIds;
     }
 
-    private async Task<Result<DefaultAiSelection>> ResolveAiSelectionAsync(
+    private async Task<Result<IReadOnlyList<AiRoute>>> ResolveAiCandidatesAsync(
         Guid organizationId,
         CancellationToken cancellationToken)
     {
-        if (_workflowResolver is not null)
+        // AI selection comes SOLELY from the org's priority-ordered workflow config (no Default-AI fallback).
+        if (_workflowResolver is null)
         {
-            var route = await _workflowResolver.ResolveStepAsync(
-                new WorkflowStepResolutionRequest(
-                    organizationId,
-                    "single-analyzer",
-                    "profile-analysis",
-                    "analyze-profile",
-                    "ai-analysis",
-                    null),
-                cancellationToken);
+            return Result.Failure<IReadOnlyList<AiRoute>>(IntegrationErrors.AiRouteNotConfigured);
+        }
 
-            if (route.IsFailure)
-            {
-                return Result.Failure<DefaultAiSelection>(route.Error);
-            }
+        var route = await _workflowResolver.ResolveStepAsync(
+            new WorkflowStepResolutionRequest(
+                organizationId,
+                "single-analyzer",
+                "profile-analysis",
+                "analyze-profile",
+                "ai-analysis",
+                null),
+            cancellationToken);
 
-            var candidate = route.Value.FirstOrDefault();
-            if (candidate is not null)
+        if (route.IsFailure)
+        {
+            return Result.Failure<IReadOnlyList<AiRoute>>(route.Error);
+        }
+
+        var candidates = route.Value
+            .Where(candidate => candidate.IsEnabled)
+            .OrderBy(candidate => candidate.Priority)
+            .Select(candidate => new AiRoute(candidate.ProviderKey, candidate.ModelId, candidate.Priority))
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            return Result.Failure<IReadOnlyList<AiRoute>>(IntegrationErrors.AiRouteNotConfigured);
+        }
+
+        foreach (var candidate in candidates)
+        {
+            _logger.LogInformation(
+                "WorkflowStepResolved OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority} IsFallback={IsFallback}",
+                organizationId,
+                "single-analyzer",
+                "profile-analysis",
+                "analyze-profile",
+                candidate.ProviderKey,
+                candidate.ModelId ?? "(provider default)",
+                candidate.Priority,
+                candidate.Priority > 1);
+        }
+
+        return Result.Success<IReadOnlyList<AiRoute>>(candidates);
+    }
+
+    /// <summary>
+    /// Runs the profile AI completion trying each configured route in priority order, logging the
+    /// WorkflowProviderAttempt* / WorkflowFallbackSelected contract. Returns the used route + response,
+    /// or (null, last error) when every configured route failed.
+    /// </summary>
+    private async Task<(AiRoute? Used, Result<AiJsonCompletionResponse<ProfileAnalysisResult>> Result)> RunProfileAiWithFallbackAsync(
+        Guid organizationId,
+        Guid? clientId,
+        Guid analysisId,
+        string inputJson,
+        IReadOnlyList<AiRoute> candidates,
+        CancellationToken cancellationToken)
+    {
+        var last = Result.Failure<AiJsonCompletionResponse<ProfileAnalysisResult>>(IntegrationErrors.ExternalProviderUnavailable);
+
+        for (var index = 0; index < candidates.Count; index++)
+        {
+            var candidate = candidates[index];
+            var isFallback = index > 0;
+
+            if (isFallback)
             {
                 _logger.LogInformation(
-                    "WorkflowStepResolved OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority} IsFallback={IsFallback}",
+                    "WorkflowFallbackSelected OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority}",
                     organizationId,
                     "single-analyzer",
                     "profile-analysis",
                     "analyze-profile",
                     candidate.ProviderKey,
                     candidate.ModelId ?? "(provider default)",
-                    candidate.Priority,
-                    candidate.Priority > 1);
-
-                return Result.Success(new DefaultAiSelection(candidate.ProviderKey, candidate.ModelId));
+                    candidate.Priority);
             }
+
+            _logger.LogInformation(
+                "WorkflowProviderAttemptStart OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority} IsFallback={IsFallback}",
+                organizationId,
+                "single-analyzer",
+                "profile-analysis",
+                "analyze-profile",
+                candidate.ProviderKey,
+                candidate.ModelId ?? "(provider default)",
+                candidate.Priority,
+                isFallback);
+
+            Result<AiJsonCompletionResponse<ProfileAnalysisResult>> aiResult;
+            try
+            {
+                // The instrumented AI gateway decorator requires an active ProviderCallContext.
+                // Null-safe: in unit tests no context/decorator is wired.
+                using (_providerCallContext?.Begin(
+                           organizationId,
+                           clientId,
+                           workflowKey: "profile-analyzer",
+                           pipelineStepKey: "profile-analysis",
+                           promptVersion: ProfileAnalyzerPromptVersions.AnalysisV1,
+                           analysisId))
+                {
+                    aiResult = await _aiGateway.CompleteJsonAsync<ProfileAnalysisResult>(
+                        new AiJsonCompletionRequest(
+                            organizationId,
+                            analysisId,
+                            "ai-analysis",
+                            ProfileAnalyzerPromptVersions.AnalysisV1,
+                            inputJson,
+                            candidate.ProviderKey,
+                            candidate.ModelId),
+                        cancellationToken);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogError(ex, "Profile Analyzer: AI analysis threw for analysis {AnalysisId} (provider {ProviderKey}).", analysisId, candidate.ProviderKey);
+                last = Result.Failure<AiJsonCompletionResponse<ProfileAnalysisResult>>(IntegrationErrors.ExternalProviderUnavailable);
+                LogProfileAiAttemptFailed(organizationId, candidate, isFallback, last.Error.Code);
+                continue;
+            }
+
+            if (aiResult.IsSuccess)
+            {
+                _logger.LogInformation(
+                    "WorkflowProviderAttemptSucceeded OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority} IsFallback={IsFallback}",
+                    organizationId,
+                    "single-analyzer",
+                    "profile-analysis",
+                    "analyze-profile",
+                    aiResult.Value.ProviderKey,
+                    aiResult.Value.Model ?? "(provider default)",
+                    candidate.Priority,
+                    isFallback);
+
+                return (candidate, aiResult);
+            }
+
+            last = aiResult;
+            LogProfileAiAttemptFailed(organizationId, candidate, isFallback, last.Error.Code);
         }
 
-        return await _defaultAiSelector.SelectAsync(organizationId, cancellationToken);
+        return (null, last);
     }
+
+    private void LogProfileAiAttemptFailed(Guid organizationId, AiRoute candidate, bool isFallback, string errorCode) =>
+        _logger.LogWarning(
+            "WorkflowProviderAttemptFailed OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority} IsFallback={IsFallback} ErrorCode={ErrorCode}",
+            organizationId,
+            "single-analyzer",
+            "profile-analysis",
+            "analyze-profile",
+            candidate.ProviderKey,
+            candidate.ModelId ?? "(provider default)",
+            candidate.Priority,
+            isFallback,
+            errorCode);
+
+    private sealed record AiRoute(string ProviderKey, string? ModelId, int Priority);
 
     private async Task RunAiStagesAsync(
         ProfileAnalysis analysis,
@@ -421,20 +545,20 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         IReadOnlyList<ProfilePost> ownerPosts,
         CancellationToken cancellationToken)
     {
-        // ── Stage 5: AI provider selection ────────────────────────────────────
-        var aiSelection = await ResolveAiSelectionAsync(orgId, cancellationToken);
-        if (aiSelection.IsFailure)
+        // ── Stage 5: AI route resolution (priority-ordered, no Default-AI fallback) ──────────
+        var aiCandidates = await ResolveAiCandidatesAsync(orgId, cancellationToken);
+        if (aiCandidates.IsFailure)
         {
             _logger.LogWarning(
-                "Profile Analyzer: AI provider selection failed " +
-                "analysisId={AnalysisId} organizationId={OrgId} stage=AiSelectionFailed errorCode={ErrorCode}.",
+                "Profile Analyzer: AI route resolution failed " +
+                "analysisId={AnalysisId} organizationId={OrgId} stage=AiRouteFailed errorCode={ErrorCode}.",
                 analysis.Id,
                 orgId,
-                aiSelection.Error.Code);
+                aiCandidates.Error.Code);
 
             await PersistFailureWithDiagnosticsAsync(
                 analysis,
-                aiSelection.Error.Code,
+                aiCandidates.Error.Code,
                 null,
                 BuildFailureDiagnostics(
                     actorId: actorId,
@@ -444,7 +568,7 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
                     degradedPostCount: degradedPostCount,
                     aiProviderKey: null,
                     aiModel: null,
-                    failureReasons: [.. priorFailureCodes, aiSelection.Error.Code]),
+                    failureReasons: [.. priorFailureCodes, aiCandidates.Error.Code]),
                 cancellationToken);
             return;
         }
@@ -459,53 +583,36 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
 
         _logger.LogInformation(
             "Profile Analyzer: running AI analysis " +
-            "analysisId={AnalysisId} organizationId={OrgId} stage=Analyzing " +
-            "aiProviderKey={ProviderKey} aiModel={Model}.",
+            "analysisId={AnalysisId} organizationId={OrgId} stage=Analyzing candidateCount={CandidateCount}.",
             analysis.Id,
             orgId,
-            aiSelection.Value.ProviderKey,
-            aiSelection.Value.Model ?? "(provider default)");
+            aiCandidates.Value.Count);
 
-        var aiInput = CreateAiInput(profile, stats, ownerPosts);
+        var aiInputJson = JsonSerializer.Serialize(CreateAiInput(profile, stats, ownerPosts), JsonOptions);
 
-        // The instrumented AI gateway decorator (AiCompletionGatewayInstrumentationDecorator) requires an
-        // active ProviderCallContext; without it, it throws "ProviderCallContext.Current is null".
-        // Mirror SingleContentAnalyzer. Null-safe: in unit tests no context/decorator is wired.
-        using var aiCallScope = _providerCallContext?.Begin(
+        var (usedAi, aiResult) = await RunProfileAiWithFallbackAsync(
             orgId,
             analysis.ClientId,
-            workflowKey: "profile-analyzer",
-            pipelineStepKey: "profile-analysis",
-            promptVersion: ProfileAnalyzerPromptVersions.AnalysisV1,
-            analysis.Id);
-
-        var aiResult = await _aiGateway.CompleteJsonAsync<ProfileAnalysisResult>(
-            new AiJsonCompletionRequest(
-                orgId,
-                analysis.Id,
-                "ai-analysis",
-                ProfileAnalyzerPromptVersions.AnalysisV1,
-                JsonSerializer.Serialize(aiInput, JsonOptions),
-                aiSelection.Value.ProviderKey,
-                aiSelection.Value.Model),
+            analysis.Id,
+            aiInputJson,
+            aiCandidates.Value,
             cancellationToken);
 
-        if (aiResult.IsFailure)
+        if (usedAi is null)
         {
+            var error = aiResult.IsFailure ? aiResult.Error : IntegrationErrors.ExternalProviderUnavailable;
             _logger.LogWarning(
-                "Profile Analyzer: AI analysis failed " +
-                "analysisId={AnalysisId} organizationId={OrgId} stage=AiFailed " +
-                "actorId={ActorId} fallbackUsed={FallbackUsed} aiProviderKey={ProviderKey} errorCode={ErrorCode}.",
-                analysis.Id,
+                "WorkflowFailed OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} AnalysisId={AnalysisId} StepKey={StepKey} ErrorCode={ErrorCode}",
                 orgId,
-                actorId,
-                fallbackUsed,
-                aiSelection.Value.ProviderKey,
-                aiResult.Error.Code);
+                "single-analyzer",
+                "profile-analysis",
+                analysis.Id,
+                "analyze-profile",
+                error.Code);
 
             await PersistFailureWithDiagnosticsAsync(
                 analysis,
-                aiResult.Error.Code,
+                error.Code,
                 null,
                 BuildFailureDiagnostics(
                     actorId: actorId,
@@ -513,9 +620,9 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
                     postsReceived: postsReceived,
                     postsProcessed: postsProcessed,
                     degradedPostCount: degradedPostCount,
-                    aiProviderKey: aiSelection.Value.ProviderKey,
-                    aiModel: aiSelection.Value.Model,
-                    failureReasons: [.. priorFailureCodes, aiResult.Error.Code]),
+                    aiProviderKey: aiCandidates.Value[0].ProviderKey,
+                    aiModel: aiCandidates.Value[0].ModelId,
+                    failureReasons: [.. priorFailureCodes, error.Code]),
                 cancellationToken);
             return;
         }
@@ -528,8 +635,8 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
             PostsReceived = postsReceived,
             PostsProcessed = postsProcessed,
             DegradedPostCount = degradedPostCount,
-            AiProviderKey = aiSelection.Value.ProviderKey,
-            AiModel = aiSelection.Value.Model,
+            AiProviderKey = aiResult.Value.ProviderKey,
+            AiModel = aiResult.Value.Model,
         };
 
         var aiAnalysis = MapAiAnalysis(aiResult.Value.Payload);
@@ -539,6 +646,18 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
             aiAnalysisJson: JsonSerializer.Serialize(aiResult.Value.Payload, JsonOptions),
             diagnosticsJson: JsonSerializer.Serialize(finalDiagnostics, JsonOptions));
         await PersistAsync(analysis, cancellationToken);
+
+        _logger.LogInformation(
+            "WorkflowCompleted OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} AnalysisId={AnalysisId} ActorId={ActorId} AiProviderKey={AiProviderKey} AiModel={AiModel} AiPriority={AiPriority} AiFallbackUsed={AiFallbackUsed}",
+            orgId,
+            "single-analyzer",
+            "profile-analysis",
+            analysis.Id,
+            actorId,
+            aiResult.Value.ProviderKey,
+            aiResult.Value.Model ?? "(provider default)",
+            usedAi.Priority,
+            usedAi.Priority > 1);
 
         _logger.LogInformation(
             "Profile Analyzer: analysis completed successfully " +
@@ -553,8 +672,8 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
             postsReceived,
             postsProcessed,
             degradedPostCount,
-            aiSelection.Value.ProviderKey,
-            aiSelection.Value.Model ?? "(provider default)");
+            aiResult.Value.ProviderKey,
+            aiResult.Value.Model ?? "(provider default)");
     }
 
     private async Task PersistAsync(

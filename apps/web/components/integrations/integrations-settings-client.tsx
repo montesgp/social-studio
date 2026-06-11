@@ -353,6 +353,55 @@ function buildWorkflowStages(
     });
 }
 
+interface WorkflowStepGroupDraft {
+  key: string;
+  analysisType: string;
+  stepKey: string;
+  operationKey: string;
+  networkStages: WorkflowStageDraft[];
+}
+
+function workflowStepGroupKey({
+  analysisType,
+  stepKey,
+  operationKey
+}: Pick<WorkflowStepDraft, "analysisType" | "stepKey" | "operationKey">) {
+  return [analysisType.trim().toLowerCase(), stepKey.trim().toLowerCase(), operationKey.trim().toLowerCase()].join("::");
+}
+
+/**
+ * Groups per-network stages by their workflow step (analysis type + step + operation), so the UI can
+ * render ONE card per step and expose each social network as an independent tab. Every network keeps
+ * its own ordered execution routes — adding a backup never bleeds into a sibling network.
+ */
+function buildWorkflowStepGroups(
+  rows: WorkflowStepDraft[],
+  workflow: WorkflowCatalog | null,
+  networks: WorkflowSelectOption[]
+): WorkflowStepGroupDraft[] {
+  const stages = buildWorkflowStages(rows, workflow, networks);
+  const grouped = new Map<string, WorkflowStepGroupDraft>();
+
+  for (const stage of stages) {
+    const key = workflowStepGroupKey(stage);
+    const current = grouped.get(key);
+    if (current) {
+      current.networkStages.push(stage);
+      continue;
+    }
+
+    grouped.set(key, {
+      key,
+      analysisType: stage.analysisType,
+      stepKey: stage.stepKey,
+      operationKey: stage.operationKey,
+      networkStages: [stage]
+    });
+  }
+
+  return Array.from(grouped.values());
+}
+
 function ModelSelect({
   models,
   value,
@@ -423,6 +472,9 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const [workflowRows, setWorkflowRows] = useState<WorkflowStepDraft[]>([]);
   const [workflowLoading, setWorkflowLoading] = useState(false);
   const [workflowSaving, setWorkflowSaving] = useState(false);
+  // Active network tab per step group (key = workflowStepGroupKey). Pure view state — switching a tab
+  // never mutates routes; it only changes which network's execution routes are visible.
+  const [activeNetworkByGroup, setActiveNetworkByGroup] = useState<Record<string, string>>({});
 
   const groupedIntegrations = useMemo(() => {
     const map = new Map<string, OrganizationIntegration[]>();
@@ -467,6 +519,11 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
   const workflowStages = useMemo(
     () => buildWorkflowStages(workflowRows, selectedWorkflowDefinition, socialNetworkOptions),
+    [selectedWorkflowDefinition, socialNetworkOptions, workflowRows]
+  );
+
+  const workflowStepGroups = useMemo(
+    () => buildWorkflowStepGroups(workflowRows, selectedWorkflowDefinition, socialNetworkOptions),
     [selectedWorkflowDefinition, socialNetworkOptions, workflowRows]
   );
 
@@ -736,6 +793,47 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     return socialNetworkOptions.filter((option) => step.supportedNetworkKeys.includes(option.value));
   }
 
+  // Network tabs = active+supported networks PLUS any already-configured network that is no longer active
+  // (shown as "inactive" so the admin can still review/remove its routes instead of losing them silently).
+  function networkTabsForGroup(group: WorkflowStepGroupDraft, step?: WorkflowStepCatalog | null): WorkflowSelectOption[] {
+    const base = networkOptionsForStep(step);
+    if (!step?.requiresNetwork) {
+      return base;
+    }
+
+    const known = new Set(base.map((option) => option.value));
+    const extra: WorkflowSelectOption[] = [];
+    for (const stage of group.networkStages) {
+      if (stage.networkKey && !known.has(stage.networkKey)) {
+        known.add(stage.networkKey);
+        extra.push({ value: stage.networkKey, label: `${stage.networkKey} (inactive)` });
+      }
+    }
+
+    return [...base, ...extra];
+  }
+
+  function activeNetworkForGroup(group: WorkflowStepGroupDraft, step?: WorkflowStepCatalog | null): string {
+    if (!step?.requiresNetwork) {
+      return "";
+    }
+
+    const options = networkTabsForGroup(group, step);
+    const chosen = activeNetworkByGroup[group.key];
+    if (chosen && options.some((option) => option.value === chosen)) {
+      return chosen;
+    }
+
+    const firstWithRoutes = group.networkStages.find(
+      (stage) => stage.routes.length > 0 && options.some((option) => option.value === stage.networkKey)
+    );
+    if (firstWithRoutes) {
+      return firstWithRoutes.networkKey;
+    }
+
+    return options[0]?.value ?? group.networkStages[0]?.networkKey ?? "";
+  }
+
   function modelOptionsForProvider(providerKey: string, currentValue = "") {
     const options = modelsForProvider(providerKey).map((modelId) => ({
       value: modelId,
@@ -897,10 +995,12 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     setWorkflowRows((rows) => resequenceWorkflowRows(rows.filter((row) => row.id !== id)));
   }
 
-  function patchWorkflowStage(stageKey: string, patch: Partial<WorkflowStepDraft>) {
+  // Edits analysis type / step for the WHOLE step group (every network keeps its own routes, they are
+  // only re-normalized against the new step definition). The network is NOT touched here.
+  function patchWorkflowStepGroup(groupKey: string, patch: Partial<WorkflowStepDraft>) {
     setWorkflowRows((rows) =>
       resequenceWorkflowRows(rows.map((row) => {
-        if (workflowStageKey(row) !== stageKey) {
+        if (workflowStepGroupKey(row) !== groupKey) {
           return row;
         }
 
@@ -909,31 +1009,37 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     );
   }
 
-  function removeWorkflowStage(stageKey: string) {
-    setWorkflowRows((rows) => resequenceWorkflowRows(rows.filter((row) => workflowStageKey(row) !== stageKey)));
-  }
-
-  function addWorkflowBackupRoute(stageKey: string) {
+  // Adds a route to a SINGLE network of a step group. Used both for the first route of a network and
+  // for backups — priority is derived afterwards by resequenceWorkflowRows (per analysis/step/network).
+  function addWorkflowRouteForNetwork(groupKey: string, networkKey: string) {
     setWorkflowRows((rows) => {
-      const stageRows = rows.filter((row) => workflowStageKey(row) === stageKey);
-      if (stageRows.length === 0) {
+      const template = rows.find((row) => workflowStepGroupKey(row) === groupKey);
+      if (!template) {
         return rows;
       }
 
-      const template = stageRows[0];
-      const backupRoute = newWorkflowRow({
+      const route = newWorkflowRow({
         analysisType: template.analysisType,
         stepKey: template.stepKey,
         operationKey: template.operationKey,
-        networkKey: template.networkKey,
-        providerKey: template.providerKey,
+        networkKey,
         modelId: "",
         actorId: "",
         isEnabled: true
       });
 
-      return resequenceWorkflowRows([...rows, backupRoute]);
+      return resequenceWorkflowRows([...rows, route]);
     });
+  }
+
+  // Removes every route of a single network within a step group. If it was the last network with routes,
+  // the whole group card disappears (it is derived from the rows).
+  function removeWorkflowNetworkStage(groupKey: string, networkKey: string) {
+    setWorkflowRows((rows) =>
+      resequenceWorkflowRows(
+        rows.filter((row) => !(workflowStepGroupKey(row) === groupKey && row.networkKey === networkKey))
+      )
+    );
   }
 
   function reorderWorkflowStageRoutes(stageKey: string, orderedIds: string[]) {
@@ -1575,7 +1681,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                     <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
                       Organization
                     </span>
-                    <div className="rounded-md border border-border bg-background px-3 py-2 text-sm">
+                    <div className="flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm">
                       {organizations.find((organization) => organization.id === selectedOrganizationId)?.name
                         ?? selectedOrganizationId}
                     </div>
@@ -1666,48 +1772,54 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {workflowStages.map((stage) => {
-                      const analysis = analysisTypeDefinition(stage.analysisType);
-                      const step = stepDefinition(stage.analysisType, stage.stepKey);
+                    {workflowStepGroups.map((group) => {
+                      const analysis = analysisTypeDefinition(group.analysisType);
+                      const step = stepDefinition(group.analysisType, group.stepKey);
                       const analysisOptions = appendCurrentOption(
                         selectedWorkflowDefinition.analysisTypes.map((item) => ({
                           value: item.key,
                           label: item.label
                         })),
-                        stage.analysisType,
-                        `${stage.analysisType} (current stage)`
+                        group.analysisType,
+                        `${group.analysisType} (current stage)`
                       );
                       const stepOptions = appendCurrentOption(
                         (analysis?.steps ?? []).map((item) => ({
                           value: item.key,
                           label: item.label
                         })),
-                        stage.stepKey,
-                        `${stage.stepKey} (current stage)`
+                        group.stepKey,
+                        `${group.stepKey} (current stage)`
                       );
-                      const networkOptions = appendCurrentOption(
-                        networkOptionsForStep(step),
-                        stage.networkKey,
-                        `${stage.networkKey} (current stage)`
-                      );
-                      const networkLabel = stage.networkKey
-                        ? networkOptions.find((option) => option.value === stage.networkKey)?.label ?? stage.networkKey
+                      const requiresNetwork = Boolean(step?.requiresNetwork);
+                      const networkTabs = networkTabsForGroup(group, step);
+                      const activeNetwork = activeNetworkForGroup(group, step);
+                      const activeStage = requiresNetwork
+                        ? group.networkStages.find((networkStage) => networkStage.networkKey === activeNetwork) ?? null
+                        : group.networkStages[0] ?? null;
+                      const activeRoutes = activeStage?.routes ?? [];
+                      const activeNetworkLabel = requiresNetwork
+                        ? networkTabs.find((tab) => tab.value === activeNetwork)?.label ?? activeNetwork
                         : null;
+                      const totalRoutes = group.networkStages.reduce(
+                        (total, networkStage) => total + networkStage.routes.length,
+                        0
+                      );
 
                       return (
-                        <div key={stage.key} className="rounded-2xl border border-border bg-background/40 p-5">
+                        <div key={group.key} className="rounded-2xl border border-border bg-background/40 p-5">
                           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                             <div className="space-y-3">
                               <div className="flex flex-wrap items-center gap-2">
-                                <Badge variant="outline">{analysis?.label ?? (stage.analysisType || "Workflow stage")}</Badge>
+                                <Badge variant="outline">{analysis?.label ?? (group.analysisType || "Workflow stage")}</Badge>
                                 {step ? (
                                   <Badge variant="muted">{step.operationLabel}</Badge>
                                 ) : null}
-                                {networkLabel ? (
-                                  <Badge variant="info">{networkLabel}</Badge>
+                                {activeNetworkLabel ? (
+                                  <Badge variant="info">{activeNetworkLabel}</Badge>
                                 ) : null}
-                                <Badge variant={stage.routes.some((route) => route.isEnabled) ? "success" : "muted"}>
-                                  {stage.routes.length} {stage.routes.length === 1 ? "route" : "routes"}
+                                <Badge variant={totalRoutes > 0 ? "success" : "muted"}>
+                                  {totalRoutes} {totalRoutes === 1 ? "route" : "routes"}
                                 </Badge>
                               </div>
                               <div>
@@ -1719,23 +1831,36 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2">
-                              <Button type="button" variant="outline" size="sm" onClick={() => addWorkflowBackupRoute(stage.key)}>
-                                <Plus className="h-4 w-4" /> Add backup route
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => addWorkflowRouteForNetwork(group.key, activeNetwork)}
+                                disabled={requiresNetwork && !activeNetwork}
+                              >
+                                <Plus className="h-4 w-4" /> {activeRoutes.length === 0 ? "Add route" : "Add backup route"}
                               </Button>
-                              <Button type="button" variant="ghost" size="sm" onClick={() => removeWorkflowStage(stage.key)}>
-                                <Trash2 className="h-4 w-4" /> Remove stage
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeWorkflowNetworkStage(group.key, activeNetwork)}
+                                disabled={activeRoutes.length === 0}
+                              >
+                                <Trash2 className="h-4 w-4" />{" "}
+                                {requiresNetwork && activeNetworkLabel ? `Remove ${activeNetworkLabel} routes` : "Remove stage"}
                               </Button>
                             </div>
                           </div>
 
-                          <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,220px)_minmax(0,320px)_minmax(0,220px)]">
+                          <div className="mt-5 grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
                               <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
                                 Analysis type
                               </span>
                               <Select
-                                value={stage.analysisType}
-                                onChange={(event) => patchWorkflowStage(stage.key, { analysisType: event.target.value })}
+                                value={group.analysisType}
+                                onChange={(event) => patchWorkflowStepGroup(group.key, { analysisType: event.target.value })}
                               >
                                 <option value="" disabled>
                                   Select analysis type
@@ -1753,8 +1878,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                                 Stage
                               </span>
                               <Select
-                                value={stage.stepKey}
-                                onChange={(event) => patchWorkflowStage(stage.key, { stepKey: event.target.value })}
+                                value={group.stepKey}
+                                onChange={(event) => patchWorkflowStepGroup(group.key, { stepKey: event.target.value })}
                               >
                                 <option value="" disabled>
                                   Select workflow stage
@@ -1766,179 +1891,206 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                                 ))}
                               </Select>
                             </div>
+                          </div>
 
-                            <div className="space-y-2">
+                          {requiresNetwork ? (
+                            <div className="mt-5 space-y-2">
                               <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
                                 Network
                               </span>
-                              {step?.requiresNetwork ? (
-                                <Select
-                                  value={stage.networkKey}
-                                  onChange={(event) => patchWorkflowStage(stage.key, { networkKey: event.target.value })}
-                                >
-                                  <option value="" disabled>
-                                    Select active network
-                                  </option>
-                                  {networkOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </Select>
-                              ) : (
+                              {networkTabs.length === 0 ? (
                                 <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                                  This stage does not require a network selector.
+                                  No active social networks are available for this step.
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {networkTabs.map((tab) => {
+                                    const tabStage = group.networkStages.find(
+                                      (networkStage) => networkStage.networkKey === tab.value
+                                    );
+                                    const tabRoutes = tabStage?.routes.length ?? 0;
+                                    const isActive = tab.value === activeNetwork;
+                                    return (
+                                      <button
+                                        key={tab.value}
+                                        type="button"
+                                        onClick={() => setActiveNetworkByGroup((prev) => ({ ...prev, [group.key]: tab.value }))}
+                                        aria-pressed={isActive}
+                                        className={cn(
+                                          "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm transition-colors",
+                                          isActive
+                                            ? "border-primary bg-primary/10 text-foreground"
+                                            : "border-border text-muted-foreground hover:text-foreground"
+                                        )}
+                                      >
+                                        {tab.label}
+                                        <Badge variant={tabRoutes > 0 ? "success" : "muted"}>{tabRoutes}</Badge>
+                                      </button>
+                                    );
+                                  })}
                                 </div>
                               )}
                             </div>
-                          </div>
+                          ) : null}
 
                           <div className="mt-5 rounded-2xl border border-dashed border-border/70 bg-card/60 p-4">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                               <div>
-                                <p className="text-sm font-medium">Execution routes</p>
+                                <p className="text-sm font-medium">
+                                  Execution routes{activeNetworkLabel ? ` — ${activeNetworkLabel}` : ""}
+                                </p>
                                 <p className="mt-1 text-xs text-muted-foreground">
                                   Drag the providers below to define the automatic order. The first route runs first;
-                                  every next one becomes a backup fallback.
+                                  every next one becomes a backup fallback for this network.
                                 </p>
                               </div>
                               <Badge variant="outline">
-                                {stage.routes.length === 1
-                                  ? "No backups yet"
-                                  : `${stage.routes.length - 1} backup ${stage.routes.length - 1 === 1 ? "route" : "routes"}`}
+                                {activeRoutes.length === 0
+                                  ? "No routes yet"
+                                  : activeRoutes.length === 1
+                                    ? "No backups yet"
+                                    : `${activeRoutes.length - 1} backup ${activeRoutes.length - 1 === 1 ? "route" : "routes"}`}
                               </Badge>
                             </div>
 
-                            <DndContext
-                              sensors={workflowRouteSensors}
-                              collisionDetection={closestCenter}
-                              onDragEnd={(event) => handleWorkflowRouteDragEnd(stage.key, stage, event)}
-                            >
-                              <SortableContext
-                                items={stage.routes.map((route) => route.id)}
-                                strategy={verticalListSortingStrategy}
+                            {!activeStage || activeRoutes.length === 0 ? (
+                              <div className="mt-4 rounded-xl border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                                {requiresNetwork && activeNetworkLabel
+                                  ? `No execution routes for ${activeNetworkLabel} yet. Add the primary route to start.`
+                                  : "No execution routes yet. Add the primary route to start."}
+                              </div>
+                            ) : (
+                              <DndContext
+                                sensors={workflowRouteSensors}
+                                collisionDetection={closestCenter}
+                                onDragEnd={(event) => handleWorkflowRouteDragEnd(activeStage.key, activeStage, event)}
                               >
-                                <div className="mt-4 space-y-3">
-                                  {stage.routes.map((route) => {
-                                    const providerOptions = appendCurrentOption(
-                                      providerOptionsForStep(step).map((integration) => ({
-                                        value: integration.providerKey,
-                                        label: integration.providerDisplayName
-                                      })),
-                                      route.providerKey,
-                                      `${providerDisplayName(route.providerKey)} (current route)`
-                                    );
-                                    const modelOptions = modelOptionsForProvider(route.providerKey, route.modelId);
-                                    const actorOptions = actorOptionsForStep(step, stage.networkKey, route.actorId);
-                                    const routeTitle = [
-                                      route.providerKey ? providerDisplayName(route.providerKey) : "",
-                                      step?.supportsModelSelection ? route.modelId : "",
-                                      step?.supportsActorSelection ? route.actorId : ""
-                                    ]
-                                      .filter((value) => value && value.trim().length > 0)
-                                      .join(" · ");
+                                <SortableContext
+                                  items={activeRoutes.map((route) => route.id)}
+                                  strategy={verticalListSortingStrategy}
+                                >
+                                  <div className="mt-4 space-y-3">
+                                    {activeRoutes.map((route) => {
+                                      const providerOptions = appendCurrentOption(
+                                        providerOptionsForStep(step).map((integration) => ({
+                                          value: integration.providerKey,
+                                          label: integration.providerDisplayName
+                                        })),
+                                        route.providerKey,
+                                        `${providerDisplayName(route.providerKey)} (current route)`
+                                      );
+                                      const modelOptions = modelOptionsForProvider(route.providerKey, route.modelId);
+                                      const actorOptions = actorOptionsForStep(step, activeNetwork, route.actorId);
+                                      const routeTitle = [
+                                        route.providerKey ? providerDisplayName(route.providerKey) : "",
+                                        step?.supportsModelSelection ? route.modelId : "",
+                                        step?.supportsActorSelection ? route.actorId : ""
+                                      ]
+                                        .filter((value) => value && value.trim().length > 0)
+                                        .join(" · ");
 
-                                    return (
-                                      <WorkflowSortableRouteCard
-                                        key={route.id}
-                                        id={route.id}
-                                        routeLabel={routeDisplayLabel(route.priority)}
-                                        order={route.priority}
-                                        title={routeTitle || "Select a connected provider"}
-                                        subtitle={route.priority === 1
-                                          ? "Runs first for this workflow stage."
-                                          : "Runs only if a previous route fails or is unavailable."}
-                                        isEnabled={route.isEnabled}
-                                        onEnabledChange={(checked) => patchWorkflowRow(route.id, { isEnabled: checked })}
-                                        onRemove={() => removeWorkflowRow(route.id)}
-                                      >
-                                        <div className="space-y-2">
-                                          <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                                            Provider / connector
-                                          </span>
-                                          <Select
-                                            value={route.providerKey}
-                                            onChange={(event) => patchWorkflowRow(route.id, { providerKey: event.target.value })}
-                                          >
-                                            <option value="" disabled>
-                                              Select provider
-                                            </option>
-                                            {providerOptions.map((option) => (
-                                              <option key={option.value} value={option.value}>
-                                                {option.label}
-                                              </option>
-                                            ))}
-                                          </Select>
-                                        </div>
-
-                                        {step?.supportsModelSelection ? (
+                                      return (
+                                        <WorkflowSortableRouteCard
+                                          key={route.id}
+                                          id={route.id}
+                                          routeLabel={routeDisplayLabel(route.priority)}
+                                          order={route.priority}
+                                          title={routeTitle || "Select a connected provider"}
+                                          subtitle={route.priority === 1
+                                            ? "Runs first for this network."
+                                            : "Runs only if a previous route fails or is unavailable."}
+                                          isEnabled={route.isEnabled}
+                                          onEnabledChange={(checked) => patchWorkflowRow(route.id, { isEnabled: checked })}
+                                          onRemove={() => removeWorkflowRow(route.id)}
+                                        >
                                           <div className="space-y-2">
                                             <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                                              Model
+                                              Provider / connector
                                             </span>
                                             <Select
-                                              value={route.modelId}
-                                              onChange={(event) => patchWorkflowRow(route.id, { modelId: event.target.value })}
-                                              disabled={modelOptions.length === 0}
+                                              value={route.providerKey}
+                                              onChange={(event) => patchWorkflowRow(route.id, { providerKey: event.target.value })}
                                             >
                                               <option value="" disabled>
-                                                {modelOptions.length === 0
-                                                  ? "Sync models in this provider first"
-                                                  : "Select synchronized model"}
+                                                Select provider
                                               </option>
-                                              {modelOptions.map((option) => (
+                                              {providerOptions.map((option) => (
                                                 <option key={option.value} value={option.value}>
                                                   {option.label}
                                                 </option>
                                               ))}
                                             </Select>
-                                            <p className="text-xs text-muted-foreground">
-                                              Pulled from the selected organization&apos;s AI provider connector.
-                                            </p>
                                           </div>
-                                        ) : null}
 
-                                        {step?.supportsActorSelection ? (
-                                          <div className="space-y-2 lg:col-span-2">
-                                            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                                              Actor / connector route
-                                            </span>
-                                            {route.providerKey === "apify" ? (
-                                              <>
-                                                <Select
-                                                  value={route.actorId}
-                                                  onChange={(event) => patchWorkflowRow(route.id, { actorId: event.target.value })}
-                                                  disabled={!stage.networkKey || actorOptions.length === 0}
-                                                >
-                                                  <option value="" disabled>
-                                                    {actorOptions.length === 0
-                                                      ? "Configure actor mappings in the Apify connector"
-                                                      : "Select configured actor"}
+                                          {step?.supportsModelSelection ? (
+                                            <div className="space-y-2">
+                                              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                                                Model
+                                              </span>
+                                              <Select
+                                                value={route.modelId}
+                                                onChange={(event) => patchWorkflowRow(route.id, { modelId: event.target.value })}
+                                                disabled={modelOptions.length === 0}
+                                              >
+                                                <option value="" disabled>
+                                                  {modelOptions.length === 0
+                                                    ? "Sync models in this provider first"
+                                                    : "Select synchronized model"}
+                                                </option>
+                                                {modelOptions.map((option) => (
+                                                  <option key={option.value} value={option.value}>
+                                                    {option.label}
                                                   </option>
-                                                  {actorOptions.map((option) => (
-                                                    <option key={option.value} value={option.value}>
-                                                      {option.label}
+                                                ))}
+                                              </Select>
+                                              <p className="text-xs text-muted-foreground">
+                                                Pulled from the selected organization&apos;s AI provider connector.
+                                              </p>
+                                            </div>
+                                          ) : null}
+
+                                          {step?.supportsActorSelection ? (
+                                            <div className="space-y-2 lg:col-span-2">
+                                              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                                                Actor / connector route
+                                              </span>
+                                              {route.providerKey === "apify" ? (
+                                                <>
+                                                  <Select
+                                                    value={route.actorId}
+                                                    onChange={(event) => patchWorkflowRow(route.id, { actorId: event.target.value })}
+                                                    disabled={!activeNetwork || actorOptions.length === 0}
+                                                  >
+                                                    <option value="" disabled>
+                                                      {actorOptions.length === 0
+                                                        ? "Configure actor mappings in the Apify connector"
+                                                        : "Select configured actor"}
                                                     </option>
-                                                  ))}
-                                                </Select>
-                                                <p className="text-xs text-muted-foreground">
-                                                  Pulled from this organization&apos;s Apify connector for the selected network
-                                                  and workflow area.
-                                                </p>
-                                              </>
-                                            ) : (
-                                              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                                                Actor routing is available only for Apify on this stage.
-                                              </div>
-                                            )}
-                                          </div>
-                                        ) : null}
-                                      </WorkflowSortableRouteCard>
-                                    );
-                                  })}
-                                </div>
-                              </SortableContext>
-                            </DndContext>
+                                                    {actorOptions.map((option) => (
+                                                      <option key={option.value} value={option.value}>
+                                                        {option.label}
+                                                      </option>
+                                                    ))}
+                                                  </Select>
+                                                  <p className="text-xs text-muted-foreground">
+                                                    Pulled from this organization&apos;s Apify connector for the selected network
+                                                    and workflow area.
+                                                  </p>
+                                                </>
+                                              ) : (
+                                                <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                                                  Actor routing is available only for Apify on this stage.
+                                                </div>
+                                              )}
+                                            </div>
+                                          ) : null}
+                                        </WorkflowSortableRouteCard>
+                                      );
+                                    })}
+                                  </div>
+                                </SortableContext>
+                              </DndContext>
+                            )}
                           </div>
                         </div>
                       );

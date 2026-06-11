@@ -122,15 +122,8 @@ public sealed class GetOrganizationIntegrationsHandler
 
         var checklist = singleAnalyzerChecklist.Concat(generatorChecklist).ToList();
 
-        var defaultAi = responseIntegrations.FirstOrDefault(x =>
-            x.Category == IntegrationProviderCategory.AiModel
-            && x.IsDefaultAi
-            && x.Status == IntegrationStatus.Connected);
-
         var overview = new OrganizationIntegrationsOverviewResponse(
             request.OrganizationId,
-            defaultAi?.ProviderKey,
-            defaultAi?.SelectedAiModel,
             checklist,
             checklistGroups,
             responseIntegrations);

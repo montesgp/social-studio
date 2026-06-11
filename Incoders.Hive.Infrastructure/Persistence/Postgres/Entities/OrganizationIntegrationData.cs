@@ -14,8 +14,6 @@ public sealed class OrganizationIntegrationData
 
     public bool IsReadOnly { get; set; }
 
-    public bool IsDefaultAi { get; set; }
-
     public string? SelectedAiModel { get; set; }
 
     public DateTime? LastTestedAtUtc { get; set; }

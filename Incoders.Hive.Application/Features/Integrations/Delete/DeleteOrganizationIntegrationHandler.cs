@@ -13,20 +13,17 @@ public sealed class DeleteOrganizationIntegrationHandler : IRequestHandler<Delet
     private readonly IOrganizationIntegrationRepository _integrations;
     private readonly IOrganizationIntegrationCredentialRepository _credentials;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IClock _clock;
 
     public DeleteOrganizationIntegrationHandler(
         IIntegrationProviderCatalogRepository providers,
         IOrganizationIntegrationRepository integrations,
         IOrganizationIntegrationCredentialRepository credentials,
-        IUnitOfWork unitOfWork,
-        IClock clock)
+        IUnitOfWork unitOfWork)
     {
         _providers = providers;
         _integrations = integrations;
         _credentials = credentials;
         _unitOfWork = unitOfWork;
-        _clock = clock;
     }
 
     public async Task<Result> Handle(DeleteOrganizationIntegrationCommand request, CancellationToken cancellationToken)
@@ -56,25 +53,6 @@ public sealed class DeleteOrganizationIntegrationHandler : IRequestHandler<Delet
 
         await _credentials.RemoveByIntegrationIdAsync(integration.Id, cancellationToken);
         _integrations.Remove(integration);
-
-        if (provider.Category == IntegrationProviderCategory.AiModel && integration.IsDefaultAi)
-        {
-            var remainingAi = await _integrations.ListByOrganizationAndCategoryAsync(
-                request.OrganizationId,
-                IntegrationProviderCategory.AiModel,
-                cancellationToken);
-
-            var nextDefault = remainingAi
-                .Where(x => x.Status == IntegrationStatus.Connected)
-                .OrderBy(x => x.UpdatedAtUtc)
-                .FirstOrDefault();
-
-            if (nextDefault is not null)
-            {
-                nextDefault.SetDefaultAi(nextDefault.SelectedAiModel, _clock.UtcNow);
-                _integrations.Update(nextDefault);
-            }
-        }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
