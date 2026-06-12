@@ -143,7 +143,6 @@ app.MapClientAssetEndpoints();
 app.MapClientBrandManualsEndpoints();
 app.MapGeneralStrategyEndpoints();
 app.MapContentPlanEndpoints();
-app.MapSocialIntegrationsEndpoints();
 app.MapSocialContentWorkflowEndpoints();
 app.MapSingleAnalyzerEndpoints();
 app.MapProfileAnalyzerEndpoints();

@@ -1,6 +1,9 @@
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Observability;
+using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Caption;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
@@ -77,7 +80,7 @@ public sealed class ContentGenerationDiResolutionTests
         // Minimal stubs for required dependencies
         services.AddScoped<IAiCompletionGateway, StubAiCompletionGateway>();
         services.AddScoped<IClientBrandSnapshotLoader, StubBrandSnapshotLoader>();
-        services.AddScoped<IDefaultAiSelector, StubDefaultAiSelector>();
+        services.AddScoped<IWorkflowConfigurationResolver, StubWorkflowResolver>();
         services.AddScoped<ProviderCallContext>();
 
         // The method under test
@@ -105,10 +108,13 @@ file sealed class StubBrandSnapshotLoader : IClientBrandSnapshotLoader
         Task.FromResult(Incoders.Hive.Domain.Social.ContentGeneration.BrandSnapshot.Empty);
 }
 
-file sealed class StubDefaultAiSelector : IDefaultAiSelector
+file sealed class StubWorkflowResolver : IWorkflowConfigurationResolver
 {
-    public Task<Incoders.Hive.Domain.Common.Result<DefaultAiSelection>> SelectAsync(
-        Guid organizationId, CancellationToken ct = default) =>
-        Task.FromResult(Incoders.Hive.Domain.Common.Result.Success(
-            new DefaultAiSelection("claude", "claude-sonnet-4-6")));
+    public Task<Result<IReadOnlyList<WorkflowStepRouteCandidate>>> ResolveStepAsync(
+        WorkflowStepResolutionRequest request, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Result.Success<IReadOnlyList<WorkflowStepRouteCandidate>>(
+        [
+            new WorkflowStepRouteCandidate(Guid.NewGuid(), "claude", Guid.NewGuid(),
+                IntegrationConnectionMode.BringYourOwnKey, 1, "claude-sonnet-4-6", null, true)
+        ]));
 }

@@ -278,7 +278,6 @@ public sealed class ConfigurableWorkflowIntegrationsTests
             IntegrationConnectionMode.BringYourOwnKey,
             IntegrationStatus.Connected,
             isReadOnly: false,
-            isDefaultAi: false,
             selectedModel,
             lastTestedAtUtc: Now,
             lastError: null,
@@ -475,14 +474,8 @@ public sealed class ConfigurableWorkflowIntegrationsTests
                 IntegrationConnectionMode.BringYourOwnKey,
                 IntegrationStatus.Connected,
                 IsReadOnly: false,
-                IsDefaultAi: false,
                 SelectedAiModel: null,
                 new Dictionary<string, string> { ["api_key"] = "test-key" })));
-
-        public Task<Result<ResolvedIntegration>> ResolveDefaultAiProviderAsync(
-            Guid organizationId,
-            CancellationToken cancellationToken = default) =>
-            ResolveProviderAsync(organizationId, _providerKey, cancellationToken);
     }
 
     private sealed class StaticExternalClientFactory : IExternalProviderClientFactory

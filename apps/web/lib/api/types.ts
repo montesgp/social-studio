@@ -252,7 +252,6 @@ export interface OrganizationIntegration {
   connectionMode: IntegrationConnectionMode;
   status: IntegrationStatus;
   isReadOnly: boolean;
-  isDefaultAi: boolean;
   selectedAiModel: string | null;
   lastTestedAtUtc: string | null;
   lastError: string | null;
@@ -366,8 +365,6 @@ export interface IntegrationSetupChecklist {
 
 export interface OrganizationIntegrationsOverview {
   organizationId: string;
-  defaultAiProviderKey: string | null;
-  defaultAiModel: string | null;
   checklist: IntegrationSetupChecklistItem[];
   checklistGroups: IntegrationSetupChecklist[];
   integrations: OrganizationIntegration[];

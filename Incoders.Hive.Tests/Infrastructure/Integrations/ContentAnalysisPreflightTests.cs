@@ -99,14 +99,8 @@ public sealed class ContentAnalysisPreflightTests
                 IntegrationConnectionMode.BringYourOwnKey,
                 IntegrationStatus.Connected,
                 IsReadOnly: false,
-                IsDefaultAi: false,
                 SelectedAiModel: null,
                 new Dictionary<string, string> { ["api_key"] = "test" })));
         }
-
-        public Task<Result<ResolvedIntegration>> ResolveDefaultAiProviderAsync(
-            Guid organizationId,
-            CancellationToken cancellationToken = default) =>
-            ResolveProviderAsync(organizationId, "claude", cancellationToken);
     }
 }

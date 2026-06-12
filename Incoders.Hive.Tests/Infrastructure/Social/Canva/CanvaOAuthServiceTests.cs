@@ -632,7 +632,6 @@ internal sealed class FakeIntegrationResolver : IIntegrationResolver
             IntegrationConnectionMode.BringYourOwnKey,
             IntegrationStatus.Connected,
             IsReadOnly: false,
-            IsDefaultAi: false,
             SelectedAiModel: null,
             Credentials: new Dictionary<string, string>
             {
@@ -643,11 +642,6 @@ internal sealed class FakeIntegrationResolver : IIntegrationResolver
 
         return Task.FromResult(Result.Success(resolved));
     }
-
-    public Task<Result<ResolvedIntegration>> ResolveDefaultAiProviderAsync(
-        Guid organizationId,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult(Result.Failure<ResolvedIntegration>(IntegrationErrors.IntegrationNotFound));
 }
 
 /// <summary>
@@ -669,7 +663,6 @@ internal sealed class ScopelessIntegrationResolver : IIntegrationResolver
             IntegrationConnectionMode.BringYourOwnKey,
             IntegrationStatus.Connected,
             IsReadOnly: false,
-            IsDefaultAi: false,
             SelectedAiModel: null,
             Credentials: new Dictionary<string, string>
             {
@@ -680,9 +673,4 @@ internal sealed class ScopelessIntegrationResolver : IIntegrationResolver
 
         return Task.FromResult(Result.Success(resolved));
     }
-
-    public Task<Result<ResolvedIntegration>> ResolveDefaultAiProviderAsync(
-        Guid organizationId,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult(Result.Failure<ResolvedIntegration>(IntegrationErrors.IntegrationNotFound));
 }

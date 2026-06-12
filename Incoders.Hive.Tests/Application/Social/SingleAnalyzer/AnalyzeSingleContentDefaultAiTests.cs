@@ -13,21 +13,33 @@ using Microsoft.Extensions.Logging;
 namespace Incoders.Hive.Tests.Application.Social.SingleAnalyzer;
 
 /// <summary>
-/// Tests that SingleContentAnalyzer uses IDefaultAiSelector when no preferred AI provider
-/// is supplied in the command (CAP3-MUST-01/02/03/04).
+/// Tests that SingleContentAnalyzer resolves the AI provider/model SOLELY from the organization's
+/// priority-ordered workflow configuration (no Default-AI selector). When no AI route is configured,
+/// the analysis fails with AiRouteNotConfigured.
 /// </summary>
 public sealed class AnalyzeSingleContentDefaultAiTests
 {
     private static readonly DateTime Now = new(2026, 5, 23, 10, 0, 0, DateTimeKind.Utc);
 
-    // ─── Default-AI path ─────────────────────────────────────────────────────
+    // ─── Workflow-driven AI path ─────────────────────────────────────────────
 
     [Fact]
-    public async Task Analyzer_UsesDefaultAiSelector_WhenNoPreferredProviderOnCommand()
+    public async Task Analyzer_UsesWorkflowConfiguredAiRoute_WhenConfigured()
     {
-        var harness = new DefaultAiHarness(Now)
+        var workflow = new ConfiguredWorkflowResolver()
+            .With(
+                "content-analysis",
+                "analyze-content",
+                "ai-analysis",
+                null,
+                [
+                    new WorkflowStepRouteCandidate(
+                        Guid.NewGuid(), "anthropic", Guid.NewGuid(),
+                        IntegrationConnectionMode.BringYourOwnKey, 1, "claude-3-5-sonnet", null, true)
+                ]);
+
+        var harness = new DefaultAiHarness(Now, workflowResolver: workflow)
         {
-            SelectorResult = Result.Success(new DefaultAiSelection("anthropic", "claude-3-5-sonnet")),
             ContentResult = Result.Success(new SocialContentResolution(
                 Snapshot("tiktok", []),
                 []))
@@ -41,20 +53,17 @@ public sealed class AnalyzeSingleContentDefaultAiTests
                 PreferredExtractionProviderKey: null),
             CancellationToken.None);
 
-        Assert.True(result.IsSuccess);
+        Assert.True(result.IsSuccess, result.IsFailure ? result.Error.Code : string.Empty);
         Assert.NotNull(harness.AiGateway.LastRequest);
         Assert.Equal("anthropic", harness.AiGateway.LastRequest!.PreferredProviderKey);
         Assert.Equal("claude-3-5-sonnet", harness.AiGateway.LastRequest!.PreferredModel);
-        Assert.Equal(1, harness.Selector.CallCount);
     }
 
     [Fact]
-    public async Task Analyzer_FailsWithNoProvider_WhenSelectorReturnsFailure()
+    public async Task Analyzer_FailsWithAiRouteNotConfigured_WhenNoWorkflowRoute()
     {
         var harness = new DefaultAiHarness(Now)
         {
-            SelectorResult = Result.Failure<DefaultAiSelection>(
-                IntegrationErrors.DefaultAiProviderNotConnected),
             ContentResult = Result.Success(new SocialContentResolution(
                 Snapshot("tiktok", []),
                 []))
@@ -69,7 +78,7 @@ public sealed class AnalyzeSingleContentDefaultAiTests
             CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        Assert.Equal(IntegrationErrors.DefaultAiProviderNotConnected.Code, result.Error.Code);
+        Assert.Equal(IntegrationErrors.AiRouteNotConfigured.Code, result.Error.Code);
     }
 
     // ─── Profile baseline (TASK 03 skipped test — now active) ────────────────
@@ -147,7 +156,6 @@ public sealed class AnalyzeSingleContentDefaultAiTests
         var logger = new CapturingLogger<SingleContentAnalyzer>();
         var harness = new DefaultAiHarness(Now, workflowResolver: workflow, logger: logger)
         {
-            SelectorResult = Result.Failure<DefaultAiSelection>(IntegrationErrors.DefaultAiProviderNotConnected),
             ContentResult = Result.Success(new SocialContentResolution(
                 Snapshot("tiktok", []),
                 []))
@@ -163,7 +171,6 @@ public sealed class AnalyzeSingleContentDefaultAiTests
             CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.IsFailure ? result.Error.Code : string.Empty);
-        Assert.Equal(0, harness.Selector.CallCount);
         Assert.NotNull(harness.AiGateway.LastRequest);
         Assert.Equal("claude", harness.AiGateway.LastRequest!.PreferredProviderKey);
         Assert.Equal("claude-sonnet-synced", harness.AiGateway.LastRequest!.PreferredModel);
@@ -221,22 +228,6 @@ public sealed class AnalyzeSingleContentDefaultAiTests
             Result.Success(_profile);
     }
 
-    private sealed class SpyDefaultAiSelector : IDefaultAiSelector
-    {
-        private readonly DefaultAiHarness _harness;
-        public int CallCount { get; private set; }
-
-        public SpyDefaultAiSelector(DefaultAiHarness harness) => _harness = harness;
-
-        public Task<Result<DefaultAiSelection>> SelectAsync(
-            Guid organizationId,
-            CancellationToken ct = default)
-        {
-            CallCount++;
-            return Task.FromResult(_harness.SelectorResult);
-        }
-    }
-
     private sealed class FakeSocialContentResolver : ISocialContentResolver
     {
         private readonly DefaultAiHarness _h;
@@ -282,7 +273,6 @@ public sealed class AnalyzeSingleContentDefaultAiTests
             Clock = new TestClock(nowUtc);
             ContentResolver = new FakeSocialContentResolver(this);
             AiGateway = new SpyAiGateway();
-            Selector = new SpyDefaultAiSelector(this);
 
             var provider = profileProvider ?? new StaticProfileProvider(new SpyProfile());
 
@@ -292,7 +282,6 @@ public sealed class AnalyzeSingleContentDefaultAiTests
                 Clock,
                 ContentResolver,
                 AiGateway,
-                Selector,
                 provider,
                 workflowResolver: workflowResolver,
                 logger: logger);
@@ -301,15 +290,11 @@ public sealed class AnalyzeSingleContentDefaultAiTests
         public Result<SocialContentResolution> ContentResult { get; set; } =
             Result.Failure<SocialContentResolution>(IntegrationErrors.ProviderRouteNotConfigured);
 
-        public Result<DefaultAiSelection> SelectorResult { get; set; } =
-            Result.Success(new DefaultAiSelection("openai", "gpt-4o"));
-
         public SimpleRepository Repository { get; }
         public SimpleUnitOfWork UnitOfWork { get; }
         public TestClock Clock { get; }
         public FakeSocialContentResolver ContentResolver { get; }
         public SpyAiGateway AiGateway { get; }
-        public SpyDefaultAiSelector Selector { get; }
         public SingleContentAnalyzer Analyzer { get; }
 
         public sealed class SimpleRepository : ISingleContentAnalysisRepository

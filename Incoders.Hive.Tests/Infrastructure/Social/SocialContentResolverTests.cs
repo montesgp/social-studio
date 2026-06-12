@@ -180,7 +180,6 @@ public sealed class SocialContentResolverTests
                 IntegrationConnectionMode.BringYourOwnKey,
                 IntegrationStatus.Connected,
                 IsReadOnly: false,
-                IsDefaultAi: false,
                 SelectedAiModel: null,
                 new Dictionary<string, string>
                 {
@@ -198,11 +197,6 @@ public sealed class SocialContentResolverTests
             LastProviderKey = providerKey;
             return Task.FromResult(_result);
         }
-
-        public Task<Result<ResolvedIntegration>> ResolveDefaultAiProviderAsync(
-            Guid organizationId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(_result);
     }
 
     private sealed class StaticClientFactory : IExternalProviderClientFactory

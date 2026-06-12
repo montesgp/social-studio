@@ -170,9 +170,6 @@ public static class DependencyInjection
         services.AddScoped<ISocialPlatformScrapeAdapter, YouTubeApifyScrapeAdapter>();
         services.AddScoped<ISocialPlatformScrapeAdapter, DefaultApifyScrapeAdapter>();
 
-        // AI provider selection — thin adapter over IIntegrationResolver.ResolveDefaultAiProviderAsync
-        services.AddScoped<IDefaultAiSelector, DefaultAiSelector>();
-
         // Long, single-shot outbound calls (Apify run-sync; LLM completions) regularly exceed the
         // Aspire standard resilience handler's ~10s per-attempt timeout that AddServiceDefaults()
         // applies to ALL HttpClients — which CANCELS them and retries (each retry restarts the
@@ -187,6 +184,7 @@ public static class DependencyInjection
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.ClaudeModelClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.ClaudeModelCatalogClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.OpenAiModelClient),
+            nameof(Incoders.Hive.Infrastructure.Ai.Providers.OpenAiModelCatalogClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.GeminiModelClient),
         ];
 #pragma warning disable EXTEXP0001
@@ -201,6 +199,7 @@ public static class DependencyInjection
         // Real per-provider connectivity probes used by "Test connection".
         services.AddScoped<IExternalIntegrationHealthCheck, ApifyIntegrationHealthCheck>();
         services.AddScoped<IExternalIntegrationHealthCheck, ClaudeIntegrationHealthCheck>();
+        services.AddScoped<IExternalIntegrationHealthCheck, OpenAiIntegrationHealthCheck>();
         services.AddScoped<IIntegrationConnectionTester, DefaultIntegrationConnectionTester>();
         // Pre-flight gate: probes all required provider APIs before the analyzer workflow starts.
         services.AddScoped<IContentAnalysisPreflight, ContentAnalysisPreflight>();

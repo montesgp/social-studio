@@ -1,6 +1,8 @@
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Application.Features.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
@@ -107,8 +109,8 @@ public sealed class B1bDiWiringTests
         // Stub AI gateway — AiVisualDesigner takes IAiCompletionGateway
         services.AddScoped<IAiCompletionGateway, StubAiGatewayForDi>();
 
-        // Stub AI selector — AiVisualDesigner resolves the org's provider/model through it.
-        services.AddScoped<IDefaultAiSelector, StubAiSelectorForDi>();
+        // Stub workflow resolver — AiVisualDesigner resolves the org's AI route (generate-content) through it.
+        services.AddScoped<IWorkflowConfigurationResolver, StubWorkflowResolverForDi>();
 
         // Logging — required by HtmlChromiumContentRenderer (ILogger<HtmlChromiumContentRenderer>)
         services.AddLogging();
@@ -143,8 +145,13 @@ file sealed class StubAiGatewayForDi : IAiCompletionGateway
         throw new NotImplementedException("DI stub — not called in wiring test.");
 }
 
-file sealed class StubAiSelectorForDi : IDefaultAiSelector
+file sealed class StubWorkflowResolverForDi : IWorkflowConfigurationResolver
 {
-    public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success(new DefaultAiSelection("claude", "claude-sonnet-4-6")));
+    public Task<Result<IReadOnlyList<WorkflowStepRouteCandidate>>> ResolveStepAsync(
+        WorkflowStepResolutionRequest request, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Result.Success<IReadOnlyList<WorkflowStepRouteCandidate>>(
+        [
+            new WorkflowStepRouteCandidate(Guid.NewGuid(), "claude", Guid.NewGuid(),
+                IntegrationConnectionMode.BringYourOwnKey, 1, "claude-sonnet-4-6", null, true)
+        ]));
 }

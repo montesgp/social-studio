@@ -1,6 +1,7 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Features.Social.SingleAnalyzer.Analyze;
 using Incoders.Hive.Domain.Common;
@@ -324,8 +325,8 @@ public sealed class AnalyzeSingleContentHandlerTests
                 Clock,
                 ContentResolver,
                 AiGateway,
-                new NullDefaultAiSelector(),
-                new NullProfileProvider());
+                new NullProfileProvider(),
+                workflowResolver: new StubWorkflowResolver());
             Handler = new AnalyzeSingleContentHandler(Analyzer, Queue);
         }
 
@@ -516,14 +517,24 @@ public sealed class AnalyzeSingleContentHandlerTests
     }
 
     /// <summary>
-    /// AI selector stub used in existing handler tests. Returns a default selection so the
-    /// analyzer reaches the AI gateway (the behavior being tested). Dedicated default-AI
-    /// selection tests live in AnalyzeSingleContentDefaultAiTests.
+    /// Workflow resolver stub used in existing handler tests. Returns one AI route so the
+    /// analyzer reaches the AI gateway (the behavior being tested). Dedicated AI-routing
+    /// tests live in AnalyzeSingleContentDefaultAiTests.
     /// </summary>
-    private sealed class NullDefaultAiSelector : IDefaultAiSelector
+    private sealed class StubWorkflowResolver : IWorkflowConfigurationResolver
     {
-        public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
-            Task.FromResult(Result.Success(new DefaultAiSelection("openai", "gpt-test")));
+        // Returns one AI route ONLY for the analyze step; the scrape step is left unconfigured so the
+        // analyzer keeps the request's PreferredExtractionProviderKey (these tests assert on it).
+        public Task<Result<IReadOnlyList<WorkflowStepRouteCandidate>>> ResolveStepAsync(
+            WorkflowStepResolutionRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result.Success<IReadOnlyList<WorkflowStepRouteCandidate>>(
+                request.StepKey == "analyze-content"
+                    ?
+                    [
+                        new WorkflowStepRouteCandidate(Guid.NewGuid(), "openai", Guid.NewGuid(),
+                            IntegrationConnectionMode.BringYourOwnKey, 1, "gpt-test", null, true)
+                    ]
+                    : []));
     }
 
     /// <summary>

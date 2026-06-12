@@ -59,7 +59,6 @@ public sealed class IntegrationResolver : IIntegrationResolver
                 IntegrationConnectionMode.SystemDefault,
                 IntegrationStatus.Connected,
                 true,
-                false,
                 null,
                 new Dictionary<string, string>()));
         }

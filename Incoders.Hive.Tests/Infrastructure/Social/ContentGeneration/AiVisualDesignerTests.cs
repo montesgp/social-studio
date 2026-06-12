@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Incoders.Hive.Infrastructure.Social.ContentGeneration;
@@ -147,7 +149,7 @@ public sealed class AiVisualDesignerTests
     // -----------------------------------------------------------------------
 
     private static AiVisualDesigner BuildDesigner(IAiCompletionGateway gateway) =>
-        new AiVisualDesigner(gateway, new StubAiSelector());
+        new AiVisualDesigner(gateway, new StubWorkflowResolver());
 
     private static VisualCompositionSpec BuildSpec() =>
         new VisualCompositionSpec(
@@ -177,10 +179,15 @@ public sealed class AiVisualDesignerTests
 }
 
 /// <summary>Stub AI selector — mirrors the org's configured AI (provider + model) for the designer.</summary>
-file sealed class StubAiSelector : IDefaultAiSelector
+file sealed class StubWorkflowResolver : IWorkflowConfigurationResolver
 {
-    public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success(new DefaultAiSelection("claude", "claude-sonnet-4-6")));
+    public Task<Result<IReadOnlyList<WorkflowStepRouteCandidate>>> ResolveStepAsync(
+        WorkflowStepResolutionRequest request, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Result.Success<IReadOnlyList<WorkflowStepRouteCandidate>>(
+        [
+            new WorkflowStepRouteCandidate(Guid.NewGuid(), "claude", Guid.NewGuid(),
+                IntegrationConnectionMode.BringYourOwnKey, 1, "claude-sonnet-4-6", null, true)
+        ]));
 }
 
 // -----------------------------------------------------------------------

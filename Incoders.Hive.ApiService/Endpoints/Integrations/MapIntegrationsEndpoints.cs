@@ -9,7 +9,6 @@ using Incoders.Hive.Application.Features.Integrations.GetAllProviders;
 using Incoders.Hive.Application.Features.Integrations.GetByProvider;
 using Incoders.Hive.Application.Features.Integrations.GetOverview;
 using Incoders.Hive.Application.Features.Integrations.Models;
-using Incoders.Hive.Application.Features.Integrations.SetDefaultAi;
 using Incoders.Hive.Application.Features.Integrations.TestConnection;
 using Incoders.Hive.Application.Features.Integrations.WorkflowConfigurations;
 using Incoders.Hive.Domain.Integrations;
@@ -82,13 +81,6 @@ public static class IntegrationsEndpointsExtensions
             .WithName("SyncOrganizationAiModels")
             .WithSummary("Synchronize AI models for the resolved organization/provider using configured credentials")
             .Produces<OrganizationAiModelsResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status404NotFound);
-
-        group.MapPut("/organization/default-ai", SetDefaultAiAsync)
-            .WithName("SetDefaultAiIntegration")
-            .WithSummary("Select default AI provider/model for the resolved organization")
-            .Produces<OrganizationIntegrationResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -241,24 +233,6 @@ public static class IntegrationsEndpointsExtensions
 
         var result = await sender.Send(
             new TestOrganizationIntegrationConnectionCommand(organizationId.Value, providerKey),
-            cancellationToken);
-
-        return result.Match(response => (IResult)TypedResults.Ok(response));
-    }
-
-    private static async Task<IResult> SetDefaultAiAsync(
-        [FromBody] SetDefaultAiIntegrationRequest body,
-        ISender sender,
-        ICurrentTenant currentTenant,
-        CancellationToken cancellationToken)
-    {
-        if (currentTenant.TenantId is not { } organizationId)
-        {
-            return IntegrationErrors.OrganizationRequired.ToProblem();
-        }
-
-        var result = await sender.Send(
-            new SetDefaultAiIntegrationCommand(organizationId.Value, body.ProviderKey, body.Model),
             cancellationToken);
 
         return result.Match(response => (IResult)TypedResults.Ok(response));
@@ -428,8 +402,6 @@ public sealed record ConfigureOrganizationIntegrationRequest(
     IReadOnlyList<IntegrationCredentialInput>? Credentials);
 
 public sealed record IntegrationCredentialInput(string Key, string? Value);
-
-public sealed record SetDefaultAiIntegrationRequest(string ProviderKey, string? Model);
 
 public sealed record UpsertWorkflowConfigurationsRequest(
     IReadOnlyList<WorkflowStepConfigurationInput>? Steps);

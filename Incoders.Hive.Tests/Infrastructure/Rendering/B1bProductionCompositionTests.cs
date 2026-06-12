@@ -1,6 +1,8 @@
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Application.Features.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Infrastructure.Rendering;
@@ -103,8 +105,8 @@ public sealed class B1bProductionCompositionTests
         // Provider gateway dependency of AiVisualDesigner (real one needs Infrastructure plumbing).
         services.AddScoped<IAiCompletionGateway, StubProductionAiGateway>();
 
-        // AI selector dependency of AiVisualDesigner (resolves the org's provider/model).
-        services.AddScoped<IDefaultAiSelector, StubProductionAiSelector>();
+        // Workflow resolver dependency of AiVisualDesigner (resolves the org's AI route).
+        services.AddScoped<IWorkflowConfigurationResolver, StubProductionWorkflowResolver>();
 
         // Logging — required by HtmlChromiumContentRenderer (ILogger<HtmlChromiumContentRenderer>)
         services.AddLogging();
@@ -140,9 +142,14 @@ file sealed class StubProductionAiGateway : IAiCompletionGateway
         throw new NotImplementedException("Stub — not invoked in composition-root resolution tests.");
 }
 
-file sealed class StubProductionAiSelector : IDefaultAiSelector
+file sealed class StubProductionWorkflowResolver : IWorkflowConfigurationResolver
 {
-    public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success(new DefaultAiSelection("claude", "claude-sonnet-4-6")));
+    public Task<Result<IReadOnlyList<WorkflowStepRouteCandidate>>> ResolveStepAsync(
+        WorkflowStepResolutionRequest request, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Result.Success<IReadOnlyList<WorkflowStepRouteCandidate>>(
+        [
+            new WorkflowStepRouteCandidate(Guid.NewGuid(), "claude", Guid.NewGuid(),
+                IntegrationConnectionMode.BringYourOwnKey, 1, "claude-sonnet-4-6", null, true)
+        ]));
 }
 

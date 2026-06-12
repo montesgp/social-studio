@@ -50,6 +50,7 @@ public sealed class ExternalProviderClientFactory : IExternalProviderClientFacto
             return normalized switch
             {
                 "claude" or "anthropic" => typeof(ClaudeModelCatalogClient),
+                "openai" => typeof(OpenAiModelCatalogClient),
                 _ => null,
             };
         }

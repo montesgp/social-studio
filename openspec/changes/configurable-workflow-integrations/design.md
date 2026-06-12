@@ -5,10 +5,10 @@
 | Existing component | Current role | Reuse decision |
 |---|---|---|
 | `platform.integration_providers` / `IntegrationProvider.AvailableModels` | Global provider catalog with static model list | Keep as seed/fallback. Do not use as the primary selector source after sync. |
-| `platform.organization_integrations` | Organization-scoped provider state, selected default AI model | Keep. New model rows reference the org integration. |
+| `platform.organization_integrations` | Organization-scoped provider state | Keep. The `is_default_ai` column is **dropped** (migration `RemoveOrganizationIntegrationDefaultAi`); the "default AI" is now the workflow priority-1 route. |
 | `platform.organization_integration_credentials` | Encrypted org credentials | Reuse for sync and runtime resolution. |
 | `IIntegrationResolver` | Resolves connected provider credentials by organization | Extend/compose with workflow resolver; keep credential isolation here. |
-| `IDefaultAiSelector` | Current default AI selection rule | Keep as fallback when no workflow-step AI route exists. |
+| `IDefaultAiSelector` | Former default-AI selection rule | **Removed entirely** (front + back, incl. `SetDefaultAi`/`GetSocialDefaultAiProvider` endpoints). AI selection comes solely from the priority-ordered workflow config; priority-1 IS the default. No Default-AI fallback. |
 | `IIntegrationExecutionPolicy` + `IntegrationRouteCandidate` | Existing retry/fallback execution primitive | Reuse for priority/fallback execution where possible. |
 | `ApifySocialContentExtractor` | Single-video Apify extraction using `actor_mappings_json` | Refactor to accept explicit actor candidate(s) from workflow config; keep legacy mapping fallback. |
 | `ApifyProfileScrapeResolver` | Profile scraping with primary + backups from `actor_mappings_json` | Refactor to use workflow actor candidates first; keep legacy profile mapping fallback. |
@@ -93,9 +93,9 @@ Provider-specific model clients live in Infrastructure:
    - network: normalized platform key.
 3. If no config exists, fall back to current profile defaults (`apify` + legacy `actor_mappings_json`).
 4. Execute primary candidate; on failure, log fallback decision and try next priority.
-5. Resolve AI analysis step:
-   - configured provider/model first,
-   - `IDefaultAiSelector` fallback second.
+5. Resolve AI analysis step SOLELY from the priority-ordered workflow config (`analyze-content`/`ai-analysis`):
+   - try priority-1 (the default); on failure log `WorkflowFallbackSelected` and try the next route (a backup may switch provider entirely or keep the same provider with a different model);
+   - if no route is configured, fail with `integrations.ai_route_not_configured` (no Default-AI fallback).
 
 ### Single Analyzer profile
 
@@ -106,7 +106,7 @@ Provider-specific model clients live in Infrastructure:
    - network: `instagram`.
 2. Use configured Apify actor priority order first.
 3. Fallback to existing `variantKey="profile"` `actor_mappings_json` only when no explicit workflow config exists.
-4. Resolve AI analysis step with configured provider/model first, current default-AI fallback second.
+4. Resolve AI analysis step SOLELY from the workflow config (`analyze-profile`/`ai-analysis`), priority-ordered with backup iteration; no Default-AI fallback. No route → `integrations.ai_route_not_configured`.
 
 ### Content generation and delivery
 
@@ -116,7 +116,7 @@ First slice prepares routes for:
 - `render-package` internal step (no external provider required).
 - `send-to-canva` design connector step.
 
-Single Analyzer generation uses the configured AI route when present and falls back to `IDefaultAiSelector`.
+Single Analyzer generation uses the workflow `generate-content`/`ai-generation` route (priority-1; the resolver returns only Connected integrations, so a disconnected primary auto-yields the backup). It is a SINGLE stage — all formats share the same resolved agent (no per-format differentiation). No route → `integrations.ai_route_not_configured`.
 
 ## Backend API
 

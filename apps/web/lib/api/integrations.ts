@@ -27,11 +27,6 @@ export interface ConfigureIntegrationPayload {
   credentials?: IntegrationCredentialInput[];
 }
 
-export interface SetDefaultAiPayload {
-  providerKey: string;
-  model?: string;
-}
-
 export async function listIntegrationProviders(token?: string) {
   return apiRequest<IntegrationProvider[]>("/api/integrations/providers", undefined, token);
 }
@@ -134,22 +129,6 @@ export async function syncOrganizationAiModels(organizationId: string, providerK
     {
       method: "POST",
       headers: organizationHeaders(organizationId)
-    },
-    token
-  );
-}
-
-export async function setDefaultAiIntegration(
-  organizationId: string,
-  payload: SetDefaultAiPayload,
-  token?: string
-) {
-  return apiRequest<OrganizationIntegration>(
-    "/api/integrations/organization/default-ai",
-    {
-      method: "PUT",
-      headers: organizationHeaders(organizationId),
-      body: JSON.stringify(payload)
     },
     token
   );

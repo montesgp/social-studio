@@ -28,7 +28,6 @@ import {
   GripVertical,
   KeyRound,
   Link2,
-  Loader2,
   Music2,
   Plus,
   RefreshCcw,
@@ -51,7 +50,6 @@ import {
   listIntegrationProviders,
   listOrganizationIntegrations,
   listWorkflowConfigurations,
-  setDefaultAiIntegration,
   syncOrganizationAiModels,
   testOrganizationIntegration,
   upsertWorkflowConfigurations
@@ -85,6 +83,7 @@ import { useToast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
+import { show as showBlockingLoader, hide as hideBlockingLoader } from "@/lib/loading/blocking-loader-store";
 
 const categoryLabels: Record<string, string> = {
   AiModel: "AI model providers",
@@ -442,6 +441,7 @@ interface IntegrationsSettingsClientProps {
  * add a provider key here (and its authorize helper) when another OAuth connector is introduced.
  */
 const OAUTH_CONNECT_PROVIDERS = new Set<string>(["canva"]);
+const SETTINGS_INTEGRATIONS_BLOCKING_LOADER_ID = "settings-integrations.initial-resources";
 
 export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSettingsClientProps) {
   const token = useAccessToken();
@@ -450,6 +450,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const overviewRequestIdRef = useRef(0);
   const workflowRequestIdRef = useRef(0);
   const workflowActorRequestIdRef = useRef(0);
+  const loadedOverviewRef = useRef<string | null>(null);
+  const loadedWorkflowRef = useRef<{ organizationId: string; workflowKey: string } | null>(null);
 
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [providers, setProviders] = useState<IntegrationProvider[]>([]);
@@ -457,12 +459,12 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const [overview, setOverview] = useState<OrganizationIntegrationsOverview | null>(null);
   const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  // Value intentionally unbound: handlers still flip this to gate concurrent ops, but no UI reads it
+  // directly (the former Default-AI save button that did was removed).
+  const [, setRefreshing] = useState(false);
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [defaultAiProviderKey, setDefaultAiProviderKey] = useState<string>("");
-  const [defaultAiModel, setDefaultAiModel] = useState<string>("");
   const [workflowCatalog, setWorkflowCatalog] = useState<WorkflowConfigurationCatalog | null>(null);
   const [workflowApifyActors, setWorkflowApifyActors] = useState<ApifyActorMappingDraft[]>([]);
   const [modal, setModal] = useState<ModalState | null>(null);
@@ -471,6 +473,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const [selectedWorkflowKey, setSelectedWorkflowKey] = useState<string>("single-analyzer");
   const [workflowRows, setWorkflowRows] = useState<WorkflowStepDraft[]>([]);
   const [workflowLoading, setWorkflowLoading] = useState(false);
+  const [workflowActorsLoading, setWorkflowActorsLoading] = useState(false);
   const [workflowSaving, setWorkflowSaving] = useState(false);
   // Active network tab per step group (key = workflowStepGroupKey). Pure view state — switching a tab
   // never mutates routes; it only changes which network's execution routes are visible.
@@ -488,12 +491,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     }
 
     return Array.from(map.entries());
-  }, [overview?.integrations]);
-
-  const connectedAiIntegrations = useMemo(() => {
-    return (overview?.integrations ?? []).filter(
-      (integration) => integration.category === "AiModel" && integration.status === "Connected"
-    );
   }, [overview?.integrations]);
 
   const connectedWorkflowIntegrations = useMemo(() => {
@@ -536,6 +533,21 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  const isBlockingInitialPageResources = loading || workflowLoading || workflowActorsLoading;
+
+  useEffect(() => {
+    if (!isBlockingInitialPageResources) {
+      hideBlockingLoader(SETTINGS_INTEGRATIONS_BLOCKING_LOADER_ID);
+      return;
+    }
+
+    return showBlockingLoader(SETTINGS_INTEGRATIONS_BLOCKING_LOADER_ID, {
+      title: "Loading tool",
+      description: "Fetching data required to render this view...",
+      mode: "spinner"
+    });
+  }, [isBlockingInitialPageResources]);
+
   useEffect(() => {
     if (!orgInitialized) return;
     if (!token) {
@@ -552,13 +564,17 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   }, [token, orgInitialized]);
 
   useEffect(() => {
-    if (!token || !selectedOrganizationId) {
+    if (loading || !token || !selectedOrganizationId) {
+      return;
+    }
+
+    if (loadedOverviewRef.current === selectedOrganizationId) {
       return;
     }
 
     void loadOverview(selectedOrganizationId, token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedOrganizationId]);
+  }, [loading, selectedOrganizationId]);
 
   useEffect(() => {
     if (isPlatformAdmin || !orgInitialized) {
@@ -573,6 +589,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   }, [activeOrgId, isPlatformAdmin, orgInitialized, selectedOrganizationId]);
 
   useEffect(() => {
+    if (loading) {
+      return;
+    }
+
     if (!isPlatformAdmin || !token || !selectedOrganizationId || !selectedWorkflowKey) {
       setWorkflowRows([]);
       setWorkflowCatalog(null);
@@ -580,9 +600,17 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       return;
     }
 
+    const loadedWorkflow = loadedWorkflowRef.current;
+    if (
+      loadedWorkflow?.organizationId === selectedOrganizationId &&
+      loadedWorkflow.workflowKey === selectedWorkflowKey
+    ) {
+      return;
+    }
+
     void loadWorkflowConfiguration(selectedOrganizationId, selectedWorkflowKey, token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlatformAdmin, selectedOrganizationId, selectedWorkflowKey, token]);
+  }, [isPlatformAdmin, loading, selectedOrganizationId, selectedWorkflowKey, token]);
 
   useEffect(() => {
     if (!workflowDefinitions.length) {
@@ -598,10 +626,12 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     if (!isPlatformAdmin || !token || !selectedOrganizationId || !hasConnectedWorkflowApify) {
       workflowActorRequestIdRef.current += 1;
       setWorkflowApifyActors([]);
+      setWorkflowActorsLoading(false);
       return;
     }
 
     const requestId = ++workflowActorRequestIdRef.current;
+    setWorkflowActorsLoading(true);
 
     void getOrganizationIntegration(selectedOrganizationId, "apify", token)
       .then((integration) => {
@@ -622,6 +652,11 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
         setWorkflowApifyActors([]);
         setError(message);
         toast.error("Could not load Apify actor routing", message);
+      })
+      .finally(() => {
+        if (requestId === workflowActorRequestIdRef.current) {
+          setWorkflowActorsLoading(false);
+        }
       });
   }, [hasConnectedWorkflowApify, isPlatformAdmin, selectedOrganizationId, toast, token]);
 
@@ -644,8 +679,11 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
         if (nextOrganizationId) {
           await loadOverview(nextOrganizationId, accessToken, false);
+          await loadWorkflowConfiguration(nextOrganizationId, selectedWorkflowKey, accessToken, false);
         } else {
           setOverview(null);
+          setWorkflowCatalog(null);
+          setWorkflowRows([]);
         }
       } else {
         const providerCatalog = await listIntegrationProviders(accessToken);
@@ -692,8 +730,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
       setOverview(data);
       setSocialNetworks(activeNetworks);
-      setDefaultAiProviderKey(data.defaultAiProviderKey ?? "");
-      setDefaultAiModel(data.defaultAiModel ?? "");
     } catch (err) {
       if (requestId !== overviewRequestIdRef.current) {
         return;
@@ -701,6 +737,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
       setError((err as ApiError).message);
     } finally {
+      if (requestId === overviewRequestIdRef.current) {
+        loadedOverviewRef.current = organizationId;
+      }
+
       if (useRefreshState && requestId === overviewRequestIdRef.current) {
         setRefreshing(false);
       }
@@ -711,14 +751,15 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     overviewRequestIdRef.current += 1;
     workflowRequestIdRef.current += 1;
     workflowActorRequestIdRef.current += 1;
+    loadedOverviewRef.current = null;
+    loadedWorkflowRef.current = null;
     setSelectedOrganizationId(organizationId);
     setOverview(null);
-    setDefaultAiProviderKey("");
-    setDefaultAiModel("");
     setWorkflowCatalog(null);
     setModal(null);
     setWorkflowRows([]);
     setWorkflowApifyActors([]);
+    setWorkflowActorsLoading(false);
     setError(null);
     setRefreshing(false);
   }
@@ -897,9 +938,16 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     return normalizeWorkflowRow(seed);
   }
 
-  async function loadWorkflowConfiguration(organizationId: string, workflowKey: string, accessToken: string) {
+  async function loadWorkflowConfiguration(
+    organizationId: string,
+    workflowKey: string,
+    accessToken: string,
+    useLoadingState = true
+  ) {
     const requestId = ++workflowRequestIdRef.current;
-    setWorkflowLoading(true);
+    if (useLoadingState) {
+      setWorkflowLoading(true);
+    }
     setError(null);
 
     try {
@@ -933,7 +981,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       toast.error("Could not load workflow configuration", message);
     } finally {
       if (requestId === workflowRequestIdRef.current) {
-        setWorkflowLoading(false);
+        loadedWorkflowRef.current = { organizationId, workflowKey };
+        if (useLoadingState) {
+          setWorkflowLoading(false);
+        }
       }
     }
   }
@@ -1483,42 +1534,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     }
   }
 
-  async function saveDefaultAi(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedOrganizationId || !token || !defaultAiProviderKey) {
-      return;
-    }
-
-    setRefreshing(true);
-    setError(null);
-
-    try {
-      await setDefaultAiIntegration(
-        selectedOrganizationId,
-        {
-          providerKey: defaultAiProviderKey,
-          model: defaultAiModel || undefined
-        },
-        token
-      );
-
-      toast.success("Default AI updated", "Organization default AI provider/model saved.");
-      await loadOverview(selectedOrganizationId, token, false);
-    } catch (err) {
-      const message = (err as ApiError).message;
-      setError(message);
-      toast.error("Could not set default AI", message);
-    } finally {
-      setRefreshing(false);
-    }
-  }
-
   if (loading) {
-    return (
-      <div className="flex min-h-[16rem] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -1541,7 +1558,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
           <div className="flex flex-wrap items-end gap-3">
             {isPlatformAdmin && organizations.length > 0 && (
               <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                <span className="text-sm font-medium">
                   Organization
                 </span>
                 <Select
@@ -1607,41 +1624,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
             ))}
           </section>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Bot className="h-4 w-4 text-primary" /> Default AI provider / model
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="grid gap-3 lg:grid-cols-[1fr_1fr_auto]" onSubmit={saveDefaultAi}>
-                <Select
-                  value={defaultAiProviderKey}
-                  onChange={(event) => setDefaultAiProviderKey(event.target.value)}
-                  required
-                >
-                  <option value="" disabled>
-                    Select connected AI provider
-                  </option>
-                  {connectedAiIntegrations.map((integration) => (
-                    <option key={integration.providerKey} value={integration.providerKey}>
-                      {integration.providerDisplayName}
-                    </option>
-                  ))}
-                </Select>
-                <ModelSelect
-                  models={modelsForProvider(defaultAiProviderKey)}
-                  value={defaultAiModel}
-                  onChange={(v) => setDefaultAiModel(v)}
-                  placeholder="Optional model (e.g. gpt-4.1-mini)"
-                />
-                <Button type="submit" disabled={!defaultAiProviderKey || refreshing}>
-                  Save default
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-
           {isPlatformAdmin ? (
             <Card>
               <CardHeader className="space-y-3">
@@ -1658,10 +1640,11 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
               <CardContent className="space-y-6">
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,240px)_minmax(0,240px)_1fr]">
                   <div className="space-y-2">
-                    <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                    <span className="text-sm font-medium">
                       Workflow
                     </span>
                     <Select
+                      className="w-full"
                       value={selectedWorkflowDefinition?.key ?? selectedWorkflowKey}
                       onChange={(event) => setSelectedWorkflowKey(event.target.value)}
                       disabled={workflowDefinitions.length === 0 || workflowLoading}
@@ -1678,7 +1661,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                   </div>
 
                   <div className="space-y-2">
-                    <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                    <span className="text-sm font-medium">
                       Organization
                     </span>
                     <div className="flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm">
@@ -1754,11 +1737,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                   </div>
                 </div>
 
-                {workflowLoading ? (
-                  <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Loading workflow routing...
-                  </div>
-                ) : !selectedWorkflowDefinition ? (
+                {!selectedWorkflowDefinition ? (
                   <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
                     No workflow catalog is available yet for this environment.
                   </div>
@@ -1855,10 +1834,11 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
                           <div className="mt-5 grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
-                              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                              <span className="text-sm font-medium">
                                 Analysis type
                               </span>
                               <Select
+                                className="w-full"
                                 value={group.analysisType}
                                 onChange={(event) => patchWorkflowStepGroup(group.key, { analysisType: event.target.value })}
                               >
@@ -1874,10 +1854,11 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                             </div>
 
                             <div className="space-y-2">
-                              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                              <span className="text-sm font-medium">
                                 Stage
                               </span>
                               <Select
+                                className="w-full"
                                 value={group.stepKey}
                                 onChange={(event) => patchWorkflowStepGroup(group.key, { stepKey: event.target.value })}
                               >
@@ -1895,7 +1876,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
                           {requiresNetwork ? (
                             <div className="mt-5 space-y-2">
-                              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                              <span className="text-sm font-medium">
                                 Network
                               </span>
                               {networkTabs.length === 0 ? (
@@ -2004,10 +1985,11 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                                           onRemove={() => removeWorkflowRow(route.id)}
                                         >
                                           <div className="space-y-2">
-                                            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                                            <span className="text-sm font-medium">
                                               Provider / connector
                                             </span>
                                             <Select
+                                              className="w-full"
                                               value={route.providerKey}
                                               onChange={(event) => patchWorkflowRow(route.id, { providerKey: event.target.value })}
                                             >
@@ -2024,10 +2006,11 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
                                           {step?.supportsModelSelection ? (
                                             <div className="space-y-2">
-                                              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                                              <span className="text-sm font-medium">
                                                 Model
                                               </span>
                                               <Select
+                                                className="w-full"
                                                 value={route.modelId}
                                                 onChange={(event) => patchWorkflowRow(route.id, { modelId: event.target.value })}
                                                 disabled={modelOptions.length === 0}
@@ -2051,12 +2034,13 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
                                           {step?.supportsActorSelection ? (
                                             <div className="space-y-2 lg:col-span-2">
-                                              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                                              <span className="text-sm font-medium">
                                                 Actor / connector route
                                               </span>
                                               {route.providerKey === "apify" ? (
                                                 <>
                                                   <Select
+                                                    className="w-full"
                                                     value={route.actorId}
                                                     onChange={(event) => patchWorkflowRow(route.id, { actorId: event.target.value })}
                                                     disabled={!activeNetwork || actorOptions.length === 0}
@@ -2137,11 +2121,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                           <p>
                             Selected model: <span className="text-foreground">{integration.selectedAiModel}</span>
                           </p>
-                        ) : null}
-                        {integration.isDefaultAi ? (
-                          <Badge variant="success" className="w-fit">
-                            <Bot className="mr-1 h-3 w-3" /> Default AI provider
-                          </Badge>
                         ) : null}
                         {integration.lastError ? (
                           <p className="text-destructive/80 text-sm">Last error: {integration.lastError}</p>

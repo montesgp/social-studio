@@ -99,6 +99,12 @@ const ERROR_COPY: Record<string, UserFacingError> = {
       "No AI provider is connected for your organization. An admin needs to connect one (e.g. Claude) in Settings → Integrations.",
     isConfigIssue: true,
   },
+  "integrations.ai_route_not_configured": {
+    title: "AI isn't set up for this workflow yet",
+    message:
+      "This analysis can't run because no AI provider is configured for your organization's workflow yet. An admin needs to set up the AI routing in Settings → Integrations. If you're not sure how, contact support and we'll help you get it configured.",
+    isConfigIssue: true,
+  },
   // ── Content generation (flyer/carousel) failures ────────────────────────────
   // These are usually NOT fixed by retrying as-is (a blind retry just re-spends AI
   // credits), so the copy points the user to support instead of nudging "try again".

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
 using Incoders.Hive.Domain.Common;
@@ -85,7 +86,7 @@ public sealed class ProfileAnalyzerOrchestratorTests
     {
         var orgId = Guid.NewGuid();
         var harness = new OrchestratorHarness(Now);
-        harness.DefaultAiSelector.SetFailure(IntegrationErrors.DefaultAiProviderNotConnected);
+        harness.WorkflowResolver.SetNoRoute();
         var analysis = CreateFromUrl(orgId);
         harness.Repository.Store(analysis);
         harness.ScrapeResolver.SetSuccess(MakeScrapeResult(isPartial: false));
@@ -94,7 +95,7 @@ public sealed class ProfileAnalyzerOrchestratorTests
 
         var stored = harness.Repository.Stored!;
         Assert.Equal(ProfileAnalysisStatus.Failed, stored.Status);
-        Assert.Equal(IntegrationErrors.DefaultAiProviderNotConnected.Code, stored.FailureCode);
+        Assert.Equal(IntegrationErrors.AiRouteNotConfigured.Code, stored.FailureCode);
     }
 
     // ── PA-10: Correct flow key used — "profile-analyzer", not "single-analyzer" ─
@@ -425,7 +426,7 @@ public sealed class ProfileAnalyzerOrchestratorTests
             Repository = new FakeProfileAnalysisRepository();
             UnitOfWork = new TestUnitOfWork();
             ScrapeResolver = new FakeScrapeResolver();
-            DefaultAiSelector = new FakeDefaultAiSelector();
+            WorkflowResolver = new FakeWorkflowResolver();
             AiGateway = new FakeAiGateway();
             Calculator = new ProfileMetricCalculator();
 
@@ -436,14 +437,14 @@ public sealed class ProfileAnalyzerOrchestratorTests
                 ScrapeResolver,
                 Calculator,
                 AiGateway,
-                DefaultAiSelector);
+                workflowResolver: WorkflowResolver);
         }
 
         public TestClock Clock { get; }
         public FakeProfileAnalysisRepository Repository { get; }
         public TestUnitOfWork UnitOfWork { get; }
         public FakeScrapeResolver ScrapeResolver { get; }
-        public FakeDefaultAiSelector DefaultAiSelector { get; }
+        public FakeWorkflowResolver WorkflowResolver { get; }
         public FakeAiGateway AiGateway { get; }
         public ProfileMetricCalculator Calculator { get; }
         public ProfileAnalyzerOrchestrator Orchestrator { get; }
@@ -503,15 +504,21 @@ public sealed class ProfileAnalyzerOrchestratorTests
         }
     }
 
-    private sealed class FakeDefaultAiSelector : IDefaultAiSelector
+    private sealed class FakeWorkflowResolver : IWorkflowConfigurationResolver
     {
-        private Result<DefaultAiSelection> _result =
-            Result.Success(new DefaultAiSelection("openai", "gpt-test"));
+        private Result<IReadOnlyList<WorkflowStepRouteCandidate>> _result =
+            Result.Success<IReadOnlyList<WorkflowStepRouteCandidate>>(
+            [
+                new WorkflowStepRouteCandidate(Guid.NewGuid(), "openai", Guid.NewGuid(),
+                    IntegrationConnectionMode.BringYourOwnKey, 1, "gpt-test", null, true)
+            ]);
 
-        public void SetFailure(Error error) =>
-            _result = Result.Failure<DefaultAiSelection>(error);
+        // Simulate "no AI route configured" → orchestrator must fail with AiRouteNotConfigured.
+        public void SetNoRoute() =>
+            _result = Result.Success<IReadOnlyList<WorkflowStepRouteCandidate>>([]);
 
-        public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
+        public Task<Result<IReadOnlyList<WorkflowStepRouteCandidate>>> ResolveStepAsync(
+            WorkflowStepResolutionRequest request, CancellationToken cancellationToken = default) =>
             Task.FromResult(_result);
     }
 

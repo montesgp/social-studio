@@ -51,6 +51,7 @@ import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { useSocialNetworks } from "@/hooks/use-social-networks";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { useToast } from "@/components/ui/toaster";
+import { show as showBlockingLoader, hide as hideBlockingLoader } from "@/lib/loading/blocking-loader-store";
 import {
   getMockVideoBySearch,
   analyzeMockVideo,
@@ -720,6 +721,8 @@ interface SingleAnalyzerClientProps {
   isPlatformAdmin: boolean;
 }
 
+const SINGLE_ANALYZER_BLOCKING_LOADER_ID = "single-analyzer.initial-resources";
+
 type MutationMode = "script" | "carousel" | "flyer";
 
 type PendingRegenerationRequest =
@@ -754,14 +757,18 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const router = useRouter();
   const toast = useToast();
   const contentExportRef = useRef<HTMLDivElement>(null);
-  const { orgId: activeOrgId } = useActiveOrg();
+  const clientsRequestIdRef = useRef(0);
+  const historyRequestIdRef = useRef(0);
+  const { orgId: activeOrgId, isInitialized: activeOrgInitialized } = useActiveOrg();
   const token = useAccessToken();
   const effectiveToken = token ?? undefined;
   const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [organizationsInitialized, setOrganizationsInitialized] = useState(false);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [clients, setClients] = useState<SocialClient[]>([]);
   const [selectedClientId, setSelectedClientId] = useState("");
   const [clientsLoading, setClientsLoading] = useState(false);
+  const [clientsLoadedOrganizationId, setClientsLoadedOrganizationId] = useState<string | null>(null);
   const { networks: socialNetworks, loading: networksLoading } = useSocialNetworks(effectiveToken);
   const [inputMode, setInputMode] = useState<"url" | "search">("url");
   const [urlInput, setUrlInput] = useState("");
@@ -781,6 +788,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [mutationMode, setMutationMode] = useState<MutationMode>("script");
   const [historyItems, setHistoryItems] = useState<SingleContentAnalysisHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [deletingHistoryId, setDeletingHistoryId] = useState<string | null>(null);
   const [pendingDeleteHistoryItem, setPendingDeleteHistoryItem] =
     useState<SingleContentAnalysisHistoryItem | null>(null);
@@ -902,10 +910,33 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     isSavedAnalysisView &&
     regenerationObjectionTarget !== null &&
     regenerationObjection.trim().length > 0;
+  const hasResolvedToken = token.length > 0;
+  const organizationSelectionReady = isPlatformAdmin
+    ? organizationsInitialized && (organizations.length === 0 || selectedOrganizationId.length > 0)
+    : activeOrgInitialized && (activeOrgId === null || selectedOrganizationId === activeOrgId);
+  const clientsReady =
+    selectedOrganizationId.length === 0 || clientsLoadedOrganizationId === selectedOrganizationId;
   const initialToolLoading =
+    !hasResolvedToken ||
+    !organizationSelectionReady ||
     networksLoading ||
+    !historyLoaded ||
     historyLoading ||
-    (selectedOrganizationId.length > 0 && clientsLoading && clients.length === 0);
+    clientsLoading ||
+    !clientsReady;
+
+  useEffect(() => {
+    if (!initialToolLoading) {
+      hideBlockingLoader(SINGLE_ANALYZER_BLOCKING_LOADER_ID);
+      return;
+    }
+
+    return showBlockingLoader(SINGLE_ANALYZER_BLOCKING_LOADER_ID, {
+      title: "Loading tool",
+      description: "Loading organizations, clients, networks and saved analyses...",
+      mode: "progress",
+    });
+  }, [initialToolLoading]);
 
   const currentPackageJobMatchesSelectedClient =
     selectedClientId.length > 0 && packageJobClientId === selectedClientId;
@@ -1278,28 +1309,42 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   const loadClients = useCallback(async () => {
     if (!selectedOrganizationId) {
+      clientsRequestIdRef.current += 1;
       setClients([]);
       setSelectedClientId("");
+      setClientsLoadedOrganizationId(null);
       return;
     }
 
+    const requestId = ++clientsRequestIdRef.current;
     setClientsLoading(true);
+    setClientsLoadedOrganizationId(null);
     try {
       const result = effectiveToken
         ? (await listWorkflowClients(selectedOrganizationId, effectiveToken)).items
         : getMockClients(selectedOrganizationId);
+      if (requestId !== clientsRequestIdRef.current) {
+        return;
+      }
       const activeClients = result.filter((client) => client.isActive);
       setClients(activeClients);
       setSelectedClientId((current) =>
         current && activeClients.some((client) => client.id === current) ? current : ""
       );
     } catch {
+      if (requestId !== clientsRequestIdRef.current) {
+        return;
+      }
       const activeClients = getMockClients(selectedOrganizationId).filter((client) => client.isActive);
       setClients(activeClients);
       setSelectedClientId((current) =>
         current && activeClients.some((client) => client.id === current) ? current : ""
       );
     } finally {
+      if (requestId !== clientsRequestIdRef.current) {
+        return;
+      }
+      setClientsLoadedOrganizationId(selectedOrganizationId);
       setClientsLoading(false);
     }
   }, [effectiveToken, selectedOrganizationId]);
@@ -1312,26 +1357,37 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     const orgs = getMockOrganizations();
     setOrganizations(orgs);
     if (orgs.length > 0) setSelectedOrganizationId(orgs[0].id);
+    setOrganizationsInitialized(true);
   }, []);
 
   const loadHistory = useCallback(async (opts?: { silent?: boolean }) => {
     if (!effectiveToken) {
+      historyRequestIdRef.current += 1;
       setHistoryLoading(false);
+      setHistoryLoaded(false);
       return;
     }
 
+    const requestId = opts?.silent ? historyRequestIdRef.current : ++historyRequestIdRef.current;
     if (!opts?.silent) {
       setHistoryLoading(true);
+      setHistoryLoaded(false);
     }
 
     try {
       const result = await listSingleContentAnalyses(1, 20, effectiveToken);
-      setHistoryItems(result.items);
+      if (opts?.silent || requestId === historyRequestIdRef.current) {
+        setHistoryItems(result.items);
+      }
     } catch {
       // Silent: keep the previous list rather than wipe the grid on a transient blip. A failure
       // banner here would be noisy for a peripheral panel that doesn't block the main flow.
     } finally {
       if (!opts?.silent) {
+        if (requestId !== historyRequestIdRef.current) {
+          return;
+        }
+        setHistoryLoaded(true);
         setHistoryLoading(false);
       }
     }
@@ -2285,6 +2341,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  if (initialToolLoading) {
+    return null;
+  }
+
   return (
     <div ref={contentExportRef} className="flex flex-col gap-6 p-6 max-w-screen-xl mx-auto">
       {/* Header */}
@@ -2333,15 +2393,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         />
       </div>
 
-      {/* Screen-blocking overlay shown while the backend analysis is in flight. */}
+      {/* Action-level blocker for reading a saved analysis after the tool itself is already bootstrapped. */}
       <BlockingLoader
-        visible={initialToolLoading || isHydratingHistory}
-        title={isHydratingHistory ? "Loading saved analysis" : "Preparing Single Analyzer"}
-        description={
-          isHydratingHistory
-            ? "Recovering snapshot and analysis from history..."
-            : "Loading organizations, clients, networks and saved analyses..."
-        }
+        visible={isHydratingHistory}
+        title="Loading saved analysis"
+        description="Recovering snapshot and analysis from history..."
         mode="progress"
       />
       <AnalysisOverlay

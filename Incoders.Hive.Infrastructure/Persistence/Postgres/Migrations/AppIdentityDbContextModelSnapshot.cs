@@ -1416,10 +1416,6 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
 
-                    b.Property<bool>("IsDefaultAi")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_default_ai");
-
                     b.Property<bool>("IsReadOnly")
                         .HasColumnType("boolean")
                         .HasColumnName("is_read_only");

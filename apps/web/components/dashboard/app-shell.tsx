@@ -19,6 +19,11 @@ import { Button } from "@/components/ui/button";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { BlockingLoader } from "@/components/ui/blocking-loader";
 import { subscribe as subscribeHttpLoading, getSnapshot as getHttpLoadingSnapshot } from "@/lib/loading/http-loading-store";
+import {
+  subscribe as subscribeBlockingLoader,
+  getSnapshot as getBlockingLoaderSnapshot,
+  getServerSnapshot as getBlockingLoaderServerSnapshot
+} from "@/lib/loading/blocking-loader-store";
 import { subscribe as subscribeSignOut, getSnapshot as getSignOutSnapshot } from "@/lib/auth/sign-out-store";
 
 function NavGroupSection({
@@ -155,6 +160,11 @@ export function AppShell({
   const routeLoadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modulesLoadedRef = useRef(false);
   const isHttpLoading = useSyncExternalStore(subscribeHttpLoading, getHttpLoadingSnapshot, () => false);
+  const blockingLoader = useSyncExternalStore(
+    subscribeBlockingLoader,
+    getBlockingLoaderSnapshot,
+    getBlockingLoaderServerSnapshot
+  );
   const isSigningOut = useSyncExternalStore(subscribeSignOut, getSignOutSnapshot, () => false);
   const isAdminArea = pathname.startsWith("/admin");
   const activeArea = isAdminArea ? "admin" : "workspace";
@@ -274,12 +284,14 @@ export function AppShell({
     <ThemeProvider initialThemeKey={initialThemeKey}>
       <ProgressBar />
       <BlockingLoader
-        visible={waitingForInitialShellData || routeLoading}
+        visible={waitingForInitialShellData || routeLoading || blockingLoader.isVisible}
         title={
           isSigningOut
             ? "Cerrando sesión…"
             : waitingForInitialShellData
             ? "Preparing workspace"
+            : blockingLoader.isVisible
+            ? blockingLoader.title
             : "Loading tool"
         }
         description={
@@ -287,9 +299,19 @@ export function AppShell({
             ? undefined
             : waitingForInitialShellData
             ? "Loading modules, permissions and menu context..."
+            : blockingLoader.isVisible
+            ? blockingLoader.description
             : "Fetching data required to render this view..."
         }
-        mode={isSigningOut ? "spinner" : waitingForInitialShellData ? "progress" : "spinner"}
+        mode={
+          isSigningOut
+            ? "spinner"
+            : waitingForInitialShellData
+            ? "progress"
+            : blockingLoader.isVisible
+            ? blockingLoader.mode
+            : "spinner"
+        }
       />
       <div className="min-h-screen bg-background">
         <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[220px_1fr]">

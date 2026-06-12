@@ -59,3 +59,16 @@
 - [x] Add test-connection no-regression tests.
 - [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj`.
 - [x] Run `pwsh -File scripts/gates/Run-Gates.ps1`.
+
+## 8. Per-network routing + AI fallback + Default-AI removal (follow-up)
+
+- [x] Frontend: per-network tabs inside each workflow step — each network keeps its own ordered execution routes; "Add backup route" applies only to the active network (replaces the mutating network selector).
+- [x] Frontend: align Workflow/Organization row and use labels-above consistently across the routing panel.
+- [x] Backend: AI step iterates the priority-ordered workflow routes (try primary, on failure log `WorkflowFallbackSelected` and try the next — backup may switch provider or keep the provider with a different model) in `SingleContentAnalyzer` (content) and `ProfileAnalyzerOrchestrator` (profile).
+- [x] Backend: add `WorkflowStart` / `WorkflowCompleted` / `WorkflowFailed` + `WorkflowProviderAttemptStart/Succeeded/Failed` bookend logs so the file-log reflects every connector/provider used.
+- [x] Backend: typed `integrations.ai_route_not_configured` error when no AI route is configured (no silent default).
+- [x] Backend: **remove the Default-AI subsystem** — `IDefaultAiSelector`/`DefaultAiSelector`, `SetDefaultAi` command/handler/validator + endpoint, `GetSocialDefaultAiProvider` query/handler + endpoint, `IIntegrationResolver.ResolveDefaultAiProviderAsync`, `OrganizationIntegration.IsDefaultAi`/`SetDefaultAi`/`ClearDefaultAi`, and the overview `DefaultAiProviderKey`/`DefaultAiModel`.
+- [x] Backend: EF migration `RemoveOrganizationIntegrationDefaultAi` drops the `is_default_ai` column.
+- [x] Backend: `AiVisualDesigner` resolves its agent from the workflow `generate-content` route (was `IDefaultAiSelector`).
+- [x] Frontend: remove the "Default AI provider / model" card + state + API + `isDefaultAi`/`defaultAiProviderKey`/`defaultAiModel` types; show a sanitized, non-technical "AI not configured" error with a contact-support option.
+- [x] Update affected tests (selectors → workflow-resolver stubs; delete tests of removed features) and run the full suite green.
