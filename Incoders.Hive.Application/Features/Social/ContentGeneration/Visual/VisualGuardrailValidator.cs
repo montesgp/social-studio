@@ -78,6 +78,16 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
         new(@"&(?:#x[0-9A-Fa-f]+|#[0-9]+|[A-Za-z][A-Za-z0-9]*);|&",
             RegexOptions.Compiled);
 
+    /// <summary>
+    /// Matches a leading HTML doctype declaration. The designer is contracted to emit only the
+    /// composition fragment, but weaker models sometimes wrap it in a full HTML document
+    /// (<c>&lt;!DOCTYPE html&gt;&lt;html&gt;&lt;head&gt;&lt;style&gt;…</c>). XML forbids a DTD as
+    /// element content, so we drop the doctype before the structural parse — Chromium renders the
+    /// document fine either way, and the doctype is meaningless for our single-composition check.
+    /// </summary>
+    private static readonly Regex DoctypeRegex =
+        new(@"<!DOCTYPE[^>]*>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private static readonly HashSet<string> AllowedColorKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
         "transparent", "none", "inherit", "currentcolor", "initial", "unset"
@@ -183,26 +193,16 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
 
         var root = doc.DocumentElement!;
 
-        // Must have exactly one direct child of root with class="composition"
-        var compositionNodes = root.ChildNodes
-            .Cast<XmlNode>()
-            .Where(n => n.NodeType == XmlNodeType.Element)
-            .ToList();
-
-        if (compositionNodes.Count != 1)
+        // Locate the composition. The designer SHOULD emit just the fragment, but weaker models
+        // sometimes wrap it in a full HTML document (<html><head><style>…</head><body>…). Chromium
+        // renders that fine, so instead of hard-rejecting we find the composition wherever it lives
+        // and validate THAT subtree; the wrapper tags (html/head/style/body/meta) are ignored.
+        var composition = FindComposition(root);
+        if (composition is null)
         {
             _logger.LogWarning(
-                "Visual guardrail schema: expected exactly one root element, found {Count} for format '{FormatKey}'.",
-                compositionNodes.Count, formatKey);
-            return Result.Failure(VisualGuardrailErrors.InvalidMarkup);
-        }
-
-        var composition = (XmlElement)compositionNodes[0];
-        if (!HasClass(composition, "composition"))
-        {
-            _logger.LogWarning(
-                "Visual guardrail schema: root element <{Tag}> missing class=\"composition\" for format '{FormatKey}'.",
-                composition.Name, formatKey);
+                "Visual guardrail schema: no element with class=\"composition\" found for format '{FormatKey}'.",
+                formatKey);
             return Result.Failure(VisualGuardrailErrors.InvalidMarkup);
         }
 
@@ -233,8 +233,13 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
     /// </summary>
     private static string PrepareForXmlParse(string markup)
     {
+        // 0) Drop an HTML doctype declaration. A full-document wrapper around the composition is a
+        // common drift for weaker models; XML rejects a DTD as element content, so the doctype must
+        // go before the parse. The original markup still flows to the renderer unchanged.
+        var withoutDoctype = DoctypeRegex.Replace(markup, string.Empty);
+
         // 1) Neutralize HTML entities XML doesn't know + escape bare ampersands.
-        var withEntities = EntityOrAmpRegex.Replace(markup, static m =>
+        var withEntities = EntityOrAmpRegex.Replace(withoutDoctype, static m =>
         {
             var token = m.Value;
             if (token == "&")
@@ -359,6 +364,35 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
         var cls = el.GetAttribute("class");
         return !string.IsNullOrWhiteSpace(cls)
             && cls.Split(' ').Contains(className, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Depth-first search for the first element carrying <c>class="composition"</c>. Tolerates the
+    /// composition being nested inside a full HTML document wrapper (html/body) rather than sitting
+    /// at the document root — Chromium renders both forms, so the guardrail must accept both.
+    /// </summary>
+    private static XmlElement? FindComposition(XmlNode node)
+    {
+        foreach (XmlNode child in node.ChildNodes)
+        {
+            if (child is not XmlElement el)
+            {
+                continue;
+            }
+
+            if (HasClass(el, "composition"))
+            {
+                return el;
+            }
+
+            var nested = FindComposition(el);
+            if (nested is not null)
+            {
+                return nested;
+            }
+        }
+
+        return null;
     }
 
     private static bool AllTagsAllowed(XmlNode node, out string? offendingTag)

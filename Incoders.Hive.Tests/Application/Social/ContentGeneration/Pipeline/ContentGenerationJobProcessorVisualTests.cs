@@ -28,14 +28,17 @@ public sealed class ContentGenerationJobProcessorVisualTests
     private static readonly Guid JobId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
 
     // -----------------------------------------------------------------------
-    // Task 5.1 [TEST — RED] VD-02/04: guardrail fail → renderer NOT called
+    // Resilience: guardrail rejection MUST NOT fail the format — fall back to a
+    // deterministic brand-bound composition so the flow completes for ANY model.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task Pipeline_GuardrailFail_RendererNotCalled()
+    public async Task Pipeline_GuardrailFail_FallsBackToDeterministicComposition()
     {
-        // GIVEN stub designer returns valid output; validator returns failure
-        var rendererSpy = new SpyRenderer();
+        // GIVEN a designer whose markup the guardrail rejects (e.g. a weak model's off-schema
+        // output). The pipeline MUST NOT fail the format — it falls back to a deterministic
+        // brand-bound composition so the flyer is still produced.
+        var rendererSpy = new CapturingGeometryRenderer();
         var guardrailsFailing = new FailingGuardrailValidator();
         var designer = new SucceedingDesigner();
 
@@ -49,8 +52,16 @@ public sealed class ContentGenerationJobProcessorVisualTests
         // WHEN processing runs
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
-        // THEN mock renderer NOT called; format marked failed
-        Assert.False(rendererSpy.WasCalled, "Renderer must NOT be called when guardrail fails.");
+        // THEN the renderer IS called with deterministic fallback markup (a valid composition),
+        // NOT the AI markup the guardrail rejected.
+        Assert.True(rendererSpy.WasCalled,
+            "Renderer MUST be called — the flyer falls back to a deterministic composition instead of failing.");
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("class=\"composition\"", rendererSpy.ReceivedMarkup);
+        Assert.Contains("linear-gradient", rendererSpy.ReceivedMarkup);
+        // The AI stub emits class="layer-background"; the deterministic fallback does not — this
+        // proves the rejected AI markup was discarded in favor of the fallback.
+        Assert.DoesNotContain("class=\"layer-background\"", rendererSpy.ReceivedMarkup);
     }
 
     // -----------------------------------------------------------------------
@@ -188,14 +199,15 @@ public sealed class ContentGenerationJobProcessorVisualTests
     }
 
     /// <summary>
-    /// Triangulation (regression guard): an ACTIVE designer returning a genuine failure MUST still
-    /// fail the format — the fix must not accidentally suppress real designer errors.
+    /// Resilience: an ACTIVE designer returning a genuine failure (provider error, non-compliant
+    /// model) MUST still produce the flyer via the deterministic brand-bound fallback. A model or
+    /// provider failure must not break content generation — the flow completes for any agent.
     /// </summary>
     [Fact]
-    public async Task Pipeline_ActiveDesigner_GenuineFailure_RendererNotCalled()
+    public async Task Pipeline_ActiveDesigner_GenuineFailure_FallsBackToDeterministicComposition()
     {
         // GIVEN an active designer that returns a genuine failure
-        var rendererSpy = new SpyRenderer();
+        var rendererSpy = new CapturingGeometryRenderer();
         var activeFailingDesigner = new ActiveFailingDesigner();
 
         var processor = BuildProcessor(
@@ -208,9 +220,37 @@ public sealed class ContentGenerationJobProcessorVisualTests
         // WHEN
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
-        // THEN renderer is NOT called — a real designer failure still fails the format
-        Assert.False(rendererSpy.WasCalled,
-            "Renderer must NOT be called when an active (IsActive=true) designer returns failure.");
+        // THEN renderer IS called with deterministic fallback markup — the failure did not break it
+        Assert.True(rendererSpy.WasCalled,
+            "Renderer MUST be called — a designer/provider failure falls back to a deterministic composition.");
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("class=\"composition\"", rendererSpy.ReceivedMarkup);
+        Assert.Contains("linear-gradient", rendererSpy.ReceivedMarkup);
+    }
+
+    /// <summary>
+    /// Happy path (Creative tier): when the designer succeeds AND the guardrail passes, the AI
+    /// design MUST be used as-is — the deterministic fallback only kicks in on failure.
+    /// </summary>
+    [Fact]
+    public async Task Pipeline_CreativeTier_DesignerAndGuardrailPass_UsesAiMarkup()
+    {
+        var rendererSpy = new CapturingGeometryRenderer();
+
+        var processor = BuildProcessor(
+            formatKey: "flyer",
+            payload: new object(),
+            renderer: rendererSpy,
+            designer: new SucceedingDesigner(),
+            guardrails: new PassingGuardrailValidator());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.True(rendererSpy.WasCalled);
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        // The SucceedingDesigner stub emits class="layer-background"; its presence proves the AI
+        // markup was used rather than the deterministic fallback.
+        Assert.Contains("class=\"layer-background\"", rendererSpy.ReceivedMarkup);
     }
 
     // -----------------------------------------------------------------------

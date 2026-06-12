@@ -304,6 +304,58 @@ public sealed class VisualGuardrailValidatorTests
     }
 
     [Fact]
+    public void FullHtmlDocument_WithComposition_Passes()
+    {
+        // GIVEN a weaker model wraps the composition in a FULL HTML document — <!DOCTYPE>, <html>,
+        // <head> and a class-based <style> block — exactly the production failure that hard-rejected
+        // the flyer even though Chromium renders this markup perfectly. The guardrail must validate
+        // the composition subtree and ignore the document wrapper.
+        var markup =
+            """
+            <!DOCTYPE html>
+            <html lang="es">
+            <head>
+            <meta charset="UTF-8" />
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              .composition { width: 1080px; height: 1920px; position: relative; }
+            </style>
+            </head>
+            <body>
+            <div class="composition" data-format="flyer" style="width:1080px;height:1920px;">
+              <div data-layer="background" style="background:#000000;"></div>
+              <div data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Hola</h1></div>
+            </div>
+            </body>
+            </html>
+            """;
+
+        var result = Validator.Validate(ValidOutput(markup), BuildBrand(), BuildSpec());
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.Code : "n/a")}");
+    }
+
+    [Fact]
+    public void FullHtmlDocument_WithoutComposition_StillRejected()
+    {
+        // GIVEN a full HTML document that does NOT contain a .composition element. Tolerating the
+        // wrapper must NOT let genuinely structureless markup through.
+        var markup =
+            """
+            <!DOCTYPE html>
+            <html>
+            <head><style>.x { color: red; }</style></head>
+            <body><div class="wrapper"><p>no composition here</p></div></body>
+            </html>
+            """;
+
+        var result = Validator.Validate(ValidOutput(markup), BuildBrand(), BuildSpec());
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("visual-guardrail.invalid-markup", result.Error.Code);
+    }
+
+    [Fact]
     public void DisallowedTag_StillRejected()
     {
         // GIVEN a structurally well-formed composition that contains a tag outside the allow-list.
