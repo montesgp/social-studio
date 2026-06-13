@@ -1,0 +1,93 @@
+change: content-studio
+status: proposed
+completed_at: null
+adr: docs/architecture/adr/0004-content-studio-review-model.md
+
+artifacts:
+  proposal: openspec/changes/content-studio/proposal.md
+  design: openspec/changes/content-studio/design.md
+  tasks: openspec/changes/content-studio/tasks.md
+  specs:
+    - openspec/changes/content-studio/specs/content-studio/spec.md
+    - openspec/changes/content-studio/specs/content-generation/spec-delta.md
+    - openspec/changes/content-studio/specs/content-plan/spec-delta.md
+    - openspec/changes/content-studio/specs/publishing/spec-delta.md
+
+scope:
+  phase: 1
+  name: "Foundation on Single Analyzer"
+  roadmap:
+    - phase: 2
+      name: "Visual/layout editing + variants + single-item regenerate"
+    - phase: 3
+      name: "Bulk operations (mass approve/reject/regenerate/validate)"
+    - phase: 4
+      name: "ContentPlan linkage + client presentations + PPTX/PDF export"
+    - phase: 5
+      name: "Magic Generator source + Campaign grouping (large-N, async bulk)"
+
+phases:
+  - id: 1
+    name: "Domain: Value Objects"
+    pr: 1
+    status: pending
+    refs: [CS-01, CS-02]
+
+  - id: 2
+    name: "Domain: ReviewState + ContentItem + ContentSet"
+    pr: 1
+    status: pending
+    refs: [CS-01, CS-03, CS-05, CS-06, CS-08, CS-09]
+
+  - id: 3
+    name: "Infrastructure: Persistence"
+    pr: 2
+    status: pending
+    refs: [CS-10, CS-11]
+
+  - id: 4
+    name: "Application: Ports, Materializer, Feature Slices"
+    pr: 2
+    status: pending
+    refs: [CS-04, CS-06, CS-07, CS-08]
+
+  - id: 5
+    name: "Handoff Contract"
+    pr: 3
+    status: pending
+    refs: [CS-09, PUB-HANDOFF-01, PUB-HANDOFF-02]
+
+  - id: 6
+    name: "Api: Endpoints"
+    pr: 2
+    status: pending
+    refs: [CS-11, CS-12]
+
+  - id: 7
+    name: "Frontend: Studio Surface"
+    pr: 3
+    status: pending
+    refs: [CS-07, CS-12]
+
+  - id: 8
+    name: "Docs Sync, Diagram, and Cleanup"
+    pr: 3
+    status: pending
+    refs: [CS-01, CS-02, CS-03, CS-04, CS-05, CS-06, CS-07, CS-08, CS-09, CS-10, CS-11, CS-12]
+
+migrations:
+  - name: Add_ContentStudio
+    applied: false
+    note: "Creates social.content_studio_items + social.content_studio_sets + social.content_studio_set_items (additive, no data migration)"
+
+delivery:
+  strategy: single-pr
+  size_exception: true   # ~1,600-2,100 LOC in ONE PR — chosen by user; review risk mitigated via work-unit commits per phase
+  target_branch: dev
+  branch: feature/content-studio
+  prs:
+    - number: 1
+      branch: feature/content-studio
+      base: dev
+      title: "feat(content-studio): Phase 1 — foundation + Single Analyzer integration"
+      status: in-progress
