@@ -13,7 +13,6 @@ interface ClientStrategySectionProps {
 }
 
 const MAX_PILLARS = 10;
-const MAX_KEYWORDS = 20;
 
 function TagInput({
   tags,
@@ -91,7 +90,6 @@ export function ClientStrategySection({ clientId, token }: ClientStrategySection
   const [success, setSuccess] = useState(false);
 
   const [contentPillars, setContentPillars] = useState<string[]>([]);
-  const [toneKeywords, setToneKeywords] = useState<string[]>([]);
   const [targetAudience, setTargetAudience] = useState("");
   const [postingFrequency, setPostingFrequency] = useState("");
   const [notes, setNotes] = useState("");
@@ -103,7 +101,6 @@ export function ClientStrategySection({ clientId, token }: ClientStrategySection
       .then((strategy) => {
         if (strategy) {
           setContentPillars(strategy.contentPillars ?? []);
-          setToneKeywords(strategy.toneKeywords ?? []);
           setTargetAudience(strategy.targetAudience ?? "");
           setPostingFrequency(strategy.postingFrequency ?? "");
           setNotes(strategy.notes ?? "");
@@ -122,7 +119,6 @@ export function ClientStrategySection({ clientId, token }: ClientStrategySection
     try {
       const payload: UpsertClientStrategyPayload = {
         contentPillars,
-        toneKeywords,
         targetAudience: targetAudience.trim() || null,
         postingFrequency: postingFrequency.trim() || null,
         notes: notes.trim() || null,
@@ -154,20 +150,6 @@ export function ClientStrategySection({ clientId, token }: ClientStrategySection
           onChange={setContentPillars}
           max={MAX_PILLARS}
           placeholder="e.g. Education"
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <label htmlFor="keywords-input" className="text-sm font-medium">
-          Tone Keywords{" "}
-          <span className="text-muted-foreground text-xs">(max {MAX_KEYWORDS})</span>
-        </label>
-        <TagInput
-          id="keywords-input"
-          tags={toneKeywords}
-          onChange={setToneKeywords}
-          max={MAX_KEYWORDS}
-          placeholder="e.g. Professional"
         />
       </div>
 

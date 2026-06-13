@@ -16,8 +16,6 @@ public sealed class GeneralStrategyData
 
     public List<string> ContentPillars { get; set; } = new();
 
-    public List<string> ToneKeywords { get; set; } = new();
-
     public string? TargetAudience { get; set; }
 
     public string? PostingFrequency { get; set; }

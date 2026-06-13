@@ -301,7 +301,7 @@ public sealed class RemainingFormatsGeneratorTests
                 ["Roboto"],
                 "professional",
                 null),
-            new StrategySnapshot(["education"], ["warm"], "SMBs", "3x/week"),
+            new StrategySnapshot(["education"], "SMBs", "3x/week"),
             null),
         CorrelationId: CorrelationId,
         AiProviderKey: "claude",

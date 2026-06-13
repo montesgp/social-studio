@@ -137,7 +137,6 @@ public sealed class GenerationPromptContextTests
         // Regression: existing fields must not be broken by the new sections
         var strategy = new StrategySnapshot(
             ContentPillars: new[] { "Education" },
-            ToneKeywords: new[] { "bold" },
             TargetAudience: "Professionals",
             PostingFrequency: "Daily");
 

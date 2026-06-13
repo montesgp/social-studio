@@ -141,7 +141,6 @@ public sealed class BrandSnapshotTests
 
         var strategy = new StrategySnapshot(
             ContentPillars: new[] { "Education", "Entertainment" },
-            ToneKeywords: new[] { "friendly", "bold" },
             TargetAudience: "Young professionals 25-35",
             PostingFrequency: "3 posts/week");
 

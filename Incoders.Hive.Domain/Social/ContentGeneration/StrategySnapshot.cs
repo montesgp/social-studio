@@ -5,6 +5,5 @@ namespace Incoders.Hive.Domain.Social.ContentGeneration;
 /// </summary>
 public sealed record StrategySnapshot(
     IReadOnlyList<string> ContentPillars,
-    IReadOnlyList<string> ToneKeywords,
     string? TargetAudience,
     string? PostingFrequency);

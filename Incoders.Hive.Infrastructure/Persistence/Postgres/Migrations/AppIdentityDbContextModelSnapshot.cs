@@ -984,13 +984,6 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("target_audience");
 
-                    b.Property<string>("ToneKeywords")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("tone_keywords")
-                        .HasDefaultValueSql("'[]'");
-
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at_utc");

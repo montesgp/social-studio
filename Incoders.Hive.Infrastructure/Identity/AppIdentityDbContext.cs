@@ -918,7 +918,6 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
 
             ConfigureJsonbCollection<GeneralStrategyData, string>(entity, x => x.ContentPillars, "content_pillars");
-            ConfigureJsonbCollection<GeneralStrategyData, string>(entity, x => x.ToneKeywords, "tone_keywords");
 
             entity.HasOne<SocialClientData>()
                 .WithMany()

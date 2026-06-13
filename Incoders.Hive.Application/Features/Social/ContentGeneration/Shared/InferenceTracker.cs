@@ -30,7 +30,7 @@ public sealed class InferenceTracker
     /// <summary>
     /// Returns true if the given brand source field was inferred (i.e. not present in client data).
     /// Brand field keys: ColorPalette, Logos, Typography, VoiceAndTone, Notes,
-    ///                   ContentPillars, ToneKeywords, TargetAudience, PostingFrequency,
+    ///                   ContentPillars, TargetAudience, PostingFrequency,
     ///                   MonthlyObjectives, MonthlyKpis,
     ///                   ContentStrategy, CalendarSlots.
     /// </summary>

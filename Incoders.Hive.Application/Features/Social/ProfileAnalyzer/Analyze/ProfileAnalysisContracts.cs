@@ -22,7 +22,9 @@ public sealed record AnalyzeProfileRequest(
 /// <summary>
 /// Target fields that can be imputed from a completed profile analysis (PA-20).
 /// Each value maps to a field in BrandManual, ContentPlan, or GeneralStrategy.
-/// 11 actionable targets — Logos and Slots are excluded (not AI-derivable; WU-01 spike findings).
+/// <summary>
+/// 10 actionable targets — Logos, Slots, and ToneKeywords are excluded.
+/// ToneKeywords were removed from GeneralStrategy; voice/tone is in Brand Manual's VoiceAndTone.
 /// </summary>
 public enum ProfileImputeTarget
 {
@@ -37,11 +39,10 @@ public enum ProfileImputeTarget
     ObjectiveKpis = 6,
     ContentStrategyText = 7,
 
-    // GeneralStrategy targets (4)
+    // GeneralStrategy targets (3)
     ContentPillars = 8,
     TargetAudience = 9,
     PostingFrequency = 10,
-    ToneKeywords = 11,
 }
 
 /// <summary>

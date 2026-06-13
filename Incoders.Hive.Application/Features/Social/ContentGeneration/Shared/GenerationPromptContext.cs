@@ -100,7 +100,6 @@ internal static class GenerationPromptContext
                 : new
                 {
                     contentPillars = snapshot.Strategy.ContentPillars,
-                    toneKeywords = snapshot.Strategy.ToneKeywords,
                     targetAudience = snapshot.Strategy.TargetAudience,
                     postingFrequency = snapshot.Strategy.PostingFrequency
                 },

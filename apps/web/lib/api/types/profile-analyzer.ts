@@ -157,8 +157,8 @@ export interface ProfileAnalysisHistoryResponse {
 // ── Impute request (PA-20) ─────────────────────────────────────────────────────
 
 /**
- * 11 actionable impute targets.
- * Logos and Slots are excluded (not AI-derivable — WU-01 spike findings).
+ * 10 actionable impute targets.
+ * Logos, Slots, and ToneKeywords are excluded — ToneKeywords removed from GeneralStrategy.
  * Numeric values match the backend ProfileImputeTarget enum.
  */
 export type ProfileImputeTarget =
@@ -171,8 +171,7 @@ export type ProfileImputeTarget =
   | "ContentStrategyText"
   | "ContentPillars"
   | "TargetAudience"
-  | "PostingFrequency"
-  | "ToneKeywords";
+  | "PostingFrequency";
 
 export interface ImputeProfileAnalysisRequest {
   targets: ProfileImputeTarget[];

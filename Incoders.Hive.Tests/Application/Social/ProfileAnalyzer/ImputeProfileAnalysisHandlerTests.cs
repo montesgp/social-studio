@@ -309,7 +309,7 @@ public sealed class ImputeProfileAnalysisHandlerTests
             => ContentPlanRepo.SetPlan(clientId, orgId, "Existing objective", [], null);
 
         public void AddGeneralStrategy(Guid clientId, Guid orgId)
-            => GeneralStrategyRepo.SetStrategy(clientId, orgId, ["Existing pillar"], [], null, null);
+            => GeneralStrategyRepo.SetStrategy(clientId, orgId, ["Existing pillar"], null, null);
     }
 
     private sealed class FakeImputeAnalysisRepository : IProfileAnalysisRepository
@@ -450,12 +450,12 @@ public sealed class ImputeProfileAnalysisHandlerTests
         public string? LastUpsertedPostingFrequency { get; private set; }
 
         public void SetStrategy(Guid clientId, Guid orgId,
-            IReadOnlyList<string> pillars, IReadOnlyList<string> toneKeywords,
+            IReadOnlyList<string> pillars,
             string? audience, string? postingFrequency)
         {
             var result = DomainGeneralStrategy.Create(
                 DomainGeneralStrategyId.New(), clientId, orgId,
-                pillars, toneKeywords, audience, postingFrequency, notes: null, DateTime.UtcNow);
+                pillars, audience, postingFrequency, notes: null, DateTime.UtcNow);
             _strategy = result.Value;
         }
 

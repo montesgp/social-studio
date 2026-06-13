@@ -92,7 +92,7 @@ public sealed class ProfileDashboardQueryTests
         var harness = new DashboardHarness(analysis);
         harness.ContentPlanRepo.AddPlan(ClientId, OrgId, "Monthly goal", ["KPI-1"], "Strategy text");
         harness.GeneralStrategyRepo.AddStrategy(ClientId, OrgId,
-            ["Pillar A", "Pillar B"], ["tone1"], "Marketers 25-35", "Tues/Thu");
+            ["Pillar A", "Pillar B"], "Marketers 25-35", "Tues/Thu");
 
         var result = await harness.Handler.Handle(
             new GetProfileDashboardQuery(analysis.Id, OrgId),
@@ -344,12 +344,12 @@ public sealed class ProfileDashboardQueryTests
         public bool WasQueried { get; private set; }
 
         public void AddStrategy(Guid clientId, Guid orgId,
-            IReadOnlyList<string> pillars, IReadOnlyList<string> toneKeywords,
+            IReadOnlyList<string> pillars,
             string? audience, string? postingFrequency)
         {
             var result = DomainGeneralStrategy.Create(
                 DomainGeneralStrategyId.New(), clientId, orgId,
-                pillars, toneKeywords, audience, postingFrequency, notes: null, DateTime.UtcNow);
+                pillars, audience, postingFrequency, notes: null, DateTime.UtcNow);
             _strategy = result.Value;
         }
 

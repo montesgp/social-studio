@@ -12,7 +12,6 @@ public sealed class GeneralStrategyTests
     private static readonly Guid ValidOrgId = Guid.NewGuid();
 
     private static readonly IReadOnlyList<string> ValidPillars = new[] { "Education", "Entertainment" };
-    private static readonly IReadOnlyList<string> ValidKeywords = new[] { "friendly", "bold" };
 
     // --- Type name checks ---
 
@@ -41,7 +40,6 @@ public sealed class GeneralStrategyTests
             ValidClientId.Value,
             ValidOrgId,
             ValidPillars,
-            ValidKeywords,
             "Young professionals 25-35",
             "3 posts/week",
             "Internal notes",
@@ -54,7 +52,6 @@ public sealed class GeneralStrategyTests
         Assert.Equal(Now, s.CreatedAtUtc);
         Assert.Equal(Now, s.UpdatedAtUtc);
         Assert.Equal(2, s.ContentPillars.Count);
-        Assert.Equal(2, s.ToneKeywords.Count);
         Assert.Equal("Young professionals 25-35", s.TargetAudience);
         Assert.Equal("3 posts/week", s.PostingFrequency);
         Assert.Equal("Internal notes", s.Notes);
@@ -71,26 +68,6 @@ public sealed class GeneralStrategyTests
             GeneralStrategyId.New(),
             ValidClientId.Value,
             ValidOrgId,
-            tooMany,
-            ValidKeywords,
-            null, null, null, Now);
-
-        Assert.True(result.IsFailure);
-        Assert.Equal(ErrorType.Validation, result.Error.Type);
-    }
-
-    // --- Create: ToneKeywords limit ---
-
-    [Fact]
-    public void Create_ToneKeywordsExceeding20_ReturnsError()
-    {
-        var tooMany = Enumerable.Range(1, 21).Select(i => $"Keyword{i}").ToList();
-
-        var result = GeneralStrategy.Create(
-            GeneralStrategyId.New(),
-            ValidClientId.Value,
-            ValidOrgId,
-            ValidPillars,
             tooMany,
             null, null, null, Now);
 
@@ -110,7 +87,6 @@ public sealed class GeneralStrategyTests
             ValidClientId.Value,
             ValidOrgId,
             ValidPillars,
-            ValidKeywords,
             longText, null, null, Now);
 
         Assert.True(result.IsFailure);
@@ -129,7 +105,6 @@ public sealed class GeneralStrategyTests
             ValidClientId.Value,
             ValidOrgId,
             ValidPillars,
-            ValidKeywords,
             null, longText, null, Now);
 
         Assert.True(result.IsFailure);
@@ -148,7 +123,6 @@ public sealed class GeneralStrategyTests
             ValidClientId.Value,
             ValidOrgId,
             ValidPillars,
-            ValidKeywords,
             null, null, longText, Now);
 
         Assert.True(result.IsFailure);
@@ -164,7 +138,6 @@ public sealed class GeneralStrategyTests
             GeneralStrategyId.New(),
             ValidClientId.Value,
             ValidOrgId,
-            Array.Empty<string>(),
             Array.Empty<string>(),
             null, null, null, Now);
 
@@ -194,7 +167,6 @@ public sealed class GeneralStrategyTests
             ValidClientId.Value,
             ValidOrgId,
             manyPillars,
-            Array.Empty<string>(),
             null, null, null,
             Now, Now);
 
@@ -209,11 +181,9 @@ public sealed class GeneralStrategyTests
     {
         var strategy = CreateValid();
         var newPillars = new[] { "Fitness" };
-        var newKeywords = new[] { "energetic" };
 
         var result = strategy.Update(
             newPillars,
-            newKeywords,
             "Athletes 20-40",
             "Daily",
             "Updated notes",
@@ -249,7 +219,6 @@ public sealed class GeneralStrategyTests
             ValidClientId.Value,
             ValidOrgId,
             ValidPillars,
-            ValidKeywords,
             "Young professionals 25-35",
             "3 posts/week",
             "Internal notes",

@@ -125,7 +125,6 @@ public sealed class OrganizationHardDeleteRepositoryTests
             ClientId = clientId,
             OrganizationId = organizationId,
             ContentPillars = ["education"],
-            ToneKeywords = ["clear"],
             CreatedAtUtc = Now,
             UpdatedAtUtc = Now,
         });

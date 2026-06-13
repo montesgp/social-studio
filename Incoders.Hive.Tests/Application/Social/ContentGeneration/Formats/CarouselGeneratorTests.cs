@@ -98,7 +98,6 @@ public sealed class CarouselGeneratorTests
                 Notes: "Use clean product-led layouts."),
             strategy: new StrategySnapshot(
                 ContentPillars: ["education", "product proof"],
-                ToneKeywords: ["clear", "expert"],
                 TargetAudience: "B2B founders",
                 PostingFrequency: "4x/week"),
             monthlyObjective: new ClientMonthlyObjectiveSnapshot(
@@ -244,7 +243,6 @@ public sealed class CarouselGeneratorTests
                 Notes: null),
             strategy: new StrategySnapshot(
                 ContentPillars: ["education", "trust"],
-                ToneKeywords: ["warm", "expert"],
                 TargetAudience: "SMB owners",
                 PostingFrequency: "3x/week"),
             monthlyObjective: new ClientMonthlyObjectiveSnapshot(

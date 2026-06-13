@@ -607,7 +607,6 @@ export interface ClientStrategy {
   clientId: string;
   organizationId: string;
   contentPillars: string[];
-  toneKeywords: string[];
   targetAudience: string | null;
   postingFrequency: string | null;
   notes: string | null;
@@ -617,7 +616,6 @@ export interface ClientStrategy {
 
 export interface UpsertClientStrategyPayload {
   contentPillars: string[];
-  toneKeywords: string[];
   targetAudience?: string | null;
   postingFrequency?: string | null;
   notes?: string | null;

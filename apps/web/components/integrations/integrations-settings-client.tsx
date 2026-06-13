@@ -22,6 +22,7 @@ import {
   Bot,
   BrainCircuit,
   CheckCircle2,
+  ChevronDown,
   Cloud,
   DatabaseZap,
   FolderOpen,
@@ -478,6 +479,9 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   // Active network tab per step group (key = workflowStepGroupKey). Pure view state — switching a tab
   // never mutates routes; it only changes which network's execution routes are visible.
   const [activeNetworkByGroup, setActiveNetworkByGroup] = useState<Record<string, string>>({});
+  // Collapsed step group cards (key = workflowStepGroupKey). Pure view state so the admin can fold the
+  // steps they are not editing ("Resolve source content", "Resolve profile snapshot", …) for clarity.
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   const groupedIntegrations = useMemo(() => {
     const map = new Map<string, OrganizationIntegration[]>();
@@ -508,10 +512,28 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
   const workflowDefinitions = useMemo(() => workflowCatalog?.workflows ?? [], [workflowCatalog]);
 
+  // Workflow selector options are DRIVEN BY THE CARDS ABOVE (checklist groups), so every tool the
+  // organization can set up — even ones with no published workflow catalog yet (e.g. Content Generator,
+  // a future "Magic Generator", …) — appears here. The catalog only governs whether the selected tool
+  // is actually configurable; the option list stays dynamic with whatever the overview exposes.
+  const workflowOptions = useMemo<WorkflowSelectOption[]>(() => {
+    const groups = overview?.checklistGroups ?? [];
+    if (groups.length > 0) {
+      return groups.map((group) => ({ value: group.key, label: group.label }));
+    }
+
+    return workflowDefinitions.map((workflow) => ({ value: workflow.key, label: workflow.label }));
+  }, [overview?.checklistGroups, workflowDefinitions]);
+
+  const selectedWorkflowLabel = useMemo(() => {
+    return workflowOptions.find((option) => option.value === selectedWorkflowKey)?.label ?? selectedWorkflowKey;
+  }, [selectedWorkflowKey, workflowOptions]);
+
+  // Resolved ONLY when the selected tool has a published catalog. A selected card without a catalog
+  // (Content Generator today) stays null so the UI renders a "not configurable yet" placeholder instead
+  // of silently falling back to another tool's steps.
   const selectedWorkflowDefinition = useMemo<WorkflowCatalog | null>(() => {
-    return workflowDefinitions.find((workflow) => workflow.key === selectedWorkflowKey)
-      ?? workflowDefinitions[0]
-      ?? null;
+    return workflowDefinitions.find((workflow) => workflow.key === selectedWorkflowKey) ?? null;
   }, [selectedWorkflowKey, workflowDefinitions]);
 
   const workflowStages = useMemo(
@@ -613,14 +635,14 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   }, [isPlatformAdmin, loading, selectedOrganizationId, selectedWorkflowKey, token]);
 
   useEffect(() => {
-    if (!workflowDefinitions.length) {
+    if (!workflowOptions.length) {
       return;
     }
 
-    if (!workflowDefinitions.some((workflow) => workflow.key === selectedWorkflowKey)) {
-      setSelectedWorkflowKey(workflowDefinitions[0].key);
+    if (!workflowOptions.some((option) => option.value === selectedWorkflowKey)) {
+      setSelectedWorkflowKey(workflowOptions[0].value);
     }
-  }, [selectedWorkflowKey, workflowDefinitions]);
+  }, [selectedWorkflowKey, workflowOptions]);
 
   useEffect(() => {
     if (!isPlatformAdmin || !token || !selectedOrganizationId || !hasConnectedWorkflowApify) {
@@ -1645,16 +1667,16 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                     </span>
                     <Select
                       className="w-full"
-                      value={selectedWorkflowDefinition?.key ?? selectedWorkflowKey}
+                      value={selectedWorkflowKey}
                       onChange={(event) => setSelectedWorkflowKey(event.target.value)}
-                      disabled={workflowDefinitions.length === 0 || workflowLoading}
+                      disabled={workflowOptions.length === 0 || workflowLoading}
                     >
-                      {workflowDefinitions.length === 0 ? (
+                      {workflowOptions.length === 0 ? (
                         <option value="">Loading workflow catalog...</option>
                       ) : null}
-                      {workflowDefinitions.map((workflow) => (
-                        <option key={workflow.key} value={workflow.key}>
-                          {workflow.label}
+                      {workflowOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
                         </option>
                       ))}
                     </Select>
@@ -1739,7 +1761,9 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
                 {!selectedWorkflowDefinition ? (
                   <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-                    No workflow catalog is available yet for this environment.
+                    {selectedWorkflowLabel} has no configurable workflow steps yet. This tool becomes
+                    configurable once its workflow catalog is published; the connector checklist above still
+                    tracks the providers it will need.
                   </div>
                 ) : connectedWorkflowIntegrations.length === 0 ? (
                   <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
@@ -1784,11 +1808,22 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                         (total, networkStage) => total + networkStage.routes.length,
                         0
                       );
+                      const isCollapsed = collapsedGroups[group.key] ?? true;
 
                       return (
                         <div key={group.key} className="rounded-2xl border border-border bg-background/40 p-5">
                           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                            <div className="space-y-3">
+                            <div className="flex items-start gap-3">
+                              <button
+                                type="button"
+                                onClick={() => setCollapsedGroups((prev) => ({ ...prev, [group.key]: !isCollapsed }))}
+                                aria-expanded={!isCollapsed}
+                                aria-label={isCollapsed ? "Expand workflow step" : "Collapse workflow step"}
+                                className="mt-0.5 rounded-md border border-border bg-card p-2 text-muted-foreground transition-colors hover:text-foreground"
+                              >
+                                <ChevronDown className={cn("h-4 w-4 transition-transform", isCollapsed && "-rotate-90")} />
+                              </button>
+                              <div className="space-y-3">
                               <div className="flex flex-wrap items-center gap-2">
                                 <Badge variant="outline">{analysis?.label ?? (group.analysisType || "Workflow stage")}</Badge>
                                 {step ? (
@@ -1807,8 +1842,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                                   {step?.description ?? "Choose the analysis type and step to load the correct selectors."}
                                 </p>
                               </div>
+                              </div>
                             </div>
 
+                            {!isCollapsed ? (
                             <div className="flex flex-wrap items-center gap-2">
                               <Button
                                 type="button"
@@ -1830,8 +1867,11 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                                 {requiresNetwork && activeNetworkLabel ? `Remove ${activeNetworkLabel} routes` : "Remove stage"}
                               </Button>
                             </div>
+                            ) : null}
                           </div>
 
+                          {!isCollapsed ? (
+                          <>
                           <div className="mt-5 grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
                               <span className="text-sm font-medium">
@@ -2076,6 +2116,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                               </DndContext>
                             )}
                           </div>
+                          </>
+                          ) : null}
                         </div>
                       );
                     })}

@@ -43,7 +43,6 @@ public sealed class EfGeneralStrategyRepository : IGeneralStrategyRepository
 
         // Only mutable fields — ClientId and OrganizationId are immutable
         entity.ContentPillars = new List<string>(strategy.ContentPillars);
-        entity.ToneKeywords = new List<string>(strategy.ToneKeywords);
         entity.TargetAudience = strategy.TargetAudience;
         entity.PostingFrequency = strategy.PostingFrequency;
         entity.Notes = strategy.Notes;
@@ -61,7 +60,6 @@ public sealed class EfGeneralStrategyRepository : IGeneralStrategyRepository
             d.ClientId,
             d.OrganizationId,
             d.ContentPillars,
-            d.ToneKeywords,
             d.TargetAudience,
             d.PostingFrequency,
             d.Notes,
@@ -74,7 +72,6 @@ public sealed class EfGeneralStrategyRepository : IGeneralStrategyRepository
         ClientId = s.ClientId,
         OrganizationId = s.OrganizationId,
         ContentPillars = new List<string>(s.ContentPillars),
-        ToneKeywords = new List<string>(s.ToneKeywords),
         TargetAudience = s.TargetAudience,
         PostingFrequency = s.PostingFrequency,
         Notes = s.Notes,

@@ -118,7 +118,6 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
             ? null
             : new StrategySnapshot(
                 ContentPillars: strategyRow.ContentPillars.ToArray(),
-                ToneKeywords: strategyRow.ToneKeywords.ToArray(),
                 TargetAudience: strategyRow.TargetAudience,
                 PostingFrequency: strategyRow.PostingFrequency);
 

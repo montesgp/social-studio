@@ -16,7 +16,7 @@ function getServerApiBaseUrl() {
   return configuredBaseUrl.endsWith("/") ? configuredBaseUrl.slice(0, -1) : configuredBaseUrl;
 }
 
-export async function apiRequest<T>(path: string, init?: RequestInit, token?: string): Promise<T> {
+export async function apiRequest<T>(path: string, init?: RequestInit, token?: string, tenantId?: string): Promise<T> {
   const headers = new Headers(init?.headers);
   const isFormDataBody =
     typeof FormData !== "undefined" &&
@@ -34,7 +34,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit, token?: st
   const baseUrl = isBrowser ? BROWSER_API_BASE_URL : getServerApiBaseUrl();
 
   if (isBrowser) {
-    const orgId = window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+    const orgId = tenantId ?? window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
     if (orgId) headers.set("X-Tenant-Id", orgId);
   }
 

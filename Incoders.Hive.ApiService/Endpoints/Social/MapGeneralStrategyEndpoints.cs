@@ -70,7 +70,6 @@ public static class GeneralStrategyEndpointsExtensions
                 clientId,
                 organizationId.Value,
                 body.ContentPillars,
-                body.ToneKeywords,
                 body.TargetAudience,
                 body.PostingFrequency,
                 body.Notes),
@@ -98,7 +97,6 @@ public static class GeneralStrategyEndpointsExtensions
 
 public sealed record UpsertGeneralStrategyRequest(
     IReadOnlyList<string>? ContentPillars,
-    IReadOnlyList<string>? ToneKeywords,
     string? TargetAudience,
     string? PostingFrequency,
     string? Notes);

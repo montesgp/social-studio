@@ -152,7 +152,6 @@ public sealed class VisualCompositionServiceTests
             Notes: null),
         strategy: new StrategySnapshot(
             ContentPillars: ["education"],
-            ToneKeywords: ["warm"],
             TargetAudience: "SMBs",
             PostingFrequency: "3x/week"),
         monthlyObjective: null);
