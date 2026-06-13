@@ -84,33 +84,94 @@ public sealed class SocialContentResolver : ISocialContentResolver
             return Result.Failure<SocialContentResolution>(IntegrationErrors.ExternalProviderUnsupported);
         }
 
-        var snapshot = await extractor.ExtractAsync(
-            new SocialContentRequest(
-                request.OrganizationId,
-                request.SourceUrl,
-                normalizedUrl,
-                platformKey,
-                SocialExtractionCapability),
-            cancellationToken);
+        var actorIds = request.PreferredActorIds?
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        if (snapshot.IsFailure)
+        var diagnostics = new List<ProviderFailureDiagnostic>();
+        List<string?> attempts = actorIds is { Count: > 0 }
+            ? actorIds.Cast<string?>().ToList()
+            : [null];
+
+        for (var index = 0; index < attempts.Count; index++)
         {
-            _logger.LogWarning(
-                "Single Analyzer extraction: provider {ProviderKey} failed for platform {PlatformKey}: {ErrorCode}.",
+            var actorId = attempts[index];
+            var isFallback = index > 0;
+
+            _logger.LogInformation(
+                "WorkflowProviderAttemptStart OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} NetworkKey={NetworkKey} ActorId={ActorId} Priority={Priority} IsFallback={IsFallback}",
+                request.OrganizationId,
+                "single-analyzer",
+                "content-analysis",
+                "scrape-video",
                 providerKey,
                 platformKey,
+                actorId ?? "(legacy-mapping)",
+                index + 1,
+                isFallback);
+
+            var snapshot = await extractor.ExtractAsync(
+                new SocialContentRequest(
+                    request.OrganizationId,
+                    request.SourceUrl,
+                    normalizedUrl,
+                    platformKey,
+                    SocialExtractionCapability,
+                    actorId),
+                cancellationToken);
+
+            if (snapshot.IsSuccess)
+            {
+                _logger.LogInformation(
+                    "Single Analyzer extraction: provider {ProviderKey} succeeded for platform {PlatformKey} actor {ActorId} ({WarningCount} warnings).",
+                    providerKey,
+                    platformKey,
+                    actorId ?? "(legacy-mapping)",
+                    snapshot.Value.Warnings.Count);
+
+                return Result.Success(new SocialContentResolution(snapshot.Value, diagnostics));
+            }
+
+            _logger.LogWarning(
+                "WorkflowProviderAttemptFailed OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} NetworkKey={NetworkKey} ActorId={ActorId} Priority={Priority} IsFallback={IsFallback} ErrorCode={ErrorCode}",
+                request.OrganizationId,
+                "single-analyzer",
+                "content-analysis",
+                "scrape-video",
+                providerKey,
+                platformKey,
+                actorId ?? "(legacy-mapping)",
+                index + 1,
+                isFallback,
                 snapshot.Error.Code);
 
-            return Result.Failure<SocialContentResolution>(snapshot.Error);
+            if (!string.IsNullOrWhiteSpace(actorId))
+            {
+                var diagnostic = ProviderFailureDiagnostic.Create(
+                    SocialExtractionCapability,
+                    providerKey,
+                    index + 1,
+                    snapshot.Error.Code,
+                    snapshot.Error.MessageKey,
+                    isRetryable: false,
+                    fallbackAllowed: index + 1 < attempts.Count,
+                    elapsedMs: 0,
+                    DateTime.UtcNow);
+
+                if (diagnostic.IsSuccess)
+                {
+                    diagnostics.Add(diagnostic.Value);
+                }
+            }
         }
 
-        _logger.LogInformation(
-            "Single Analyzer extraction: provider {ProviderKey} succeeded for platform {PlatformKey} ({WarningCount} warnings).",
-            providerKey,
-            platformKey,
-            snapshot.Value.Warnings.Count);
+        var finalError = diagnostics.Count > 0
+            ? Error.Failure(diagnostics[^1].FailureCode, diagnostics[^1].MessageKey)
+            : IntegrationErrors.ExternalProviderUnavailable;
 
-        return Result.Success(new SocialContentResolution(snapshot.Value, []));
+        return Result.Failure<SocialContentResolution>(finalError);
     }
 
     private static string NormalizePlatform(string? platformHint) =>

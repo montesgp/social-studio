@@ -82,6 +82,36 @@ public sealed class IntegrationHealthCheckTests
     }
 
     [Fact]
+    public async Task OpenAi_Success_HitsModelsWithBearerToken()
+    {
+        var stub = new StubHandler(HttpStatusCode.OK);
+        var check = new OpenAiIntegrationHealthCheck(new StubHttpClientFactory(stub));
+
+        var result = await check.CheckAsync(
+            new Dictionary<string, string> { ["api_key"] = "sk-openai-key" },
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("openai", result.Provider);
+        Assert.Equal("https://api.openai.com/v1/models", stub.LastRequest!.RequestUri!.ToString());
+        Assert.Equal("Bearer", stub.LastRequest.Headers.Authorization!.Scheme);
+        Assert.Equal("sk-openai-key", stub.LastRequest.Headers.Authorization.Parameter);
+    }
+
+    [Fact]
+    public async Task OpenAi_401_ReturnsInvalidCredentials()
+    {
+        var check = new OpenAiIntegrationHealthCheck(new StubHttpClientFactory(new StubHandler(HttpStatusCode.Unauthorized)));
+
+        var result = await check.CheckAsync(
+            new Dictionary<string, string> { ["api_key"] = "bad" },
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("invalid_credentials", result.ErrorCode);
+    }
+
+    [Fact]
     public async Task Tester_DelegatesToHealthCheck_AndSurfacesFailure()
     {
         var provider = ApifyProvider();

@@ -12,15 +12,18 @@ public sealed class GetOrganizationIntegrationsHandler
     private readonly IIntegrationProviderCatalogRepository _providers;
     private readonly IOrganizationIntegrationRepository _integrations;
     private readonly IOrganizationIntegrationCredentialRepository _credentials;
+    private readonly IOrganizationAiModelRepository? _models;
 
     public GetOrganizationIntegrationsHandler(
         IIntegrationProviderCatalogRepository providers,
         IOrganizationIntegrationRepository integrations,
-        IOrganizationIntegrationCredentialRepository credentials)
+        IOrganizationIntegrationCredentialRepository credentials,
+        IOrganizationAiModelRepository? models = null)
     {
         _providers = providers;
         _integrations = integrations;
         _credentials = credentials;
+        _models = models;
     }
 
     public async Task<Result<OrganizationIntegrationsOverviewResponse>> Handle(
@@ -33,7 +36,6 @@ public sealed class GetOrganizationIntegrationsHandler
         }
 
         var providers = await _providers.ListActiveAsync(cancellationToken);
-        var providerMap = providers.ToDictionary(x => x.Id);
 
         var integrations = await _integrations.ListByOrganizationAsync(request.OrganizationId, cancellationToken);
         var integrationMap = integrations.ToDictionary(x => x.ProviderId);
@@ -49,19 +51,26 @@ public sealed class GetOrganizationIntegrationsHandler
             credentialKeyMap[integration.Id.Value] = credentialKeys;
         }
 
-        var responseIntegrations = providers
-            .OrderBy(x => x.Category)
-            .ThenBy(x => x.DisplayName)
-            .Select(provider =>
-            {
-                integrationMap.TryGetValue(provider.Id, out var integration);
-                var keys = integration is null
-                    ? Array.Empty<string>()
-                    : credentialKeyMap.GetValueOrDefault(integration.Id.Value, Array.Empty<string>());
+        var responseIntegrations = new List<OrganizationIntegrationResponse>();
+        foreach (var provider in providers.OrderBy(x => x.Category).ThenBy(x => x.DisplayName))
+        {
+            integrationMap.TryGetValue(provider.Id, out var integration);
+            var keys = integration is null
+                ? Array.Empty<string>()
+                : credentialKeyMap.GetValueOrDefault(integration.Id.Value, Array.Empty<string>());
 
-                return IntegrationResponseFactory.From(request.OrganizationId, provider, integration, keys);
-            })
-            .ToList();
+            var availableModels = await ResolveAvailableModelsAsync(
+                request.OrganizationId,
+                provider,
+                cancellationToken);
+
+            responseIntegrations.Add(IntegrationResponseFactory.From(
+                request.OrganizationId,
+                provider,
+                integration,
+                keys,
+                availableModels: availableModels));
+        }
 
         var hasAiProvider = responseIntegrations.Any(x =>
             x.Category == IntegrationProviderCategory.AiModel
@@ -113,19 +122,32 @@ public sealed class GetOrganizationIntegrationsHandler
 
         var checklist = singleAnalyzerChecklist.Concat(generatorChecklist).ToList();
 
-        var defaultAi = responseIntegrations.FirstOrDefault(x =>
-            x.Category == IntegrationProviderCategory.AiModel
-            && x.IsDefaultAi
-            && x.Status == IntegrationStatus.Connected);
-
         var overview = new OrganizationIntegrationsOverviewResponse(
             request.OrganizationId,
-            defaultAi?.ProviderKey,
-            defaultAi?.SelectedAiModel,
             checklist,
             checklistGroups,
             responseIntegrations);
 
         return Result.Success(overview);
+    }
+
+    private async Task<IReadOnlyList<string>> ResolveAvailableModelsAsync(
+        Guid organizationId,
+        IntegrationProvider provider,
+        CancellationToken cancellationToken)
+    {
+        if (_models is null || provider.Category != IntegrationProviderCategory.AiModel)
+        {
+            return provider.AvailableModels;
+        }
+
+        var synced = await _models.ListByProviderAsync(
+            organizationId,
+            provider.Id.Value,
+            cancellationToken);
+
+        return synced.Count == 0
+            ? provider.AvailableModels
+            : synced.Select(x => x.ModelId).ToList();
     }
 }

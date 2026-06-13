@@ -128,6 +128,17 @@ public static class IntegrationErrors
         "integrations.ai_model_required",
         "integrations.errors.ai_model_required");
 
+    // No AI execution route is configured in the organization's workflow for this analysis type.
+    // Replaces the legacy silent fallback to a "default AI" integration: AI selection now comes
+    // SOLELY from the priority-ordered workflow step configuration.
+    public static readonly Error AiRouteNotConfigured = Error.Validation(
+        "integrations.ai_route_not_configured",
+        "integrations.errors.ai_route_not_configured");
+
+    public static readonly Error AiModelNotAvailable = Error.Validation(
+        "integrations.ai_model_not_available",
+        "integrations.errors.ai_model_not_available");
+
     public static readonly Error AiJsonInvalid = Error.Failure(
         "integrations.ai_json_invalid",
         "integrations.errors.ai_json_invalid");

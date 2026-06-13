@@ -8,7 +8,6 @@ public sealed record UpsertGeneralStrategyCommand(
     Guid ClientId,
     Guid OrganizationId,
     IReadOnlyList<string>? ContentPillars,
-    IReadOnlyList<string>? ToneKeywords,
     string? TargetAudience,
     string? PostingFrequency,
     string? Notes) : IRequest<Result<GeneralStrategyResponse>>;

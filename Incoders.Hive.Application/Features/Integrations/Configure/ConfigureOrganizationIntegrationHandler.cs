@@ -91,7 +91,6 @@ public sealed class ConfigureOrganizationIntegrationHandler
                 request.ConnectionMode,
                 request.Enabled ? IntegrationStatus.Configured : IntegrationStatus.Disabled,
                 isReadOnly,
-                false,
                 request.SelectedAiModel,
                 null,
                 null,

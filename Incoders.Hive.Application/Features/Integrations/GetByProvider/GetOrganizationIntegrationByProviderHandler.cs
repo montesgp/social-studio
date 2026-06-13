@@ -13,17 +13,20 @@ public sealed class GetOrganizationIntegrationByProviderHandler
     private readonly IOrganizationIntegrationRepository _integrations;
     private readonly IOrganizationIntegrationCredentialRepository _credentials;
     private readonly IIntegrationSecretProtector _protector;
+    private readonly IOrganizationAiModelRepository? _models;
 
     public GetOrganizationIntegrationByProviderHandler(
         IIntegrationProviderCatalogRepository providers,
         IOrganizationIntegrationRepository integrations,
         IOrganizationIntegrationCredentialRepository credentials,
-        IIntegrationSecretProtector protector)
+        IIntegrationSecretProtector protector,
+        IOrganizationAiModelRepository? models = null)
     {
         _providers = providers;
         _integrations = integrations;
         _credentials = credentials;
         _protector = protector;
+        _models = models;
     }
 
     public async Task<Result<OrganizationIntegrationResponse>> Handle(
@@ -60,11 +63,20 @@ public sealed class GetOrganizationIntegrationByProviderHandler
             x => _protector.Unprotect(x.EncryptedValue),
             StringComparer.OrdinalIgnoreCase);
 
+        var syncedModels = provider.Category == IntegrationProviderCategory.AiModel && _models is not null
+            ? await _models.ListByProviderAsync(request.OrganizationId, provider.Id.Value, cancellationToken)
+            : [];
+
+        var availableModels = syncedModels.Count == 0
+            ? provider.AvailableModels
+            : syncedModels.Select(x => x.ModelId).ToList();
+
         return Result.Success(IntegrationResponseFactory.From(
             request.OrganizationId,
             provider,
             integration,
             configuredCredentialKeys,
-            credentialValues));
+            credentialValues,
+            availableModels));
     }
 }

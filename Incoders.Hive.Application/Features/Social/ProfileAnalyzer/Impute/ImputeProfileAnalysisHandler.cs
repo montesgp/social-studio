@@ -28,11 +28,10 @@ namespace Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Impute;
 ///    - ContentPlan: load current-month plan → merge selected fields → Upsert (creates if absent)
 /// 5. Each operation is idempotent: re-applying the same values yields the same state (PA-21).
 ///
-/// IMPUTE TARGETS (11 total, per spike findings — Logos and Slots are NOT AI-derivable):
+/// IMPUTE TARGETS (10 total — Logos, Slots, and ToneKeywords are NOT AI-derivable or removed):
 ///   BrandManual:     ColorPalette(1), Typography(2), BackgroundTemplates(3), VoiceAndTone(4)
 ///   ContentPlan:     ObjectiveText(5), ObjectiveKpis(6), ContentStrategyText(7)
-///   GeneralStrategy: ContentPillars(8), TargetAudience(9), PostingFrequency(10), ToneKeywords(11)
-///   [ToneKeywords enum value = 11, mapped from ProfileImputeTarget enum]
+///   GeneralStrategy: ContentPillars(8), TargetAudience(9), PostingFrequency(10)
 ///
 /// Load-merge-write invariant:
 ///   Each write passes ALL existing fields with only the selected targets overwritten.
@@ -136,7 +135,6 @@ public sealed class ImputeProfileAnalysisHandler
             ProfileImputeTarget.ContentPillars,
             ProfileImputeTarget.TargetAudience,
             ProfileImputeTarget.PostingFrequency,
-            ProfileImputeTarget.ToneKeywords
         };
 
         if (targets.Any(t => generalStrategyTargets.Contains(t)) && ai is not null)
@@ -294,10 +292,6 @@ public sealed class ImputeProfileAnalysisHandler
             ? (IReadOnlyList<string>)(ai.ContentPillars ?? [])
             : existing?.ContentPillars ?? [];
 
-        var toneKeywords = targets.Contains(ProfileImputeTarget.ToneKeywords)
-            ? (IReadOnlyList<string>)MapToneKeywords(ai.VoiceTone)
-            : existing?.ToneKeywords ?? [];
-
         var audience = targets.Contains(ProfileImputeTarget.TargetAudience)
             ? ai.AudienceProfile
             : existing?.TargetAudience;
@@ -313,7 +307,7 @@ public sealed class ImputeProfileAnalysisHandler
             var ensuredPillars = pillars.Count > 0 ? pillars : ["General"];
             var createResult = DomainGeneralStrategy.Create(
                 DomainGeneralStrategyId.New(), clientId, orgId,
-                ensuredPillars, toneKeywords, audience, postingFrequency, notes: null, now);
+                ensuredPillars, audience, postingFrequency, notes: null, now);
             if (createResult.IsFailure) return Result.Failure<Unit>(createResult.Error);
 
             _generalStrategyRepo.Add(createResult.Value);
@@ -322,7 +316,7 @@ public sealed class ImputeProfileAnalysisHandler
         {
             // UPDATE path
             var updateResult = existing.Update(
-                pillars, toneKeywords, audience, postingFrequency, existing.Notes, now);
+                pillars, audience, postingFrequency, existing.Notes, now);
             if (updateResult.IsFailure) return Result.Failure<Unit>(updateResult.Error);
 
             _generalStrategyRepo.Update(existing);
@@ -365,19 +359,6 @@ public sealed class ImputeProfileAnalysisHandler
     {
         if (days is null || days.Count == 0) return null;
         return string.Join(", ", days);
-    }
-
-    /// <summary>
-    /// Maps voiceTone string to a tone-keywords list.
-    /// VoiceTone is a descriptive string; we split on "/" and "," as keyword separators.
-    /// </summary>
-    private static IReadOnlyList<string> MapToneKeywords(string? voiceTone)
-    {
-        if (string.IsNullOrWhiteSpace(voiceTone)) return [];
-        return voiceTone.Split([',', '/'], StringSplitOptions.RemoveEmptyEntries)
-            .Select(k => k.Trim())
-            .Where(k => !string.IsNullOrWhiteSpace(k))
-            .ToList();
     }
 
     // ── AI Analysis deserialization ───────────────────────────────────────────

@@ -93,14 +93,6 @@ const TARGET_DESCRIPTORS: TargetDescriptor[] = [
       ai.contentPillars.length > 0 ? ai.contentPillars.join(", ") : null,
   },
   {
-    target: "ToneKeywords",
-    label: "Tone keywords",
-    group: "General strategy",
-    getPreview: (ai) =>
-      // voiceTone is also the source for tone keywords (split by comma/slash in backend)
-      ai.voiceTone ?? null,
-  },
-  {
     target: "TargetAudience",
     label: "Target audience",
     group: "General strategy",

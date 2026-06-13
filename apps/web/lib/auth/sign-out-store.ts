@@ -3,6 +3,7 @@
 // during the brief window between clearAuthSession() and router.replace("/login").
 
 let signingOut = false;
+let resetTimeout: ReturnType<typeof setTimeout> | null = null;
 const listeners: Set<() => void> = new Set();
 
 function notify(): void {
@@ -10,7 +11,29 @@ function notify(): void {
 }
 
 export function beginSignOut(): void {
+  if (resetTimeout) {
+    clearTimeout(resetTimeout);
+  }
+
   signingOut = true;
+  notify();
+
+  resetTimeout = setTimeout(() => {
+    resetSignOut();
+  }, 10_000);
+}
+
+export function resetSignOut(): void {
+  if (resetTimeout) {
+    clearTimeout(resetTimeout);
+    resetTimeout = null;
+  }
+
+  if (!signingOut) {
+    return;
+  }
+
+  signingOut = false;
   notify();
 }
 

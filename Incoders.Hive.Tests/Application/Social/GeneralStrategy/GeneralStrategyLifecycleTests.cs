@@ -34,7 +34,6 @@ public sealed class GeneralStrategyLifecycleTests
             new UpsertGeneralStrategyCommand(
                 clientId, orgId,
                 ContentPillars: ["Education", "Inspiration"],
-                ToneKeywords: ["professional"],
                 TargetAudience: "Developers",
                 PostingFrequency: "3x per week",
                 Notes: null),
@@ -61,7 +60,6 @@ public sealed class GeneralStrategyLifecycleTests
             new UpsertGeneralStrategyCommand(
                 clientId, orgId,
                 ContentPillars: ["Education"],
-                ToneKeywords: null,
                 TargetAudience: null,
                 PostingFrequency: null,
                 Notes: null),
@@ -86,7 +84,6 @@ public sealed class GeneralStrategyLifecycleTests
             new UpsertGeneralStrategyCommand(
                 clientId, orgId,
                 ContentPillars: ["Old Pillar"],
-                ToneKeywords: null,
                 TargetAudience: null,
                 PostingFrequency: null,
                 Notes: null),
@@ -100,7 +97,6 @@ public sealed class GeneralStrategyLifecycleTests
             new UpsertGeneralStrategyCommand(
                 clientId, orgId,
                 ContentPillars: ["New Pillar A", "New Pillar B"],
-                ToneKeywords: ["bold"],
                 TargetAudience: "Marketers",
                 PostingFrequency: null,
                 Notes: null),
@@ -122,11 +118,11 @@ public sealed class GeneralStrategyLifecycleTests
         var orgId = Guid.NewGuid();
 
         await harness.Upsert.Handle(
-            new UpsertGeneralStrategyCommand(clientId, orgId, ["Pillar1"], null, null, null, null),
+            new UpsertGeneralStrategyCommand(clientId, orgId, ["Pillar1"], null, null, null),
             CancellationToken.None);
 
         await harness.Upsert.Handle(
-            new UpsertGeneralStrategyCommand(clientId, orgId, ["Pillar2"], null, null, null, null),
+            new UpsertGeneralStrategyCommand(clientId, orgId, ["Pillar2"], null, null, null),
             CancellationToken.None);
 
         // Repository should still have exactly one entry for this client
@@ -145,7 +141,6 @@ public sealed class GeneralStrategyLifecycleTests
             new UpsertGeneralStrategyCommand(
                 Guid.NewGuid(), Guid.NewGuid(),
                 ContentPillars: null,
-                ToneKeywords: null,
                 TargetAudience: null,
                 PostingFrequency: null,
                 Notes: null),
@@ -164,7 +159,6 @@ public sealed class GeneralStrategyLifecycleTests
             new UpsertGeneralStrategyCommand(
                 Guid.NewGuid(), Guid.NewGuid(),
                 ContentPillars: [],
-                ToneKeywords: [],
                 TargetAudience: "   ",
                 PostingFrequency: "   ",
                 Notes: "   "),
@@ -188,50 +182,7 @@ public sealed class GeneralStrategyLifecycleTests
             new UpsertGeneralStrategyCommand(
                 Guid.NewGuid(), Guid.NewGuid(),
                 ContentPillars: pillars,
-                ToneKeywords: null,
                 TargetAudience: null,
-                PostingFrequency: null,
-                Notes: null),
-            CancellationToken.None);
-
-        Assert.True(result.IsFailure);
-        Assert.Equal("social.general_strategies.validation", result.Error.Code);
-    }
-
-    [Fact]
-    public async Task UpsertHandler_ToneKeywordsExceedMax_ReturnsValidationError()
-    {
-        var harness = new Harness(Now);
-        var keywords = Enumerable.Range(1, DomainGeneralStrategy.ToneKeywordsMaxCount + 1)
-            .Select(i => $"keyword{i}")
-            .ToList();
-
-        var result = await harness.Upsert.Handle(
-            new UpsertGeneralStrategyCommand(
-                Guid.NewGuid(), Guid.NewGuid(),
-                ContentPillars: null,
-                ToneKeywords: keywords,
-                TargetAudience: null,
-                PostingFrequency: null,
-                Notes: null),
-            CancellationToken.None);
-
-        Assert.True(result.IsFailure);
-        Assert.Equal("social.general_strategies.validation", result.Error.Code);
-    }
-
-    [Fact]
-    public async Task UpsertHandler_TargetAudienceTooLong_ReturnsValidationError()
-    {
-        var harness = new Harness(Now);
-        var tooLong = new string('x', DomainGeneralStrategy.TargetAudienceMaxLength + 1);
-
-        var result = await harness.Upsert.Handle(
-            new UpsertGeneralStrategyCommand(
-                Guid.NewGuid(), Guid.NewGuid(),
-                ContentPillars: null,
-                ToneKeywords: null,
-                TargetAudience: tooLong,
                 PostingFrequency: null,
                 Notes: null),
             CancellationToken.None);
@@ -253,7 +204,6 @@ public sealed class GeneralStrategyLifecycleTests
             new UpsertGeneralStrategyCommand(
                 clientId, orgId,
                 ContentPillars: ["Growth"],
-                ToneKeywords: ["inspiring"],
                 TargetAudience: "Startups",
                 PostingFrequency: "Daily",
                 Notes: "Internal note"),
@@ -267,7 +217,6 @@ public sealed class GeneralStrategyLifecycleTests
         Assert.Equal(clientId, result.Value.ClientId);
         Assert.Equal(orgId, result.Value.OrganizationId);
         Assert.Contains("Growth", result.Value.ContentPillars);
-        Assert.Contains("inspiring", result.Value.ToneKeywords);
         Assert.Equal("Startups", result.Value.TargetAudience);
         Assert.Equal("Daily", result.Value.PostingFrequency);
         Assert.Equal("Internal note", result.Value.Notes);
@@ -301,7 +250,6 @@ public sealed class GeneralStrategyLifecycleTests
             new UpsertGeneralStrategyCommand(
                 clientId, orgA,
                 ContentPillars: ["Pillar"],
-                ToneKeywords: null,
                 TargetAudience: null,
                 PostingFrequency: null,
                 Notes: null),
@@ -325,11 +273,11 @@ public sealed class GeneralStrategyLifecycleTests
         var clientB = Guid.NewGuid();
 
         await harness.Upsert.Handle(
-            new UpsertGeneralStrategyCommand(clientA, orgId, ["Pillar A"], null, null, null, null),
+            new UpsertGeneralStrategyCommand(clientA, orgId, ["Pillar A"], null, null, null),
             CancellationToken.None);
 
         await harness.Upsert.Handle(
-            new UpsertGeneralStrategyCommand(clientB, orgId, ["Pillar B"], null, null, null, null),
+            new UpsertGeneralStrategyCommand(clientB, orgId, ["Pillar B"], null, null, null),
             CancellationToken.None);
 
         var resultA = await harness.Get.Handle(new GetGeneralStrategyQuery(clientA, orgId), CancellationToken.None);
@@ -370,12 +318,12 @@ public sealed class GeneralStrategyLifecycleTests
         // Create then update the General Strategy on a later clock.
         var harness = new Harness(Now);
         await harness.Upsert.Handle(
-            new UpsertGeneralStrategyCommand(clientId, orgId, ["Old direction"], null, null, null, null),
+            new UpsertGeneralStrategyCommand(clientId, orgId, ["Old direction"], null, null, null),
             CancellationToken.None);
 
         harness.Clock.UtcNow = Later;
         await harness.Upsert.Handle(
-            new UpsertGeneralStrategyCommand(clientId, orgId, ["New direction"], ["bold"], "New audience", null, null),
+            new UpsertGeneralStrategyCommand(clientId, orgId, ["New direction"], "New audience", null, null),
             CancellationToken.None);
 
         // The Content Plan must be byte-for-byte untouched — no cascade from the strategy change.

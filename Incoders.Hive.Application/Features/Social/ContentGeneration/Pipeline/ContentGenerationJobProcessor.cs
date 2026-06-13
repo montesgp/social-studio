@@ -326,39 +326,56 @@ public sealed class ContentGenerationJobProcessor
                             designed = await _designer.ComposeAsync(
                                 job.OrganizationId, spec, brand.Brand!, selection, ct);
                         }
-                        if (!designed.IsSuccess)
+
+                        // Resilience contract: content generation MUST produce the asset regardless
+                        // of which provider/model the org configured. The copy slots are already
+                        // generated, so a designer error OR a guardrail rejection is ADVISORY here —
+                        // we log it and fall back to a deterministic, brand-bound composition rather
+                        // than failing the format. (AI-art quality is a separate concern from "the
+                        // flow must complete for any model/agent".)
+                        string? aiMarkup = null;
+                        if (designed.IsSuccess)
                         {
-                            var designDetail = $"{designed.Error.Code}: {designed.Error.MessageKey}";
-                            renderFailures.Add($"{formatKey}: designer-failed:{designDetail}");
+                            var guarded = _guardrails.Validate(designed.Value, brand.Brand!, spec);
+                            if (guarded.IsSuccess)
+                            {
+                                aiMarkup = guarded.Value.Markup;
+                            }
+                            else
+                            {
+                                _logger.LogWarning(
+                                    "ContentGeneration: guardrail rejected AI design for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}. Falling back to a deterministic brand-bound composition.",
+                                    formatKey, specIndex, job.Id, $"{guarded.Error.Code}: {guarded.Error.MessageKey}");
+                            }
+                        }
+                        else
+                        {
                             _logger.LogWarning(
-                                "ContentGeneration: designer failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}",
-                                formatKey, specIndex, job.Id, designDetail);
-                            await PersistRenderFailureAsync(job.Id, formatKey, step, designDetail, ct);
-                            break; // Fail the whole format
+                                "ContentGeneration: AI designer failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}. Falling back to a deterministic brand-bound composition.",
+                                formatKey, specIndex, job.Id, $"{designed.Error.Code}: {designed.Error.MessageKey}");
                         }
 
-                        // Guardrail stage.
-                        var guarded = _guardrails.Validate(designed.Value, brand.Brand!, spec);
-                        if (!guarded.IsSuccess)
-                        {
-                            var guardDetail = $"{guarded.Error.Code}: {guarded.Error.MessageKey}";
-                            renderFailures.Add($"{formatKey}: guardrail-failed:{guardDetail}");
-                            _logger.LogWarning(
-                                "ContentGeneration: guardrail failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}",
-                                formatKey, specIndex, job.Id, guardDetail);
-                            await PersistRenderFailureAsync(job.Id, formatKey, step, guardDetail, ct);
-                            break; // Renderer NOT called — fail the format
-                        }
-
-                        // Guardrails passed. If the client defined a template background for this
-                        // format, Incoders-Hive must hard-enforce it instead of merely trusting the
-                        // AI to obey the prompt. The AI/content generators provide the copy slots,
-                        // but the final markup uses a deterministic, high-contrast, non-overlapping
-                        // layout on top of the brand-manual background template.
+                        // Resolve the final markup. Priority:
+                        //   1. Enforced brand background → deterministic template (the brand-manual
+                        //      template is hard-enforced over whatever the AI invented).
+                        //   2. AI markup that passed guardrails → use the design.
+                        //   3. Otherwise → deterministic brand-bound composition built from the copy
+                        //      slots (Creative gradient). This is the resilience backstop that
+                        //      guarantees the flyer/carousel is produced for ANY model.
                         var enforcedBackground = ResolveEnforcedBackground(selection);
-                        var validatedMarkup = enforcedBackground is not null
-                            ? BuildTemplateBackedMarkup(spec, enforcedBackground)
-                            : guarded.Value.Markup;
+                        string validatedMarkup;
+                        if (enforcedBackground is not null)
+                        {
+                            validatedMarkup = BuildTemplateBackedMarkup(spec, enforcedBackground);
+                        }
+                        else if (aiMarkup is not null)
+                        {
+                            validatedMarkup = aiMarkup;
+                        }
+                        else
+                        {
+                            validatedMarkup = BuildTemplateBackedMarkup(spec, background: null);
+                        }
 
                         // Promote spec to Html kind with validated/enforced markup.
                         spec = spec with
@@ -934,16 +951,13 @@ public sealed class ContentGenerationJobProcessor
 
     private static string BuildTemplateBackedMarkup(
         VisualCompositionSpec spec,
-        EnforcedBackgroundTemplate background)
+        EnforcedBackgroundTemplate? background)
     {
         var isCarousel = string.Equals(spec.FormatKey, "carousel", StringComparison.OrdinalIgnoreCase);
         var width = spec.Dimensions.Width;
         var height = spec.Dimensions.Height;
         var headingFont = CssString(spec.Typography.HeadingFamily);
         var bodyFont = CssString(spec.Typography.BodyFamily);
-        var safeUrl = Html(background.Url);
-        var safeName = Html(string.IsNullOrWhiteSpace(background.Name) ? "Brand background template" : background.Name);
-        var source = Html(background.Source);
 
         var title = FirstSlot(spec.CopySlots, isCarousel ? ["title", "headline"] : ["headline", "title"])
             ?? (isCarousel ? "Carousel" : "Flyer");
@@ -968,12 +982,36 @@ public sealed class ContentGenerationJobProcessor
               <div style="position:absolute;left:88px;top:205px;width:168px;height:10px;border-radius:999px;background:rgba(255,255,255,0.86);"></div>
               """;
 
+        // Background layer. With a brand template we hard-enforce the image; without one (Creative
+        // tier / resilience fallback) we synthesize a deterministic brand-palette gradient. A dark
+        // legibility overlay keeps the white content text readable regardless of the brand colors.
+        string backgroundLayerInner;
+        if (background is not null)
+        {
+            var safeUrl = Html(background.Url);
+            var safeName = Html(string.IsNullOrWhiteSpace(background.Name) ? "Brand background template" : background.Name);
+            var source = Html(background.Source);
+            backgroundLayerInner = $"""
+                <img src="{safeUrl}" alt="{safeName}" data-background-source="{source}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" />
+                <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0.18) 0%,rgba(0,0,0,0.35) 46%,rgba(0,0,0,0.62) 100%);"></div>
+                {backgroundDecor}
+                """;
+        }
+        else
+        {
+            var c1 = CssColor(spec.Palette.Primary, "#0B1220");
+            var c2 = CssColor(spec.Palette.Secondary, "#000000");
+            backgroundLayerInner = $"""
+                <div style="position:absolute;inset:0;background:linear-gradient(160deg,{c1} 0%,{c2} 100%);"></div>
+                <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0.20) 0%,rgba(0,0,0,0.45) 100%);"></div>
+                {backgroundDecor}
+                """;
+        }
+
         return $$"""
             <div class="composition" data-format="{{Html(spec.FormatKey)}}" style="position:relative;width:{{width}}px;height:{{height}}px;overflow:hidden;background:#000000;">
               <div data-layer="background" style="position:absolute;inset:0;width:100%;height:100%;overflow:hidden;">
-                <img src="{{safeUrl}}" alt="{{safeName}}" data-background-source="{{source}}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" />
-                <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0.18) 0%,rgba(0,0,0,0.35) 46%,rgba(0,0,0,0.62) 100%);"></div>
-                {{backgroundDecor}}
+                {{backgroundLayerInner}}
               </div>
               <div data-layer="content" style="position:absolute;inset:0;width:100%;height:100%;">
                 {{content}}
@@ -1100,6 +1138,35 @@ public sealed class ContentGenerationJobProcessor
         string.IsNullOrWhiteSpace(value)
             ? "system-ui"
             : "'" + value.Replace("\\", "\\\\").Replace("'", "\\'", StringComparison.Ordinal) + "'";
+
+    /// <summary>
+    /// Returns <paramref name="value"/> when it is a safe CSS hex color (#RGB / #RRGGBB / #RRGGBBAA),
+    /// otherwise <paramref name="fallback"/>. Guards the deterministic fallback markup from injecting
+    /// arbitrary brand-config strings into an inline <c>style</c> attribute.
+    /// </summary>
+    private static string CssColor(string? value, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        var v = value.Trim();
+        if (v[0] != '#' || v.Length is not (4 or 7 or 9))
+        {
+            return fallback;
+        }
+
+        for (var i = 1; i < v.Length; i++)
+        {
+            if (!Uri.IsHexDigit(v[i]))
+            {
+                return fallback;
+            }
+        }
+
+        return v;
+    }
 
     private static string FormatException(Exception ex)
     {

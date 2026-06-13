@@ -2,6 +2,7 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Common;
@@ -24,10 +25,10 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
     private readonly IClock _clock;
     private readonly ISocialContentResolver _contentResolver;
     private readonly IAiCompletionGateway _aiGateway;
-    private readonly IDefaultAiSelector _defaultAiSelector;
     private readonly IContentAnalysisProfileProvider _profileProvider;
     private readonly IContentAnalysisPreflight? _preflight;
     private readonly ProviderCallContext? _providerCallContext;
+    private readonly IWorkflowConfigurationResolver? _workflowResolver;
     private readonly ILogger<SingleContentAnalyzer> _logger;
 
     public SingleContentAnalyzer(
@@ -36,10 +37,10 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         IClock clock,
         ISocialContentResolver contentResolver,
         IAiCompletionGateway aiGateway,
-        IDefaultAiSelector defaultAiSelector,
         IContentAnalysisProfileProvider profileProvider,
         IContentAnalysisPreflight? preflight = null,
         ProviderCallContext? providerCallContext = null,
+        IWorkflowConfigurationResolver? workflowResolver = null,
         ILogger<SingleContentAnalyzer>? logger = null)
     {
         _analyses = analyses;
@@ -47,10 +48,10 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         _clock = clock;
         _contentResolver = contentResolver;
         _aiGateway = aiGateway;
-        _defaultAiSelector = defaultAiSelector;
         _profileProvider = profileProvider;
         _preflight = preflight;
         _providerCallContext = providerCallContext;
+        _workflowResolver = workflowResolver;
         _logger = logger ?? NullLogger<SingleContentAnalyzer>.Instance;
     }
 
@@ -164,14 +165,17 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             return;
         }
 
-        var selectedAi = await _defaultAiSelector.SelectAsync(organizationId, cancellationToken);
-        if (selectedAi.IsFailure)
+        var aiCandidates = await ResolveAiCandidatesAsync(
+            organizationId,
+            analysisType: "content-analysis",
+            cancellationToken);
+        if (aiCandidates.IsFailure)
         {
             _logger.LogWarning(
-                "Single Analyzer retry-AI: AI provider selection failed for org {OrganizationId}: {ErrorCode}.",
+                "Single Analyzer retry-AI: AI route resolution failed for org {OrganizationId}: {ErrorCode}.",
                 organizationId,
-                selectedAi.Error.Code);
-            await PersistFailureAsync(analysis, selectedAi.Error, [], cancellationToken, countAiFailure: true);
+                aiCandidates.Error.Code);
+            await PersistFailureAsync(analysis, aiCandidates.Error, [], cancellationToken, countAiFailure: true);
             return;
         }
 
@@ -183,10 +187,9 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         analysis = await PersistStatusAsync(analysis, SingleContentAnalysisStatus.Analyzing, cancellationToken);
 
         _logger.LogInformation(
-            "Single Analyzer retry-AI: analysis {AnalysisId} re-running AI provider {ProviderKey} (model {Model}) with persisted snapshot — NO extraction call.",
+            "Single Analyzer retry-AI: analysis {AnalysisId} re-running {CandidateCount} configured AI route(s) with persisted snapshot — NO extraction call.",
             analysis.Id,
-            selectedAi.Value.ProviderKey,
-            selectedAi.Value.Model ?? "(provider default)");
+            aiCandidates.Value.Count);
 
         // Embed the persisted snapshot JSON as-is into the AI input. No extraction call.
         JsonElement snapshotElement;
@@ -220,42 +223,30 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
 
         var inputJson = JsonSerializer.Serialize(inputObj, JsonOptions);
 
-        Result<AiJsonCompletionResponse<SingleAnalyzerAnalysis>> ai;
-        try
-        {
-            ai = await _aiGateway.CompleteJsonAsync<SingleAnalyzerAnalysis>(
-                new AiJsonCompletionRequest(
-                    organizationId,
-                    analysis.Id,
-                    aiCapabilityKey,
-                    promptVersionKey,
-                    inputJson,
-                    selectedAi.Value.ProviderKey,
-                    selectedAi.Value.Model),
-                cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogError(ex, "Single Analyzer retry-AI: analysis {AnalysisId} threw.", analysis.Id);
-            await PersistFailureAsync(analysis, SingleAnalyzerErrors.AnalysisFailed, [], CancellationToken.None, countAiFailure: true);
-            return;
-        }
+        var (usedAi, ai) = await RunAiWithFallbackAsync(
+            organizationId,
+            analysis.ClientId,
+            analysis.Id,
+            "content-analysis",
+            aiCapabilityKey,
+            promptVersionKey,
+            inputJson,
+            aiCandidates.Value,
+            Guid.NewGuid(),
+            cancellationToken);
 
-        if (ai.IsFailure)
+        if (usedAi is null)
         {
+            var error = ai.IsFailure ? ai.Error : SingleAnalyzerErrors.AnalysisFailed;
             _logger.LogWarning(
-                "Single Analyzer retry-AI: AI analysis failed for {AnalysisId} (provider {ProviderKey}): {ErrorCode}.",
+                "WorkflowFailed OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} AnalysisId={AnalysisId} StepKey={StepKey} ErrorCode={ErrorCode}",
+                organizationId,
+                FlowKey,
+                "content-analysis",
                 analysis.Id,
-                selectedAi.Value.ProviderKey,
-                ai.Error.Code);
-            await PersistFailureAsync(analysis, ai.Error, [], cancellationToken, countAiFailure: true);
-            return;
-        }
-
-        var aiValidation = ai.Value.Payload.Validate();
-        if (aiValidation.IsFailure)
-        {
-            await PersistFailureAsync(analysis, aiValidation.Error, [], cancellationToken, countAiFailure: true);
+                "analyze-content",
+                error.Code);
+            await PersistFailureAsync(analysis, error, [], cancellationToken, countAiFailure: true);
             return;
         }
 
@@ -276,7 +267,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         _logger.LogInformation(
             "Single Analyzer retry-AI: analysis {AnalysisId} completed successfully (provider {ProviderKey}).",
             analysis.Id,
-            selectedAi.Value.ProviderKey);
+            ai.Value.ProviderKey);
     }
 
     public async Task<Result<SingleAnalyzerStatusResponse>> GetAsync(
@@ -318,16 +309,56 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         var aiCapabilityKey = profile?.AiCapabilityKey ?? "ai-analysis";
         var promptVersionKey = profile?.PromptVersionKey ?? "single-analyzer.analysis.v1";
         var extractionProviderKey = request.PreferredExtractionProviderKey ?? profile?.ExtractionProviderKey ?? "apify";
+        IReadOnlyList<string>? extractionActorIds = null;
 
-        // AI provider selection is org-integration-driven (CAP3-MUST-04): is_default_ai → last configured.
-        var selectedAi = await _defaultAiSelector.SelectAsync(request.OrganizationId, cancellationToken);
-        if (selectedAi.IsFailure)
+        // AI provider selection comes SOLELY from the org's priority-ordered workflow configuration.
+        // priority-1 is the default; the rest are runtime fallbacks tried in order if the primary fails.
+        var aiCandidates = await ResolveAiCandidatesAsync(
+            request.OrganizationId,
+            analysisType: "content-analysis",
+            cancellationToken);
+        if (aiCandidates.IsFailure)
         {
             _logger.LogWarning(
-                "Single Analyzer: AI provider selection failed for org {OrganizationId}: {ErrorCode}.",
+                "Single Analyzer: AI route resolution failed for org {OrganizationId}: {ErrorCode}.",
                 request.OrganizationId,
-                selectedAi.Error.Code);
-            return Result.Failure<AnalysisContext>(selectedAi.Error);
+                aiCandidates.Error.Code);
+            return Result.Failure<AnalysisContext>(aiCandidates.Error);
+        }
+
+        var primaryAi = aiCandidates.Value[0];
+
+        if (_workflowResolver is not null)
+        {
+            var scrapeRoute = await _workflowResolver.ResolveStepAsync(
+                new WorkflowStepResolutionRequest(
+                    request.OrganizationId,
+                    FlowKey,
+                    "content-analysis",
+                    "scrape-video",
+                    "scrape-video",
+                    platformKey),
+                cancellationToken);
+
+            if (scrapeRoute.IsSuccess && scrapeRoute.Value.Count > 0)
+            {
+                extractionProviderKey = scrapeRoute.Value[0].ProviderKey;
+                extractionActorIds = scrapeRoute.Value
+                    .Select(x => x.ActorId)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x!)
+                    .ToList();
+
+                _logger.LogInformation(
+                    "WorkflowConfigurationResolved OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} NetworkKey={NetworkKey} ProviderKey={ProviderKey} ActorIds={ActorIds}",
+                    request.OrganizationId,
+                    FlowKey,
+                    "content-analysis",
+                    "scrape-video",
+                    platformKey,
+                    extractionProviderKey,
+                    string.Join(",", extractionActorIds));
+            }
         }
 
         // PRE-FLIGHT (hard prerequisite): every external API must be reachable before we start.
@@ -336,7 +367,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             var preflight = await _preflight.EnsureReadyAsync(
                 request.OrganizationId,
                 extractionProviderKey,
-                selectedAi.Value.ProviderKey,
+                primaryAi.ProviderKey,
                 cancellationToken);
 
             if (preflight.IsFailure)
@@ -345,7 +376,7 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
                     "Single Analyzer: pre-flight failed for org {OrganizationId} (extraction={ExtractionProvider}, ai={AiProvider}): {ErrorCode}. Workflow not started.",
                     request.OrganizationId,
                     extractionProviderKey,
-                    selectedAi.Value.ProviderKey,
+                    primaryAi.ProviderKey,
                     preflight.Error.Code);
                 return Result.Failure<AnalysisContext>(preflight.Error);
             }
@@ -357,8 +388,8 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             extractionProviderKey,
             aiCapabilityKey,
             promptVersionKey,
-            selectedAi.Value.ProviderKey,
-            selectedAi.Value.Model));
+            aiCandidates.Value,
+            extractionActorIds));
     }
 
     /// <summary>Runs extraction + AI on an already-created record, persisting status as it goes.</summary>
@@ -380,6 +411,16 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             request.OrganizationId,
             ctx.PlatformKey);
 
+        _logger.LogInformation(
+            "WorkflowStart OrganizationId={OrganizationId} UserId={UserId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} NetworkKey={NetworkKey} AnalysisId={AnalysisId} CorrelationId={CorrelationId}",
+            request.OrganizationId,
+            request.UserId,
+            FlowKey,
+            "content-analysis",
+            ctx.PlatformKey,
+            analysis.Id,
+            correlationId);
+
         Result<SocialContentResolution> content;
         using (_providerCallContext?.Begin(
                    request.OrganizationId,
@@ -396,7 +437,8 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
                     request.ClientId,
                     ctx.SourceUrl.OriginalUrl,
                     ctx.PlatformKey,
-                    ctx.ExtractionProviderKey),
+                    ctx.ExtractionProviderKey,
+                    ctx.ExtractionActorIds),
                 cancellationToken);
         }
 
@@ -435,68 +477,38 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
 
         analysis = await PersistStatusAsync(analysis, SingleContentAnalysisStatus.Analyzing, cancellationToken);
 
-        _logger.LogInformation(
-            "Single Analyzer: analysis {AnalysisId} using AI provider {ProviderKey} (model {Model}).",
+        var aiInputJson = JsonSerializer.Serialize(CreateAiInput(ctx.SourceUrl, content.Value.Snapshot), JsonOptions);
+        var (usedAi, ai) = await RunAiWithFallbackAsync(
+            request.OrganizationId,
+            request.ClientId,
             analysis.Id,
-            ctx.AiProviderKey,
-            ctx.AiModel ?? "(provider default)");
+            "content-analysis",
+            ctx.AiCapabilityKey,
+            ctx.PromptVersionKey,
+            aiInputJson,
+            ctx.AiCandidates,
+            correlationId,
+            cancellationToken);
 
-        Result<AiJsonCompletionResponse<SingleAnalyzerAnalysis>> ai;
-        try
+        if (usedAi is null)
         {
-            using (_providerCallContext?.Begin(
-                       request.OrganizationId,
-                       request.ClientId,
-                       workflowKey: FlowKey,
-                       pipelineStepKey: "ai-analysis",
-                       promptVersion: ctx.PromptVersionKey,
-                       correlationId))
-            {
-                ai = await _aiGateway.CompleteJsonAsync<SingleAnalyzerAnalysis>(
-                    new AiJsonCompletionRequest(
-                        request.OrganizationId,
-                        analysis.Id,
-                        ctx.AiCapabilityKey,
-                        ctx.PromptVersionKey,
-                        JsonSerializer.Serialize(CreateAiInput(ctx.SourceUrl, content.Value.Snapshot), JsonOptions),
-                        ctx.AiProviderKey,
-                        ctx.AiModel),
-                    cancellationToken);
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogError(ex, "Single Analyzer: AI analysis threw for analysis {AnalysisId}.", analysis.Id);
-            await PersistFailureAsync(
-                analysis,
-                SingleAnalyzerErrors.AnalysisFailed,
-                content.Value.Diagnostics,
-                CancellationToken.None,
-                countAiFailure: true);
-            return Result.Failure<SingleContentAnalysisResponse>(SingleAnalyzerErrors.AnalysisFailed);
-        }
-
-        if (ai.IsFailure)
-        {
+            var error = ai.IsFailure ? ai.Error : SingleAnalyzerErrors.AnalysisFailed;
             _logger.LogWarning(
-                "Single Analyzer: AI analysis failed for analysis {AnalysisId} (provider {ProviderKey}): {ErrorCode}.",
+                "WorkflowFailed OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} AnalysisId={AnalysisId} StepKey={StepKey} ErrorCode={ErrorCode}",
+                request.OrganizationId,
+                FlowKey,
+                "content-analysis",
                 analysis.Id,
-                ctx.AiProviderKey,
-                ai.Error.Code);
-            await PersistFailureAsync(analysis, ai.Error, content.Value.Diagnostics, cancellationToken, countAiFailure: true);
-            return Result.Failure<SingleContentAnalysisResponse>(ai.Error);
-        }
+                "analyze-content",
+                error.Code);
 
-        var aiValidation = ai.Value.Payload.Validate();
-        if (aiValidation.IsFailure)
-        {
             await PersistFailureAsync(
                 analysis,
-                aiValidation.Error,
-                MergeDiagnostics(content.Value.Diagnostics, ai.Value.Diagnostics),
+                error,
+                MergeDiagnostics(content.Value.Diagnostics, ai.IsSuccess ? ai.Value.Diagnostics : Array.Empty<ProviderFailureDiagnostic>()),
                 cancellationToken,
                 countAiFailure: true);
-            return Result.Failure<SingleContentAnalysisResponse>(aiValidation.Error);
+            return Result.Failure<SingleContentAnalysisResponse>(error);
         }
 
         var diagnostics = MergeDiagnostics(content.Value.Diagnostics, ai.Value.Diagnostics);
@@ -516,9 +528,21 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
+            "WorkflowCompleted OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} AnalysisId={AnalysisId} ExtractionProviderKey={ExtractionProviderKey} AiProviderKey={AiProviderKey} AiModel={AiModel} AiPriority={AiPriority} AiFallbackUsed={AiFallbackUsed}",
+            request.OrganizationId,
+            FlowKey,
+            "content-analysis",
+            analysis.Id,
+            ctx.ExtractionProviderKey,
+            ai.Value.ProviderKey,
+            ai.Value.Model ?? "(provider default)",
+            usedAi.Priority,
+            usedAi.Priority > 1);
+
+        _logger.LogInformation(
             "Single Analyzer: analysis {AnalysisId} completed successfully (provider {ProviderKey}).",
             analysis.Id,
-            ctx.AiProviderKey);
+            ai.Value.ProviderKey);
 
         return Result.Success(new SingleContentAnalysisResponse(
             analysis.Id,
@@ -544,11 +568,192 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
     private sealed record AnalysisContext(
         SingleAnalyzerSourceUrl SourceUrl,
         string PlatformKey,
-        string ExtractionProviderKey,
-        string AiCapabilityKey,
-        string PromptVersionKey,
-        string AiProviderKey,
-        string? AiModel);
+            string ExtractionProviderKey,
+            string AiCapabilityKey,
+            string PromptVersionKey,
+            IReadOnlyList<AiRoute> AiCandidates,
+            IReadOnlyList<string>? ExtractionActorIds);
+
+    private async Task<Result<IReadOnlyList<AiRoute>>> ResolveAiCandidatesAsync(
+        Guid organizationId,
+        string analysisType,
+        CancellationToken cancellationToken)
+    {
+        // AI selection comes SOLELY from the organization's priority-ordered workflow configuration.
+        // There is no Default-AI fallback anymore: priority-1 IS the default and admins define it.
+        if (_workflowResolver is null)
+        {
+            return Result.Failure<IReadOnlyList<AiRoute>>(IntegrationErrors.AiRouteNotConfigured);
+        }
+
+        var route = await _workflowResolver.ResolveStepAsync(
+            new WorkflowStepResolutionRequest(
+                organizationId,
+                FlowKey,
+                analysisType,
+                "analyze-content",
+                "ai-analysis",
+                null),
+            cancellationToken);
+
+        if (route.IsFailure)
+        {
+            return Result.Failure<IReadOnlyList<AiRoute>>(route.Error);
+        }
+
+        var candidates = route.Value
+            .Where(candidate => candidate.IsEnabled)
+            .OrderBy(candidate => candidate.Priority)
+            .Select(candidate => new AiRoute(candidate.ProviderKey, candidate.ModelId, candidate.Priority))
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            return Result.Failure<IReadOnlyList<AiRoute>>(IntegrationErrors.AiRouteNotConfigured);
+        }
+
+        foreach (var candidate in candidates)
+        {
+            _logger.LogInformation(
+                "WorkflowStepResolved OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority} IsFallback={IsFallback}",
+                organizationId,
+                FlowKey,
+                analysisType,
+                "analyze-content",
+                candidate.ProviderKey,
+                candidate.ModelId ?? "(provider default)",
+                candidate.Priority,
+                candidate.Priority > 1);
+        }
+
+        return Result.Success<IReadOnlyList<AiRoute>>(candidates);
+    }
+
+    /// <summary>
+    /// Runs the AI completion trying each configured route in priority order. On failure of a route,
+    /// logs WorkflowFallbackSelected / WorkflowProviderAttemptFailed and tries the next one. Returns the
+    /// used route + successful response, or (null, last error) when every configured route failed.
+    /// </summary>
+    private async Task<(AiRoute? Used, Result<AiJsonCompletionResponse<SingleAnalyzerAnalysis>> Result)> RunAiWithFallbackAsync(
+        Guid organizationId,
+        Guid? clientId,
+        Guid analysisId,
+        string analysisType,
+        string aiCapabilityKey,
+        string promptVersionKey,
+        string inputJson,
+        IReadOnlyList<AiRoute> candidates,
+        Guid correlationId,
+        CancellationToken cancellationToken)
+    {
+        var last = Result.Failure<AiJsonCompletionResponse<SingleAnalyzerAnalysis>>(SingleAnalyzerErrors.AnalysisFailed);
+
+        for (var index = 0; index < candidates.Count; index++)
+        {
+            var candidate = candidates[index];
+            var isFallback = index > 0;
+
+            if (isFallback)
+            {
+                _logger.LogInformation(
+                    "WorkflowFallbackSelected OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority}",
+                    organizationId,
+                    FlowKey,
+                    analysisType,
+                    "analyze-content",
+                    candidate.ProviderKey,
+                    candidate.ModelId ?? "(provider default)",
+                    candidate.Priority);
+            }
+
+            _logger.LogInformation(
+                "WorkflowProviderAttemptStart OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority} IsFallback={IsFallback}",
+                organizationId,
+                FlowKey,
+                analysisType,
+                "analyze-content",
+                candidate.ProviderKey,
+                candidate.ModelId ?? "(provider default)",
+                candidate.Priority,
+                isFallback);
+
+            Result<AiJsonCompletionResponse<SingleAnalyzerAnalysis>> ai;
+            try
+            {
+                using (_providerCallContext?.Begin(
+                           organizationId,
+                           clientId,
+                           workflowKey: FlowKey,
+                           pipelineStepKey: "ai-analysis",
+                           promptVersion: promptVersionKey,
+                           correlationId))
+                {
+                    ai = await _aiGateway.CompleteJsonAsync<SingleAnalyzerAnalysis>(
+                        new AiJsonCompletionRequest(
+                            organizationId,
+                            analysisId,
+                            aiCapabilityKey,
+                            promptVersionKey,
+                            inputJson,
+                            candidate.ProviderKey,
+                            candidate.ModelId),
+                        cancellationToken);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogError(ex, "Single Analyzer: AI analysis threw for analysis {AnalysisId} (provider {ProviderKey}).", analysisId, candidate.ProviderKey);
+                last = Result.Failure<AiJsonCompletionResponse<SingleAnalyzerAnalysis>>(SingleAnalyzerErrors.AnalysisFailed);
+                LogAiAttemptFailed(organizationId, analysisType, candidate, isFallback, last.Error.Code);
+                continue;
+            }
+
+            if (ai.IsSuccess)
+            {
+                var validation = ai.Value.Payload.Validate();
+                if (validation.IsSuccess)
+                {
+                    _logger.LogInformation(
+                        "WorkflowProviderAttemptSucceeded OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority} IsFallback={IsFallback}",
+                        organizationId,
+                        FlowKey,
+                        analysisType,
+                        "analyze-content",
+                        ai.Value.ProviderKey,
+                        ai.Value.Model ?? "(provider default)",
+                        candidate.Priority,
+                        isFallback);
+
+                    return (candidate, ai);
+                }
+
+                last = Result.Failure<AiJsonCompletionResponse<SingleAnalyzerAnalysis>>(validation.Error);
+            }
+            else
+            {
+                last = ai;
+            }
+
+            LogAiAttemptFailed(organizationId, analysisType, candidate, isFallback, last.Error.Code);
+        }
+
+        return (null, last);
+    }
+
+    private void LogAiAttemptFailed(Guid organizationId, string analysisType, AiRoute candidate, bool isFallback, string errorCode) =>
+        _logger.LogWarning(
+            "WorkflowProviderAttemptFailed OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} StepKey={StepKey} ProviderKey={ProviderKey} ModelId={ModelId} Priority={Priority} IsFallback={IsFallback} ErrorCode={ErrorCode}",
+            organizationId,
+            FlowKey,
+            analysisType,
+            "analyze-content",
+            candidate.ProviderKey,
+            candidate.ModelId ?? "(provider default)",
+            candidate.Priority,
+            isFallback,
+            errorCode);
+
+    private sealed record AiRoute(string ProviderKey, string? ModelId, int Priority);
 
     private static Result ValidateRequest(SingleContentAnalysisRequest request)
     {

@@ -8,9 +8,11 @@ using Incoders.Hive.Application.Features.Integrations.Delete;
 using Incoders.Hive.Application.Features.Integrations.GetAllProviders;
 using Incoders.Hive.Application.Features.Integrations.GetByProvider;
 using Incoders.Hive.Application.Features.Integrations.GetOverview;
-using Incoders.Hive.Application.Features.Integrations.SetDefaultAi;
+using Incoders.Hive.Application.Features.Integrations.Models;
 using Incoders.Hive.Application.Features.Integrations.TestConnection;
+using Incoders.Hive.Application.Features.Integrations.WorkflowConfigurations;
 using Incoders.Hive.Domain.Integrations;
+using Incoders.Hive.Infrastructure.Identity;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -68,14 +70,39 @@ public static class IntegrationsEndpointsExtensions
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPut("/organization/default-ai", SetDefaultAiAsync)
-            .WithName("SetDefaultAiIntegration")
-            .WithSummary("Select default AI provider/model for the resolved organization")
-            .Produces<OrganizationIntegrationResponse>(StatusCodes.Status200OK)
+        group.MapGet("/organization/{providerKey}/models", ListOrganizationAiModelsAsync)
+            .WithName("ListOrganizationAiModels")
+            .WithSummary("List synchronized AI models for the resolved organization/provider")
+            .Produces<OrganizationAiModelsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/organization/{providerKey}/models/sync", SyncOrganizationAiModelsAsync)
+            .WithName("SyncOrganizationAiModels")
+            .WithSummary("Synchronize AI models for the resolved organization/provider using configured credentials")
+            .Produces<OrganizationAiModelsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         // ─── Canva per-user OAuth (PKCE) — WU-5 ─────────────────────────────────
+
+        var workflowConfigGroup = app.MapGroup("/api/integrations/workflow-configurations")
+            .WithTags("Integrations")
+            .RequireAuthorization(IdentityServicesExtensions.Policies.PlatformAdmin);
+
+        workflowConfigGroup.MapGet("/", ListWorkflowConfigurationsAsync)
+            .WithName("ListWorkflowConfigurations")
+            .WithSummary("List workflow step routing configuration for a selected organization (sysadmin only)")
+            .Produces<WorkflowConfigurationOverviewResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        workflowConfigGroup.MapPut("/{organizationId:guid}/{workflowKey}", UpsertWorkflowConfigurationsAsync)
+            .WithName("UpsertWorkflowConfigurations")
+            .WithSummary("Replace workflow step routing configuration for a selected organization/workflow (sysadmin only)")
+            .Produces<WorkflowConfigurationOverviewResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         var canvaGroup = app.MapGroup("/api/integrations/canva")
             .WithTags("Integrations")
@@ -211,8 +238,8 @@ public static class IntegrationsEndpointsExtensions
         return result.Match(response => (IResult)TypedResults.Ok(response));
     }
 
-    private static async Task<IResult> SetDefaultAiAsync(
-        [FromBody] SetDefaultAiIntegrationRequest body,
+    private static async Task<IResult> ListOrganizationAiModelsAsync(
+        string providerKey,
         ISender sender,
         ICurrentTenant currentTenant,
         CancellationToken cancellationToken)
@@ -223,7 +250,55 @@ public static class IntegrationsEndpointsExtensions
         }
 
         var result = await sender.Send(
-            new SetDefaultAiIntegrationCommand(organizationId.Value, body.ProviderKey, body.Model),
+            new ListOrganizationAiModelsQuery(organizationId.Value, providerKey),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    private static async Task<IResult> SyncOrganizationAiModelsAsync(
+        string providerKey,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } organizationId)
+        {
+            return IntegrationErrors.OrganizationRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new SyncOrganizationAiModelsCommand(organizationId.Value, providerKey),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    private static async Task<IResult> ListWorkflowConfigurationsAsync(
+        [FromQuery] Guid organizationId,
+        [FromQuery] string? workflowKey,
+        ISender sender,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetWorkflowConfigurationsQuery(organizationId, workflowKey),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    private static async Task<IResult> UpsertWorkflowConfigurationsAsync(
+        Guid organizationId,
+        string workflowKey,
+        [FromBody] UpsertWorkflowConfigurationsRequest body,
+        ISender sender,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new UpsertWorkflowConfigurationsCommand(
+                organizationId,
+                workflowKey,
+                body.Steps ?? []),
             cancellationToken);
 
         return result.Match(response => (IResult)TypedResults.Ok(response));
@@ -328,4 +403,5 @@ public sealed record ConfigureOrganizationIntegrationRequest(
 
 public sealed record IntegrationCredentialInput(string Key, string? Value);
 
-public sealed record SetDefaultAiIntegrationRequest(string ProviderKey, string? Model);
+public sealed record UpsertWorkflowConfigurationsRequest(
+    IReadOnlyList<WorkflowStepConfigurationInput>? Steps);

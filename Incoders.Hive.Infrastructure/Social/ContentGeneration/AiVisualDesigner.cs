@@ -1,18 +1,19 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Incoders.Hive.Application.Abstractions.Ai;
-using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
 
 /// <summary>
 /// Real <see cref="IVisualDesigner"/> implementation that calls the ORGANIZATION's configured
-/// default AI (provider + model) via <see cref="IAiCompletionGateway"/> to produce brand-bound
-/// HTML/CSS markup. The model is NOT hardcoded — it follows Settings → Integrations → default AI
-/// by resolving <see cref="IDefaultAiSelector"/> for each organization/job.
+/// AI (provider + model) via <see cref="IAiCompletionGateway"/> to produce brand-bound HTML/CSS
+/// markup. The model is NOT hardcoded — it follows the organization's workflow "generate-content"
+/// route (priority-ordered) resolved through <see cref="IWorkflowConfigurationResolver"/>.
 ///
 /// <para>
 /// <see cref="IsActive"/> returns <c>true</c> — this is the live designer that replaces
@@ -39,14 +40,14 @@ public sealed class AiVisualDesigner : IVisualDesigner
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
     private readonly IAiCompletionGateway _gateway;
-    private readonly IDefaultAiSelector _aiSelector;
+    private readonly IWorkflowConfigurationResolver _workflowResolver;
 
-    public AiVisualDesigner(IAiCompletionGateway gateway, IDefaultAiSelector aiSelector)
+    public AiVisualDesigner(IAiCompletionGateway gateway, IWorkflowConfigurationResolver workflowResolver)
     {
         ArgumentNullException.ThrowIfNull(gateway);
-        ArgumentNullException.ThrowIfNull(aiSelector);
+        ArgumentNullException.ThrowIfNull(workflowResolver);
         _gateway = gateway;
-        _aiSelector = aiSelector;
+        _workflowResolver = workflowResolver;
     }
 
     /// <inheritdoc />
@@ -63,15 +64,30 @@ public sealed class AiVisualDesigner : IVisualDesigner
     {
         var inputJson = BuildInputJson(contentPayload, brandSnapshot, backgroundSelection);
 
-        // Resolve the ORGANIZATION's configured AI exactly like the copy/analysis path does, via
-        // IDefaultAiSelector. This is lenient (falls back to a default provider when no explicit
-        // default-AI flag is set), so it works whether or not the org marked a default AI — unlike
-        // passing null provider, which forces the gateway's strict default-AI lookup and 500s when
-        // none is flagged. NEVER hardcode the model: it follows whatever the org selected.
-        var selection = await _aiSelector.SelectAsync(organizationId, cancellationToken);
-        if (selection.IsFailure)
+        // Resolve the ORGANIZATION's configured AI from the workflow "generate-content" stage
+        // (priority-ordered; priority-1 is the default). Same single agent the package orchestrator
+        // uses — no per-format differentiation. NEVER hardcode the model: it follows the org config.
+        var route = await _workflowResolver.ResolveStepAsync(
+            new WorkflowStepResolutionRequest(
+                organizationId,
+                "single-analyzer",
+                "content-analysis",
+                "generate-content",
+                "ai-generation",
+                null),
+            cancellationToken);
+        if (route.IsFailure)
         {
-            return Result.Failure<VisualDesignOutput>(selection.Error);
+            return Result.Failure<VisualDesignOutput>(route.Error);
+        }
+
+        var aiRoute = route.Value
+            .Where(candidate => candidate.IsEnabled)
+            .OrderBy(candidate => candidate.Priority)
+            .FirstOrDefault();
+        if (aiRoute is null)
+        {
+            return Result.Failure<VisualDesignOutput>(IntegrationErrors.AiRouteNotConfigured);
         }
 
         var request = new AiJsonCompletionRequest(
@@ -80,8 +96,8 @@ public sealed class AiVisualDesigner : IVisualDesigner
             CapabilityKey: CapabilityKey,
             PromptVersionKey: PromptVersion,
             InputJson: inputJson,
-            PreferredProviderKey: selection.Value.ProviderKey,
-            PreferredModel: selection.Value.Model);
+            PreferredProviderKey: aiRoute.ProviderKey,
+            PreferredModel: aiRoute.ModelId);
 
         var gatewayResult = await _gateway.CompleteJsonAsync<AiVisualDesignResponse>(request, cancellationToken);
 

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { login } from "@/lib/api/auth";
 import { ApiError } from "@/lib/api/types";
 import { saveAuthSession } from "@/lib/auth/client-session";
+import { resetSignOut } from "@/lib/auth/sign-out-store";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ export function LoginForm() {
       try {
         const tokens = await login({ email, password });
         saveAuthSession(tokens);
+        resetSignOut();
       } catch (err) {
         setError((err as ApiError).message ?? "Invalid credentials.");
         return;

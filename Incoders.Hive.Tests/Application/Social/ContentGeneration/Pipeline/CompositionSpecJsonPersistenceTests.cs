@@ -185,17 +185,18 @@ public sealed class CompositionSpecJsonPersistenceTests
     }
 
     // -----------------------------------------------------------------------
-    // PPTX-01-c: failed render does NOT store markup (no regression)
+    // Resilience: guardrail rejection falls back to a deterministic composition
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// PPTX-01-c: when guardrail validation fails, the format result MUST NOT store markup.
-    /// Ensures the fix does not accidentally persist markup on failures.
+    /// When guardrail validation rejects the AI design, the pipeline MUST fall back to a
+    /// deterministic brand-bound composition and persist THAT markup — the flow completes for any
+    /// model. The rejected AI markup MUST NOT be stored; the deterministic fallback MUST be.
     /// </summary>
     [Fact]
-    public async Task Pipeline_GuardrailFail_CompositionSpecJsonIsNull()
+    public async Task Pipeline_GuardrailFail_PersistsDeterministicFallbackMarkup()
     {
-        // GIVEN guardrails always fail
+        // GIVEN guardrails always fail (the AI markup is rejected)
         var formatResults = new SpyFormatResultRepository();
         var processor = BuildProcessorWithFailingGuardrails(
             "flyer", "<div>Should fail</div>", formatResults);
@@ -203,12 +204,17 @@ public sealed class CompositionSpecJsonPersistenceTests
         // WHEN
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
-        // THEN no "Rendered" row with non-null CompositionSpecJson exists
-        var renderedWithMarkup = formatResults.Upserts
+        // THEN a "Rendered" row IS persisted with the deterministic fallback markup — NOT the
+        // rejected AI markup.
+        var rendered = formatResults.Upserts
             .Where(r => r.Status == "Rendered" && r.CompositionSpecJson is not null)
             .ToList();
 
-        Assert.Empty(renderedWithMarkup);
+        Assert.Single(rendered);
+        // The deterministic fallback synthesizes a brand-palette gradient background; its presence
+        // (and the absence of the rejected AI markup) proves the fallback was used.
+        Assert.Contains("linear-gradient", rendered[0].CompositionSpecJson!);
+        Assert.DoesNotContain("Should fail", rendered[0].CompositionSpecJson!);
     }
 
     // -----------------------------------------------------------------------

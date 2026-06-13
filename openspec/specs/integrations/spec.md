@@ -15,7 +15,7 @@ Define platform-level integration catalog and organization-scoped provider confi
 - Single Analyzer setup requires at least one connected content data provider (Apify or Data365) and at least one connected AI model provider.
 - Generator setup currently requires at least one connected content data provider (Apify or Data365) and at least one connected AI model provider; design and publishing providers are optional until the generator workflow expands.
 - Expose Apify as `SystemDefault` readonly by default while allowing future organization-owned credentials.
-- Expose API endpoints for listing providers, listing organization integrations, reading one organization integration by provider key, connecting/configuring, deleting, testing connection, and selecting default AI provider/model.
+- Expose API endpoints for listing providers, listing organization integrations, reading one organization integration by provider key, connecting/configuring, deleting, and testing connection. (The former "select default AI provider/model" endpoint and the `is_default_ai` flag were removed — AI selection is driven entirely by workflow routing.)
 - Ensure Social module resolves providers through `IIntegrationResolver` abstraction.
 
 ## Constraints
@@ -28,7 +28,23 @@ Define platform-level integration catalog and organization-scoped provider confi
 - Users can connect/configure integrations through a dynamic credential modal.
 - Users can test provider connections and see status badges.
 - Users can identify readonly/system default providers.
-- Users can select default AI provider/model for the organization.
+- AI provider/model is selected per organization through workflow routing (priority-ordered routes), not a separate "default AI" toggle: priority-1 is the default and backups (different provider, or same provider with a different model) are tried on failure. When no AI route is configured, analysis/generation fails with `integrations.ai_route_not_configured` (shown to end users as a sanitized, non-technical message with a contact-support option).
+- Workflow routing exposes each social network as an independent tab inside its step: every network keeps its own ordered execution routes, and adding a backup applies only to the currently selected network.
+- Sysadmins can configure workflow routing from selector-based fields instead of free-text `analysisType`, `stepKey`, `networkKey`, or actor/model ids.
+- The workflow selector catalog is backend-owned so new supported workflow steps appear in the routing UI by extending the shared catalog once, not by rewriting the page form.
+- Workflow routing network selectors are populated from active platform social networks, never from hardcoded UI values.
+- Workflow routing provider selectors show only connected providers compatible with the selected workflow step.
+- Workflow routing AI model selectors are populated from the selected provider connector's synced/available models for that organization.
+- Workflow routing Apify actor selectors are populated from the selected organization's configured `actor_mappings_json` entries for the matching network + variant.
+- Workflow routing is edited per workflow stage, so shared stage selectors (analysis type, step, network) are not duplicated across every route candidate.
+- Sysadmins can drag and drop route candidates inside a workflow stage; the UI automatically persists execution priority from that visual order.
+- Each workflow stage can define one primary route plus one or more enabled backup routes that may switch provider, model, or actor while still using only connected organization integrations.
+
+### Workflow Routing Selector Contract
+
+- `GET /api/integrations/workflow-configurations` returns both the saved rows and the workflow catalog metadata required to render the selector-driven routing UI.
+- The catalog defines workflow key, analysis type, step key, operation key/label, allowed provider categories/keys, network requirements, and whether model/actor selectors apply.
+- The backend validates that persisted workflow rows match the catalog, so unsupported provider/step combinations cannot be saved even if a client sends manual values.
 
 ---
 

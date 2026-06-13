@@ -143,7 +143,12 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
         CancellationToken ct)
     {
         // ── Actor resolution ──────────────────────────────────────────────────
-        var actorIds = GetAllMappedActors(mappingsJson, NetworkKey, CapabilityKey);
+        var actorIds = request.PreferredActorIds?
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList()
+            ?? GetAllMappedActors(mappingsJson, NetworkKey, CapabilityKey);
         if (actorIds.Count == 0)
         {
             _logger.LogWarning(
@@ -483,16 +488,10 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
                 ConnectionMode: _credential.ConnectionMode,
                 Status: Domain.Integrations.IntegrationStatus.Connected,
                 IsReadOnly: false,
-                IsDefaultAi: false,
                 SelectedAiModel: null,
                 Credentials: _credential.Credentials);
 
             return Task.FromResult(Result.Success(integration));
         }
-
-        public Task<Result<ResolvedIntegration>> ResolveDefaultAiProviderAsync(
-            Guid organizationId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(Result.Failure<ResolvedIntegration>(IntegrationErrors.DefaultAiProviderNotConnected));
     }
 }

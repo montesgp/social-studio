@@ -79,7 +79,6 @@ public sealed class EfOrganizationIntegrationRepository : IOrganizationIntegrati
         entity.ConnectionMode = integration.ConnectionMode.ToString();
         entity.Status = integration.Status.ToString();
         entity.IsReadOnly = integration.IsReadOnly;
-        entity.IsDefaultAi = integration.IsDefaultAi;
         entity.SelectedAiModel = integration.SelectedAiModel;
         entity.LastTestedAtUtc = integration.LastTestedAtUtc;
         entity.LastError = integration.LastError;
@@ -116,7 +115,6 @@ public sealed class EfOrganizationIntegrationRepository : IOrganizationIntegrati
             Enum.Parse<IntegrationConnectionMode>(row.ConnectionMode),
             Enum.Parse<IntegrationStatus>(row.Status),
             row.IsReadOnly,
-            row.IsDefaultAi,
             row.SelectedAiModel,
             row.LastTestedAtUtc,
             row.LastError,
@@ -132,7 +130,6 @@ public sealed class EfOrganizationIntegrationRepository : IOrganizationIntegrati
             ConnectionMode = integration.ConnectionMode.ToString(),
             Status = integration.Status.ToString(),
             IsReadOnly = integration.IsReadOnly,
-            IsDefaultAi = integration.IsDefaultAi,
             SelectedAiModel = integration.SelectedAiModel,
             LastTestedAtUtc = integration.LastTestedAtUtc,
             LastError = integration.LastError,

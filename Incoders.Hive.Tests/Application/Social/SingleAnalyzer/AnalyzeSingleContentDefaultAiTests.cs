@@ -1,31 +1,45 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Features.Social.SingleAnalyzer.Analyze;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 using Incoders.Hive.Tests.Common;
+using Microsoft.Extensions.Logging;
 
 namespace Incoders.Hive.Tests.Application.Social.SingleAnalyzer;
 
 /// <summary>
-/// Tests that SingleContentAnalyzer uses IDefaultAiSelector when no preferred AI provider
-/// is supplied in the command (CAP3-MUST-01/02/03/04).
+/// Tests that SingleContentAnalyzer resolves the AI provider/model SOLELY from the organization's
+/// priority-ordered workflow configuration (no Default-AI selector). When no AI route is configured,
+/// the analysis fails with AiRouteNotConfigured.
 /// </summary>
 public sealed class AnalyzeSingleContentDefaultAiTests
 {
     private static readonly DateTime Now = new(2026, 5, 23, 10, 0, 0, DateTimeKind.Utc);
 
-    // ─── Default-AI path ─────────────────────────────────────────────────────
+    // ─── Workflow-driven AI path ─────────────────────────────────────────────
 
     [Fact]
-    public async Task Analyzer_UsesDefaultAiSelector_WhenNoPreferredProviderOnCommand()
+    public async Task Analyzer_UsesWorkflowConfiguredAiRoute_WhenConfigured()
     {
-        var harness = new DefaultAiHarness(Now)
+        var workflow = new ConfiguredWorkflowResolver()
+            .With(
+                "content-analysis",
+                "analyze-content",
+                "ai-analysis",
+                null,
+                [
+                    new WorkflowStepRouteCandidate(
+                        Guid.NewGuid(), "anthropic", Guid.NewGuid(),
+                        IntegrationConnectionMode.BringYourOwnKey, 1, "claude-3-5-sonnet", null, true)
+                ]);
+
+        var harness = new DefaultAiHarness(Now, workflowResolver: workflow)
         {
-            SelectorResult = Result.Success(new DefaultAiSelection("anthropic", "claude-3-5-sonnet")),
             ContentResult = Result.Success(new SocialContentResolution(
                 Snapshot("tiktok", []),
                 []))
@@ -39,20 +53,17 @@ public sealed class AnalyzeSingleContentDefaultAiTests
                 PreferredExtractionProviderKey: null),
             CancellationToken.None);
 
-        Assert.True(result.IsSuccess);
+        Assert.True(result.IsSuccess, result.IsFailure ? result.Error.Code : string.Empty);
         Assert.NotNull(harness.AiGateway.LastRequest);
         Assert.Equal("anthropic", harness.AiGateway.LastRequest!.PreferredProviderKey);
         Assert.Equal("claude-3-5-sonnet", harness.AiGateway.LastRequest!.PreferredModel);
-        Assert.Equal(1, harness.Selector.CallCount);
     }
 
     [Fact]
-    public async Task Analyzer_FailsWithNoProvider_WhenSelectorReturnsFailure()
+    public async Task Analyzer_FailsWithAiRouteNotConfigured_WhenNoWorkflowRoute()
     {
         var harness = new DefaultAiHarness(Now)
         {
-            SelectorResult = Result.Failure<DefaultAiSelection>(
-                IntegrationErrors.DefaultAiProviderNotConnected),
             ContentResult = Result.Success(new SocialContentResolution(
                 Snapshot("tiktok", []),
                 []))
@@ -67,7 +78,7 @@ public sealed class AnalyzeSingleContentDefaultAiTests
             CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        Assert.Equal(IntegrationErrors.DefaultAiProviderNotConnected.Code, result.Error.Code);
+        Assert.Equal(IntegrationErrors.AiRouteNotConfigured.Code, result.Error.Code);
     }
 
     // ─── Profile baseline (TASK 03 skipped test — now active) ────────────────
@@ -93,6 +104,81 @@ public sealed class AnalyzeSingleContentDefaultAiTests
             CancellationToken.None);
 
         Assert.True(spyProfile.DetectPlatformCalled, "Profile.DetectPlatform should have been called");
+    }
+
+    [Fact]
+    public async Task Analyzer_UsesWorkflowConfiguredAiModelAndScrapeActorFallbacks_WhenConfigured()
+    {
+        var organizationId = Guid.NewGuid();
+        var workflow = new ConfiguredWorkflowResolver()
+            .With(
+                "content-analysis",
+                "analyze-content",
+                "ai-analysis",
+                null,
+                [
+                    new WorkflowStepRouteCandidate(
+                        Guid.NewGuid(),
+                        "claude",
+                        Guid.NewGuid(),
+                        IntegrationConnectionMode.BringYourOwnKey,
+                        Priority: 1,
+                        ModelId: "claude-sonnet-synced",
+                        ActorId: null,
+                        IsEnabled: true)
+                ])
+            .With(
+                "content-analysis",
+                "scrape-video",
+                "scrape-video",
+                "tiktok",
+                [
+                    new WorkflowStepRouteCandidate(
+                        Guid.NewGuid(),
+                        "apify",
+                        Guid.NewGuid(),
+                        IntegrationConnectionMode.BringYourOwnKey,
+                        Priority: 1,
+                        ModelId: null,
+                        ActorId: "actor-primary",
+                        IsEnabled: true),
+                    new WorkflowStepRouteCandidate(
+                        Guid.NewGuid(),
+                        "apify",
+                        Guid.NewGuid(),
+                        IntegrationConnectionMode.BringYourOwnKey,
+                        Priority: 2,
+                        ModelId: null,
+                        ActorId: "actor-fallback",
+                        IsEnabled: true)
+                ]);
+
+        var logger = new CapturingLogger<SingleContentAnalyzer>();
+        var harness = new DefaultAiHarness(Now, workflowResolver: workflow, logger: logger)
+        {
+            ContentResult = Result.Success(new SocialContentResolution(
+                Snapshot("tiktok", []),
+                []))
+        };
+
+        var result = await harness.Analyzer.AnalyzeAsync(
+            new SingleContentAnalysisRequest(
+                organizationId,
+                Guid.NewGuid(),
+                "https://www.tiktok.com/@brand/video/123",
+                ClientId: null,
+                PreferredExtractionProviderKey: null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.IsFailure ? result.Error.Code : string.Empty);
+        Assert.NotNull(harness.AiGateway.LastRequest);
+        Assert.Equal("claude", harness.AiGateway.LastRequest!.PreferredProviderKey);
+        Assert.Equal("claude-sonnet-synced", harness.AiGateway.LastRequest!.PreferredModel);
+        Assert.NotNull(harness.ContentResolver.LastRequest);
+        Assert.Equal("apify", harness.ContentResolver.LastRequest!.PreferredProviderKey);
+        Assert.Equal(["actor-primary", "actor-fallback"], harness.ContentResolver.LastRequest!.PreferredActorIds);
+        Assert.Contains(logger.Messages, message => message.Contains("WorkflowStepResolved", StringComparison.Ordinal));
+        Assert.Contains(logger.Messages, message => message.Contains("WorkflowConfigurationResolved", StringComparison.Ordinal));
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -142,31 +228,20 @@ public sealed class AnalyzeSingleContentDefaultAiTests
             Result.Success(_profile);
     }
 
-    private sealed class SpyDefaultAiSelector : IDefaultAiSelector
-    {
-        private readonly DefaultAiHarness _harness;
-        public int CallCount { get; private set; }
-
-        public SpyDefaultAiSelector(DefaultAiHarness harness) => _harness = harness;
-
-        public Task<Result<DefaultAiSelection>> SelectAsync(
-            Guid organizationId,
-            CancellationToken ct = default)
-        {
-            CallCount++;
-            return Task.FromResult(_harness.SelectorResult);
-        }
-    }
-
     private sealed class FakeSocialContentResolver : ISocialContentResolver
     {
         private readonly DefaultAiHarness _h;
         public FakeSocialContentResolver(DefaultAiHarness h) => _h = h;
 
+        public SocialContentResolutionRequest? LastRequest { get; private set; }
+
         public Task<Result<SocialContentResolution>> ResolveAsync(
             SocialContentResolutionRequest request,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(_h.ContentResult);
+            CancellationToken cancellationToken = default)
+        {
+            LastRequest = request;
+            return Task.FromResult(_h.ContentResult);
+        }
     }
 
     private sealed class SpyAiGateway : IAiCompletionGateway
@@ -187,33 +262,39 @@ public sealed class AnalyzeSingleContentDefaultAiTests
 
     private sealed class DefaultAiHarness
     {
-        public DefaultAiHarness(DateTime nowUtc, IContentAnalysisProfileProvider? profileProvider = null)
+        public DefaultAiHarness(
+            DateTime nowUtc,
+            IContentAnalysisProfileProvider? profileProvider = null,
+            IWorkflowConfigurationResolver? workflowResolver = null,
+            ILogger<SingleContentAnalyzer>? logger = null)
         {
             Repository = new SimpleRepository();
             UnitOfWork = new SimpleUnitOfWork();
             Clock = new TestClock(nowUtc);
             ContentResolver = new FakeSocialContentResolver(this);
             AiGateway = new SpyAiGateway();
-            Selector = new SpyDefaultAiSelector(this);
 
             var provider = profileProvider ?? new StaticProfileProvider(new SpyProfile());
 
             Analyzer = new SingleContentAnalyzer(
-                Repository, UnitOfWork, Clock, ContentResolver, AiGateway, Selector, provider);
+                Repository,
+                UnitOfWork,
+                Clock,
+                ContentResolver,
+                AiGateway,
+                provider,
+                workflowResolver: workflowResolver,
+                logger: logger);
         }
 
         public Result<SocialContentResolution> ContentResult { get; set; } =
             Result.Failure<SocialContentResolution>(IntegrationErrors.ProviderRouteNotConfigured);
-
-        public Result<DefaultAiSelection> SelectorResult { get; set; } =
-            Result.Success(new DefaultAiSelection("openai", "gpt-4o"));
 
         public SimpleRepository Repository { get; }
         public SimpleUnitOfWork UnitOfWork { get; }
         public TestClock Clock { get; }
         public FakeSocialContentResolver ContentResolver { get; }
         public SpyAiGateway AiGateway { get; }
-        public SpyDefaultAiSelector Selector { get; }
         public SingleContentAnalyzer Analyzer { get; }
 
         public sealed class SimpleRepository : ISingleContentAnalysisRepository
@@ -250,6 +331,62 @@ public sealed class AnalyzeSingleContentDefaultAiTests
         public sealed class SimpleUnitOfWork : IUnitOfWork
         {
             public Task<int> SaveChangesAsync(CancellationToken ct = default) => Task.FromResult(0);
+        }
+    }
+
+    private sealed class ConfiguredWorkflowResolver : IWorkflowConfigurationResolver
+    {
+        private readonly Dictionary<string, IReadOnlyList<WorkflowStepRouteCandidate>> _routes = new();
+
+        public ConfiguredWorkflowResolver With(
+            string analysisType,
+            string stepKey,
+            string? operationKey,
+            string? networkKey,
+            IReadOnlyList<WorkflowStepRouteCandidate> candidates)
+        {
+            _routes[Key(analysisType, stepKey, operationKey, networkKey)] = candidates;
+            return this;
+        }
+
+        public Task<Result<IReadOnlyList<WorkflowStepRouteCandidate>>> ResolveStepAsync(
+            WorkflowStepResolutionRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            _ = cancellationToken;
+            return Task.FromResult(Result.Success(
+                _routes.TryGetValue(
+                    Key(request.AnalysisType, request.StepKey, request.OperationKey, request.NetworkKey),
+                    out var candidates)
+                    ? candidates
+                    : []));
+        }
+
+        private static string Key(string analysisType, string stepKey, string? operationKey, string? networkKey) =>
+            $"{analysisType}|{stepKey}|{operationKey ?? ""}|{networkKey ?? ""}";
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull =>
+            null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            _ = logLevel;
+            _ = eventId;
+            _ = exception;
+            Messages.Add(formatter(state, exception));
         }
     }
 }

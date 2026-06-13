@@ -45,6 +45,10 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<IntegrationProviderCapabilityData> IntegrationProviderCapabilities => Set<IntegrationProviderCapabilityData>();
 
+    public DbSet<OrganizationAiModelData> OrganizationAiModels => Set<OrganizationAiModelData>();
+
+    public DbSet<OrganizationWorkflowStepConfigurationData> OrganizationWorkflowStepConfigurations => Set<OrganizationWorkflowStepConfigurationData>();
+
     public DbSet<SocialNetworkData> SocialNetworks => Set<SocialNetworkData>();
 
     public DbSet<ClientReferentAccountData> ClientReferentAccounts => Set<ClientReferentAccountData>();
@@ -270,7 +274,6 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
             entity.Property(x => x.SelectedAiModel).HasMaxLength(200);
             entity.Property(x => x.IsReadOnly).IsRequired();
-            entity.Property(x => x.IsDefaultAi).IsRequired();
             entity.HasIndex(x => new { x.OrganizationId, x.ProviderId }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Status });
 
@@ -319,6 +322,95 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .WithMany(x => x.Capabilities)
                 .HasForeignKey(x => x.ProviderId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<OrganizationAiModelData>(entity =>
+        {
+            entity.ToTable("organization_ai_models", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.OrganizationIntegrationId).HasColumnName("organization_integration_id").IsRequired();
+            entity.Property(x => x.ProviderId).HasColumnName("provider_id").IsRequired();
+            entity.Property(x => x.ProviderKey).HasColumnName("provider_key").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ModelId).HasColumnName("model_id").HasMaxLength(200).IsRequired();
+            entity.Property(x => x.DisplayName).HasColumnName("display_name").HasMaxLength(240).IsRequired();
+            entity.Property(x => x.CapabilitiesJson).HasColumnName("capabilities_json").IsRequired();
+            entity.Property(x => x.MetadataJson).HasColumnName("metadata_json").IsRequired();
+            entity.Property(x => x.IsAvailable).HasColumnName("is_available").IsRequired();
+            entity.Property(x => x.SyncedAtUtc).HasColumnName("synced_at_utc").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasIndex(x => new { x.OrganizationId, x.ProviderId, x.ModelId })
+                .IsUnique()
+                .HasDatabaseName("ix_organization_ai_models_org_provider_model");
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.OrganizationIntegration)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationIntegrationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Provider)
+                .WithMany()
+                .HasForeignKey(x => x.ProviderId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<OrganizationWorkflowStepConfigurationData>(entity =>
+        {
+            entity.ToTable("organization_workflow_step_configs", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.WorkflowKey).HasColumnName("workflow_key").HasMaxLength(80).IsRequired();
+            entity.Property(x => x.AnalysisType).HasColumnName("analysis_type").HasMaxLength(80).IsRequired();
+            entity.Property(x => x.StepKey).HasColumnName("step_key").HasMaxLength(120).IsRequired();
+            entity.Property(x => x.OperationKey).HasColumnName("operation_key").HasMaxLength(80);
+            entity.Property(x => x.NetworkKey).HasColumnName("network_key").HasMaxLength(64);
+            entity.Property(x => x.ProviderId).HasColumnName("provider_id").IsRequired();
+            entity.Property(x => x.ProviderKey).HasColumnName("provider_key").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.OrganizationIntegrationId).HasColumnName("organization_integration_id").IsRequired();
+            entity.Property(x => x.ModelId).HasColumnName("model_id").HasMaxLength(200);
+            entity.Property(x => x.ActorId).HasColumnName("actor_id").HasMaxLength(240);
+            entity.Property(x => x.Priority).HasColumnName("priority").IsRequired();
+            entity.Property(x => x.IsEnabled).HasColumnName("is_enabled").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasIndex(x => new { x.OrganizationId, x.WorkflowKey, x.AnalysisType })
+                .HasDatabaseName("ix_org_workflow_step_configs_org_workflow_analysis");
+
+            entity.HasIndex(x => new
+                {
+                    x.OrganizationId,
+                    x.WorkflowKey,
+                    x.AnalysisType,
+                    x.StepKey,
+                    x.NetworkKey,
+                    x.OperationKey,
+                    x.Priority
+                })
+                .IsUnique()
+                .HasDatabaseName("ix_org_workflow_step_configs_step_priority");
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.OrganizationIntegration)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationIntegrationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Provider)
+                .WithMany()
+                .HasForeignKey(x => x.ProviderId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<ClientReferentAccountData>(entity =>
@@ -826,7 +918,6 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
 
             ConfigureJsonbCollection<GeneralStrategyData, string>(entity, x => x.ContentPillars, "content_pillars");
-            ConfigureJsonbCollection<GeneralStrategyData, string>(entity, x => x.ToneKeywords, "tone_keywords");
 
             entity.HasOne<SocialClientData>()
                 .WithMany()

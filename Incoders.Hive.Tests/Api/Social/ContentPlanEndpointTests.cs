@@ -224,7 +224,6 @@ public sealed class ContentPlanEndpointTests
         var result = await EndpointHandler.UpsertGeneralStrategyAsync(
             ClientId,
             contentPillars: ["Edu"],
-            toneKeywords: null,
             targetAudience: null,
             postingFrequency: null,
             notes: null,
@@ -246,7 +245,7 @@ public sealed class ContentPlanEndpointTests
 
         var result = await EndpointHandler.UpsertGeneralStrategyAsync(
             ClientId,
-            contentPillars: null, toneKeywords: null, targetAudience: null,
+            contentPillars: null, targetAudience: null,
             postingFrequency: null, notes: null,
             tenant, sender);
 
@@ -290,7 +289,6 @@ public sealed class ContentPlanEndpointTests
             ClientId: clientId,
             OrganizationId: orgId,
             ContentPillars: ["Education"],
-            ToneKeywords: [],
             TargetAudience: null,
             PostingFrequency: null,
             Notes: null,
@@ -410,7 +408,6 @@ public sealed class ContentPlanEndpointTests
         internal static async Task<IResult> UpsertGeneralStrategyAsync(
             Guid clientId,
             IReadOnlyList<string>? contentPillars,
-            IReadOnlyList<string>? toneKeywords,
             string? targetAudience,
             string? postingFrequency,
             string? notes,
@@ -427,7 +424,7 @@ public sealed class ContentPlanEndpointTests
             var result = await sender.Send(
                 new UpsertGeneralStrategyCommand(
                     clientId, organizationId.Value,
-                    contentPillars, toneKeywords,
+                    contentPillars,
                     targetAudience, postingFrequency, notes),
                 CancellationToken.None);
 

@@ -252,7 +252,6 @@ export interface OrganizationIntegration {
   connectionMode: IntegrationConnectionMode;
   status: IntegrationStatus;
   isReadOnly: boolean;
-  isDefaultAi: boolean;
   selectedAiModel: string | null;
   lastTestedAtUtc: string | null;
   lastError: string | null;
@@ -260,9 +259,94 @@ export interface OrganizationIntegration {
   supportsManagedByIncoders: boolean;
   supportsSystemDefault: boolean;
   systemDefaultReadOnly: boolean;
+  availableModels: string[];
   credentialFields: IntegrationCredentialField[];
   configuredCredentialKeys: string[];
   credentialValues: Record<string, string>;
+}
+
+export interface OrganizationAiModel {
+  id: string;
+  organizationId: string;
+  providerKey: string;
+  modelId: string;
+  displayName: string;
+  isAvailable: boolean;
+  syncedAtUtc: string;
+}
+
+export interface OrganizationAiModelsResponse {
+  organizationId: string;
+  providerKey: string;
+  lastSyncedAtUtc: string | null;
+  models: OrganizationAiModel[];
+}
+
+export interface WorkflowStepConfiguration {
+  id: string;
+  organizationId: string;
+  workflowKey: string;
+  analysisType: string;
+  stepKey: string;
+  operationKey: string | null;
+  networkKey: string | null;
+  providerKey: string;
+  organizationIntegrationId: string;
+  modelId: string | null;
+  actorId: string | null;
+  priority: number;
+  isEnabled: boolean;
+  updatedAtUtc: string;
+}
+
+export interface WorkflowStepCatalog {
+  key: string;
+  label: string;
+  operationKey: string;
+  operationLabel: string;
+  description: string;
+  requiresNetwork: boolean;
+  supportedNetworkKeys: string[];
+  allowedProviderCategories: IntegrationProviderCategory[];
+  allowedProviderKeys: string[];
+  supportsModelSelection: boolean;
+  supportsActorSelection: boolean;
+  actorVariantKey: string | null;
+}
+
+export interface WorkflowAnalysisTypeCatalog {
+  key: string;
+  label: string;
+  steps: WorkflowStepCatalog[];
+}
+
+export interface WorkflowCatalog {
+  key: string;
+  label: string;
+  analysisTypes: WorkflowAnalysisTypeCatalog[];
+}
+
+export interface WorkflowConfigurationCatalog {
+  workflows: WorkflowCatalog[];
+}
+
+export interface WorkflowConfigurationOverview {
+  organizationId: string;
+  workflowKey: string | null;
+  catalog: WorkflowConfigurationCatalog;
+  steps: WorkflowStepConfiguration[];
+}
+
+export interface WorkflowStepConfigurationInput {
+  analysisType: string;
+  stepKey: string;
+  operationKey?: string | null;
+  networkKey?: string | null;
+  providerKey: string;
+  modelId?: string | null;
+  actorId?: string | null;
+  priority: number;
+  isEnabled: boolean;
 }
 
 export interface IntegrationSetupChecklistItem {
@@ -281,8 +365,6 @@ export interface IntegrationSetupChecklist {
 
 export interface OrganizationIntegrationsOverview {
   organizationId: string;
-  defaultAiProviderKey: string | null;
-  defaultAiModel: string | null;
   checklist: IntegrationSetupChecklistItem[];
   checklistGroups: IntegrationSetupChecklist[];
   integrations: OrganizationIntegration[];
@@ -525,7 +607,6 @@ export interface ClientStrategy {
   clientId: string;
   organizationId: string;
   contentPillars: string[];
-  toneKeywords: string[];
   targetAudience: string | null;
   postingFrequency: string | null;
   notes: string | null;
@@ -535,7 +616,6 @@ export interface ClientStrategy {
 
 export interface UpsertClientStrategyPayload {
   contentPillars: string[];
-  toneKeywords: string[];
   targetAudience?: string | null;
   postingFrequency?: string | null;
   notes?: string | null;

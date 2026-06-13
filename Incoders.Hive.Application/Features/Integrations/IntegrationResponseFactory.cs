@@ -9,10 +9,12 @@ internal static class IntegrationResponseFactory
         IntegrationProvider provider,
         OrganizationIntegration? integration,
         IReadOnlyList<string> configuredCredentialKeys,
-        IReadOnlyDictionary<string, string>? credentialValues = null)
+        IReadOnlyDictionary<string, string>? credentialValues = null,
+        IReadOnlyList<string>? availableModels = null)
     {
         var providerResponse = IntegrationProviderResponse.FromDomain(provider);
         var values = credentialValues ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var models = availableModels ?? provider.AvailableModels;
 
         if (integration is null)
         {
@@ -38,7 +40,6 @@ internal static class IntegrationResponseFactory
                 fallbackMode,
                 fallbackStatus,
                 provider.SystemDefaultReadOnly,
-                false,
                 null,
                 null,
                 null,
@@ -46,6 +47,7 @@ internal static class IntegrationResponseFactory
                 provider.SupportsManagedByIncoders,
                 provider.SupportsSystemDefault,
                 provider.SystemDefaultReadOnly,
+                models,
                 providerResponse.CredentialFields,
                 configuredCredentialKeys,
                 values);
@@ -61,7 +63,6 @@ internal static class IntegrationResponseFactory
             integration.ConnectionMode,
             integration.Status,
             integration.IsReadOnly,
-            integration.IsDefaultAi,
             integration.SelectedAiModel,
             integration.LastTestedAtUtc,
             integration.LastError,
@@ -69,6 +70,7 @@ internal static class IntegrationResponseFactory
             provider.SupportsManagedByIncoders,
             provider.SupportsSystemDefault,
             provider.SystemDefaultReadOnly,
+            models,
             providerResponse.CredentialFields,
             configuredCredentialKeys,
             values);

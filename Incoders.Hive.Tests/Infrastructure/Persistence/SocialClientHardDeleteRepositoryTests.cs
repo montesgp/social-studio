@@ -49,7 +49,6 @@ public sealed class SocialClientHardDeleteRepositoryTests
             ClientId = clientId,
             OrganizationId = organizationId,
             ContentPillars = ["education"],
-            ToneKeywords = ["clear"],
             CreatedAtUtc = Now,
             UpdatedAtUtc = Now,
         });

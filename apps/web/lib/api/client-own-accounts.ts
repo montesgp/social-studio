@@ -14,6 +14,7 @@ export async function listClientOwnAccounts(
   clientId: string,
   query: ListClientOwnAccountsQuery = {},
   token?: string,
+  organizationId?: string,
 ): Promise<PagedClientOwnAccounts> {
   const params = new URLSearchParams();
   if (query.includeInactive) params.set("includeInactive", "true");
@@ -24,6 +25,7 @@ export async function listClientOwnAccounts(
     `${base(clientId)}${qs ? `?${qs}` : ""}`,
     undefined,
     token,
+    organizationId,
   );
 }
 
@@ -100,10 +102,12 @@ export async function syncClientOwnAccounts(
   clientId: string,
   items: SyncClientOwnAccountPayload[],
   token?: string,
+  organizationId?: string,
 ): Promise<ClientOwnAccount[]> {
   return apiRequest<ClientOwnAccount[]>(
     base(clientId),
     { method: "PUT", body: JSON.stringify({ items }) },
     token,
+    organizationId,
   );
 }

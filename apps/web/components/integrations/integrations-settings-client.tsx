@@ -1,16 +1,34 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   Bot,
   BrainCircuit,
   CheckCircle2,
+  ChevronDown,
   Cloud,
   DatabaseZap,
   FolderOpen,
+  GripVertical,
   KeyRound,
   Link2,
-  Loader2,
   Music2,
   Plus,
   RefreshCcw,
@@ -32,24 +50,32 @@ import {
   getOrganizationIntegration,
   listIntegrationProviders,
   listOrganizationIntegrations,
-  setDefaultAiIntegration,
-  testOrganizationIntegration
+  listWorkflowConfigurations,
+  syncOrganizationAiModels,
+  testOrganizationIntegration,
+  upsertWorkflowConfigurations
 } from "@/lib/api/integrations";
 import { listOrganizations } from "@/lib/api/organizations";
 import {
   ApiError,
   IntegrationConnectionMode,
   IntegrationProvider,
+  IntegrationProviderCategory,
   IntegrationStatus,
   Organization,
   OrganizationIntegration,
   OrganizationIntegrationsOverview,
-  SocialNetwork
+  SocialNetwork,
+  WorkflowCatalog,
+  WorkflowConfigurationCatalog,
+  WorkflowStepCatalog,
+  WorkflowStepConfigurationInput
 } from "@/lib/api/types";
 import { listSocialNetworks } from "@/lib/api/social-networks";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -58,6 +84,7 @@ import { useToast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
+import { show as showBlockingLoader, hide as hideBlockingLoader } from "@/lib/loading/blocking-loader-store";
 
 const categoryLabels: Record<string, string> = {
   AiModel: "AI model providers",
@@ -99,12 +126,38 @@ interface ApifyActorMappingDraft {
   isPrimary: boolean;
 }
 
-const apifyActorMappingsCredentialKey = "actor_mappings_json";
+interface WorkflowStepDraft {
+  id: string;
+  analysisType: string;
+  stepKey: string;
+  operationKey: string;
+  networkKey: string;
+  providerKey: string;
+  modelId: string;
+  actorId: string;
+  priority: number;
+  isEnabled: boolean;
+}
 
-const WORKFLOW_OPTIONS: { value: string; label: string }[] = [
+interface WorkflowStageDraft {
+  key: string;
+  analysisType: string;
+  stepKey: string;
+  operationKey: string;
+  networkKey: string;
+  routes: WorkflowStepDraft[];
+}
+
+const apifyActorMappingsCredentialKey = "actor_mappings_json";
+const APIFY_VARIANT_OPTIONS: { value: string; label: string }[] = [
   { value: "social-extraction", label: "Análisis de contenido" },
   { value: "profile", label: "Análisis de perfil" }
 ];
+
+interface WorkflowSelectOption {
+  value: string;
+  label: string;
+}
 
 function newApifyActorMapping(defaultNetworkKey: string): ApifyActorMappingDraft {
   return {
@@ -192,6 +245,163 @@ function serializeApifyActorMappings(mappings: ApifyActorMappingDraft[]) {
   );
 }
 
+function appendCurrentOption(
+  options: WorkflowSelectOption[],
+  value: string,
+  fallbackLabel: string,
+): WorkflowSelectOption[] {
+  if (!value.trim() || options.some((option) => option.value === value)) {
+    return options;
+  }
+
+  return [{ value, label: fallbackLabel }, ...options];
+}
+
+function workflowStageKey({
+  analysisType,
+  stepKey,
+  operationKey,
+  networkKey
+}: Pick<WorkflowStepDraft, "analysisType" | "stepKey" | "operationKey" | "networkKey">) {
+  return [analysisType.trim().toLowerCase(), stepKey.trim().toLowerCase(), operationKey.trim().toLowerCase(), networkKey.trim().toLowerCase()].join("::");
+}
+
+function resequenceWorkflowRows(rows: WorkflowStepDraft[]) {
+  const counters = new Map<string, number>();
+
+  return rows.map((row) => {
+    const key = workflowStageKey(row);
+    const nextPriority = (counters.get(key) ?? 0) + 1;
+    counters.set(key, nextPriority);
+
+    if (row.priority === nextPriority) {
+      return row;
+    }
+
+    return { ...row, priority: nextPriority };
+  });
+}
+
+function routeDisplayLabel(priority: number) {
+  return priority === 1 ? "Primary route" : `Backup route ${priority - 1}`;
+}
+
+function buildWorkflowStages(
+  rows: WorkflowStepDraft[],
+  workflow: WorkflowCatalog | null,
+  networks: WorkflowSelectOption[]
+) {
+  const grouped = new Map<string, WorkflowStageDraft>();
+
+  for (const row of rows) {
+    const key = workflowStageKey(row);
+    const current = grouped.get(key);
+    if (current) {
+      current.routes.push(row);
+      continue;
+    }
+
+    grouped.set(key, {
+      key,
+      analysisType: row.analysisType,
+      stepKey: row.stepKey,
+      operationKey: row.operationKey,
+      networkKey: row.networkKey,
+      routes: [row]
+    });
+  }
+
+  const analysisOrder = new Map<string, number>();
+  const stepOrder = new Map<string, number>();
+  workflow?.analysisTypes.forEach((analysisType, analysisIndex) => {
+    analysisOrder.set(analysisType.key, analysisIndex);
+    analysisType.steps.forEach((step, stepIndex) => {
+      stepOrder.set(`${analysisType.key}::${step.key}`, stepIndex);
+    });
+  });
+
+  const networkOrder = new Map<string, number>();
+  networks.forEach((network, index) => {
+    networkOrder.set(network.value, index);
+  });
+
+  return Array.from(grouped.values())
+    .map((stage) => ({
+      ...stage,
+      routes: [...stage.routes].sort((left, right) => left.priority - right.priority || left.providerKey.localeCompare(right.providerKey))
+    }))
+    .sort((left, right) => {
+      const analysisDiff = (analysisOrder.get(left.analysisType) ?? Number.MAX_SAFE_INTEGER)
+        - (analysisOrder.get(right.analysisType) ?? Number.MAX_SAFE_INTEGER);
+      if (analysisDiff !== 0) {
+        return analysisDiff;
+      }
+
+      const stepDiff = (stepOrder.get(`${left.analysisType}::${left.stepKey}`) ?? Number.MAX_SAFE_INTEGER)
+        - (stepOrder.get(`${right.analysisType}::${right.stepKey}`) ?? Number.MAX_SAFE_INTEGER);
+      if (stepDiff !== 0) {
+        return stepDiff;
+      }
+
+      const leftNetworkIndex = left.networkKey ? (networkOrder.get(left.networkKey) ?? Number.MAX_SAFE_INTEGER) : -1;
+      const rightNetworkIndex = right.networkKey ? (networkOrder.get(right.networkKey) ?? Number.MAX_SAFE_INTEGER) : -1;
+      if (leftNetworkIndex !== rightNetworkIndex) {
+        return leftNetworkIndex - rightNetworkIndex;
+      }
+
+      return left.key.localeCompare(right.key);
+    });
+}
+
+interface WorkflowStepGroupDraft {
+  key: string;
+  analysisType: string;
+  stepKey: string;
+  operationKey: string;
+  networkStages: WorkflowStageDraft[];
+}
+
+function workflowStepGroupKey({
+  analysisType,
+  stepKey,
+  operationKey
+}: Pick<WorkflowStepDraft, "analysisType" | "stepKey" | "operationKey">) {
+  return [analysisType.trim().toLowerCase(), stepKey.trim().toLowerCase(), operationKey.trim().toLowerCase()].join("::");
+}
+
+/**
+ * Groups per-network stages by their workflow step (analysis type + step + operation), so the UI can
+ * render ONE card per step and expose each social network as an independent tab. Every network keeps
+ * its own ordered execution routes — adding a backup never bleeds into a sibling network.
+ */
+function buildWorkflowStepGroups(
+  rows: WorkflowStepDraft[],
+  workflow: WorkflowCatalog | null,
+  networks: WorkflowSelectOption[]
+): WorkflowStepGroupDraft[] {
+  const stages = buildWorkflowStages(rows, workflow, networks);
+  const grouped = new Map<string, WorkflowStepGroupDraft>();
+
+  for (const stage of stages) {
+    const key = workflowStepGroupKey(stage);
+    const current = grouped.get(key);
+    if (current) {
+      current.networkStages.push(stage);
+      continue;
+    }
+
+    grouped.set(key, {
+      key,
+      analysisType: stage.analysisType,
+      stepKey: stage.stepKey,
+      operationKey: stage.operationKey,
+      networkStages: [stage]
+    });
+  }
+
+  return Array.from(grouped.values());
+}
+
 function ModelSelect({
   models,
   value,
@@ -232,12 +442,17 @@ interface IntegrationsSettingsClientProps {
  * add a provider key here (and its authorize helper) when another OAuth connector is introduced.
  */
 const OAUTH_CONNECT_PROVIDERS = new Set<string>(["canva"]);
+const SETTINGS_INTEGRATIONS_BLOCKING_LOADER_ID = "settings-integrations.initial-resources";
 
 export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSettingsClientProps) {
   const token = useAccessToken();
   const toast = useToast();
   const { orgId: activeOrgId, isInitialized: orgInitialized } = useActiveOrg();
   const overviewRequestIdRef = useRef(0);
+  const workflowRequestIdRef = useRef(0);
+  const workflowActorRequestIdRef = useRef(0);
+  const loadedOverviewRef = useRef<string | null>(null);
+  const loadedWorkflowRef = useRef<{ organizationId: string; workflowKey: string } | null>(null);
 
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [providers, setProviders] = useState<IntegrationProvider[]>([]);
@@ -245,14 +460,115 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const [overview, setOverview] = useState<OrganizationIntegrationsOverview | null>(null);
   const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  // Value intentionally unbound: handlers still flip this to gate concurrent ops, but no UI reads it
+  // directly (the former Default-AI save button that did was removed).
+  const [, setRefreshing] = useState(false);
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [defaultAiProviderKey, setDefaultAiProviderKey] = useState<string>("");
-  const [defaultAiModel, setDefaultAiModel] = useState<string>("");
+  const [workflowCatalog, setWorkflowCatalog] = useState<WorkflowConfigurationCatalog | null>(null);
+  const [workflowApifyActors, setWorkflowApifyActors] = useState<ApifyActorMappingDraft[]>([]);
   const [modal, setModal] = useState<ModalState | null>(null);
   const [deleteConfirmIntegration, setDeleteConfirmIntegration] = useState<OrganizationIntegration | null>(null);
+  const [syncingModelsProviderKey, setSyncingModelsProviderKey] = useState<string | null>(null);
+  const [selectedWorkflowKey, setSelectedWorkflowKey] = useState<string>("single-analyzer");
+  const [workflowRows, setWorkflowRows] = useState<WorkflowStepDraft[]>([]);
+  const [workflowLoading, setWorkflowLoading] = useState(false);
+  const [workflowActorsLoading, setWorkflowActorsLoading] = useState(false);
+  const [workflowSaving, setWorkflowSaving] = useState(false);
+  // Active network tab per step group (key = workflowStepGroupKey). Pure view state — switching a tab
+  // never mutates routes; it only changes which network's execution routes are visible.
+  const [activeNetworkByGroup, setActiveNetworkByGroup] = useState<Record<string, string>>({});
+  // Collapsed step group cards (key = workflowStepGroupKey). Pure view state so the admin can fold the
+  // steps they are not editing ("Resolve source content", "Resolve profile snapshot", …) for clarity.
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  const groupedIntegrations = useMemo(() => {
+    const map = new Map<string, OrganizationIntegration[]>();
+    const items = overview?.integrations ?? [];
+
+    for (const integration of items) {
+      const key = integration.category;
+      const group = map.get(key) ?? [];
+      group.push(integration);
+      map.set(key, group);
+    }
+
+    return Array.from(map.entries());
+  }, [overview?.integrations]);
+
+  const connectedWorkflowIntegrations = useMemo(() => {
+    return (overview?.integrations ?? []).filter((integration) => integration.status === "Connected");
+  }, [overview?.integrations]);
+
+  const socialNetworkOptions = useMemo(() => {
+    return socialNetworks
+      .filter((network) => network.isActive)
+      .map((network) => ({
+        value: network.code,
+        label: network.displayName
+      }));
+  }, [socialNetworks]);
+
+  const workflowDefinitions = useMemo(() => workflowCatalog?.workflows ?? [], [workflowCatalog]);
+
+  // Workflow selector options are DRIVEN BY THE CARDS ABOVE (checklist groups), so every tool the
+  // organization can set up — even ones with no published workflow catalog yet (e.g. Content Generator,
+  // a future "Magic Generator", …) — appears here. The catalog only governs whether the selected tool
+  // is actually configurable; the option list stays dynamic with whatever the overview exposes.
+  const workflowOptions = useMemo<WorkflowSelectOption[]>(() => {
+    const groups = overview?.checklistGroups ?? [];
+    if (groups.length > 0) {
+      return groups.map((group) => ({ value: group.key, label: group.label }));
+    }
+
+    return workflowDefinitions.map((workflow) => ({ value: workflow.key, label: workflow.label }));
+  }, [overview?.checklistGroups, workflowDefinitions]);
+
+  const selectedWorkflowLabel = useMemo(() => {
+    return workflowOptions.find((option) => option.value === selectedWorkflowKey)?.label ?? selectedWorkflowKey;
+  }, [selectedWorkflowKey, workflowOptions]);
+
+  // Resolved ONLY when the selected tool has a published catalog. A selected card without a catalog
+  // (Content Generator today) stays null so the UI renders a "not configurable yet" placeholder instead
+  // of silently falling back to another tool's steps.
+  const selectedWorkflowDefinition = useMemo<WorkflowCatalog | null>(() => {
+    return workflowDefinitions.find((workflow) => workflow.key === selectedWorkflowKey) ?? null;
+  }, [selectedWorkflowKey, workflowDefinitions]);
+
+  const workflowStages = useMemo(
+    () => buildWorkflowStages(workflowRows, selectedWorkflowDefinition, socialNetworkOptions),
+    [selectedWorkflowDefinition, socialNetworkOptions, workflowRows]
+  );
+
+  const workflowStepGroups = useMemo(
+    () => buildWorkflowStepGroups(workflowRows, selectedWorkflowDefinition, socialNetworkOptions),
+    [selectedWorkflowDefinition, socialNetworkOptions, workflowRows]
+  );
+
+  const hasConnectedWorkflowApify = useMemo(() => {
+    return connectedWorkflowIntegrations.some((integration) => integration.providerKey === "apify");
+  }, [connectedWorkflowIntegrations]);
+
+  const workflowRouteSensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const isBlockingInitialPageResources = loading || workflowLoading || workflowActorsLoading;
+
+  useEffect(() => {
+    if (!isBlockingInitialPageResources) {
+      hideBlockingLoader(SETTINGS_INTEGRATIONS_BLOCKING_LOADER_ID);
+      return;
+    }
+
+    return showBlockingLoader(SETTINGS_INTEGRATIONS_BLOCKING_LOADER_ID, {
+      title: "Loading tool",
+      description: "Fetching data required to render this view...",
+      mode: "spinner"
+    });
+  }, [isBlockingInitialPageResources]);
 
   useEffect(() => {
     if (!orgInitialized) return;
@@ -270,13 +586,17 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   }, [token, orgInitialized]);
 
   useEffect(() => {
-    if (!token || !selectedOrganizationId) {
+    if (loading || !token || !selectedOrganizationId) {
+      return;
+    }
+
+    if (loadedOverviewRef.current === selectedOrganizationId) {
       return;
     }
 
     void loadOverview(selectedOrganizationId, token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedOrganizationId]);
+  }, [loading, selectedOrganizationId]);
 
   useEffect(() => {
     if (isPlatformAdmin || !orgInitialized) {
@@ -290,34 +610,77 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId, isPlatformAdmin, orgInitialized, selectedOrganizationId]);
 
-  const groupedIntegrations = useMemo(() => {
-    const map = new Map<string, OrganizationIntegration[]>();
-    const items = overview?.integrations ?? [];
-
-    for (const integration of items) {
-      const key = integration.category;
-      const group = map.get(key) ?? [];
-      group.push(integration);
-      map.set(key, group);
+  useEffect(() => {
+    if (loading) {
+      return;
     }
 
-    return Array.from(map.entries());
-  }, [overview?.integrations]);
+    if (!isPlatformAdmin || !token || !selectedOrganizationId || !selectedWorkflowKey) {
+      setWorkflowRows([]);
+      setWorkflowCatalog(null);
+      setWorkflowLoading(false);
+      return;
+    }
 
-  const connectedAiIntegrations = useMemo(() => {
-    return (overview?.integrations ?? []).filter(
-      (integration) => integration.category === "AiModel" && integration.status === "Connected"
-    );
-  }, [overview?.integrations]);
+    const loadedWorkflow = loadedWorkflowRef.current;
+    if (
+      loadedWorkflow?.organizationId === selectedOrganizationId &&
+      loadedWorkflow.workflowKey === selectedWorkflowKey
+    ) {
+      return;
+    }
 
-  const socialNetworkOptions = useMemo(() => {
-    return socialNetworks
-      .filter((network) => network.isActive)
-      .map((network) => ({
-        value: network.code,
-        label: network.displayName
-      }));
-  }, [socialNetworks]);
+    void loadWorkflowConfiguration(selectedOrganizationId, selectedWorkflowKey, token);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlatformAdmin, loading, selectedOrganizationId, selectedWorkflowKey, token]);
+
+  useEffect(() => {
+    if (!workflowOptions.length) {
+      return;
+    }
+
+    if (!workflowOptions.some((option) => option.value === selectedWorkflowKey)) {
+      setSelectedWorkflowKey(workflowOptions[0].value);
+    }
+  }, [selectedWorkflowKey, workflowOptions]);
+
+  useEffect(() => {
+    if (!isPlatformAdmin || !token || !selectedOrganizationId || !hasConnectedWorkflowApify) {
+      workflowActorRequestIdRef.current += 1;
+      setWorkflowApifyActors([]);
+      setWorkflowActorsLoading(false);
+      return;
+    }
+
+    const requestId = ++workflowActorRequestIdRef.current;
+    setWorkflowActorsLoading(true);
+
+    void getOrganizationIntegration(selectedOrganizationId, "apify", token)
+      .then((integration) => {
+        if (requestId !== workflowActorRequestIdRef.current) {
+          return;
+        }
+
+        setWorkflowApifyActors(
+          parseApifyActorMappings(integration.credentialValues?.[apifyActorMappingsCredentialKey])
+        );
+      })
+      .catch((err) => {
+        if (requestId !== workflowActorRequestIdRef.current) {
+          return;
+        }
+
+        const message = (err as ApiError).message;
+        setWorkflowApifyActors([]);
+        setError(message);
+        toast.error("Could not load Apify actor routing", message);
+      })
+      .finally(() => {
+        if (requestId === workflowActorRequestIdRef.current) {
+          setWorkflowActorsLoading(false);
+        }
+      });
+  }, [hasConnectedWorkflowApify, isPlatformAdmin, selectedOrganizationId, toast, token]);
 
   async function bootstrap(accessToken: string) {
     setLoading(true);
@@ -338,8 +701,11 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
         if (nextOrganizationId) {
           await loadOverview(nextOrganizationId, accessToken, false);
+          await loadWorkflowConfiguration(nextOrganizationId, selectedWorkflowKey, accessToken, false);
         } else {
           setOverview(null);
+          setWorkflowCatalog(null);
+          setWorkflowRows([]);
         }
       } else {
         const providerCatalog = await listIntegrationProviders(accessToken);
@@ -386,8 +752,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
       setOverview(data);
       setSocialNetworks(activeNetworks);
-      setDefaultAiProviderKey(data.defaultAiProviderKey ?? "");
-      setDefaultAiModel(data.defaultAiModel ?? "");
     } catch (err) {
       if (requestId !== overviewRequestIdRef.current) {
         return;
@@ -395,6 +759,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
       setError((err as ApiError).message);
     } finally {
+      if (requestId === overviewRequestIdRef.current) {
+        loadedOverviewRef.current = organizationId;
+      }
+
       if (useRefreshState && requestId === overviewRequestIdRef.current) {
         setRefreshing(false);
       }
@@ -403,11 +771,17 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
   function changeSelectedOrganization(organizationId: string) {
     overviewRequestIdRef.current += 1;
+    workflowRequestIdRef.current += 1;
+    workflowActorRequestIdRef.current += 1;
+    loadedOverviewRef.current = null;
+    loadedWorkflowRef.current = null;
     setSelectedOrganizationId(organizationId);
     setOverview(null);
-    setDefaultAiProviderKey("");
-    setDefaultAiModel("");
+    setWorkflowCatalog(null);
     setModal(null);
+    setWorkflowRows([]);
+    setWorkflowApifyActors([]);
+    setWorkflowActorsLoading(false);
     setError(null);
     setRefreshing(false);
   }
@@ -423,6 +797,503 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       await loadOverview(selectedOrganizationId, token);
     } finally {
       setManualRefreshing(false);
+    }
+  }
+
+  function modelsForProvider(providerKey: string) {
+    return overview?.integrations.find((integration) => integration.providerKey === providerKey)?.availableModels
+      ?? providers.find((provider) => provider.key === providerKey)?.availableModels
+      ?? [];
+  }
+
+  function providerCategory(providerKey: string) {
+    return providers.find((provider) => provider.key === providerKey)?.category
+      ?? overview?.integrations.find((integration) => integration.providerKey === providerKey)?.category;
+  }
+
+  function providerDisplayName(providerKey: string) {
+    return overview?.integrations.find((integration) => integration.providerKey === providerKey)?.providerDisplayName
+      ?? providers.find((provider) => provider.key === providerKey)?.displayName
+      ?? providerKey;
+  }
+
+  function analysisTypeDefinition(analysisType: string, workflow = selectedWorkflowDefinition) {
+    return workflow?.analysisTypes.find((item) => item.key === analysisType);
+  }
+
+  function stepDefinition(
+    analysisType: string,
+    stepKey: string,
+    workflow = selectedWorkflowDefinition,
+  ) {
+    return analysisTypeDefinition(analysisType, workflow)?.steps.find((item) => item.key === stepKey);
+  }
+
+  function providerOptionsForStep(step?: WorkflowStepCatalog | null) {
+    if (!step) {
+      return connectedWorkflowIntegrations;
+    }
+
+    return connectedWorkflowIntegrations.filter((integration) => {
+      const matchesCategory = step.allowedProviderCategories.length === 0
+        || step.allowedProviderCategories.includes(integration.category as IntegrationProviderCategory);
+      const matchesKey = step.allowedProviderKeys.length === 0
+        || step.allowedProviderKeys.includes(integration.providerKey);
+
+      return matchesCategory && matchesKey;
+    });
+  }
+
+  function networkOptionsForStep(step?: WorkflowStepCatalog | null): WorkflowSelectOption[] {
+    if (!step?.requiresNetwork) {
+      return [];
+    }
+
+    if (step.supportedNetworkKeys.length === 0) {
+      return socialNetworkOptions;
+    }
+
+    return socialNetworkOptions.filter((option) => step.supportedNetworkKeys.includes(option.value));
+  }
+
+  // Network tabs = active+supported networks PLUS any already-configured network that is no longer active
+  // (shown as "inactive" so the admin can still review/remove its routes instead of losing them silently).
+  function networkTabsForGroup(group: WorkflowStepGroupDraft, step?: WorkflowStepCatalog | null): WorkflowSelectOption[] {
+    const base = networkOptionsForStep(step);
+    if (!step?.requiresNetwork) {
+      return base;
+    }
+
+    const known = new Set(base.map((option) => option.value));
+    const extra: WorkflowSelectOption[] = [];
+    for (const stage of group.networkStages) {
+      if (stage.networkKey && !known.has(stage.networkKey)) {
+        known.add(stage.networkKey);
+        extra.push({ value: stage.networkKey, label: `${stage.networkKey} (inactive)` });
+      }
+    }
+
+    return [...base, ...extra];
+  }
+
+  function activeNetworkForGroup(group: WorkflowStepGroupDraft, step?: WorkflowStepCatalog | null): string {
+    if (!step?.requiresNetwork) {
+      return "";
+    }
+
+    const options = networkTabsForGroup(group, step);
+    const chosen = activeNetworkByGroup[group.key];
+    if (chosen && options.some((option) => option.value === chosen)) {
+      return chosen;
+    }
+
+    const firstWithRoutes = group.networkStages.find(
+      (stage) => stage.routes.length > 0 && options.some((option) => option.value === stage.networkKey)
+    );
+    if (firstWithRoutes) {
+      return firstWithRoutes.networkKey;
+    }
+
+    return options[0]?.value ?? group.networkStages[0]?.networkKey ?? "";
+  }
+
+  function modelOptionsForProvider(providerKey: string, currentValue = "") {
+    const options = modelsForProvider(providerKey).map((modelId) => ({
+      value: modelId,
+      label: modelId
+    }));
+
+    return appendCurrentOption(options, currentValue, `${currentValue} (current route)`);
+  }
+
+  function actorOptionsForStep(step?: WorkflowStepCatalog | null, networkKey?: string, currentValue = "") {
+    if (!step?.supportsActorSelection || !step.actorVariantKey || !networkKey) {
+      return appendCurrentOption([], currentValue, `${currentValue} (current route)`);
+    }
+
+    const options = workflowApifyActors
+      .filter((mapping) => mapping.networkKey === networkKey && mapping.variantKey === step.actorVariantKey)
+      .map((mapping) => ({
+        value: mapping.actorId,
+        label: mapping.isPrimary ? `${mapping.actorId} (primary)` : `${mapping.actorId} (fallback)`
+      }));
+
+    return appendCurrentOption(options, currentValue, `${currentValue} (not in connector)`);
+  }
+
+  function normalizeWorkflowRow(seed?: Partial<WorkflowStepDraft>): WorkflowStepDraft {
+    const workflow = selectedWorkflowDefinition ?? workflowDefinitions[0] ?? null;
+    const analysis = workflow?.analysisTypes.find((item) => item.key === seed?.analysisType)
+      ?? workflow?.analysisTypes[0]
+      ?? null;
+    const step = analysis?.steps.find((item) => item.key === seed?.stepKey)
+      ?? analysis?.steps[0]
+      ?? null;
+    const allowedProviders = providerOptionsForStep(step);
+    const providerKey = allowedProviders.some((integration) => integration.providerKey === seed?.providerKey)
+      ? seed?.providerKey ?? ""
+      : allowedProviders[0]?.providerKey ?? seed?.providerKey ?? "";
+    const allowedNetworks = networkOptionsForStep(step);
+    const networkKey = step?.requiresNetwork
+      ? allowedNetworks.some((network) => network.value === seed?.networkKey)
+        ? seed?.networkKey ?? ""
+        : allowedNetworks[0]?.value ?? seed?.networkKey ?? ""
+      : "";
+    const shouldKeepModel = step?.supportsModelSelection && providerCategory(providerKey) === "AiModel";
+    const shouldKeepActor = step?.supportsActorSelection && providerKey === "apify";
+
+    return {
+      id: seed?.id ?? crypto.randomUUID(),
+      analysisType: analysis?.key ?? seed?.analysisType ?? "",
+      stepKey: step?.key ?? seed?.stepKey ?? "",
+      operationKey: step?.operationKey ?? seed?.operationKey ?? "",
+      networkKey,
+      providerKey,
+      modelId: shouldKeepModel ? seed?.modelId ?? "" : "",
+      actorId: shouldKeepActor ? seed?.actorId ?? "" : "",
+      priority: seed?.priority ?? 1,
+      isEnabled: seed?.isEnabled ?? true
+    };
+  }
+
+  function newWorkflowRow(seed?: Partial<WorkflowStepDraft>): WorkflowStepDraft {
+    return normalizeWorkflowRow(seed);
+  }
+
+  async function loadWorkflowConfiguration(
+    organizationId: string,
+    workflowKey: string,
+    accessToken: string,
+    useLoadingState = true
+  ) {
+    const requestId = ++workflowRequestIdRef.current;
+    if (useLoadingState) {
+      setWorkflowLoading(true);
+    }
+    setError(null);
+
+    try {
+      const data = await listWorkflowConfigurations(organizationId, workflowKey, accessToken);
+      if (requestId !== workflowRequestIdRef.current) {
+        return;
+      }
+
+      setWorkflowCatalog(data.catalog);
+      setWorkflowRows(
+        resequenceWorkflowRows(data.steps.map((step) => ({
+          id: step.id,
+          analysisType: step.analysisType,
+          stepKey: step.stepKey,
+          operationKey: step.operationKey ?? "",
+          networkKey: step.networkKey ?? "",
+          providerKey: step.providerKey,
+          modelId: step.modelId ?? "",
+          actorId: step.actorId ?? "",
+          priority: step.priority,
+          isEnabled: step.isEnabled
+        })))
+      );
+    } catch (err) {
+      if (requestId !== workflowRequestIdRef.current) {
+        return;
+      }
+
+      const message = (err as ApiError).message;
+      setError(message);
+      toast.error("Could not load workflow configuration", message);
+    } finally {
+      if (requestId === workflowRequestIdRef.current) {
+        loadedWorkflowRef.current = { organizationId, workflowKey };
+        if (useLoadingState) {
+          setWorkflowLoading(false);
+        }
+      }
+    }
+  }
+
+  function addWorkflowStage(seed?: Partial<WorkflowStepDraft>) {
+    setWorkflowRows((rows) => resequenceWorkflowRows([...rows, newWorkflowRow(seed)]));
+  }
+
+  function seedWorkflowRows() {
+    if (!selectedWorkflowDefinition) {
+      return;
+    }
+
+    const existingStepKeys = new Set(
+      workflowRows.map((row) => `${row.analysisType}::${row.stepKey}`.toLowerCase())
+    );
+
+    const missingRows = selectedWorkflowDefinition.analysisTypes.flatMap((analysisType) =>
+      analysisType.steps
+        .filter((step) => !existingStepKeys.has(`${analysisType.key}::${step.key}`.toLowerCase()))
+        .map((step) =>
+          newWorkflowRow({
+            analysisType: analysisType.key,
+            stepKey: step.key,
+            operationKey: step.operationKey
+          })
+        )
+    );
+
+    if (missingRows.length === 0) {
+      toast.success("Workflow already seeded", "All known steps for this workflow are already present.");
+      return;
+    }
+
+    setWorkflowRows((rows) => resequenceWorkflowRows([...rows, ...missingRows]));
+  }
+
+  function patchWorkflowRow(id: string, patch: Partial<WorkflowStepDraft>) {
+    setWorkflowRows((rows) =>
+      resequenceWorkflowRows(rows.map((row) => {
+        if (row.id !== id) {
+          return row;
+        }
+
+        const next = { ...row, ...patch };
+        if (patch.providerKey && patch.providerKey !== row.providerKey) {
+          next.modelId = "";
+          next.actorId = "";
+        }
+        if (patch.networkKey && patch.networkKey !== row.networkKey) {
+          next.actorId = "";
+        }
+        return normalizeWorkflowRow(next);
+      }))
+    );
+  }
+
+  function removeWorkflowRow(id: string) {
+    setWorkflowRows((rows) => resequenceWorkflowRows(rows.filter((row) => row.id !== id)));
+  }
+
+  // Edits analysis type / step for the WHOLE step group (every network keeps its own routes, they are
+  // only re-normalized against the new step definition). The network is NOT touched here.
+  function patchWorkflowStepGroup(groupKey: string, patch: Partial<WorkflowStepDraft>) {
+    setWorkflowRows((rows) =>
+      resequenceWorkflowRows(rows.map((row) => {
+        if (workflowStepGroupKey(row) !== groupKey) {
+          return row;
+        }
+
+        return normalizeWorkflowRow({ ...row, ...patch });
+      }))
+    );
+  }
+
+  // Adds a route to a SINGLE network of a step group. Used both for the first route of a network and
+  // for backups — priority is derived afterwards by resequenceWorkflowRows (per analysis/step/network).
+  function addWorkflowRouteForNetwork(groupKey: string, networkKey: string) {
+    setWorkflowRows((rows) => {
+      const template = rows.find((row) => workflowStepGroupKey(row) === groupKey);
+      if (!template) {
+        return rows;
+      }
+
+      const route = newWorkflowRow({
+        analysisType: template.analysisType,
+        stepKey: template.stepKey,
+        operationKey: template.operationKey,
+        networkKey,
+        modelId: "",
+        actorId: "",
+        isEnabled: true
+      });
+
+      return resequenceWorkflowRows([...rows, route]);
+    });
+  }
+
+  // Removes every route of a single network within a step group. If it was the last network with routes,
+  // the whole group card disappears (it is derived from the rows).
+  function removeWorkflowNetworkStage(groupKey: string, networkKey: string) {
+    setWorkflowRows((rows) =>
+      resequenceWorkflowRows(
+        rows.filter((row) => !(workflowStepGroupKey(row) === groupKey && row.networkKey === networkKey))
+      )
+    );
+  }
+
+  function reorderWorkflowStageRoutes(stageKey: string, orderedIds: string[]) {
+    setWorkflowRows((rows) => {
+      const reorderedStageRows = orderedIds
+        .map((id) => rows.find((row) => row.id === id && workflowStageKey(row) === stageKey))
+        .filter((row): row is WorkflowStepDraft => Boolean(row));
+
+      if (reorderedStageRows.length === 0) {
+        return rows;
+      }
+
+      let reorderIndex = 0;
+      return resequenceWorkflowRows(
+        rows.map((row) => (
+          workflowStageKey(row) === stageKey
+            ? reorderedStageRows[reorderIndex++] ?? row
+            : row
+        ))
+      );
+    });
+  }
+
+  function handleWorkflowRouteDragEnd(stageKey: string, stage: WorkflowStageDraft, event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const currentIds = stage.routes.map((route) => route.id);
+    const oldIndex = currentIds.indexOf(String(active.id));
+    const newIndex = currentIds.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) {
+      return;
+    }
+
+    reorderWorkflowStageRoutes(stageKey, arrayMove(currentIds, oldIndex, newIndex));
+  }
+
+  async function saveWorkflowConfiguration() {
+    if (!selectedOrganizationId || !selectedWorkflowKey || !token) {
+      return;
+    }
+
+    const orderedRows = resequenceWorkflowRows(workflowRows);
+
+    const invalid = orderedRows.find(
+      (row) =>
+        !row.analysisType.trim()
+        || !row.stepKey.trim()
+        || !row.operationKey.trim()
+        || !row.providerKey.trim()
+        || row.priority <= 0
+    );
+    if (invalid) {
+      toast.error(
+        "Workflow configuration incomplete",
+        "Each stage needs a valid workflow step and at least one connected route. Execution order is assigned automatically from the drag-and-drop list."
+      );
+      return;
+    }
+
+    const invalidProvider = orderedRows.find((row) => {
+      const step = stepDefinition(row.analysisType, row.stepKey);
+      return step ? !providerOptionsForStep(step).some((integration) => integration.providerKey === row.providerKey) : true;
+    });
+    if (invalidProvider) {
+      toast.error(
+        "Provider not allowed",
+        "Each step must use a connected provider compatible with the selected workflow step."
+      );
+      return;
+    }
+
+    const networkRequired = orderedRows.find((row) => {
+      const step = stepDefinition(row.analysisType, row.stepKey);
+      return step?.requiresNetwork && !row.networkKey.trim();
+    });
+    if (networkRequired) {
+      toast.error("Network required", "Select an active social network for each extraction step.");
+      return;
+    }
+
+    const aiWithoutModel = orderedRows.find(
+      (row) => {
+        const step = stepDefinition(row.analysisType, row.stepKey);
+        return Boolean(step?.supportsModelSelection)
+          && providerCategory(row.providerKey) === "AiModel"
+          && !row.modelId.trim();
+      }
+    );
+    if (aiWithoutModel) {
+      toast.error(
+        "AI model required",
+        "AI workflow rows need an explicit model synchronized for that organization/provider."
+      );
+      return;
+    }
+
+    const apifyWithoutActor = orderedRows.find(
+      (row) => {
+        const step = stepDefinition(row.analysisType, row.stepKey);
+        return row.providerKey === "apify" && Boolean(step?.supportsActorSelection) && !row.actorId.trim();
+      }
+    );
+    if (apifyWithoutActor) {
+      toast.error("Apify actor required", "Apify workflow rows need an actor id for routing and fallbacks.");
+      return;
+    }
+
+    const steps: WorkflowStepConfigurationInput[] = orderedRows.map((row) => ({
+      analysisType: row.analysisType.trim(),
+      stepKey: row.stepKey.trim(),
+      operationKey: row.operationKey.trim() || null,
+      networkKey: row.networkKey.trim() || null,
+      providerKey: row.providerKey.trim(),
+      modelId: row.modelId.trim() || null,
+      actorId: row.actorId.trim() || null,
+      priority: Number(row.priority),
+      isEnabled: row.isEnabled
+    }));
+
+    setWorkflowSaving(true);
+    setError(null);
+
+    try {
+      const saved = await upsertWorkflowConfigurations(
+        selectedOrganizationId,
+        selectedWorkflowKey,
+        steps,
+        token
+      );
+      setWorkflowRows(
+        resequenceWorkflowRows(saved.steps.map((step) => ({
+          id: step.id,
+          analysisType: step.analysisType,
+          stepKey: step.stepKey,
+          operationKey: step.operationKey ?? "",
+          networkKey: step.networkKey ?? "",
+          providerKey: step.providerKey,
+          modelId: step.modelId ?? "",
+          actorId: step.actorId ?? "",
+          priority: step.priority,
+          isEnabled: step.isEnabled
+        })))
+      );
+      toast.success("Workflow configuration saved", "The next workflow execution will use these routes.");
+    } catch (err) {
+      const message = (err as ApiError).message;
+      setError(message);
+      toast.error("Could not save workflow configuration", message);
+    } finally {
+      setWorkflowSaving(false);
+    }
+  }
+
+  async function runModelSync(integration: OrganizationIntegration) {
+    if (!selectedOrganizationId || !token) {
+      return;
+    }
+
+    setSyncingModelsProviderKey(integration.providerKey);
+    setError(null);
+
+    try {
+      const result = await syncOrganizationAiModels(selectedOrganizationId, integration.providerKey, token);
+      toast.success(
+        "Models synchronized",
+        `${integration.providerDisplayName}: ${result.models.length} available model(s).`
+      );
+      await loadOverview(selectedOrganizationId, token, false);
+      if (modal?.integration.providerKey === integration.providerKey) {
+        const detail = await getOrganizationIntegration(selectedOrganizationId, integration.providerKey, token);
+        setModal((prev) => (prev ? { ...prev, integration: detail } : prev));
+      }
+    } catch (err) {
+      const message = (err as ApiError).message;
+      setError(message);
+      toast.error("Could not synchronize models", message);
+    } finally {
+      setSyncingModelsProviderKey(null);
     }
   }
 
@@ -685,42 +1556,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     }
   }
 
-  async function saveDefaultAi(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedOrganizationId || !token || !defaultAiProviderKey) {
-      return;
-    }
-
-    setRefreshing(true);
-    setError(null);
-
-    try {
-      await setDefaultAiIntegration(
-        selectedOrganizationId,
-        {
-          providerKey: defaultAiProviderKey,
-          model: defaultAiModel || undefined
-        },
-        token
-      );
-
-      toast.success("Default AI updated", "Organization default AI provider/model saved.");
-      await loadOverview(selectedOrganizationId, token, false);
-    } catch (err) {
-      const message = (err as ApiError).message;
-      setError(message);
-      toast.error("Could not set default AI", message);
-    } finally {
-      setRefreshing(false);
-    }
-  }
-
   if (loading) {
-    return (
-      <div className="flex min-h-[16rem] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -743,7 +1580,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
           <div className="flex flex-wrap items-end gap-3">
             {isPlatformAdmin && organizations.length > 0 && (
               <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                <span className="text-sm font-medium">
                   Organization
                 </span>
                 <Select
@@ -809,40 +1646,486 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
             ))}
           </section>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Bot className="h-4 w-4 text-primary" /> Default AI provider / model
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="grid gap-3 lg:grid-cols-[1fr_1fr_auto]" onSubmit={saveDefaultAi}>
-                <Select
-                  value={defaultAiProviderKey}
-                  onChange={(event) => setDefaultAiProviderKey(event.target.value)}
-                  required
-                >
-                  <option value="" disabled>
-                    Select connected AI provider
-                  </option>
-                  {connectedAiIntegrations.map((integration) => (
-                    <option key={integration.providerKey} value={integration.providerKey}>
-                      {integration.providerDisplayName}
-                    </option>
-                  ))}
-                </Select>
-                <ModelSelect
-                  models={providers.find((p) => p.key === defaultAiProviderKey)?.availableModels ?? []}
-                  value={defaultAiModel}
-                  onChange={(v) => setDefaultAiModel(v)}
-                  placeholder="Optional model (e.g. gpt-4.1-mini)"
-                />
-                <Button type="submit" disabled={!defaultAiProviderKey || refreshing}>
-                  Save default
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+          {isPlatformAdmin ? (
+            <Card>
+              <CardHeader className="space-y-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Shield className="h-4 w-4 text-primary" /> Workflow routing by organization
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  System-admin only. Selectors below come from the workflow catalog, active social networks,
+                  connected providers, synchronized AI models, and the Apify actor mappings configured for the
+                  selected organization. Drag provider routes inside each stage to define the automatic primary
+                  and backup execution order.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,240px)_minmax(0,240px)_1fr]">
+                  <div className="space-y-2">
+                    <span className="text-sm font-medium">
+                      Workflow
+                    </span>
+                    <Select
+                      className="w-full"
+                      value={selectedWorkflowKey}
+                      onChange={(event) => setSelectedWorkflowKey(event.target.value)}
+                      disabled={workflowOptions.length === 0 || workflowLoading}
+                    >
+                      {workflowOptions.length === 0 ? (
+                        <option value="">Loading workflow catalog...</option>
+                      ) : null}
+                      {workflowOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <span className="text-sm font-medium">
+                      Organization
+                    </span>
+                    <div className="flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm">
+                      {organizations.find((organization) => organization.id === selectedOrganizationId)?.name
+                        ?? selectedOrganizationId}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-start gap-2 xl:justify-end xl:self-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={seedWorkflowRows}
+                      disabled={workflowLoading || !selectedWorkflowDefinition || connectedWorkflowIntegrations.length === 0}
+                    >
+                      <Plus className="h-4 w-4" /> Seed catalog stages
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => addWorkflowStage()}
+                      disabled={workflowLoading || !selectedWorkflowDefinition || connectedWorkflowIntegrations.length === 0}
+                    >
+                      <Plus className="h-4 w-4" /> Add stage
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => void saveWorkflowConfiguration()}
+                      disabled={
+                        workflowLoading
+                        || workflowSaving
+                        || !selectedWorkflowDefinition
+                        || connectedWorkflowIntegrations.length === 0
+                      }
+                    >
+                      {workflowSaving ? "Saving..." : "Save workflow"}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-xl border border-border bg-background/40 p-4">
+                    <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Catalog stages</p>
+                    <p className="mt-2 text-2xl font-semibold">
+                      {selectedWorkflowDefinition?.analysisTypes.reduce((total, analysisType) => total + analysisType.steps.length, 0) ?? 0}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Shared workflow catalog exposed by the API.
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/40 p-4">
+                    <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Configured stages</p>
+                    <p className="mt-2 text-2xl font-semibold">{workflowStages.length}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Shared step selectors live once per stage instead of repeating on every route.
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/40 p-4">
+                    <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Backup routes</p>
+                    <p className="mt-2 text-2xl font-semibold">
+                      {workflowStages.reduce((total, stage) => total + Math.max(stage.routes.length - 1, 0), 0)}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Every stage can try another provider, model, or actor when the primary route fails.
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/40 p-4">
+                    <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Apify actors</p>
+                    <p className="mt-2 text-2xl font-semibold">{workflowApifyActors.length}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Loaded from the selected organization&apos;s Apify connector.
+                    </p>
+                  </div>
+                </div>
+
+                {!selectedWorkflowDefinition ? (
+                  <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                    {selectedWorkflowLabel} has no configurable workflow steps yet. This tool becomes
+                    configurable once its workflow catalog is published; the connector checklist above still
+                    tracks the providers it will need.
+                  </div>
+                ) : connectedWorkflowIntegrations.length === 0 ? (
+                  <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                    Connect at least one provider for this organization before routing workflow steps.
+                  </div>
+                ) : workflowStages.length === 0 ? (
+                  <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                    No workflow stages configured yet for {selectedWorkflowDefinition.label}.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {workflowStepGroups.map((group) => {
+                      const analysis = analysisTypeDefinition(group.analysisType);
+                      const step = stepDefinition(group.analysisType, group.stepKey);
+                      const analysisOptions = appendCurrentOption(
+                        selectedWorkflowDefinition.analysisTypes.map((item) => ({
+                          value: item.key,
+                          label: item.label
+                        })),
+                        group.analysisType,
+                        `${group.analysisType} (current stage)`
+                      );
+                      const stepOptions = appendCurrentOption(
+                        (analysis?.steps ?? []).map((item) => ({
+                          value: item.key,
+                          label: item.label
+                        })),
+                        group.stepKey,
+                        `${group.stepKey} (current stage)`
+                      );
+                      const requiresNetwork = Boolean(step?.requiresNetwork);
+                      const networkTabs = networkTabsForGroup(group, step);
+                      const activeNetwork = activeNetworkForGroup(group, step);
+                      const activeStage = requiresNetwork
+                        ? group.networkStages.find((networkStage) => networkStage.networkKey === activeNetwork) ?? null
+                        : group.networkStages[0] ?? null;
+                      const activeRoutes = activeStage?.routes ?? [];
+                      const activeNetworkLabel = requiresNetwork
+                        ? networkTabs.find((tab) => tab.value === activeNetwork)?.label ?? activeNetwork
+                        : null;
+                      const totalRoutes = group.networkStages.reduce(
+                        (total, networkStage) => total + networkStage.routes.length,
+                        0
+                      );
+                      const isCollapsed = collapsedGroups[group.key] ?? true;
+
+                      return (
+                        <div key={group.key} className="rounded-2xl border border-border bg-background/40 p-5">
+                          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                            <div className="flex items-start gap-3">
+                              <button
+                                type="button"
+                                onClick={() => setCollapsedGroups((prev) => ({ ...prev, [group.key]: !isCollapsed }))}
+                                aria-expanded={!isCollapsed}
+                                aria-label={isCollapsed ? "Expand workflow step" : "Collapse workflow step"}
+                                className="mt-0.5 rounded-md border border-border bg-card p-2 text-muted-foreground transition-colors hover:text-foreground"
+                              >
+                                <ChevronDown className={cn("h-4 w-4 transition-transform", isCollapsed && "-rotate-90")} />
+                              </button>
+                              <div className="space-y-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="outline">{analysis?.label ?? (group.analysisType || "Workflow stage")}</Badge>
+                                {step ? (
+                                  <Badge variant="muted">{step.operationLabel}</Badge>
+                                ) : null}
+                                {activeNetworkLabel ? (
+                                  <Badge variant="info">{activeNetworkLabel}</Badge>
+                                ) : null}
+                                <Badge variant={totalRoutes > 0 ? "success" : "muted"}>
+                                  {totalRoutes} {totalRoutes === 1 ? "route" : "routes"}
+                                </Badge>
+                              </div>
+                              <div>
+                                <p className="font-medium">{step?.label ?? "Select a workflow stage"}</p>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                  {step?.description ?? "Choose the analysis type and step to load the correct selectors."}
+                                </p>
+                              </div>
+                              </div>
+                            </div>
+
+                            {!isCollapsed ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => addWorkflowRouteForNetwork(group.key, activeNetwork)}
+                                disabled={requiresNetwork && !activeNetwork}
+                              >
+                                <Plus className="h-4 w-4" /> {activeRoutes.length === 0 ? "Add route" : "Add backup route"}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeWorkflowNetworkStage(group.key, activeNetwork)}
+                                disabled={activeRoutes.length === 0}
+                              >
+                                <Trash2 className="h-4 w-4" />{" "}
+                                {requiresNetwork && activeNetworkLabel ? `Remove ${activeNetworkLabel} routes` : "Remove stage"}
+                              </Button>
+                            </div>
+                            ) : null}
+                          </div>
+
+                          {!isCollapsed ? (
+                          <>
+                          <div className="mt-5 grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <span className="text-sm font-medium">
+                                Analysis type
+                              </span>
+                              <Select
+                                className="w-full"
+                                value={group.analysisType}
+                                onChange={(event) => patchWorkflowStepGroup(group.key, { analysisType: event.target.value })}
+                              >
+                                <option value="" disabled>
+                                  Select analysis type
+                                </option>
+                                {analysisOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                              <span className="text-sm font-medium">
+                                Stage
+                              </span>
+                              <Select
+                                className="w-full"
+                                value={group.stepKey}
+                                onChange={(event) => patchWorkflowStepGroup(group.key, { stepKey: event.target.value })}
+                              >
+                                <option value="" disabled>
+                                  Select workflow stage
+                                </option>
+                                {stepOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </Select>
+                            </div>
+                          </div>
+
+                          {requiresNetwork ? (
+                            <div className="mt-5 space-y-2">
+                              <span className="text-sm font-medium">
+                                Network
+                              </span>
+                              {networkTabs.length === 0 ? (
+                                <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                                  No active social networks are available for this step.
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {networkTabs.map((tab) => {
+                                    const tabStage = group.networkStages.find(
+                                      (networkStage) => networkStage.networkKey === tab.value
+                                    );
+                                    const tabRoutes = tabStage?.routes.length ?? 0;
+                                    const isActive = tab.value === activeNetwork;
+                                    return (
+                                      <button
+                                        key={tab.value}
+                                        type="button"
+                                        onClick={() => setActiveNetworkByGroup((prev) => ({ ...prev, [group.key]: tab.value }))}
+                                        aria-pressed={isActive}
+                                        className={cn(
+                                          "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm transition-colors",
+                                          isActive
+                                            ? "border-primary bg-primary/10 text-foreground"
+                                            : "border-border text-muted-foreground hover:text-foreground"
+                                        )}
+                                      >
+                                        {tab.label}
+                                        <Badge variant={tabRoutes > 0 ? "success" : "muted"}>{tabRoutes}</Badge>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+
+                          <div className="mt-5 rounded-2xl border border-dashed border-border/70 bg-card/60 p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium">
+                                  Execution routes{activeNetworkLabel ? ` — ${activeNetworkLabel}` : ""}
+                                </p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  Drag the providers below to define the automatic order. The first route runs first;
+                                  every next one becomes a backup fallback for this network.
+                                </p>
+                              </div>
+                              <Badge variant="outline">
+                                {activeRoutes.length === 0
+                                  ? "No routes yet"
+                                  : activeRoutes.length === 1
+                                    ? "No backups yet"
+                                    : `${activeRoutes.length - 1} backup ${activeRoutes.length - 1 === 1 ? "route" : "routes"}`}
+                              </Badge>
+                            </div>
+
+                            {!activeStage || activeRoutes.length === 0 ? (
+                              <div className="mt-4 rounded-xl border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                                {requiresNetwork && activeNetworkLabel
+                                  ? `No execution routes for ${activeNetworkLabel} yet. Add the primary route to start.`
+                                  : "No execution routes yet. Add the primary route to start."}
+                              </div>
+                            ) : (
+                              <DndContext
+                                sensors={workflowRouteSensors}
+                                collisionDetection={closestCenter}
+                                onDragEnd={(event) => handleWorkflowRouteDragEnd(activeStage.key, activeStage, event)}
+                              >
+                                <SortableContext
+                                  items={activeRoutes.map((route) => route.id)}
+                                  strategy={verticalListSortingStrategy}
+                                >
+                                  <div className="mt-4 space-y-3">
+                                    {activeRoutes.map((route) => {
+                                      const providerOptions = appendCurrentOption(
+                                        providerOptionsForStep(step).map((integration) => ({
+                                          value: integration.providerKey,
+                                          label: integration.providerDisplayName
+                                        })),
+                                        route.providerKey,
+                                        `${providerDisplayName(route.providerKey)} (current route)`
+                                      );
+                                      const modelOptions = modelOptionsForProvider(route.providerKey, route.modelId);
+                                      const actorOptions = actorOptionsForStep(step, activeNetwork, route.actorId);
+                                      const routeTitle = [
+                                        route.providerKey ? providerDisplayName(route.providerKey) : "",
+                                        step?.supportsModelSelection ? route.modelId : "",
+                                        step?.supportsActorSelection ? route.actorId : ""
+                                      ]
+                                        .filter((value) => value && value.trim().length > 0)
+                                        .join(" · ");
+
+                                      return (
+                                        <WorkflowSortableRouteCard
+                                          key={route.id}
+                                          id={route.id}
+                                          routeLabel={routeDisplayLabel(route.priority)}
+                                          order={route.priority}
+                                          title={routeTitle || "Select a connected provider"}
+                                          subtitle={route.priority === 1
+                                            ? "Runs first for this network."
+                                            : "Runs only if a previous route fails or is unavailable."}
+                                          isEnabled={route.isEnabled}
+                                          onEnabledChange={(checked) => patchWorkflowRow(route.id, { isEnabled: checked })}
+                                          onRemove={() => removeWorkflowRow(route.id)}
+                                        >
+                                          <div className="space-y-2">
+                                            <span className="text-sm font-medium">
+                                              Provider / connector
+                                            </span>
+                                            <Select
+                                              className="w-full"
+                                              value={route.providerKey}
+                                              onChange={(event) => patchWorkflowRow(route.id, { providerKey: event.target.value })}
+                                            >
+                                              <option value="" disabled>
+                                                Select provider
+                                              </option>
+                                              {providerOptions.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                  {option.label}
+                                                </option>
+                                              ))}
+                                            </Select>
+                                          </div>
+
+                                          {step?.supportsModelSelection ? (
+                                            <div className="space-y-2">
+                                              <span className="text-sm font-medium">
+                                                Model
+                                              </span>
+                                              <Select
+                                                className="w-full"
+                                                value={route.modelId}
+                                                onChange={(event) => patchWorkflowRow(route.id, { modelId: event.target.value })}
+                                                disabled={modelOptions.length === 0}
+                                              >
+                                                <option value="" disabled>
+                                                  {modelOptions.length === 0
+                                                    ? "Sync models in this provider first"
+                                                    : "Select synchronized model"}
+                                                </option>
+                                                {modelOptions.map((option) => (
+                                                  <option key={option.value} value={option.value}>
+                                                    {option.label}
+                                                  </option>
+                                                ))}
+                                              </Select>
+                                              <p className="text-xs text-muted-foreground">
+                                                Pulled from the selected organization&apos;s AI provider connector.
+                                              </p>
+                                            </div>
+                                          ) : null}
+
+                                          {step?.supportsActorSelection ? (
+                                            <div className="space-y-2 lg:col-span-2">
+                                              <span className="text-sm font-medium">
+                                                Actor / connector route
+                                              </span>
+                                              {route.providerKey === "apify" ? (
+                                                <>
+                                                  <Select
+                                                    className="w-full"
+                                                    value={route.actorId}
+                                                    onChange={(event) => patchWorkflowRow(route.id, { actorId: event.target.value })}
+                                                    disabled={!activeNetwork || actorOptions.length === 0}
+                                                  >
+                                                    <option value="" disabled>
+                                                      {actorOptions.length === 0
+                                                        ? "Configure actor mappings in the Apify connector"
+                                                        : "Select configured actor"}
+                                                    </option>
+                                                    {actorOptions.map((option) => (
+                                                      <option key={option.value} value={option.value}>
+                                                        {option.label}
+                                                      </option>
+                                                    ))}
+                                                  </Select>
+                                                  <p className="text-xs text-muted-foreground">
+                                                    Pulled from this organization&apos;s Apify connector for the selected network
+                                                    and workflow area.
+                                                  </p>
+                                                </>
+                                              ) : (
+                                                <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                                                  Actor routing is available only for Apify on this stage.
+                                                </div>
+                                              )}
+                                            </div>
+                                          ) : null}
+                                        </WorkflowSortableRouteCard>
+                                      );
+                                    })}
+                                  </div>
+                                </SortableContext>
+                              </DndContext>
+                            )}
+                          </div>
+                          </>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
 
           {groupedIntegrations.map(([category, integrations]) => (
             <section key={category} className="space-y-3">
@@ -881,11 +2164,6 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                             Selected model: <span className="text-foreground">{integration.selectedAiModel}</span>
                           </p>
                         ) : null}
-                        {integration.isDefaultAi ? (
-                          <Badge variant="success" className="w-fit">
-                            <Bot className="mr-1 h-3 w-3" /> Default AI provider
-                          </Badge>
-                        ) : null}
                         {integration.lastError ? (
                           <p className="text-destructive/80 text-sm">Last error: {integration.lastError}</p>
                         ) : null}
@@ -905,6 +2183,22 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                         <Button variant="outline" size="sm" onClick={() => void runTest(integration)}>
                           <Link2 className="h-4 w-4" /> Test connection
                         </Button>
+                        {integration.category === "AiModel" && integration.status === "Connected" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void runModelSync(integration)}
+                            disabled={syncingModelsProviderKey === integration.providerKey}
+                          >
+                            <RefreshCcw
+                              className={cn(
+                                "h-4 w-4",
+                                syncingModelsProviderKey === integration.providerKey && "animate-spin"
+                              )}
+                            />
+                            Sync models
+                          </Button>
+                        ) : null}
                         {integration.integrationId ? (
                           <Button variant="destructive" size="sm" onClick={() => setDeleteConfirmIntegration(integration)}>
                             <Unplug className="h-4 w-4" /> Delete config
@@ -964,11 +2258,35 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Default model (optional)</label>
                   <ModelSelect
-                    models={providers.find((p) => p.key === modal.integration.providerKey)?.availableModels ?? []}
+                    models={modal.integration.availableModels}
                     value={modal.selectedAiModel}
                     onChange={(v) => setModal((prev) => (prev ? { ...prev, selectedAiModel: v } : prev))}
                     placeholder="e.g. gpt-4.1-mini"
                   />
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span>
+                      {modal.integration.availableModels.length > 0
+                        ? `${modal.integration.availableModels.length} organization model(s) available.`
+                        : "No synchronized models yet; manual entry is still allowed as a fallback."}
+                    </span>
+                    {modal.integration.status === "Connected" ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void runModelSync(modal.integration)}
+                        disabled={syncingModelsProviderKey === modal.integration.providerKey}
+                      >
+                        <RefreshCcw
+                          className={cn(
+                            "h-4 w-4",
+                            syncingModelsProviderKey === modal.integration.providerKey && "animate-spin"
+                          )}
+                        />
+                        Sync models
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
 
@@ -1102,7 +2420,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                                 })
                               }
                             >
-                              {WORKFLOW_OPTIONS.map((option) => (
+                              {APIFY_VARIANT_OPTIONS.map((option) => (
                                 <option key={option.value} value={option.value}>
                                   {option.label}
                                 </option>
@@ -1197,6 +2515,85 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function WorkflowSortableRouteCard({
+  id,
+  routeLabel,
+  order,
+  title,
+  subtitle,
+  isEnabled,
+  onEnabledChange,
+  onRemove,
+  children
+}: {
+  id: string;
+  routeLabel: string;
+  order: number;
+  title: string;
+  subtitle: string;
+  isEnabled: boolean;
+  onEnabledChange: (checked: boolean) => void;
+  onRemove: () => void;
+  children: ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "rounded-2xl border border-border bg-background p-4",
+        isDragging && "z-10 border-primary/50 shadow-lg"
+      )}
+    >
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex items-start gap-3">
+          <button
+            type="button"
+            className="mt-0.5 cursor-grab rounded-md border border-border bg-card p-2 text-muted-foreground hover:text-foreground active:cursor-grabbing"
+            aria-label="Drag to reorder workflow route"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={order === 1 ? "success" : "outline"}>{routeLabel}</Badge>
+              <Badge variant="muted">Order {order}</Badge>
+            </div>
+            <div>
+              <p className="font-medium">{title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex min-h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm">
+            <Checkbox checked={isEnabled} onChange={(event) => onEnabledChange(event.target.checked)} />
+            Enabled
+          </label>
+          <Button type="button" variant="ghost" size="sm" onClick={onRemove} aria-label="Remove workflow route">
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        {children}
+      </div>
     </div>
   );
 }

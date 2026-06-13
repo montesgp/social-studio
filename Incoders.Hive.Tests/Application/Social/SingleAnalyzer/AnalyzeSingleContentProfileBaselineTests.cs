@@ -1,6 +1,7 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Features.Social.SingleAnalyzer.Analyze;
 using Incoders.Hive.Domain.Common;
@@ -86,13 +87,17 @@ public sealed class AnalyzeSingleContentProfileBaselineTests
     }
 
     /// <summary>
-    /// Returns a successful DefaultAiSelection with a dummy provider so the analyzer
-    /// can complete its org-driven AI selection step.
+    /// Returns one AI route so the analyzer can complete its workflow-driven AI selection step.
     /// </summary>
-    private sealed class StaticAiSelector : IDefaultAiSelector
+    private sealed class StaticWorkflowResolver : IWorkflowConfigurationResolver
     {
-        public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
-            Task.FromResult(Result.Success(new DefaultAiSelection("openai", "gpt-test")));
+        public Task<Result<IReadOnlyList<WorkflowStepRouteCandidate>>> ResolveStepAsync(
+            WorkflowStepResolutionRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result.Success<IReadOnlyList<WorkflowStepRouteCandidate>>(
+            [
+                new WorkflowStepRouteCandidate(Guid.NewGuid(), "openai", Guid.NewGuid(),
+                    IntegrationConnectionMode.BringYourOwnKey, 1, "gpt-test", null, true)
+            ]));
     }
 
     /// <summary>
@@ -112,10 +117,10 @@ public sealed class AnalyzeSingleContentProfileBaselineTests
             ContentResolver = new FakeSocialContentResolver(this);
             AiGateway = new FakeAiGateway();
 
-            // TASK 04 done: SingleContentAnalyzer now accepts IDefaultAiSelector + IContentAnalysisProfileProvider.
+            // SingleContentAnalyzer resolves AI solely from the workflow config (no Default-AI selector).
             Analyzer = new SingleContentAnalyzer(
                 Repository, UnitOfWork, Clock, ContentResolver, AiGateway,
-                new StaticAiSelector(), _provider);
+                _provider, workflowResolver: new StaticWorkflowResolver());
         }
 
         public Result<SocialContentResolution> ContentResult { get; set; } =

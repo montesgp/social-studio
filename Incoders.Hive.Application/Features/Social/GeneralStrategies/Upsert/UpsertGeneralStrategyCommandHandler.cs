@@ -36,7 +36,6 @@ public sealed class UpsertGeneralStrategyCommandHandler
                 request.ClientId,
                 request.OrganizationId,
                 request.ContentPillars,
-                request.ToneKeywords,
                 request.TargetAudience,
                 request.PostingFrequency,
                 request.Notes,
@@ -56,7 +55,6 @@ public sealed class UpsertGeneralStrategyCommandHandler
         // UPDATE path
         var updateResult = existing.Update(
             request.ContentPillars,
-            request.ToneKeywords,
             request.TargetAudience,
             request.PostingFrequency,
             request.Notes,

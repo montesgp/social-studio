@@ -2,6 +2,7 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
@@ -181,7 +182,7 @@ public sealed class ProfileAnalyzerOrchestratorInstrumentationTests
         {
             Repository = new FakeProfileAnalysisRepository2();
             ScrapeResolver = new FakeScrapeResolver2();
-            DefaultAiSelector = new FakeDefaultAiSelector2();
+            WorkflowResolver = new FakeWorkflowResolver2();
             InnerGateway = new FakeInnerGateway();
 
             // Real ProviderCallContext — shared between the decorator and the orchestrator.
@@ -202,14 +203,14 @@ public sealed class ProfileAnalyzerOrchestratorInstrumentationTests
                 ScrapeResolver,
                 new ProfileMetricCalculator(),
                 instrumentedGateway,       // real decorator, NOT the bare stub
-                DefaultAiSelector,
                 logger: null,
-                providerCallContext: ProviderCallContext);  // same instance
+                providerCallContext: ProviderCallContext,  // same instance
+                workflowResolver: WorkflowResolver);
         }
 
         public FakeProfileAnalysisRepository2 Repository { get; }
         public FakeScrapeResolver2 ScrapeResolver { get; }
-        public FakeDefaultAiSelector2 DefaultAiSelector { get; }
+        public FakeWorkflowResolver2 WorkflowResolver { get; }
         public FakeInnerGateway InnerGateway { get; }
         public ProviderCallContext ProviderCallContext { get; }
         public ProfileAnalyzerOrchestrator Orchestrator { get; }
@@ -271,16 +272,15 @@ public sealed class ProfileAnalyzerOrchestratorInstrumentationTests
         }
     }
 
-    private sealed class FakeDefaultAiSelector2 : IDefaultAiSelector
+    private sealed class FakeWorkflowResolver2 : IWorkflowConfigurationResolver
     {
-        private Result<DefaultAiSelection> _result =
-            Result.Success(new DefaultAiSelection("openai", "gpt-test"));
-
-        public void SetFailure(Error error) =>
-            _result = Result.Failure<DefaultAiSelection>(error);
-
-        public Task<Result<DefaultAiSelection>> SelectAsync(Guid organizationId, CancellationToken ct = default) =>
-            Task.FromResult(_result);
+        public Task<Result<IReadOnlyList<WorkflowStepRouteCandidate>>> ResolveStepAsync(
+            WorkflowStepResolutionRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result.Success<IReadOnlyList<WorkflowStepRouteCandidate>>(
+            [
+                new WorkflowStepRouteCandidate(Guid.NewGuid(), "openai", Guid.NewGuid(),
+                    IntegrationConnectionMode.BringYourOwnKey, 1, "gpt-test", null, true)
+            ]));
     }
 
     /// <summary>

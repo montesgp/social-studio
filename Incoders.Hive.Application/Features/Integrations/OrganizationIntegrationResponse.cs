@@ -12,7 +12,6 @@ public sealed record OrganizationIntegrationResponse(
     IntegrationConnectionMode ConnectionMode,
     IntegrationStatus Status,
     bool IsReadOnly,
-    bool IsDefaultAi,
     string? SelectedAiModel,
     DateTime? LastTestedAtUtc,
     string? LastError,
@@ -20,6 +19,7 @@ public sealed record OrganizationIntegrationResponse(
     bool SupportsManagedByIncoders,
     bool SupportsSystemDefault,
     bool SystemDefaultReadOnly,
+    IReadOnlyList<string> AvailableModels,
     IReadOnlyList<IntegrationCredentialFieldResponse> CredentialFields,
     IReadOnlyList<string> ConfiguredCredentialKeys,
     IReadOnlyDictionary<string, string> CredentialValues);

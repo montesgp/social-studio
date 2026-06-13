@@ -120,6 +120,7 @@ export function useClientForm({
   const [formOpen, setFormOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("create");
   const [selected, setSelected] = useState<SocialClient | null>(null);
+  const [organizationId, setOrganizationId] = useState<string | undefined>(undefined);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [sectorOrNiche, setSectorOrNiche] = useState<string | null>(null);
@@ -185,6 +186,8 @@ export function useClientForm({
   function openEdit(item: SocialClient) {
     setMode("edit");
     setSelected(item);
+    const itemOrgId = item.organizationId || undefined;
+    setOrganizationId(itemOrgId);
     setName(item.name);
     setDescription(item.description ?? "");
     setSectorOrNiche(item.sectorOrNiche ?? null);
@@ -193,22 +196,23 @@ export function useClientForm({
     setCompetitorAccountsState([]);
     setOwnAccountsState([]);
     setFormOpen(true);
-    void loadReferentAccounts(item.id);
-    void loadCompetitorAccounts(item.id);
-    void loadOwnAccounts(item.id);
+    void loadReferentAccounts(item.id, itemOrgId);
+    void loadCompetitorAccounts(item.id, itemOrgId);
+    void loadOwnAccounts(item.id, itemOrgId);
   }
 
   function closeForm() {
     setFormOpen(false);
   }
 
-  async function loadReferentAccounts(clientId: string) {
+  async function loadReferentAccounts(clientId: string, orgId?: string) {
     setReferentAccountsLoading(true);
     try {
       const result = await listClientReferentAccounts(
         clientId,
         { includeInactive: true, page: 1, pageSize: 200 },
         effectiveToken || undefined,
+        orgId,
       );
       setReferentAccountsState([...result.items].sort((a, b) => a.sortOrder - b.sortOrder));
     } catch (err) {
@@ -220,13 +224,14 @@ export function useClientForm({
     }
   }
 
-  async function loadCompetitorAccounts(clientId: string) {
+  async function loadCompetitorAccounts(clientId: string, orgId?: string) {
     setCompetitorAccountsLoading(true);
     try {
       const result = await listClientCompetitorAccounts(
         clientId,
         { includeInactive: true, page: 1, pageSize: 200 },
         effectiveToken || undefined,
+        orgId,
       );
       setCompetitorAccountsState([...result.items].sort((a, b) => a.sortOrder - b.sortOrder));
     } catch (err) {
@@ -237,13 +242,14 @@ export function useClientForm({
     }
   }
 
-  async function loadOwnAccounts(clientId: string) {
+  async function loadOwnAccounts(clientId: string, orgId?: string) {
     setOwnAccountsLoading(true);
     try {
       const result = await listClientOwnAccounts(
         clientId,
         { includeInactive: true, page: 1, pageSize: 200 },
         effectiveToken || undefined,
+        orgId,
       );
       setOwnAccountsState([...result.items].sort((a, b) => a.sortOrder - b.sortOrder));
     } catch (err) {
@@ -326,16 +332,19 @@ export function useClientForm({
             saved.id,
             referentAccounts.map(toReferentAccountPayload),
             effectiveToken || undefined,
+            organizationId,
           ),
           syncClientCompetitorAccounts(
             saved.id,
             competitorAccounts.map(toCompetitorAccountPayload),
             effectiveToken || undefined,
+            organizationId,
           ),
           syncClientOwnAccounts(
             saved.id,
             ownAccounts.map(toOwnAccountPayload),
             effectiveToken || undefined,
+            organizationId,
           ),
         ]);
         setReferentAccountsState([...syncedReferent].sort((a, b) => a.sortOrder - b.sortOrder));

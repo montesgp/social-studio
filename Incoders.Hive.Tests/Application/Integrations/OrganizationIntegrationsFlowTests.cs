@@ -4,7 +4,6 @@ using Incoders.Hive.Application.Features.Integrations;
 using Incoders.Hive.Application.Features.Integrations.Configure;
 using Incoders.Hive.Application.Features.Integrations.GetByProvider;
 using Incoders.Hive.Application.Features.Integrations.GetOverview;
-using Incoders.Hive.Application.Features.Integrations.SetDefaultAi;
 using Incoders.Hive.Application.Features.Integrations.TestConnection;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Tests.Common;
@@ -93,7 +92,7 @@ public sealed class OrganizationIntegrationsFlowTests
     }
 
     [Fact]
-    public async Task ConfigureRequiredProviders_ThenChecklistGroupsAreCompleted_AndDefaultAiCanBeSelected()
+    public async Task ConfigureRequiredProviders_ThenChecklistGroupsAreCompleted()
     {
         var harness = new IntegrationsHarness(Now);
         var organizationId = Guid.NewGuid();
@@ -118,13 +117,6 @@ public sealed class OrganizationIntegrationsFlowTests
             new TestOrganizationIntegrationConnectionCommand(organizationId, "openai"),
             CancellationToken.None)).IsSuccess);
 
-        var defaultAi = await harness.SetDefaultAi.Handle(
-            new SetDefaultAiIntegrationCommand(organizationId, "openai", "gpt-4.1-mini"),
-            CancellationToken.None);
-
-        Assert.True(defaultAi.IsSuccess);
-        Assert.True(defaultAi.Value.IsDefaultAi);
-
         var overview = await harness.GetOverview.Handle(
             new GetOrganizationIntegrationsQuery(organizationId),
             CancellationToken.None);
@@ -133,8 +125,6 @@ public sealed class OrganizationIntegrationsFlowTests
         Assert.All(overview.Value.ChecklistGroups, group => Assert.All(group.Items, item => Assert.True(item.IsCompleted)));
         Assert.DoesNotContain(overview.Value.Checklist, item => item.Key.Contains("canva", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(overview.Value.Checklist, item => item.Key.Contains("blotato", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal("openai", overview.Value.DefaultAiProviderKey);
-        Assert.Equal("gpt-4.1-mini", overview.Value.DefaultAiModel);
     }
 
     [Fact]
@@ -237,13 +227,6 @@ public sealed class OrganizationIntegrationsFlowTests
                 Credentials,
                 protector);
 
-            SetDefaultAi = new SetDefaultAiIntegrationHandler(
-                _providers,
-                Integrations,
-                Credentials,
-                unitOfWork,
-                clock);
-
             TestConnection = new TestOrganizationIntegrationConnectionHandler(
                 _providers,
                 Integrations,
@@ -263,8 +246,6 @@ public sealed class OrganizationIntegrationsFlowTests
         public GetOrganizationIntegrationsHandler GetOverview { get; }
 
         public GetOrganizationIntegrationByProviderHandler GetByProvider { get; }
-
-        public SetDefaultAiIntegrationHandler SetDefaultAi { get; }
 
         public TestOrganizationIntegrationConnectionHandler TestConnection { get; }
     }

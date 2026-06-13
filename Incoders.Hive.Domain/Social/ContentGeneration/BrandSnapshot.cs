@@ -62,7 +62,6 @@ public sealed record BrandSnapshot(
         // Strategy fields
         bool hasStrategy = strategy is not null;
         inferred["ContentPillars"] = !hasStrategy || strategy!.ContentPillars.Count == 0;
-        inferred["ToneKeywords"] = !hasStrategy || strategy!.ToneKeywords.Count == 0;
         inferred["TargetAudience"] = !hasStrategy || string.IsNullOrWhiteSpace(strategy!.TargetAudience);
         inferred["PostingFrequency"] = !hasStrategy || string.IsNullOrWhiteSpace(strategy!.PostingFrequency);
 

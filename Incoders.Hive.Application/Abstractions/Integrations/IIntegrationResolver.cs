@@ -9,10 +9,6 @@ public interface IIntegrationResolver
         Guid organizationId,
         string providerKey,
         CancellationToken cancellationToken = default);
-
-    Task<Result<ResolvedIntegration>> ResolveDefaultAiProviderAsync(
-        Guid organizationId,
-        CancellationToken cancellationToken = default);
 }
 
 public sealed record ResolvedIntegration(
@@ -23,6 +19,5 @@ public sealed record ResolvedIntegration(
     IntegrationConnectionMode ConnectionMode,
     IntegrationStatus Status,
     bool IsReadOnly,
-    bool IsDefaultAi,
     string? SelectedAiModel,
     IReadOnlyDictionary<string, string> Credentials);

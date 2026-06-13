@@ -14,6 +14,7 @@ export async function listClientCompetitorAccounts(
   clientId: string,
   query: ListClientCompetitorAccountsQuery = {},
   token?: string,
+  organizationId?: string,
 ): Promise<PagedClientCompetitorAccounts> {
   const params = new URLSearchParams();
   if (query.includeInactive) params.set("includeInactive", "true");
@@ -24,6 +25,7 @@ export async function listClientCompetitorAccounts(
     `${base(clientId)}${qs ? `?${qs}` : ""}`,
     undefined,
     token,
+    organizationId,
   );
 }
 
@@ -100,10 +102,12 @@ export async function syncClientCompetitorAccounts(
   clientId: string,
   items: SyncClientCompetitorAccountPayload[],
   token?: string,
+  organizationId?: string,
 ): Promise<ClientCompetitorAccount[]> {
   return apiRequest<ClientCompetitorAccount[]>(
     base(clientId),
     { method: "PUT", body: JSON.stringify({ items }) },
     token,
+    organizationId,
   );
 }

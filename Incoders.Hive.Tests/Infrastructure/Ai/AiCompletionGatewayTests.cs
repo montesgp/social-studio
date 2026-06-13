@@ -117,14 +117,8 @@ public sealed class AiCompletionGatewayTests
                 IntegrationConnectionMode.BringYourOwnKey,
                 IntegrationStatus.Connected,
                 IsReadOnly: false,
-                IsDefaultAi: true,
                 SelectedAiModel: "gpt-test",
                 new Dictionary<string, string> { ["api_key"] = "test" })));
-
-        public Task<Result<ResolvedIntegration>> ResolveDefaultAiProviderAsync(
-            Guid organizationId,
-            CancellationToken cancellationToken = default) =>
-            ResolveProviderAsync(organizationId, _providerKey, cancellationToken);
     }
 
     private sealed class StaticClientFactory : IExternalProviderClientFactory
