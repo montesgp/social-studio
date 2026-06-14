@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
+import { ACTIVE_ORG_STORAGE_KEY } from "@/lib/auth/session";
 
 const base = "/api/social/content-studio";
 
@@ -211,4 +212,33 @@ export function bulkOperation(
     { method: "POST", body: JSON.stringify({ itemIds, operation, reason }) },
     token,
   );
+}
+
+/** Downloads the set's client-presentation PPTX deck (binary), carrying auth + tenant headers. */
+export async function downloadPresentationPptx(setId: string, token?: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  if (typeof window !== "undefined") {
+    const orgId = window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+    if (orgId) {
+      headers["X-Tenant-Id"] = orgId;
+    }
+  }
+
+  const response = await fetch(`/hive-api${base}/sets/${setId}/export.pptx`, { headers, cache: "no-store" });
+  if (!response.ok) {
+    throw { message: `Presentation export failed (HTTP ${response.status}).` };
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "content-studio-presentation.pptx";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }

@@ -3,6 +3,7 @@ using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Application.Features.Social.ContentStudio;
 using Incoders.Hive.Application.Features.Social.ContentStudio.Bulk;
+using Incoders.Hive.Application.Features.Social.ContentStudio.Export;
 using Incoders.Hive.Application.Features.Social.ContentStudio.Materialize;
 using Incoders.Hive.Application.Features.Social.ContentStudio.Operations;
 using Incoders.Hive.Application.Features.Social.ContentStudio.Queries;
@@ -41,6 +42,12 @@ public static class ContentStudioEndpointsExtensions
         group.MapGet("/sets/{setId:guid}/items", ListItemsAsync)
             .WithName("ListContentStudioItems")
             .Produces<IReadOnlyList<ContentItemResponse>>(StatusCodes.Status200OK);
+
+        group.MapGet("/sets/{setId:guid}/export.pptx", ExportPptxAsync)
+            .WithName("ExportContentStudioPresentationPptx")
+            .WithSummary("Export the set's reviewed visual content as a client-presentation PPTX deck")
+            .Produces(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
 
         group.MapGet("/items/{itemId:guid}", GetItemAsync)
             .WithName("GetContentStudioItem")
@@ -140,6 +147,21 @@ public static class ContentStudioEndpointsExtensions
 
         var result = await sender.Send(new ListContentItemsQuery(org.Value, setId, state), ct);
         return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
+    private static async Task<IResult> ExportPptxAsync(
+        Guid setId, ICurrentTenant tenant, ISender sender, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } org)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var result = await sender.Send(new ExportPresentationQuery(org.Value, setId), ct);
+        return result.Match(r => (IResult)TypedResults.File(
+            r.PptxBytes,
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            r.DownloadFilename));
     }
 
     private static async Task<IResult> GetItemAsync(

@@ -9,6 +9,7 @@ import {
   bulkOperation,
   deleteItem,
   discardItem,
+  downloadPresentationPptx,
   duplicateItem,
   editItemText,
   editItemVisual,
@@ -164,6 +165,21 @@ export function ContentStudioPanel({ jobId, clientId, token }: ContentStudioPane
     [bulkSelected, runAction, token],
   );
 
+  const exportPresentation = useCallback(async () => {
+    if (!set) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await downloadPresentationPptx(set.id, token);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [set, token]);
+
   if (!jobId || !clientId) {
     return (
       <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
@@ -184,7 +200,14 @@ export function ContentStudioPanel({ jobId, clientId, token }: ContentStudioPane
         </div>
       ) : null}
 
-      {set ? <ReviewSummaryBar set={set} /> : null}
+      {set ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <ReviewSummaryBar set={set} />
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => void exportPresentation()}>
+            Export PPTX
+          </Button>
+        </div>
+      ) : null}
 
       {bulkSelected.size > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
