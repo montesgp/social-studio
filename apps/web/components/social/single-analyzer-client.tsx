@@ -50,6 +50,7 @@ import type {
 import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { useSocialNetworks } from "@/hooks/use-social-networks";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { ContentStudioPanel } from "@/components/social/content-studio-panel";
 import { useToast } from "@/components/ui/toaster";
 import { show as showBlockingLoader, hide as hideBlockingLoader } from "@/lib/loading/blocking-loader-store";
 import {
@@ -784,7 +785,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     Record<string, Partial<Record<ContentFormatKey, LocalFormatEntry>>>
   >({});
   const [generatingConversion, setGeneratingConversion] = useState<MutationMode | null>(null);
-  const [rightPanelTab, setRightPanelTab] = useState<"conversion" | "preview" | "package">("conversion");
+  const [rightPanelTab, setRightPanelTab] = useState<"conversion" | "preview" | "package" | "studio">("conversion");
   const [mutationMode, setMutationMode] = useState<MutationMode>("script");
   const [historyItems, setHistoryItems] = useState<SingleContentAnalysisHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -2789,9 +2790,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     { key: "conversion", label: "Convert" },
                     { key: "preview", label: "Preview" },
                     { key: "package", label: "Package" },
+                    { key: "studio", label: "Studio" },
                   ]}
                   active={rightPanelTab}
-                  onChange={(k) => setRightPanelTab(k as "conversion" | "preview" | "package")}
+                  onChange={(k) => setRightPanelTab(k as "conversion" | "preview" | "package" | "studio")}
                 />
                   {/* Client context selector — shown on Convert and Preview tabs only.
                       The Packages tab shows ALL clients' folders without filtering by client.
@@ -3277,6 +3279,14 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     canSendToCanva={canDownloadPackage && packageJobId !== null}
                     isSendingToCanva={isExportingToCanva}
                     onSendToCanva={() => void sendPackageToCanva()}
+                  />
+                )}
+
+                {rightPanelTab === "studio" && (
+                  <ContentStudioPanel
+                    jobId={packageJobId}
+                    clientId={selectedClientId || null}
+                    token={token}
                   />
                 )}
               </CardContent>
