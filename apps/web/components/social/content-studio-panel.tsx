@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -14,17 +14,21 @@ import {
   editItemText,
   editItemVisual,
   getContentSet,
+  linkItemToPlan,
   listContentItems,
   materializeRun,
   rejectItem,
   spawnVariant,
   stageItem,
+  unlinkItemFromPlan,
   type BulkOperation,
   type ContentItem,
   type ContentReviewState,
   type ContentSet,
   type VisualAssetInput,
 } from "@/lib/api/content-studio";
+import { getContentPlan, listContentPlans } from "@/lib/api/content-plans";
+import type { ContentPlan, ContentPlanSummary } from "@/lib/api/types";
 
 interface ContentStudioPanelProps {
   /** Generation job id of the completed run to review (Single Analyzer package job). */
@@ -297,6 +301,26 @@ export function ContentStudioPanel({ jobId, clientId, token }: ContentStudioPane
                 setSelectedId(variant.id);
               })
             }
+            planLink={
+              <PlanLinkControl
+                item={selected}
+                clientId={clientId ?? ""}
+                token={token}
+                busy={busy}
+                onLink={(contentPlanId, year, month, calendarSlotId) =>
+                  runAction(
+                    () =>
+                      linkItemToPlan(
+                        selected.id,
+                        { contentPlanId, periodKind: 0, year, month, calendarSlotId },
+                        token,
+                      ),
+                    selected.id,
+                  )
+                }
+                onUnlink={() => runAction(() => unlinkItemFromPlan(selected.id, token), selected.id)}
+              />
+            }
           />
         ) : (
           <div className="rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">
@@ -401,6 +425,7 @@ interface ItemDetailProps {
   onStage: () => void;
   onSaveVisual: (markup: string | null, assets: VisualAssetInput[]) => void;
   onCreateVariant: () => void;
+  planLink: ReactNode;
 }
 
 function ItemDetail(props: ItemDetailProps) {
@@ -582,6 +607,8 @@ function ItemDetail(props: ItemDetailProps) {
           </Button>
         </div>
       )}
+
+      {props.planLink}
     </div>
   );
 }
@@ -608,6 +635,124 @@ function DestinationPreview({ item }: { item: ContentItem }) {
           </ul>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function PlanLinkControl({
+  item,
+  clientId,
+  token,
+  busy,
+  onLink,
+  onUnlink,
+}: {
+  item: ContentItem;
+  clientId: string;
+  token: string;
+  busy: boolean;
+  onLink: (contentPlanId: string, year: number, month: number, calendarSlotId: string) => void;
+  onUnlink: () => void;
+}) {
+  const [plans, setPlans] = useState<ContentPlanSummary[]>([]);
+  const [periodKey, setPeriodKey] = useState("");
+  const [plan, setPlan] = useState<ContentPlan | null>(null);
+  const [slotId, setSlotId] = useState("");
+
+  useEffect(() => {
+    if (!clientId) {
+      return;
+    }
+    let cancelled = false;
+    listContentPlans(clientId, token)
+      .then((result) => {
+        if (!cancelled) setPlans(result);
+      })
+      .catch(() => {
+        /* picker stays empty on error */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, token]);
+
+  useEffect(() => {
+    if (!periodKey || !clientId) {
+      setPlan(null);
+      setSlotId("");
+      return;
+    }
+    const [year, month] = periodKey.split("-").map(Number);
+    let cancelled = false;
+    getContentPlan(clientId, year, month, token)
+      .then((result) => {
+        if (!cancelled) {
+          setPlan(result);
+          setSlotId("");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPlan(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [periodKey, clientId, token]);
+
+  if (item.planContext) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-border p-2 text-xs">
+        <span className="text-muted-foreground">
+          Linked to content plan {item.planContext.year}-{String(item.planContext.month).padStart(2, "0")}
+        </span>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onUnlink}>
+          Unlink
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border p-2 text-xs">
+      <span className="text-muted-foreground">Link to content plan:</span>
+      <select
+        value={periodKey}
+        onChange={(e) => setPeriodKey(e.target.value)}
+        disabled={busy}
+        className="rounded-md border border-border bg-background px-2 py-1"
+      >
+        <option value="">period…</option>
+        {plans.map((p) => (
+          <option key={p.id} value={`${p.year}-${p.month}`}>
+            {p.year}-{String(p.month).padStart(2, "0")}
+          </option>
+        ))}
+      </select>
+      <select
+        value={slotId}
+        onChange={(e) => setSlotId(e.target.value)}
+        disabled={busy || plan === null}
+        className="rounded-md border border-border bg-background px-2 py-1"
+      >
+        <option value="">slot…</option>
+        {plan?.slots.map((s) => (
+          <option key={s.id} value={s.id}>
+            Day {s.day} · {s.contentFormat}
+          </option>
+        ))}
+      </select>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={busy || plan === null || slotId.length === 0}
+        onClick={() => {
+          if (plan && slotId) {
+            onLink(plan.id, plan.year, plan.month, slotId);
+          }
+        }}
+      >
+        Link
+      </Button>
     </div>
   );
 }

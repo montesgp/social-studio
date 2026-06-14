@@ -251,6 +251,23 @@ public sealed class ContentItem : Entity<ContentItemId>
         return Result.Success();
     }
 
+    /// <summary>Associates the item with a content-plan calendar slot (soft refs; audit metadata, not a transition).</summary>
+    public Result LinkToPlan(PlanContext planContext, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(planContext);
+        PlanContext = planContext;
+        UpdatedAtUtc = nowUtc;
+        return Result.Success();
+    }
+
+    /// <summary>Removes any content-plan association.</summary>
+    public Result UnlinkFromPlan(DateTime nowUtc)
+    {
+        PlanContext = null;
+        UpdatedAtUtc = nowUtc;
+        return Result.Success();
+    }
+
     private Result Transition(ReviewState target, DateTime nowUtc)
     {
         if (!ReviewStateTransitions.IsValid(State, target))

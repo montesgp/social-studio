@@ -75,6 +75,16 @@ public static class ContentStudioEndpointsExtensions
             .WithSummary("Create a variant of an item in the same variant group")
             .Produces<ContentItemResponse>(StatusCodes.Status200OK);
 
+        group.MapPut("/items/{itemId:guid}/plan-link", LinkPlanAsync)
+            .WithName("LinkContentStudioItemToPlan")
+            .WithSummary("Associate the item with a content-plan calendar slot")
+            .Produces<ContentItemResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapDelete("/items/{itemId:guid}/plan-link", UnlinkPlanAsync)
+            .WithName("UnlinkContentStudioItemFromPlan")
+            .Produces<ContentItemResponse>(StatusCodes.Status200OK);
+
         group.MapPost("/items/{itemId:guid}/approve", ApproveAsync)
             .WithName("ApproveContentStudioItem")
             .Produces<ContentItemResponse>(StatusCodes.Status200OK)
@@ -226,6 +236,33 @@ public static class ContentStudioEndpointsExtensions
         return result.Match(r => (IResult)TypedResults.Ok(r));
     }
 
+    private static async Task<IResult> LinkPlanAsync(
+        Guid itemId, [FromBody] PlanLinkRequest body, ICurrentTenant tenant, ISender sender, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } org)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var result = await sender.Send(
+            new LinkItemToPlanCommand(
+                org.Value, itemId, body.ContentPlanId, body.PeriodKind, body.Year, body.Month, body.CalendarSlotId),
+            ct);
+        return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
+    private static async Task<IResult> UnlinkPlanAsync(
+        Guid itemId, ICurrentTenant tenant, ISender sender, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } org)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var result = await sender.Send(new UnlinkItemFromPlanCommand(org.Value, itemId), ct);
+        return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
     private static async Task<IResult> ApproveAsync(
         Guid itemId, ICurrentTenant tenant, ICurrentUser currentUser, ISender sender, CancellationToken ct)
     {
@@ -330,3 +367,5 @@ public sealed record RejectRequest(string Reason);
 public sealed record EditVisualRequest(string? VisualSpecMarkup, IReadOnlyList<VisualAssetInput>? Assets);
 
 public sealed record BulkOperationRequest(IReadOnlyList<Guid> ItemIds, string Operation, string? Reason);
+
+public sealed record PlanLinkRequest(Guid ContentPlanId, short PeriodKind, int Year, int Month, Guid CalendarSlotId);

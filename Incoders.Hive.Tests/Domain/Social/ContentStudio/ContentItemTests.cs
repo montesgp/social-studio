@@ -225,6 +225,19 @@ public sealed class ContentItemTests
     }
 
     [Fact]
+    public void LinkToPlan_SetsPlanContext_ThenUnlinkClearsIt()
+    {
+        var item = NewItem();
+        var plan = new PlanContext(Guid.NewGuid(), new PeriodRef(0, 2026, 6), Guid.NewGuid());
+
+        Assert.True(item.LinkToPlan(plan, Now).IsSuccess);
+        Assert.Equal(plan, item.PlanContext);
+
+        Assert.True(item.UnlinkFromPlan(Now).IsSuccess);
+        Assert.Null(item.PlanContext);
+    }
+
+    [Fact]
     public void Duplicate_StartsFresh_InDraft_WithoutReviewerOrReason()
     {
         var item = NewItem("caption A");

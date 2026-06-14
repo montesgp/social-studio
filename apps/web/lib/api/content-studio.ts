@@ -33,6 +33,14 @@ export interface EditTraceDto {
   promptVersion: string | null;
 }
 
+export interface PlanContextDto {
+  contentPlanId: string;
+  periodKind: number;
+  year: number;
+  month: number;
+  calendarSlotId: string;
+}
+
 export interface ContentItem {
   id: string;
   organizationId: string;
@@ -49,7 +57,7 @@ export interface ContentItem {
   editTrace: EditTraceDto;
   variantGroupId: string;
   isPrimaryVariant: boolean;
-  planContext: unknown | null;
+  planContext: PlanContextDto | null;
   rejectionReason: string | null;
   reviewerUserId: string | null;
   createdAtUtc: string;
@@ -184,6 +192,22 @@ export function editItemVisual(
 
 export function spawnVariant(itemId: string, token?: string): Promise<ContentItem> {
   return apiRequest<ContentItem>(`${base}/items/${itemId}/variant`, { method: "POST" }, token);
+}
+
+export function linkItemToPlan(
+  itemId: string,
+  link: { contentPlanId: string; periodKind: number; year: number; month: number; calendarSlotId: string },
+  token?: string,
+): Promise<ContentItem> {
+  return apiRequest<ContentItem>(
+    `${base}/items/${itemId}/plan-link`,
+    { method: "PUT", body: JSON.stringify(link) },
+    token,
+  );
+}
+
+export function unlinkItemFromPlan(itemId: string, token?: string): Promise<ContentItem> {
+  return apiRequest<ContentItem>(`${base}/items/${itemId}/plan-link`, { method: "DELETE" }, token);
 }
 
 export type BulkOperation = "Approve" | "Reject" | "Discard" | "Delete";
