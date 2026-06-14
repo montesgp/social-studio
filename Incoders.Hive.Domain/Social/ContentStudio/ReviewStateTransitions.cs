@@ -8,9 +8,11 @@ public static class ReviewStateTransitions
 {
     private static readonly HashSet<(ReviewState From, ReviewState To)> AllowedTransitions =
     [
-        // From Draft
+        // From Draft (a generated item can be approved/rejected directly, or opened for review)
         (ReviewState.Draft, ReviewState.InReview),
         (ReviewState.Draft, ReviewState.Edited),
+        (ReviewState.Draft, ReviewState.Approved),
+        (ReviewState.Draft, ReviewState.Rejected),
         (ReviewState.Draft, ReviewState.Discarded),
 
         // From InReview

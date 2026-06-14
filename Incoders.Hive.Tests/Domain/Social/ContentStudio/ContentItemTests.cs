@@ -79,12 +79,14 @@ public sealed class ContentItemTests
     }
 
     [Fact]
-    public void Approve_FromDraft_IsIllegal()
+    public void Approve_FromDraft_Succeeds_ApproveAsGenerated()
     {
         var item = NewItem();
+        var reviewer = Guid.NewGuid();
 
-        Assert.True(item.Approve(Guid.NewGuid(), Now).IsFailure);
-        Assert.Equal(ReviewState.Draft, item.State);
+        Assert.True(item.Approve(reviewer, Now).IsSuccess);
+        Assert.Equal(ReviewState.Approved, item.State);
+        Assert.Equal(reviewer, item.ReviewerUserId);
     }
 
     [Fact]

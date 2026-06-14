@@ -132,6 +132,7 @@ public static class DependencyInjection
         services.AddScoped<IContentPlanRepository, EfContentPlanRepository>();
         services.AddScoped<IContentItemRepository, EfContentItemRepository>();
         services.AddScoped<IContentSetRepository, EfContentSetRepository>();
+        services.AddScoped<IPublicationHandoff, Incoders.Hive.Infrastructure.Social.ContentStudio.LoggingPublicationHandoff>();
         services.AddScoped<SocialNetworkCatalogSeeder>();
         services.AddScoped<PlatformSystemModuleSeeder>();
         services.AddScoped<PlatformEmailTemplateSeeder>();

@@ -7,6 +7,8 @@ public sealed class ReviewStateTransitionsTests
     [Theory]
     [InlineData(ReviewState.Draft, ReviewState.InReview)]
     [InlineData(ReviewState.Draft, ReviewState.Edited)]
+    [InlineData(ReviewState.Draft, ReviewState.Approved)]
+    [InlineData(ReviewState.Draft, ReviewState.Rejected)]
     [InlineData(ReviewState.Draft, ReviewState.Discarded)]
     [InlineData(ReviewState.InReview, ReviewState.Approved)]
     [InlineData(ReviewState.InReview, ReviewState.Rejected)]
@@ -26,7 +28,6 @@ public sealed class ReviewStateTransitionsTests
     }
 
     [Theory]
-    [InlineData(ReviewState.Draft, ReviewState.Approved)]
     [InlineData(ReviewState.Draft, ReviewState.ReadyForPublication)]
     [InlineData(ReviewState.Draft, ReviewState.HandedOff)]
     [InlineData(ReviewState.InReview, ReviewState.ReadyForPublication)]
