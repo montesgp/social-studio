@@ -1,5 +1,5 @@
 change: content-studio
-status: proposed
+status: implemented
 completed_at: null
 adr: docs/architecture/adr/0004-content-studio-review-model.md
 
@@ -7,6 +7,7 @@ artifacts:
   proposal: openspec/changes/content-studio/proposal.md
   design: openspec/changes/content-studio/design.md
   tasks: openspec/changes/content-studio/tasks.md
+  diagram: docs/architecture/diagrams/content-studio-flow.md
   specs:
     - openspec/changes/content-studio/specs/content-studio/spec.md
     - openspec/changes/content-studio/specs/content-generation/spec-delta.md
@@ -26,63 +27,71 @@ scope:
     - phase: 5
       name: "Magic Generator source + Campaign grouping (large-N, async bulk)"
 
+validation:
+  gates: PASS
+  detail: "Run-Gates.ps1 — 16 pass / 2 skipped, no MUST gate failed. backend build, web build+lint, tests 1316 passed/0 failed/2 skipped, architecture.imports clean (CS-10 isolation), deps/secrets/security/vulns clean."
+
 phases:
   - id: 1
     name: "Domain: Value Objects"
     pr: 1
-    status: pending
+    status: complete
     refs: [CS-01, CS-02]
 
   - id: 2
     name: "Domain: ReviewState + ContentItem + ContentSet"
     pr: 1
-    status: pending
+    status: complete
     refs: [CS-01, CS-03, CS-05, CS-06, CS-08, CS-09]
 
   - id: 3
     name: "Infrastructure: Persistence"
-    pr: 2
-    status: pending
+    pr: 1
+    status: complete
     refs: [CS-10, CS-11]
 
   - id: 4
     name: "Application: Ports, Materializer, Feature Slices"
-    pr: 2
-    status: pending
+    pr: 1
+    status: complete
     refs: [CS-04, CS-06, CS-07, CS-08]
 
   - id: 5
     name: "Handoff Contract"
-    pr: 3
-    status: pending
+    pr: 1
+    status: complete
     refs: [CS-09, PUB-HANDOFF-01, PUB-HANDOFF-02]
 
   - id: 6
     name: "Api: Endpoints"
-    pr: 2
-    status: pending
+    pr: 1
+    status: complete
     refs: [CS-11, CS-12]
 
   - id: 7
     name: "Frontend: Studio Surface"
-    pr: 3
-    status: pending
+    pr: 1
+    status: complete
     refs: [CS-07, CS-12]
 
   - id: 8
     name: "Docs Sync, Diagram, and Cleanup"
-    pr: 3
-    status: pending
+    pr: 1
+    status: in-progress
+    notes: >
+      Flow diagram done (docs/architecture/diagrams/content-studio-flow.md).
+      Remaining: PRD/SDD "Content Studio" section + merge openspec specs (at archive);
+      frontend component tests (no web test harness configured yet); state.yaml maintenance.
     refs: [CS-01, CS-02, CS-03, CS-04, CS-05, CS-06, CS-07, CS-08, CS-09, CS-10, CS-11, CS-12]
 
 migrations:
   - name: Add_ContentStudio
     applied: false
-    note: "Creates social.content_studio_items + social.content_studio_sets + social.content_studio_set_items (additive, no data migration)"
+    note: "Generated (20260614051456). Additive — creates social.content_studio_items/_sets/_set_items. Apply to DB at deploy."
 
 delivery:
   strategy: single-pr
-  size_exception: true   # ~1,600-2,100 LOC in ONE PR — chosen by user; review risk mitigated via work-unit commits per phase
+  size_exception: true   # one PR to dev, chosen by user; review risk mitigated via per-layer work-unit commits
   target_branch: dev
   branch: feature/content-studio
   prs:
@@ -90,4 +99,11 @@ delivery:
       branch: feature/content-studio
       base: dev
       title: "feat(content-studio): Phase 1 — foundation + Single Analyzer integration"
-      status: in-progress
+      status: ready-for-review   # gate-validated locally; GitHub PR pending user request
+      commits:
+        - "08af622 docs: SDD + ADR 0004 + flow diagram"
+        - "2d13d09 feat: domain layer"
+        - "902b900 feat: persistence + migration"
+        - "3bf5224 feat: application (materializer, operations, handoff)"
+        - "dfe3a6c feat: API endpoints"
+        - "7a26dce feat: frontend Studio tab"
