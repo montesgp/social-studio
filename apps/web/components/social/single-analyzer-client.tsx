@@ -574,42 +574,6 @@ function resolvePackageFormatFiles(
   return [resolveFormatFilename(formatKey)];
 }
 
-function SocialTabletPreview({
-  content,
-  network,
-}: {
-  content: string;
-  network: string;
-}) {
-  const lines = content.split("\n").filter(Boolean);
-  return (
-    <div className="rounded-xl border border-border/40 bg-background/60 p-4 space-y-3 min-h-[200px]">
-      <div className="flex items-center gap-2 pb-2 border-b border-border/30">
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500/40 to-blue-500/40 flex items-center justify-center">
-          <span className="text-xs font-bold text-foreground/80">
-            {network.charAt(0).toUpperCase()}
-          </span>
-        </div>
-        <span className="text-xs font-medium text-muted-foreground capitalize">
-          {network}
-        </span>
-      </div>
-      <div className="space-y-1.5">
-        {lines.slice(0, 8).map((line, i) => (
-          <p key={i} className="text-sm text-foreground/80 leading-relaxed">
-            {line}
-          </p>
-        ))}
-        {lines.length > 8 && (
-          <p className="text-xs text-muted-foreground/60 italic">
-            +{lines.length - 8} more lines…
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Client folder slug derivation (mirrors backend NormalizeFolderName) ────────
 
 function RegenerationChoicePanel({
@@ -785,7 +749,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     Record<string, Partial<Record<ContentFormatKey, LocalFormatEntry>>>
   >({});
   const [generatingConversion, setGeneratingConversion] = useState<MutationMode | null>(null);
-  const [rightPanelTab, setRightPanelTab] = useState<"conversion" | "preview" | "package" | "studio">("conversion");
+  const [rightPanelTab, setRightPanelTab] = useState<"conversion" | "package">("conversion");
+  const [studioOpen, setStudioOpen] = useState(false);
   const [mutationMode, setMutationMode] = useState<MutationMode>("script");
   const [historyItems, setHistoryItems] = useState<SingleContentAnalysisHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -2788,13 +2753,19 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                 <TabBar
                   tabs={[
                     { key: "conversion", label: "Convert" },
-                    { key: "preview", label: "Preview" },
                     { key: "package", label: "Package" },
-                    { key: "studio", label: "Studio" },
                   ]}
                   active={rightPanelTab}
-                  onChange={(k) => setRightPanelTab(k as "conversion" | "preview" | "package" | "studio")}
+                  onChange={(k) => setRightPanelTab(k as "conversion" | "package")}
                 />
+                <Button
+                  size="sm"
+                  className="mt-2 w-full"
+                  disabled={!packageJobId || selectedClientId.length === 0}
+                  onClick={() => setStudioOpen(true)}
+                >
+                  Open Content Studio
+                </Button>
                   {/* Client context selector — shown on Convert and Preview tabs only.
                       The Packages tab shows ALL clients' folders without filtering by client.
                       INC-6 REQ-5: selector MUST NOT appear on the Packages tab. */}
@@ -3231,24 +3202,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                   )
                 )}
 
-                {rightPanelTab === "preview" && (
-                  <div>
-                    <div className="mt-3">
-                      {activeContent() ? (
-                        <SocialTabletPreview
-                          content={activeContent() ?? ""}
-                          network={videoResult?.networkSource ?? "social"}
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center justify-center min-h-[160px] text-center text-xs text-muted-foreground/60 space-y-2">
-                          <ImageIcon className="h-8 w-8 opacity-30" />
-                          <p>Generate content in Convert tab to preview it here.</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
                 {rightPanelTab === "package" && (
                   <PackageTabContent
                     localFormats={selectedClientLocalFormats}
@@ -3282,13 +3235,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                   />
                 )}
 
-                {rightPanelTab === "studio" && (
-                  <ContentStudioPanel
-                    jobId={packageJobId}
-                    clientId={selectedClientId || null}
-                    token={token}
-                  />
-                )}
               </CardContent>
             </Card>
           ) : (
@@ -3331,6 +3277,15 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {studioOpen && (
+        <ContentStudioPanel
+          jobId={packageJobId}
+          clientId={selectedClientId || null}
+          token={token}
+          onClose={() => setStudioOpen(false)}
+        />
       )}
 
       <ConfirmationDialog
