@@ -35,7 +35,6 @@ interface ContentStudioPanelProps {
   jobId: string | null;
   clientId: string | null;
   token: string;
-  /** Closes the full-screen studio and returns to the host screen. */
   onClose: () => void;
 }
 
@@ -52,29 +51,56 @@ const STATE_VARIANT: Record<ContentReviewState, BadgeVariant> = {
 
 const TERMINAL: ContentReviewState[] = ["Discarded", "ReadyForPublication", "HandedOff"];
 
+// ── Composition envelope helpers (the visual content of a piece) ───────────────
+
+interface Envelope {
+  markup: string;
+  canvas?: { width?: number; height?: number };
+  [key: string]: unknown;
+}
+
 interface Slide {
   html: string;
   width: number;
   height: number;
 }
 
-/** Extracts renderable designer HTML slides from a persisted composition-spec envelope (object or array). */
-function parseSlides(visualSpecMarkup: string | null): Slide[] {
+function parseEnvelopes(visualSpecMarkup: string | null): Envelope[] {
   if (!visualSpecMarkup) return [];
   try {
     const parsed = JSON.parse(visualSpecMarkup) as unknown;
     const list = Array.isArray(parsed) ? parsed : [parsed];
-    return list
-      .filter((e): e is { markup: string; canvas?: { width?: number; height?: number } } =>
-        Boolean(e) && typeof (e as { markup?: unknown }).markup === "string",
-      )
-      .map((e) => ({
-        html: e.markup,
-        width: e.canvas?.width ?? 1080,
-        height: e.canvas?.height ?? 1080,
-      }));
+    return list.filter((e): e is Envelope => Boolean(e) && typeof (e as Envelope).markup === "string");
   } catch {
     return [];
+  }
+}
+
+function serializeEnvelopes(envelopes: Envelope[]): string {
+  return envelopes.length === 1 ? JSON.stringify(envelopes[0]) : JSON.stringify(envelopes);
+}
+
+function extractSlots(markup: string): { slot: string; text: string }[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const doc = new DOMParser().parseFromString(markup, "text/html");
+    return [...doc.querySelectorAll("[data-slot]")]
+      .map((el) => ({ slot: el.getAttribute("data-slot") ?? "", text: el.textContent ?? "" }))
+      .filter((s) => s.slot.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function replaceSlotText(markup: string, slot: string, text: string): string {
+  if (typeof window === "undefined") return markup;
+  try {
+    const doc = new DOMParser().parseFromString(markup, "text/html");
+    const el = doc.querySelector(`[data-slot="${slot}"]`);
+    if (el) el.textContent = text;
+    return doc.body.innerHTML;
+  } catch {
+    return markup;
   }
 }
 
@@ -492,14 +518,6 @@ function ItemDetail(props: ItemDetailProps) {
   const canStage = item.state === "Approved";
   const isVisual = item.medium !== "Text";
 
-  const initialAssets = item.assets.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime }));
-  const [showMarkup, setShowMarkup] = useState(false);
-  const [markup, setMarkup] = useState(item.visualSpecMarkup ?? "");
-  const [assets, setAssets] = useState<VisualAssetInput[]>(initialAssets);
-  const [newAsset, setNewAsset] = useState<VisualAssetInput>({ role: "image", storageUri: "", mime: "image/png" });
-  const visualDirty =
-    markup !== (item.visualSpecMarkup ?? "") || JSON.stringify(assets) !== JSON.stringify(initialAssets);
-
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -518,19 +536,27 @@ function ItemDetail(props: ItemDetailProps) {
         <p className="text-sm text-rose-700 dark:text-rose-300">Rejected: {item.rejectionReason}</p>
       ) : null}
 
-      <ChannelPreview item={item} />
+      {isVisual ? (
+        <VisualStudio
+          key={`${item.id}:${item.updatedAtUtc}`}
+          item={item}
+          busy={busy}
+          canEdit={canEdit}
+          onSaveVisual={props.onSaveVisual}
+        />
+      ) : (
+        <TextPreview item={item} />
+      )}
 
       <div className="flex flex-col gap-2">
-        <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {isVisual ? "Caption / copy" : "Text"}
-        </label>
+        <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Caption / post copy</label>
         <textarea
           value={draftText}
           onChange={(e) => props.onDraftChange(e.target.value)}
           disabled={!canEdit || busy}
           rows={isVisual ? 3 : 10}
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
-          placeholder="No text content."
+          placeholder="No caption."
         />
         <div>
           <Button
@@ -539,85 +565,10 @@ function ItemDetail(props: ItemDetailProps) {
             disabled={!canEdit || busy || draftText === (item.text ?? "")}
             onClick={props.onSaveText}
           >
-            Save text
+            Save caption
           </Button>
         </div>
       </div>
-
-      {isVisual ? (
-        <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Visual editing</span>
-            <Button size="sm" variant="ghost" onClick={() => setShowMarkup((v) => !v)}>
-              {showMarkup ? "Hide markup" : "Edit markup"}
-            </Button>
-          </div>
-          {showMarkup ? (
-            <textarea
-              value={markup}
-              onChange={(e) => setMarkup(e.target.value)}
-              disabled={!canEdit || busy}
-              rows={5}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
-              placeholder="No composition markup."
-            />
-          ) : null}
-          <label className="text-xs text-muted-foreground">Assets (image / background)</label>
-          <div className="flex flex-col gap-1.5">
-            {assets.map((asset, index) => (
-              <div key={`${asset.storageUri}-${index}`} className="flex items-center gap-2 text-xs">
-                <span className="w-20 shrink-0 truncate text-muted-foreground">{asset.role}</span>
-                <span className="flex-1 truncate">{asset.storageUri}</span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={!canEdit || busy}
-                  onClick={() => setAssets(assets.filter((_, i) => i !== index))}
-                >
-                  Remove
-                </Button>
-              </div>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={newAsset.role}
-              onChange={(e) => setNewAsset({ ...newAsset, role: e.target.value })}
-              placeholder="role"
-              disabled={!canEdit || busy}
-              className="w-24 rounded-md border border-border bg-background px-2 py-1 text-xs"
-            />
-            <input
-              value={newAsset.storageUri}
-              onChange={(e) => setNewAsset({ ...newAsset, storageUri: e.target.value })}
-              placeholder="storage uri or url"
-              disabled={!canEdit || busy}
-              className="min-w-[160px] flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!canEdit || busy || newAsset.storageUri.trim().length === 0}
-              onClick={() => {
-                setAssets([...assets, { ...newAsset, storageUri: newAsset.storageUri.trim() }]);
-                setNewAsset({ role: "image", storageUri: "", mime: "image/png" });
-              }}
-            >
-              Add asset
-            </Button>
-          </div>
-          <div>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={!canEdit || busy || !visualDirty}
-              onClick={() => props.onSaveVisual(markup.trim().length === 0 ? null : markup, assets)}
-            >
-              Save visual
-            </Button>
-          </div>
-        </div>
-      ) : null}
 
       {props.rejecting ? (
         <div className="flex flex-col gap-2 rounded-md border border-rose-600/30 bg-rose-50 p-3 dark:bg-rose-500/10">
@@ -674,31 +625,158 @@ function ItemDetail(props: ItemDetailProps) {
   );
 }
 
-/** Frames the rendered content as it would appear on the destination channel. */
-function ChannelPreview({ item }: { item: ContentItem }) {
-  const slides = parseSlides(item.visualSpecMarkup);
-  const frameWidth = item.targetPlacement === "story" || item.targetPlacement === "reel" ? "max-w-[300px]" : "max-w-[420px]";
+/** Carousel-style preview of the rendered design + live editing of its text slots. */
+function VisualStudio({
+  item,
+  busy,
+  canEdit,
+  onSaveVisual,
+}: {
+  item: ContentItem;
+  busy: boolean;
+  canEdit: boolean;
+  onSaveVisual: (markup: string | null, assets: VisualAssetInput[]) => void;
+}) {
+  const [envelopes, setEnvelopes] = useState<Envelope[]>(() => parseEnvelopes(item.visualSpecMarkup));
+  const [current, setCurrent] = useState(0);
+  const initialJson = useMemo(() => serializeEnvelopes(parseEnvelopes(item.visualSpecMarkup)), [item.visualSpecMarkup]);
+
+  const total = envelopes.length;
+  const idx = total === 0 ? 0 : Math.min(current, total - 1);
+  const activeSlide = envelopes[idx];
+  const slots = activeSlide ? extractSlots(activeSlide.markup) : [];
+  const dirty = total > 0 && serializeEnvelopes(envelopes) !== initialJson;
+
+  // Debounced markup feeding the iframe, so live edits don't reload the frame on every keystroke.
+  const [previewMarkup, setPreviewMarkup] = useState(activeSlide?.markup ?? "");
+  useEffect(() => {
+    const markup = envelopes[idx]?.markup ?? "";
+    const timer = setTimeout(() => setPreviewMarkup(markup), 200);
+    return () => clearTimeout(timer);
+  }, [envelopes, idx]);
+
+  const editSlot = (slot: string, text: string) => {
+    setEnvelopes((prev) => prev.map((e, i) => (i === idx ? { ...e, markup: replaceSlotText(e.markup, slot, text) } : e)));
+  };
+
+  if (total === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-border bg-background p-8 text-center text-sm italic text-muted-foreground">
+        No rendered design available for this piece.
+      </div>
+    );
+  }
+
+  const slideWidth = activeSlide?.canvas?.width ?? 1080;
+  const slideHeight = activeSlide?.canvas?.height ?? 1080;
+  const portrait = item.targetPlacement === "story" || item.targetPlacement === "reel";
 
   return (
-    <div className="rounded-xl border border-border bg-muted/30 p-4">
-      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Preview — {item.targetNetwork} {item.targetPlacement}
-      </p>
-      <div className={cn("mx-auto w-full", frameWidth)}>
-        {slides.length > 0 ? (
-          <div className="flex flex-col gap-3">
-            {slides.map((slide, index) => (
-              <RenderedSlide key={index} slide={slide} />
+    <div className="flex flex-col gap-3">
+      <div className="rounded-xl border border-border bg-muted/30 p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Preview — {item.targetNetwork} {item.targetPlacement}
+          </p>
+          {total > 1 ? (
+            <span className="text-xs text-muted-foreground">
+              {idx + 1}/{total}
+            </span>
+          ) : null}
+        </div>
+        <div className={cn("relative mx-auto w-full", portrait ? "max-w-[300px]" : "max-w-[420px]")}>
+          <RenderedSlide slide={{ html: previewMarkup, width: slideWidth, height: slideHeight }} />
+          {total > 1 ? (
+            <>
+              <button
+                type="button"
+                aria-label="Previous slide"
+                onClick={() => setCurrent((c) => (Math.min(c, total - 1) - 1 + total) % total)}
+                className="absolute left-1 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-background/80 text-lg shadow hover:bg-background"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                aria-label="Next slide"
+                onClick={() => setCurrent((c) => (Math.min(c, total - 1) + 1) % total)}
+                className="absolute right-1 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-background/80 text-lg shadow hover:bg-background"
+              >
+                ›
+              </button>
+            </>
+          ) : null}
+        </div>
+        {total > 1 ? (
+          <div className="mt-3 flex items-center justify-center gap-1.5">
+            {envelopes.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                aria-label={`Go to slide ${i + 1}`}
+                onClick={() => setCurrent(i)}
+                className={cn(
+                  "h-1.5 rounded-full transition-all",
+                  i === idx ? "w-5 bg-primary" : "w-1.5 bg-muted-foreground/40 hover:bg-muted-foreground/70",
+                )}
+              />
             ))}
           </div>
-        ) : item.text ? (
-          <div className="rounded-lg border border-border bg-background p-4">
-            <p className="whitespace-pre-wrap text-sm">{item.text}</p>
-          </div>
+        ) : null}
+      </div>
+
+      {slots.length > 0 ? (
+        <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Design text{total > 1 ? ` — slide ${idx + 1}` : ""}
+          </span>
+          {slots.map((s) => (
+            <div key={s.slot} className="flex flex-col gap-1">
+              <label className="text-[11px] capitalize text-muted-foreground">{s.slot}</label>
+              <textarea
+                value={s.text}
+                onChange={(e) => editSlot(s.slot, e.target.value)}
+                disabled={!canEdit || busy}
+                rows={2}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="px-1 text-xs text-muted-foreground">This design has no editable text slots.</p>
+      )}
+
+      <div>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={!canEdit || busy || !dirty}
+          onClick={() =>
+            onSaveVisual(
+              serializeEnvelopes(envelopes),
+              item.assets.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime })),
+            )
+          }
+        >
+          Save design changes
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function TextPreview({ item }: { item: ContentItem }) {
+  return (
+    <div className="rounded-xl border border-border bg-muted/30 p-4">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Preview — {item.targetNetwork} {item.targetPlacement}
+      </p>
+      <div className="mx-auto max-w-[420px] rounded-lg border border-border bg-background p-4">
+        {item.text ? (
+          <p className="whitespace-pre-wrap text-sm">{item.text}</p>
         ) : (
-          <div className="rounded-lg border border-dashed border-border bg-background p-8 text-center text-sm italic text-muted-foreground">
-            No preview content available for this piece.
-          </div>
+          <p className="text-sm italic text-muted-foreground">No text content.</p>
         )}
       </div>
     </div>
