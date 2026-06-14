@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   approveItem,
+  bulkOperation,
   deleteItem,
   discardItem,
   duplicateItem,
@@ -17,6 +18,7 @@ import {
   rejectItem,
   spawnVariant,
   stageItem,
+  type BulkOperation,
   type ContentItem,
   type ContentReviewState,
   type ContentSet,
@@ -63,6 +65,8 @@ export function ContentStudioPanel({ jobId, clientId, token }: ContentStudioPane
   const [draftText, setDraftText] = useState("");
   const [rejecting, setRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
+  const [bulkReason, setBulkReason] = useState("");
 
   // Lazy, idempotent materialization on open.
   useEffect(() => {
@@ -133,6 +137,33 @@ export function ContentStudioPanel({ jobId, clientId, token }: ContentStudioPane
     [refresh],
   );
 
+  const toggleBulk = useCallback((id: string) => {
+    setBulkSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const runBulk = useCallback(
+    (operation: BulkOperation, reason: string | null) => {
+      const ids = [...bulkSelected];
+      if (ids.length === 0) {
+        return;
+      }
+      void runAction(async () => {
+        await bulkOperation(ids, operation, reason, token);
+        setBulkSelected(new Set());
+        setBulkReason("");
+      });
+    },
+    [bulkSelected, runAction, token],
+  );
+
   if (!jobId || !clientId) {
     return (
       <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
@@ -155,8 +186,46 @@ export function ContentStudioPanel({ jobId, clientId, token }: ContentStudioPane
 
       {set ? <ReviewSummaryBar set={set} /> : null}
 
+      {bulkSelected.size > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+          <span className="text-sm font-medium">{bulkSelected.size} selected</span>
+          <input
+            value={bulkReason}
+            onChange={(e) => setBulkReason(e.target.value)}
+            placeholder="reason (for reject)"
+            className="min-w-[140px] flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
+          />
+          <Button size="sm" variant="default" disabled={busy} onClick={() => runBulk("Approve", null)}>
+            Approve
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || bulkReason.trim().length === 0}
+            onClick={() => runBulk("Reject", bulkReason)}
+          >
+            Reject
+          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => runBulk("Discard", null)}>
+            Discard
+          </Button>
+          <Button size="sm" variant="destructive" disabled={busy} onClick={() => runBulk("Delete", null)}>
+            Delete
+          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setBulkSelected(new Set())}>
+            Clear
+          </Button>
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
-        <ItemList items={items} selectedId={selectedId} onSelect={setSelectedId} />
+        <ItemList
+          items={items}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          bulkSelected={bulkSelected}
+          onToggleBulk={toggleBulk}
+        />
 
         {selected ? (
           <ItemDetail
@@ -245,10 +314,14 @@ function ItemList({
   items,
   selectedId,
   onSelect,
+  bulkSelected,
+  onToggleBulk,
 }: {
   items: ContentItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  bulkSelected: Set<string>;
+  onToggleBulk: (id: string) => void;
 }) {
   if (items.length === 0) {
     return (
@@ -259,20 +332,28 @@ function ItemList({
   return (
     <div className="flex flex-col gap-1.5">
       {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          onClick={() => onSelect(item.id)}
-          className={cn(
-            "flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors",
-            item.id === selectedId
-              ? "border-primary/50 bg-primary/10"
-              : "border-border bg-background hover:bg-muted",
-          )}
-        >
-          <span className="truncate font-medium">{item.formatKey}</span>
-          <Badge variant={STATE_VARIANT[item.state]}>{item.state}</Badge>
-        </button>
+        <div key={item.id} className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            aria-label={`Select ${item.formatKey}`}
+            checked={bulkSelected.has(item.id)}
+            onChange={() => onToggleBulk(item.id)}
+            className="h-4 w-4 shrink-0"
+          />
+          <button
+            type="button"
+            onClick={() => onSelect(item.id)}
+            className={cn(
+              "flex flex-1 items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors",
+              item.id === selectedId
+                ? "border-primary/50 bg-primary/10"
+                : "border-border bg-background hover:bg-muted",
+            )}
+          >
+            <span className="truncate font-medium">{item.formatKey}</span>
+            <Badge variant={STATE_VARIANT[item.state]}>{item.state}</Badge>
+          </button>
+        </div>
       ))}
     </div>
   );

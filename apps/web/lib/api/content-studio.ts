@@ -184,3 +184,31 @@ export function editItemVisual(
 export function spawnVariant(itemId: string, token?: string): Promise<ContentItem> {
   return apiRequest<ContentItem>(`${base}/items/${itemId}/variant`, { method: "POST" }, token);
 }
+
+export type BulkOperation = "Approve" | "Reject" | "Discard" | "Delete";
+
+export interface BulkItemOutcome {
+  itemId: string;
+  succeeded: boolean;
+  errorCode: string | null;
+}
+
+export interface BulkOperationResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+  outcomes: BulkItemOutcome[];
+}
+
+export function bulkOperation(
+  itemIds: string[],
+  operation: BulkOperation,
+  reason: string | null,
+  token?: string,
+): Promise<BulkOperationResult> {
+  return apiRequest<BulkOperationResult>(
+    `${base}/items/bulk`,
+    { method: "POST", body: JSON.stringify({ itemIds, operation, reason }) },
+    token,
+  );
+}

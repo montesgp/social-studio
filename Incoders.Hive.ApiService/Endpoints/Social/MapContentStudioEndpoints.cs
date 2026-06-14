@@ -2,6 +2,7 @@ using Incoders.Hive.ApiService.Endpoints.Common;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Application.Features.Social.ContentStudio;
+using Incoders.Hive.Application.Features.Social.ContentStudio.Bulk;
 using Incoders.Hive.Application.Features.Social.ContentStudio.Materialize;
 using Incoders.Hive.Application.Features.Social.ContentStudio.Operations;
 using Incoders.Hive.Application.Features.Social.ContentStudio.Queries;
@@ -95,6 +96,12 @@ public static class ContentStudioEndpointsExtensions
             .WithSummary("Stage an approved item for publication and emit the outbound handoff")
             .Produces<ContentItemResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        group.MapPost("/items/bulk", BulkAsync)
+            .WithName("BulkContentStudioOperation")
+            .WithSummary("Apply approve/reject/discard/delete across a selection (partial-success)")
+            .Produces<BulkOperationResult>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
 
         return app;
     }
@@ -268,6 +275,28 @@ public static class ContentStudioEndpointsExtensions
         var result = await sender.Send(new StageItemForPublicationCommand(org.Value, itemId, userId), ct);
         return result.Match(r => (IResult)TypedResults.Ok(r));
     }
+
+    private static async Task<IResult> BulkAsync(
+        [FromBody] BulkOperationRequest body, ICurrentTenant tenant, ICurrentUser currentUser, ISender sender, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } org || currentUser.UserId is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        if (!Enum.TryParse<BulkItemOperation>(body.Operation, ignoreCase: true, out var operation))
+        {
+            return TypedResults.Problem(
+                title: "Validation failed",
+                detail: $"Unknown bulk operation '{body.Operation}'.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var result = await sender.Send(
+            new BulkItemOperationCommand(org.Value, userId, body.ItemIds ?? [], operation, body.Reason),
+            ct);
+        return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
 }
 
 public sealed record MaterializeRunRequest(Guid ClientId);
@@ -277,3 +306,5 @@ public sealed record EditTextRequest(string Text);
 public sealed record RejectRequest(string Reason);
 
 public sealed record EditVisualRequest(string? VisualSpecMarkup, IReadOnlyList<VisualAssetInput>? Assets);
+
+public sealed record BulkOperationRequest(IReadOnlyList<Guid> ItemIds, string Operation, string? Reason);
