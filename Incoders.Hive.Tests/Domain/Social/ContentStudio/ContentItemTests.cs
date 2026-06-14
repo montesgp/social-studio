@@ -182,6 +182,49 @@ public sealed class ContentItemTests
     }
 
     [Fact]
+    public void SpawnVariant_KeepsVariantGroup_StartsDraft_NonPrimary()
+    {
+        var item = NewItem();
+        var original = item.VariantGroupId;
+
+        var variant = item.SpawnVariant(ContentItemId.New(), Now);
+
+        Assert.Equal(original, variant.VariantGroupId);
+        Assert.False(variant.IsPrimaryVariant);
+        Assert.Equal(ReviewState.Draft, variant.State);
+        Assert.NotEqual(item.Id, variant.Id);
+    }
+
+    [Fact]
+    public void EditVisual_UpdatesMarkupAndAssets_SetsEdited()
+    {
+        var item = NewItem();
+        var assets = new[] { new ContentAssetRef("background", "storage://bg.png", "image/png") };
+
+        var result = item.EditVisual("<spec edited/>", assets, Now);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("<spec edited/>", item.Draft.VisualSpecMarkup);
+        Assert.Single(item.Draft.Assets);
+        Assert.Equal(ReviewState.Edited, item.State);
+        Assert.Equal(Now, item.EditTrace.LastEditedAtUtc);
+    }
+
+    [Fact]
+    public void EditVisual_OnHandedOffItem_IsIllegal()
+    {
+        var item = NewItem();
+        item.Approve(Guid.NewGuid(), Now);
+        item.StageForPublication(Now);
+        item.MarkHandedOff(Now);
+
+        var result = item.EditVisual("<x/>", Array.Empty<ContentAssetRef>(), Now);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ContentStudioErrors.IllegalReviewTransition, result.Error);
+    }
+
+    [Fact]
     public void Duplicate_StartsFresh_InDraft_WithoutReviewerOrReason()
     {
         var item = NewItem("caption A");

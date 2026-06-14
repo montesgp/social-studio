@@ -56,6 +56,17 @@ public static class ContentStudioEndpointsExtensions
             .Produces<ContentItemResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        group.MapPut("/items/{itemId:guid}/visual", EditVisualAsync)
+            .WithName("EditContentStudioItemVisual")
+            .WithSummary("Edit the visual draft (composition markup + asset references)")
+            .Produces<ContentItemResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        group.MapPost("/items/{itemId:guid}/variant", SpawnVariantAsync)
+            .WithName("SpawnContentStudioVariant")
+            .WithSummary("Create a variant of an item in the same variant group")
+            .Produces<ContentItemResponse>(StatusCodes.Status200OK);
+
         group.MapPost("/items/{itemId:guid}/approve", ApproveAsync)
             .WithName("ApproveContentStudioItem")
             .Produces<ContentItemResponse>(StatusCodes.Status200OK)
@@ -160,6 +171,32 @@ public static class ContentStudioEndpointsExtensions
         return result.Match(r => (IResult)TypedResults.Ok(r));
     }
 
+    private static async Task<IResult> EditVisualAsync(
+        Guid itemId, [FromBody] EditVisualRequest body, ICurrentTenant tenant, ISender sender, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } org)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var result = await sender.Send(
+            new EditItemVisualCommand(org.Value, itemId, body.VisualSpecMarkup, body.Assets ?? []),
+            ct);
+        return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
+    private static async Task<IResult> SpawnVariantAsync(
+        Guid itemId, ICurrentTenant tenant, ISender sender, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } org)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var result = await sender.Send(new SpawnVariantCommand(org.Value, itemId), ct);
+        return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
     private static async Task<IResult> ApproveAsync(
         Guid itemId, ICurrentTenant tenant, ICurrentUser currentUser, ISender sender, CancellationToken ct)
     {
@@ -238,3 +275,5 @@ public sealed record MaterializeRunRequest(Guid ClientId);
 public sealed record EditTextRequest(string Text);
 
 public sealed record RejectRequest(string Reason);
+
+public sealed record EditVisualRequest(string? VisualSpecMarkup, IReadOnlyList<VisualAssetInput>? Assets);

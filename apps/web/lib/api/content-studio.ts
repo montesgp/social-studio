@@ -161,3 +161,26 @@ export function deleteItem(itemId: string, token?: string): Promise<void> {
 export function stageItem(itemId: string, token?: string): Promise<ContentItem> {
   return apiRequest<ContentItem>(`${base}/items/${itemId}/stage`, { method: "POST" }, token);
 }
+
+export interface VisualAssetInput {
+  role: string;
+  storageUri: string;
+  mime: string;
+}
+
+export function editItemVisual(
+  itemId: string,
+  visualSpecMarkup: string | null,
+  assets: VisualAssetInput[],
+  token?: string,
+): Promise<ContentItem> {
+  return apiRequest<ContentItem>(
+    `${base}/items/${itemId}/visual`,
+    { method: "PUT", body: JSON.stringify({ visualSpecMarkup, assets }) },
+    token,
+  );
+}
+
+export function spawnVariant(itemId: string, token?: string): Promise<ContentItem> {
+  return apiRequest<ContentItem>(`${base}/items/${itemId}/variant`, { method: "POST" }, token);
+}

@@ -216,6 +216,41 @@ public sealed class ContentItem : Entity<ContentItemId>
             planContext: null, rejectionReason: null, reviewerUserId: null,
             createdAtUtc: nowUtc, updatedAtUtc: nowUtc);
 
+    /// <summary>
+    /// Creates a variant in the SAME variant group (a non-primary alternative the reviewer can edit).
+    /// Starts in <see cref="ReviewState.Draft"/>; copies origin/kind/draft, drops reviewer/reason.
+    /// </summary>
+    public ContentItem SpawnVariant(ContentItemId newId, DateTime nowUtc) =>
+        new(newId, OrganizationId, ClientId, Origin, Kind, Draft,
+            ReviewState.Draft, EditTrace.Initial(),
+            variantGroupId: VariantGroupId, isPrimaryVariant: false,
+            planContext: null, rejectionReason: null, reviewerUserId: null,
+            createdAtUtc: nowUtc, updatedAtUtc: nowUtc);
+
+    /// <summary>
+    /// Edits the visual draft (composition markup + asset references) for a visual piece — image
+    /// replacement, background swap, and basic layout/branding adjustments all flow through here.
+    /// Sets the item to <see cref="ReviewState.Edited"/>. The immutable source result is untouched.
+    /// Pixel re-rendering of the edited markup is a generation-pipeline concern performed at export.
+    /// </summary>
+    public Result EditVisual(string? visualSpecMarkup, IReadOnlyList<ContentAssetRef> assets, DateTime nowUtc)
+    {
+        if (!ReviewStateTransitions.IsValid(State, ReviewState.Edited))
+        {
+            return Result.Failure(ContentStudioErrors.IllegalReviewTransition);
+        }
+
+        Draft = Draft with
+        {
+            VisualSpecMarkup = visualSpecMarkup,
+            Assets = assets ?? Array.Empty<ContentAssetRef>(),
+        };
+        EditTrace = EditTrace.ManualEdit(nowUtc);
+        State = ReviewState.Edited;
+        UpdatedAtUtc = nowUtc;
+        return Result.Success();
+    }
+
     private Result Transition(ReviewState target, DateTime nowUtc)
     {
         if (!ReviewStateTransitions.IsValid(State, target))

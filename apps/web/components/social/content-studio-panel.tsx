@@ -10,14 +10,17 @@ import {
   discardItem,
   duplicateItem,
   editItemText,
+  editItemVisual,
   getContentSet,
   listContentItems,
   materializeRun,
   rejectItem,
+  spawnVariant,
   stageItem,
   type ContentItem,
   type ContentReviewState,
   type ContentSet,
+  type VisualAssetInput,
 } from "@/lib/api/content-studio";
 
 interface ContentStudioPanelProps {
@@ -157,6 +160,7 @@ export function ContentStudioPanel({ jobId, clientId, token }: ContentStudioPane
 
         {selected ? (
           <ItemDetail
+            key={selected.id}
             item={selected}
             busy={busy}
             draftText={draftText}
@@ -192,6 +196,15 @@ export function ContentStudioPanel({ jobId, clientId, token }: ContentStudioPane
               })
             }
             onStage={() => runAction(() => stageItem(selected.id, token), selected.id)}
+            onSaveVisual={(markup, assets) =>
+              runAction(() => editItemVisual(selected.id, markup, assets, token), selected.id)
+            }
+            onCreateVariant={() =>
+              runAction(async () => {
+                const variant = await spawnVariant(selected.id, token);
+                setSelectedId(variant.id);
+              })
+            }
           />
         ) : (
           <div className="rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">
@@ -282,6 +295,8 @@ interface ItemDetailProps {
   onDuplicate: () => void;
   onDelete: () => void;
   onStage: () => void;
+  onSaveVisual: (markup: string | null, assets: VisualAssetInput[]) => void;
+  onCreateVariant: () => void;
 }
 
 function ItemDetail(props: ItemDetailProps) {
@@ -294,6 +309,13 @@ function ItemDetail(props: ItemDetailProps) {
   const canStage = item.state === "Approved";
   const isVisual = item.medium !== "Text";
 
+  const initialAssets = item.assets.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime }));
+  const [markup, setMarkup] = useState(item.visualSpecMarkup ?? "");
+  const [assets, setAssets] = useState<VisualAssetInput[]>(initialAssets);
+  const [newAsset, setNewAsset] = useState<VisualAssetInput>({ role: "image", storageUri: "", mime: "image/png" });
+  const visualDirty =
+    markup !== (item.visualSpecMarkup ?? "") || JSON.stringify(assets) !== JSON.stringify(initialAssets);
+
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-border p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -301,6 +323,7 @@ function ItemDetail(props: ItemDetailProps) {
           <span className="text-base font-semibold">{item.formatKey}</span>
           <Badge variant="muted">{item.medium}</Badge>
           <Badge variant={STATE_VARIANT[item.state]}>{item.state}</Badge>
+          {!item.isPrimaryVariant ? <Badge variant="info">Variant</Badge> : null}
         </div>
         <span className="text-xs text-muted-foreground">
           {item.targetNetwork} · {item.targetPlacement}
@@ -336,6 +359,75 @@ function ItemDetail(props: ItemDetailProps) {
           </Button>
         </div>
       </div>
+
+      {isVisual ? (
+        <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Visual</span>
+          <label className="text-xs text-muted-foreground">Composition markup</label>
+          <textarea
+            value={markup}
+            onChange={(e) => setMarkup(e.target.value)}
+            disabled={!canEdit || busy}
+            rows={4}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
+            placeholder="No composition markup."
+          />
+          <label className="text-xs text-muted-foreground">Assets (image / background)</label>
+          <div className="flex flex-col gap-1.5">
+            {assets.map((asset, index) => (
+              <div key={`${asset.storageUri}-${index}`} className="flex items-center gap-2 text-xs">
+                <span className="w-20 shrink-0 truncate text-muted-foreground">{asset.role}</span>
+                <span className="flex-1 truncate">{asset.storageUri}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!canEdit || busy}
+                  onClick={() => setAssets(assets.filter((_, i) => i !== index))}
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={newAsset.role}
+              onChange={(e) => setNewAsset({ ...newAsset, role: e.target.value })}
+              placeholder="role"
+              disabled={!canEdit || busy}
+              className="w-24 rounded-md border border-border bg-background px-2 py-1 text-xs"
+            />
+            <input
+              value={newAsset.storageUri}
+              onChange={(e) => setNewAsset({ ...newAsset, storageUri: e.target.value })}
+              placeholder="storage uri or url"
+              disabled={!canEdit || busy}
+              className="min-w-[160px] flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!canEdit || busy || newAsset.storageUri.trim().length === 0}
+              onClick={() => {
+                setAssets([...assets, { ...newAsset, storageUri: newAsset.storageUri.trim() }]);
+                setNewAsset({ role: "image", storageUri: "", mime: "image/png" });
+              }}
+            >
+              Add asset
+            </Button>
+          </div>
+          <div>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!canEdit || busy || !visualDirty}
+              onClick={() => props.onSaveVisual(markup.trim().length === 0 ? null : markup, assets)}
+            >
+              Save visual
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {props.rejecting ? (
         <div className="flex flex-col gap-2 rounded-md border border-rose-600/30 bg-rose-50 p-3 dark:bg-rose-500/10">
@@ -377,6 +469,9 @@ function ItemDetail(props: ItemDetailProps) {
           </Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={props.onDuplicate}>
             Duplicate
+          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={props.onCreateVariant}>
+            Create variant
           </Button>
           <Button size="sm" variant="destructive" disabled={busy} onClick={props.onDelete}>
             Delete
