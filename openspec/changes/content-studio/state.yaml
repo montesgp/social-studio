@@ -20,16 +20,25 @@ scope:
   roadmap:
     - phase: 2
       name: "Visual/layout editing + variants + single-item regenerate"
+      status: implemented
+      notes: "Variants + visual draft editing (markup/assets/background) done. Single-format regenerate deferred (deep generation-engine orchestration)."
     - phase: 3
       name: "Bulk operations (mass approve/reject/regenerate/validate)"
+      status: implemented
+      notes: "Bulk approve/reject/discard/delete (synchronous, partial-success). Async background bulk for large-N deferred with P5."
     - phase: 4
       name: "ContentPlan linkage + client presentations + PPTX/PDF export"
+      status: implemented
+      notes: "Plan linkage + client-presentation PPTX export (reuses IPptxExportAdapter). PDF export via the existing frontend util is a small follow-up."
     - phase: 5
       name: "Magic Generator source + Campaign grouping (large-N, async bulk)"
+      status: deferred
+      notes: "Paired with the Magic Generator epic (a new peer generator). Content Studio is already source-agnostic-ready to consume it (GeneratorKind + materializer). Campaign grouping + async bulk are large-N infra best built alongside that generator."
 
 validation:
   gates: PASS
-  detail: "Run-Gates.ps1 — 16 pass / 2 skipped, no MUST gate failed. backend build, web build+lint, tests 1316 passed/0 failed/2 skipped, architecture.imports clean (CS-10 isolation), deps/secrets/security/vulns clean."
+  detail: "Run-Gates.ps1 — 16 pass / 2 skipped, no MUST gate failed. tests 1325 passed/0 failed/2 skipped (Phases 1-4); architecture.imports clean (CS-10 isolation); web build+lint clean."
+  scope_implemented: "Phases 1-4 (core review/edit/approve/handoff + variants + visual edit + bulk + PPTX export + plan link). Phase 5 (Magic Generator + Campaign + async bulk) deferred."
 
 phases:
   - id: 1
