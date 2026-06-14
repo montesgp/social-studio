@@ -1,7 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  BadgeCheck,
+  Bold,
+  Bookmark,
+  Heart,
+  Italic,
+  MessageCircle,
+  Minus,
+  MoreHorizontal,
+  Plus,
+  Send,
+  Underline,
+} from "lucide-react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -29,6 +54,7 @@ import {
   type VisualAssetInput,
 } from "@/lib/api/content-studio";
 import { getContentPlan, listContentPlans } from "@/lib/api/content-plans";
+import { listClientOwnAccounts } from "@/lib/api/client-own-accounts";
 import type { ContentPlan, ContentPlanSummary } from "@/lib/api/types";
 
 interface ContentStudioPanelProps {
@@ -51,18 +77,30 @@ const STATE_VARIANT: Record<ContentReviewState, BadgeVariant> = {
 
 const TERMINAL: ContentReviewState[] = ["Discarded", "ReadyForPublication", "HandedOff"];
 
-// ── Composition envelope helpers (the visual content of a piece) ───────────────
+// ── Composition envelope helpers ───────────────────────────────────────────────
+
+interface SlotGeometry {
+  slot: string;
+  fontSizePx?: number;
+  fontWeight?: string | null;
+  fontStyle?: string | null;
+  color?: string | null;
+  [key: string]: unknown;
+}
 
 interface Envelope {
   markup: string;
   canvas?: { width?: number; height?: number };
+  slotGeometry?: SlotGeometry[];
   [key: string]: unknown;
 }
 
-interface Slide {
-  html: string;
-  width: number;
-  height: number;
+interface SlotStyle {
+  slot: string;
+  fontSizePx: number;
+  fontWeight: string;
+  fontStyle: string;
+  color: string;
 }
 
 function parseEnvelopes(visualSpecMarkup: string | null): Envelope[] {
@@ -80,28 +118,15 @@ function serializeEnvelopes(envelopes: Envelope[]): string {
   return envelopes.length === 1 ? JSON.stringify(envelopes[0]) : JSON.stringify(envelopes);
 }
 
-function extractSlots(markup: string): { slot: string; text: string }[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const doc = new DOMParser().parseFromString(markup, "text/html");
-    return [...doc.querySelectorAll("[data-slot]")]
-      .map((el) => ({ slot: el.getAttribute("data-slot") ?? "", text: el.textContent ?? "" }))
-      .filter((s) => s.slot.length > 0);
-  } catch {
-    return [];
-  }
-}
-
-function replaceSlotText(markup: string, slot: string, text: string): string {
-  if (typeof window === "undefined") return markup;
-  try {
-    const doc = new DOMParser().parseFromString(markup, "text/html");
-    const el = doc.querySelector(`[data-slot="${slot}"]`);
-    if (el) el.textContent = text;
-    return doc.body.innerHTML;
-  } catch {
-    return markup;
-  }
+/** Updates the envelope's slot geometry font fields from the edited DOM styles (keeps positions). */
+function syncGeometry(geometry: SlotGeometry[] | undefined, styles: SlotStyle[]): SlotGeometry[] {
+  const bySlot = new Map(styles.map((s) => [s.slot, s]));
+  return (geometry ?? []).map((g) => {
+    const s = bySlot.get(g.slot);
+    return s
+      ? { ...g, fontSizePx: s.fontSizePx, fontWeight: s.fontWeight, fontStyle: s.fontStyle, color: s.color }
+      : g;
+  });
 }
 
 function errorMessage(err: unknown): string {
@@ -118,6 +143,7 @@ export function ContentStudioPanel({ jobId, clientId, token, onClose }: ContentS
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [igHandle, setIgHandle] = useState<string | null>(null);
 
   const [draftText, setDraftText] = useState("");
   const [rejecting, setRejecting] = useState(false);
@@ -126,9 +152,7 @@ export function ContentStudioPanel({ jobId, clientId, token, onClose }: ContentS
   const [bulkReason, setBulkReason] = useState("");
 
   useEffect(() => {
-    if (!jobId || !clientId) {
-      return;
-    }
+    if (!jobId || !clientId) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -150,6 +174,23 @@ export function ContentStudioPanel({ jobId, clientId, token, onClose }: ContentS
       cancelled = true;
     };
   }, [jobId, clientId, token]);
+
+  useEffect(() => {
+    if (!clientId) return;
+    let cancelled = false;
+    listClientOwnAccounts(clientId, { pageSize: 5 }, token)
+      .then((paged) => {
+        if (cancelled) return;
+        const account = paged.items?.find((a) => a.isActive) ?? paged.items?.[0];
+        setIgHandle(account?.handle ?? null);
+      })
+      .catch(() => {
+        /* no account handle available */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, token]);
 
   const selected = useMemo(() => items.find((i) => i.id === selectedId) ?? null, [items, selectedId]);
 
@@ -271,7 +312,7 @@ export function ContentStudioPanel({ jobId, clientId, token, onClose }: ContentS
             initial={{ y: 14, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.25, delay: 0.05 }}
-            className="grid flex-1 grid-cols-[260px_1fr] overflow-hidden"
+            className="grid flex-1 grid-cols-[240px_1fr] overflow-hidden"
           >
             <aside className="flex flex-col gap-2 overflow-y-auto border-r border-border p-3">
               {bulkSelected.size > 0 ? (
@@ -321,6 +362,7 @@ export function ContentStudioPanel({ jobId, clientId, token, onClose }: ContentS
                 <ItemDetail
                   key={selected.id}
                   item={selected}
+                  igHandle={igHandle}
                   busy={busy}
                   draftText={draftText}
                   onDraftChange={setDraftText}
@@ -488,6 +530,7 @@ function ItemList({
 
 interface ItemDetailProps {
   item: ContentItem;
+  igHandle: string | null;
   busy: boolean;
   draftText: string;
   onDraftChange: (value: string) => void;
@@ -536,17 +579,15 @@ function ItemDetail(props: ItemDetailProps) {
         <p className="text-sm text-rose-700 dark:text-rose-300">Rejected: {item.rejectionReason}</p>
       ) : null}
 
-      {isVisual ? (
-        <VisualStudio
-          key={`${item.id}:${item.updatedAtUtc}`}
-          item={item}
-          busy={busy}
-          canEdit={canEdit}
-          onSaveVisual={props.onSaveVisual}
-        />
-      ) : (
-        <TextPreview item={item} />
-      )}
+      <InstagramPost
+        key={`${item.id}:${item.updatedAtUtc}`}
+        item={item}
+        igHandle={props.igHandle}
+        caption={draftText}
+        canEdit={canEdit && isVisual}
+        busy={busy}
+        onSaveVisual={isVisual ? props.onSaveVisual : undefined}
+      />
 
       <div className="flex flex-col gap-2">
         <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Caption / post copy</label>
@@ -554,7 +595,7 @@ function ItemDetail(props: ItemDetailProps) {
           value={draftText}
           onChange={(e) => props.onDraftChange(e.target.value)}
           disabled={!canEdit || busy}
-          rows={isVisual ? 3 : 10}
+          rows={4}
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
           placeholder="No caption."
         />
@@ -625,203 +666,353 @@ function ItemDetail(props: ItemDetailProps) {
   );
 }
 
-/** Carousel-style preview of the rendered design + live editing of its text slots. */
-function VisualStudio({
+/** Instagram-faithful post: editable design (carousel) on the left, IG sidebar on the right. */
+function InstagramPost({
   item,
-  busy,
+  igHandle,
+  caption,
   canEdit,
+  busy,
   onSaveVisual,
 }: {
   item: ContentItem;
-  busy: boolean;
+  igHandle: string | null;
+  caption: string;
   canEdit: boolean;
-  onSaveVisual: (markup: string | null, assets: VisualAssetInput[]) => void;
+  busy: boolean;
+  onSaveVisual?: (markup: string | null, assets: VisualAssetInput[]) => void;
 }) {
   const [envelopes, setEnvelopes] = useState<Envelope[]>(() => parseEnvelopes(item.visualSpecMarkup));
   const [current, setCurrent] = useState(0);
+  const canvasRef = useRef<DesignCanvasHandle>(null);
   const initialJson = useMemo(() => serializeEnvelopes(parseEnvelopes(item.visualSpecMarkup)), [item.visualSpecMarkup]);
+  const [dirty, setDirty] = useState(false);
 
   const total = envelopes.length;
   const idx = total === 0 ? 0 : Math.min(current, total - 1);
-  const activeSlide = envelopes[idx];
-  const slots = activeSlide ? extractSlots(activeSlide.markup) : [];
-  const dirty = total > 0 && serializeEnvelopes(envelopes) !== initialJson;
+  const slide = envelopes[idx];
+  const handle = igHandle ?? "your_account";
 
-  // Debounced markup feeding the iframe, so live edits don't reload the frame on every keystroke.
-  const [previewMarkup, setPreviewMarkup] = useState(activeSlide?.markup ?? "");
-  useEffect(() => {
-    const markup = envelopes[idx]?.markup ?? "";
-    const timer = setTimeout(() => setPreviewMarkup(markup), 200);
-    return () => clearTimeout(timer);
-  }, [envelopes, idx]);
+  const commitCurrent = useCallback((): Envelope[] => {
+    const state = canvasRef.current?.getState();
+    if (!state) return envelopes;
+    const next = envelopes.map((e, i) =>
+      i === idx ? { ...e, markup: state.markup, slotGeometry: syncGeometry(e.slotGeometry, state.slotStyles) } : e,
+    );
+    setEnvelopes(next);
+    setDirty(serializeEnvelopes(next) !== initialJson);
+    return next;
+  }, [envelopes, idx, initialJson]);
 
-  const editSlot = (slot: string, text: string) => {
-    setEnvelopes((prev) => prev.map((e, i) => (i === idx ? { ...e, markup: replaceSlotText(e.markup, slot, text) } : e)));
+  const goTo = (target: number) => {
+    commitCurrent();
+    setCurrent(((target % total) + total) % total);
   };
 
   if (total === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border bg-background p-8 text-center text-sm italic text-muted-foreground">
+      <div className="rounded-xl border border-dashed border-border bg-background p-10 text-center text-sm italic text-muted-foreground">
         No rendered design available for this piece.
       </div>
     );
   }
 
-  const slideWidth = activeSlide?.canvas?.width ?? 1080;
-  const slideHeight = activeSlide?.canvas?.height ?? 1080;
-  const portrait = item.targetPlacement === "story" || item.targetPlacement === "reel";
+  const width = slide?.canvas?.width ?? 1080;
+  const height = slide?.canvas?.height ?? 1080;
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-xl border border-border bg-muted/30 p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Preview — {item.targetNetwork} {item.targetPlacement}
-          </p>
-          {total > 1 ? (
-            <span className="text-xs text-muted-foreground">
-              {idx + 1}/{total}
-            </span>
-          ) : null}
-        </div>
-        <div className={cn("relative mx-auto w-full", portrait ? "max-w-[300px]" : "max-w-[420px]")}>
-          <RenderedSlide slide={{ html: previewMarkup, width: slideWidth, height: slideHeight }} />
-          {total > 1 ? (
-            <>
-              <button
-                type="button"
-                aria-label="Previous slide"
-                onClick={() => setCurrent((c) => (Math.min(c, total - 1) - 1 + total) % total)}
-                className="absolute left-1 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-background/80 text-lg shadow hover:bg-background"
-              >
-                ‹
-              </button>
-              <button
-                type="button"
-                aria-label="Next slide"
-                onClick={() => setCurrent((c) => (Math.min(c, total - 1) + 1) % total)}
-                className="absolute right-1 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-background/80 text-lg shadow hover:bg-background"
-              >
-                ›
-              </button>
-            </>
-          ) : null}
-        </div>
-        {total > 1 ? (
-          <div className="mt-3 flex items-center justify-center gap-1.5">
-            {envelopes.map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                aria-label={`Go to slide ${i + 1}`}
-                onClick={() => setCurrent(i)}
-                className={cn(
-                  "h-1.5 rounded-full transition-all",
-                  i === idx ? "w-5 bg-primary" : "w-1.5 bg-muted-foreground/40 hover:bg-muted-foreground/70",
-                )}
-              />
-            ))}
+      <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm md:grid md:grid-cols-[minmax(0,1fr)_360px]">
+        {/* Media (editable design) */}
+        <div className="relative flex items-center justify-center bg-black">
+          <div className="relative w-full">
+            <DesignCanvas key={`${item.id}:${idx}`} ref={canvasRef} markup={slide?.markup ?? ""} width={width} height={height} canEdit={canEdit} onDirty={() => setDirty(true)} />
+            {total > 1 ? (
+              <>
+                <button
+                  type="button"
+                  aria-label="Previous slide"
+                  onClick={() => goTo(idx - 1)}
+                  className="absolute left-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white/80 text-lg text-black shadow hover:bg-white"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next slide"
+                  onClick={() => goTo(idx + 1)}
+                  className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white/80 text-lg text-black shadow hover:bg-white"
+                >
+                  ›
+                </button>
+                <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1.5">
+                  {envelopes.map((_, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      aria-label={`Slide ${i + 1}`}
+                      onClick={() => goTo(i)}
+                      className={cn("h-1.5 rounded-full transition-all", i === idx ? "w-4 bg-white" : "w-1.5 bg-white/50")}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : null}
           </div>
-        ) : null}
-      </div>
-
-      {slots.length > 0 ? (
-        <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Design text{total > 1 ? ` — slide ${idx + 1}` : ""}
-          </span>
-          {slots.map((s) => (
-            <div key={s.slot} className="flex flex-col gap-1">
-              <label className="text-[11px] capitalize text-muted-foreground">{s.slot}</label>
-              <textarea
-                value={s.text}
-                onChange={(e) => editSlot(s.slot, e.target.value)}
-                disabled={!canEdit || busy}
-                rows={2}
-                className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
-              />
-            </div>
-          ))}
         </div>
-      ) : (
-        <p className="px-1 text-xs text-muted-foreground">This design has no editable text slots.</p>
-      )}
 
-      <div>
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={!canEdit || busy || !dirty}
-          onClick={() =>
-            onSaveVisual(
-              serializeEnvelopes(envelopes),
-              item.assets.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime })),
-            )
-          }
-        >
-          Save design changes
-        </Button>
+        {/* Instagram sidebar */}
+        <div className="flex flex-col border-t border-border md:border-l md:border-t-0">
+          <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+            <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-amber-400 via-rose-500 to-purple-600 text-[11px] font-bold text-white">
+              {handle.slice(0, 2).toUpperCase()}
+            </div>
+            <span className="text-sm font-semibold">{handle}</span>
+            <BadgeCheck className="h-3.5 w-3.5 text-sky-500" />
+            <MoreHorizontal className="ml-auto h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="flex-1 px-3 py-2.5 text-sm">
+            {caption ? (
+              <p className="whitespace-pre-wrap">
+                <span className="font-semibold">{handle}</span> {caption}
+              </p>
+            ) : (
+              <p className="italic text-muted-foreground">No caption yet — write it below.</p>
+            )}
+          </div>
+          <div className="border-t border-border px-3 py-2">
+            <div className="flex items-center gap-4 py-1">
+              <Heart className="h-5 w-5" />
+              <MessageCircle className="h-5 w-5" />
+              <Send className="h-5 w-5" />
+              <Bookmark className="ml-auto h-5 w-5" />
+            </div>
+            <p className="text-sm font-semibold">Likes and comments appear once published</p>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              {new Date(item.createdAtUtc).toLocaleDateString()}
+            </p>
+          </div>
+          <div className="border-t border-border px-3 py-2 text-sm text-muted-foreground">Add a comment…</div>
+        </div>
       </div>
+
+      {canEdit ? (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">Tap any text on the design to edit it and format it.</p>
+          {onSaveVisual ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy || !dirty}
+              onClick={() => {
+                const next = commitCurrent();
+                onSaveVisual(
+                  serializeEnvelopes(next),
+                  item.assets.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime })),
+                );
+              }}
+            >
+              Save design changes
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function TextPreview({ item }: { item: ContentItem }) {
-  return (
-    <div className="rounded-xl border border-border bg-muted/30 p-4">
-      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Preview — {item.targetNetwork} {item.targetPlacement}
-      </p>
-      <div className="mx-auto max-w-[420px] rounded-lg border border-border bg-background p-4">
-        {item.text ? (
-          <p className="whitespace-pre-wrap text-sm">{item.text}</p>
-        ) : (
-          <p className="text-sm italic text-muted-foreground">No text content.</p>
-        )}
-      </div>
-    </div>
-  );
+interface DesignCanvasHandle {
+  getState: () => { markup: string; slotStyles: SlotStyle[] };
 }
 
-/** Renders one designer-markup slide in a sandboxed iframe, scaled to fit the container width. */
-function RenderedSlide({ slide }: { slide: Slide }) {
+/** Renders the design markup inline (scaled) and makes its [data-slot] text components editable. */
+const DesignCanvas = forwardRef<DesignCanvasHandle, {
+  markup: string;
+  width: number;
+  height: number;
+  canEdit: boolean;
+  onDirty: () => void;
+}>(function DesignCanvas({ markup, width, height, canEdit, onDirty }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const designRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
+  const [selected, setSelected] = useState<HTMLElement | null>(null);
+  const [toolbar, setToolbar] = useState<{ top: number; left: number } | null>(null);
+  const [, force] = useState(0);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const update = () => setScale(el.clientWidth / slide.width);
+    const update = () => setScale(el.clientWidth / width);
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [slide.width]);
+  }, [width]);
 
-  const doc = `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0}</style></head><body>${slide.html}</body></html>`;
+  const positionToolbar = useCallback((target: HTMLElement) => {
+    const cont = containerRef.current;
+    if (!cont) return;
+    const r = target.getBoundingClientRect();
+    const cr = cont.getBoundingClientRect();
+    setToolbar({ top: Math.max(4, r.top - cr.top - 42), left: Math.max(4, r.left - cr.left) });
+  }, []);
+
+  const deselect = useCallback(() => {
+    setSelected((prev) => {
+      if (prev) {
+        prev.contentEditable = "false";
+        prev.style.outline = "";
+      }
+      return null;
+    });
+    setToolbar(null);
+  }, []);
+
+  useEffect(() => {
+    const el = designRef.current;
+    if (!el) return;
+    const onClick = (e: MouseEvent) => {
+      if (!canEdit) return;
+      const target = (e.target as HTMLElement).closest("[data-slot]") as HTMLElement | null;
+      if (target && el.contains(target)) {
+        setSelected((prev) => {
+          if (prev && prev !== target) {
+            prev.contentEditable = "false";
+            prev.style.outline = "";
+          }
+          target.contentEditable = "true";
+          target.style.outline = "2px solid #6366f1";
+          target.style.outlineOffset = "2px";
+          target.focus();
+          return target;
+        });
+        positionToolbar(target);
+      } else if (!(e.target as HTMLElement).closest("[data-cs-toolbar]")) {
+        deselect();
+      }
+    };
+    const onInput = () => onDirty();
+    el.addEventListener("click", onClick);
+    el.addEventListener("input", onInput);
+    return () => {
+      el.removeEventListener("click", onClick);
+      el.removeEventListener("input", onInput);
+    };
+  }, [canEdit, positionToolbar, deselect, onDirty]);
+
+  useImperativeHandle(ref, () => ({
+    getState() {
+      const el = designRef.current;
+      if (!el) return { markup, slotStyles: [] };
+      const slotStyles: SlotStyle[] = [...el.querySelectorAll("[data-slot]")].map((node) => {
+        const s = getComputedStyle(node as HTMLElement);
+        return {
+          slot: node.getAttribute("data-slot") ?? "",
+          fontSizePx: parseFloat(s.fontSize) || 0,
+          fontWeight: s.fontWeight,
+          fontStyle: s.fontStyle,
+          color: s.color,
+        };
+      });
+      const clone = el.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("[data-slot]").forEach((node) => {
+        const e = node as HTMLElement;
+        e.style.outline = "";
+        e.removeAttribute("contenteditable");
+      });
+      return { markup: clone.innerHTML, slotStyles };
+    },
+  }));
+
+  const apply = (mutator: (el: HTMLElement) => void) => {
+    if (!selected) return;
+    mutator(selected);
+    onDirty();
+    positionToolbar(selected);
+    force((v) => v + 1);
+  };
 
   return (
     <div
       ref={containerRef}
-      className="w-full overflow-hidden rounded-lg border border-border bg-white"
-      style={{ height: scale > 0 ? slide.height * scale : undefined }}
+      className="relative w-full overflow-hidden bg-white"
+      style={{ height: scale > 0 ? height * scale : undefined }}
     >
-      {scale > 0 ? (
-        <iframe
-          title="content preview"
-          sandbox=""
-          scrolling="no"
-          srcDoc={doc}
-          style={{
-            width: slide.width,
-            height: slide.height,
-            border: 0,
-            transform: `scale(${scale})`,
-            transformOrigin: "top left",
-          }}
-        />
+      <div
+        ref={designRef}
+        style={{ width, height, transform: `scale(${scale})`, transformOrigin: "top left" }}
+        dangerouslySetInnerHTML={{ __html: markup }}
+      />
+      {toolbar && selected ? (
+        <div
+          data-cs-toolbar
+          className="absolute z-10 flex items-center gap-0.5 rounded-md border border-border bg-background p-1 shadow-lg"
+          style={{ top: toolbar.top, left: toolbar.left }}
+        >
+          <ToolbarButton label="Smaller" onClick={() => apply((el) => {
+            const cur = parseFloat(getComputedStyle(el).fontSize) || 16;
+            el.style.fontSize = `${Math.max(6, cur - 2)}px`;
+          })}>
+            <Minus className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton label="Bigger" onClick={() => apply((el) => {
+            const cur = parseFloat(getComputedStyle(el).fontSize) || 16;
+            el.style.fontSize = `${cur + 2}px`;
+          })}>
+            <Plus className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton label="Bold" onClick={() => apply((el) => {
+            const w = getComputedStyle(el).fontWeight;
+            const bold = w === "bold" || Number(w) >= 600;
+            el.style.fontWeight = bold ? "400" : "700";
+          })}>
+            <Bold className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton label="Italic" onClick={() => apply((el) => {
+            el.style.fontStyle = getComputedStyle(el).fontStyle === "italic" ? "normal" : "italic";
+          })}>
+            <Italic className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton label="Underline" onClick={() => apply((el) => {
+            const d = getComputedStyle(el).textDecorationLine;
+            el.style.textDecoration = d.includes("underline") ? "none" : "underline";
+          })}>
+            <Underline className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton label="Align left" onClick={() => apply((el) => { el.style.textAlign = "left"; })}>
+            <AlignLeft className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton label="Align center" onClick={() => apply((el) => { el.style.textAlign = "center"; })}>
+            <AlignCenter className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton label="Align right" onClick={() => apply((el) => { el.style.textAlign = "right"; })}>
+            <AlignRight className="h-4 w-4" />
+          </ToolbarButton>
+          <input
+            type="color"
+            aria-label="Text color"
+            onChange={(e) => apply((el) => { el.style.color = e.target.value; })}
+            className="h-6 w-6 cursor-pointer rounded border border-border bg-transparent p-0"
+          />
+        </div>
       ) : null}
     </div>
+  );
+});
+
+function ToolbarButton({ children, label, onClick }: { children: ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      className="grid h-7 w-7 place-items-center rounded text-foreground hover:bg-muted"
+    >
+      {children}
+    </button>
   );
 }
 
