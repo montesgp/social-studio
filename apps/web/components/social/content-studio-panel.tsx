@@ -587,6 +587,7 @@ function ItemDetail(props: ItemDetailProps) {
   const canDiscard = !["Discarded", "ReadyForPublication", "HandedOff"].includes(item.state);
   const canStage = item.state === "Approved";
   const isVisual = item.medium !== "Text";
+  const parsedScript = item.medium === "Text" ? tryParseReelScript(item.text ?? "") : null;
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5">
@@ -606,37 +607,51 @@ function ItemDetail(props: ItemDetailProps) {
         <p className="text-sm text-rose-700 dark:text-rose-300">Rejected: {item.rejectionReason}</p>
       ) : null}
 
-      <InstagramPost
-        key={`${item.id}:${item.updatedAtUtc}`}
-        item={item}
-        igHandle={props.igHandle}
-        caption={draftText}
-        canEdit={canEdit && isVisual}
-        busy={busy}
-        onSaveVisual={isVisual ? props.onSaveVisual : undefined}
-      />
-
-      <div className="flex flex-col gap-2">
-        <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Caption / post copy</label>
-        <textarea
-          value={draftText}
-          onChange={(e) => props.onDraftChange(e.target.value)}
-          disabled={!canEdit || busy}
-          rows={4}
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
-          placeholder="No caption."
+      {parsedScript ? (
+        <EditableScript
+          itemId={item.id}
+          json={draftText}
+          baseText={item.text ?? ""}
+          canEdit={canEdit}
+          busy={busy}
+          onChange={props.onDraftChange}
+          onSave={props.onSaveText}
         />
-        <div>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={!canEdit || busy || draftText === (item.text ?? "")}
-            onClick={props.onSaveText}
-          >
-            Save caption
-          </Button>
-        </div>
-      </div>
+      ) : (
+        <>
+          <InstagramPost
+            key={`${item.id}:${item.updatedAtUtc}`}
+            item={item}
+            igHandle={props.igHandle}
+            caption={draftText}
+            canEdit={canEdit && isVisual}
+            busy={busy}
+            onSaveVisual={isVisual ? props.onSaveVisual : undefined}
+          />
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Caption / post copy</label>
+            <textarea
+              value={draftText}
+              onChange={(e) => props.onDraftChange(e.target.value)}
+              disabled={!canEdit || busy}
+              rows={4}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
+              placeholder="No caption."
+            />
+            <div>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={!canEdit || busy || draftText === (item.text ?? "")}
+                onClick={props.onSaveText}
+              >
+                Save caption
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
 
       {props.rejecting ? (
         <div className="flex flex-col gap-2 rounded-md border border-rose-600/30 bg-rose-50 p-3 dark:bg-rose-500/10">
@@ -780,6 +795,148 @@ function ScriptPreview({ text }: { text: string }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** In-place editor for reel-script text items — edit each cue where it is rendered; saves back as JSON. */
+function EditableScript({
+  itemId,
+  json,
+  baseText,
+  canEdit,
+  busy,
+  onChange,
+  onSave,
+}: {
+  itemId: string;
+  json: string;
+  baseText: string;
+  canEdit: boolean;
+  busy: boolean;
+  onChange: (json: string) => void;
+  onSave: () => void;
+}) {
+  const [model, setModel] = useState<ReelScript>(() => tryParseReelScript(json) ?? { scenes: [] });
+
+  // Re-seed from the persisted value when switching to a different item.
+  useEffect(() => {
+    setModel(tryParseReelScript(json) ?? { scenes: [] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemId]);
+
+  const commit = (next: ReelScript) => {
+    setModel(next);
+    onChange(JSON.stringify(next));
+  };
+  const setScene = (index: number, patch: Partial<ReelScriptScene>) => {
+    const scenes = [...(model.scenes ?? [])];
+    scenes[index] = { ...scenes[index], ...patch };
+    commit({ ...model, scenes });
+  };
+  const addScene = () => commit({ ...model, scenes: [...(model.scenes ?? []), { timestamp: "", voiceover: "", onScreenText: "" }] });
+  const removeScene = (index: number) =>
+    commit({ ...model, scenes: (model.scenes ?? []).filter((_, i) => i !== index) });
+
+  const dirty = json !== baseText;
+  const field =
+    "w-full rounded-md border border-border bg-background px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60";
+  const label = "text-[11px] font-semibold uppercase tracking-wide";
+  const disabled = !canEdit || busy;
+
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
+      <div className="flex flex-col gap-1">
+        <span className={cn(label, "text-primary")}>Hook</span>
+        <textarea
+          className={field}
+          rows={2}
+          disabled={disabled}
+          value={model.hook ?? ""}
+          onChange={(e) => commit({ ...model, hook: e.target.value })}
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className={cn(label, "text-muted-foreground")}>Scenes</span>
+        {(model.scenes ?? []).map((scene, i) => (
+          <div key={i} className="flex items-start gap-2">
+            <input
+              className={cn(field, "w-16 shrink-0 font-semibold tabular-nums")}
+              disabled={disabled}
+              value={scene.timestamp ?? ""}
+              onChange={(e) => setScene(i, { timestamp: e.target.value })}
+              placeholder="0:00"
+            />
+            <div className="flex flex-1 flex-col gap-1">
+              <textarea
+                className={field}
+                rows={2}
+                disabled={disabled}
+                value={scene.voiceover ?? ""}
+                onChange={(e) => setScene(i, { voiceover: e.target.value })}
+                placeholder="Voiceover"
+              />
+              <input
+                className={field}
+                disabled={disabled}
+                value={scene.onScreenText ?? ""}
+                onChange={(e) => setScene(i, { onScreenText: e.target.value })}
+                placeholder="On-screen text"
+              />
+            </div>
+            {canEdit ? (
+              <button
+                type="button"
+                aria-label="Remove scene"
+                disabled={busy}
+                onClick={() => removeScene(i)}
+                className="mt-1 grid h-7 w-7 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+        ))}
+        {canEdit ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={addScene}
+            className="inline-flex w-fit items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add scene
+          </button>
+        ) : null}
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <span className={cn(label, "text-emerald-600")}>CTA</span>
+        <input
+          className={field}
+          disabled={disabled}
+          value={model.ctaText ?? ""}
+          onChange={(e) => commit({ ...model, ctaText: e.target.value })}
+        />
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <span className={cn(label, "text-muted-foreground")}>Music mood</span>
+        <input
+          className={field}
+          disabled={disabled}
+          value={model.suggestedMusicMood ?? ""}
+          onChange={(e) => commit({ ...model, suggestedMusicMood: e.target.value })}
+        />
+      </div>
+
+      {canEdit ? (
+        <div>
+          <Button size="sm" variant="secondary" disabled={busy || !dirty} onClick={onSave}>
+            Save script
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
