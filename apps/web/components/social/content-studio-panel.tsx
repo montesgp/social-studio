@@ -81,6 +81,10 @@ const TERMINAL: ContentReviewState[] = ["Discarded", "ReadyForPublication", "Han
 
 interface SlotGeometry {
   slot: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
   fontSizePx?: number;
   fontWeight?: string | null;
   fontStyle?: string | null;
@@ -97,6 +101,10 @@ interface Envelope {
 
 interface SlotStyle {
   slot: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
   fontSizePx: number;
   fontWeight: string;
   fontStyle: string;
@@ -118,13 +126,23 @@ function serializeEnvelopes(envelopes: Envelope[]): string {
   return envelopes.length === 1 ? JSON.stringify(envelopes[0]) : JSON.stringify(envelopes);
 }
 
-/** Updates the envelope's slot geometry font fields from the edited DOM styles (keeps positions). */
+/** Updates the envelope's slot geometry (position + fonts) from the edited DOM so the PPTX stays faithful. */
 function syncGeometry(geometry: SlotGeometry[] | undefined, styles: SlotStyle[]): SlotGeometry[] {
   const bySlot = new Map(styles.map((s) => [s.slot, s]));
   return (geometry ?? []).map((g) => {
     const s = bySlot.get(g.slot);
     return s
-      ? { ...g, fontSizePx: s.fontSizePx, fontWeight: s.fontWeight, fontStyle: s.fontStyle, color: s.color }
+      ? {
+          ...g,
+          x: s.x,
+          y: s.y,
+          width: s.width,
+          height: s.height,
+          fontSizePx: s.fontSizePx,
+          fontWeight: s.fontWeight,
+          fontStyle: s.fontStyle,
+          color: s.color,
+        }
       : g;
   });
 }
@@ -722,11 +740,19 @@ function InstagramPost({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm md:grid md:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm md:flex md:max-h-[78vh] md:items-stretch">
         {/* Media (editable design) */}
-        <div className="relative flex items-center justify-center bg-black">
+        <div className="relative flex min-w-0 flex-1 items-start justify-center bg-black">
           <div className="relative w-full">
-            <DesignCanvas key={`${item.id}:${idx}`} ref={canvasRef} markup={slide?.markup ?? ""} width={width} height={height} canEdit={canEdit} onDirty={() => setDirty(true)} />
+            <DesignCanvas
+              key={`${item.id}:${idx}`}
+              ref={canvasRef}
+              markup={slide?.markup ?? ""}
+              width={width}
+              height={height}
+              canEdit={canEdit}
+              onDirty={() => setDirty(true)}
+            />
             {total > 1 ? (
               <>
                 <button
@@ -762,25 +788,25 @@ function InstagramPost({
         </div>
 
         {/* Instagram sidebar */}
-        <div className="flex flex-col border-t border-border md:border-l md:border-t-0">
+        <div className="flex min-h-0 w-full flex-col border-t border-border md:w-[360px] md:shrink-0 md:border-l md:border-t-0">
           <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
             <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-amber-400 via-rose-500 to-purple-600 text-[11px] font-bold text-white">
               {handle.slice(0, 2).toUpperCase()}
             </div>
-            <span className="text-sm font-semibold">{handle}</span>
-            <BadgeCheck className="h-3.5 w-3.5 text-sky-500" />
-            <MoreHorizontal className="ml-auto h-4 w-4 text-muted-foreground" />
+            <span className="truncate text-sm font-semibold">{handle}</span>
+            <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+            <MoreHorizontal className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
           </div>
-          <div className="flex-1 px-3 py-2.5 text-sm">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5 text-sm">
             {caption ? (
-              <p className="whitespace-pre-wrap">
+              <p className="whitespace-pre-wrap break-words">
                 <span className="font-semibold">{handle}</span> {caption}
               </p>
             ) : (
               <p className="italic text-muted-foreground">No caption yet — write it below.</p>
             )}
           </div>
-          <div className="border-t border-border px-3 py-2">
+          <div className="shrink-0 border-t border-border px-3 py-2">
             <div className="flex items-center gap-4 py-1">
               <Heart className="h-5 w-5" />
               <MessageCircle className="h-5 w-5" />
@@ -792,13 +818,13 @@ function InstagramPost({
               {new Date(item.createdAtUtc).toLocaleDateString()}
             </p>
           </div>
-          <div className="border-t border-border px-3 py-2 text-sm text-muted-foreground">Add a comment…</div>
+          <div className="shrink-0 border-t border-border px-3 py-2 text-sm text-muted-foreground">Add a comment…</div>
         </div>
       </div>
 
       {canEdit ? (
         <div className="flex items-center justify-between gap-2">
-          <p className="text-xs text-muted-foreground">Tap any text on the design to edit it and format it.</p>
+          <p className="text-xs text-muted-foreground">Click a text to select it, drag to move, double-click to edit.</p>
           {onSaveVisual ? (
             <Button
               size="sm"
@@ -825,25 +851,47 @@ interface DesignCanvasHandle {
   getState: () => { markup: string; slotStyles: SlotStyle[] };
 }
 
-/** Renders the design markup inline (scaled) and makes its [data-slot] text components editable. */
-const DesignCanvas = forwardRef<DesignCanvasHandle, {
-  markup: string;
-  width: number;
-  height: number;
-  canEdit: boolean;
-  onDirty: () => void;
-}>(function DesignCanvas({ markup, width, height, canEdit, onDirty }, ref) {
+/**
+ * Renders the design markup inline (imperatively, so React never wipes edits) and turns its
+ * [data-slot] elements into selectable, draggable, editable text boxes with a floating toolbar.
+ */
+const DesignCanvas = forwardRef<
+  DesignCanvasHandle,
+  { markup: string; width: number; height: number; canEdit: boolean; onDirty: () => void }
+>(function DesignCanvas({ markup, width, height, canEdit, onDirty }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const designRef = useRef<HTMLDivElement>(null);
+  const scaleRef = useRef(0);
   const [scale, setScale] = useState(0);
-  const [selected, setSelected] = useState<HTMLElement | null>(null);
+  const selectedRef = useRef<HTMLElement | null>(null);
+  const [, setSelectedTick] = useState(0);
   const [toolbar, setToolbar] = useState<{ top: number; left: number } | null>(null);
-  const [, force] = useState(0);
+  const dragRef = useRef<{ el: HTMLElement; sx: number; sy: number; left: number; top: number; moved: boolean } | null>(
+    null,
+  );
+
+  // Imperative innerHTML — React does not manage these children, so our DOM edits are never wiped.
+  useEffect(() => {
+    const el = designRef.current;
+    if (!el) return;
+    el.innerHTML = markup;
+    if (canEdit) {
+      el.querySelectorAll<HTMLElement>("[data-slot]").forEach((n) => {
+        n.style.cursor = "move";
+      });
+    }
+    selectedRef.current = null;
+    setToolbar(null);
+  }, [markup, canEdit]);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const update = () => setScale(el.clientWidth / width);
+    const update = () => {
+      const sc = el.clientWidth / width;
+      scaleRef.current = sc;
+      setScale(sc);
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
@@ -855,60 +903,104 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, {
     if (!cont) return;
     const r = target.getBoundingClientRect();
     const cr = cont.getBoundingClientRect();
-    setToolbar({ top: Math.max(4, r.top - cr.top - 42), left: Math.max(4, r.left - cr.left) });
+    setToolbar({ top: Math.max(2, r.top - cr.top - 40), left: Math.min(Math.max(2, r.left - cr.left), cont.clientWidth - 320) });
   }, []);
 
-  const deselect = useCallback(() => {
-    setSelected((prev) => {
-      if (prev) {
-        prev.contentEditable = "false";
+  const select = useCallback(
+    (target: HTMLElement | null) => {
+      const prev = selectedRef.current;
+      if (prev && prev !== target) {
         prev.style.outline = "";
+        prev.contentEditable = "false";
       }
-      return null;
-    });
-    setToolbar(null);
-  }, []);
+      selectedRef.current = target;
+      if (target) {
+        target.style.outline = "2px solid #6366f1";
+        target.style.outlineOffset = "1px";
+        positionToolbar(target);
+      } else {
+        setToolbar(null);
+      }
+      setSelectedTick((t) => t + 1);
+    },
+    [positionToolbar],
+  );
 
   useEffect(() => {
     const el = designRef.current;
     if (!el) return;
-    const onClick = (e: MouseEvent) => {
+
+    const onPointerDown = (e: PointerEvent) => {
       if (!canEdit) return;
-      const target = (e.target as HTMLElement).closest("[data-slot]") as HTMLElement | null;
-      if (target && el.contains(target)) {
-        setSelected((prev) => {
-          if (prev && prev !== target) {
-            prev.contentEditable = "false";
-            prev.style.outline = "";
-          }
-          target.contentEditable = "true";
-          target.style.outline = "2px solid #6366f1";
-          target.style.outlineOffset = "2px";
-          target.focus();
-          return target;
-        });
-        positionToolbar(target);
-      } else if (!(e.target as HTMLElement).closest("[data-cs-toolbar]")) {
-        deselect();
-      }
+      const slot = (e.target as HTMLElement).closest<HTMLElement>("[data-slot]");
+      if (!slot || !el.contains(slot)) return;
+      if (slot.isContentEditable) return; // editing text — let the caret work
+      select(slot);
+      dragRef.current = { el: slot, sx: e.clientX, sy: e.clientY, left: slot.offsetLeft, top: slot.offsetTop, moved: false };
+      e.preventDefault();
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const sc = scaleRef.current || 1;
+      let nl = d.left + (e.clientX - d.sx) / sc;
+      let nt = d.top + (e.clientY - d.sy) / sc;
+      nl = Math.max(0, Math.min(nl, width - d.el.offsetWidth));
+      nt = Math.max(0, Math.min(nt, height - d.el.offsetHeight));
+      d.el.style.left = `${Math.round(nl)}px`;
+      d.el.style.top = `${Math.round(nt)}px`;
+      d.el.style.right = "auto";
+      d.el.style.bottom = "auto";
+      d.moved = true;
+      positionToolbar(d.el);
+    };
+    const onPointerUp = () => {
+      const d = dragRef.current;
+      if (d?.moved) onDirty();
+      dragRef.current = null;
+    };
+    const onDblClick = (e: MouseEvent) => {
+      if (!canEdit) return;
+      const slot = (e.target as HTMLElement).closest<HTMLElement>("[data-slot]");
+      if (!slot || !el.contains(slot)) return;
+      slot.contentEditable = "true";
+      select(slot);
+      slot.focus();
     };
     const onInput = () => onDirty();
-    el.addEventListener("click", onClick);
-    el.addEventListener("input", onInput);
-    return () => {
-      el.removeEventListener("click", onClick);
-      el.removeEventListener("input", onInput);
+    const onDocPointerDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest("[data-cs-canvas]") && !t.closest("[data-cs-toolbar]")) select(null);
     };
-  }, [canEdit, positionToolbar, deselect, onDirty]);
+
+    el.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    el.addEventListener("dblclick", onDblClick);
+    el.addEventListener("input", onInput);
+    document.addEventListener("pointerdown", onDocPointerDown);
+    return () => {
+      el.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      el.removeEventListener("dblclick", onDblClick);
+      el.removeEventListener("input", onInput);
+      document.removeEventListener("pointerdown", onDocPointerDown);
+    };
+  }, [canEdit, width, height, onDirty, select, positionToolbar]);
 
   useImperativeHandle(ref, () => ({
     getState() {
       const el = designRef.current;
       if (!el) return { markup, slotStyles: [] };
-      const slotStyles: SlotStyle[] = [...el.querySelectorAll("[data-slot]")].map((node) => {
-        const s = getComputedStyle(node as HTMLElement);
+      const slotStyles: SlotStyle[] = [...el.querySelectorAll<HTMLElement>("[data-slot]")].map((node) => {
+        const s = getComputedStyle(node);
         return {
           slot: node.getAttribute("data-slot") ?? "",
+          x: node.offsetLeft,
+          y: node.offsetTop,
+          width: node.offsetWidth,
+          height: node.offsetHeight,
           fontSizePx: parseFloat(s.fontSize) || 0,
           fontWeight: s.fontWeight,
           fontStyle: s.fontStyle,
@@ -916,25 +1008,26 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, {
         };
       });
       const clone = el.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll("[data-slot]").forEach((node) => {
-        const e = node as HTMLElement;
-        e.style.outline = "";
-        e.removeAttribute("contenteditable");
+      clone.querySelectorAll<HTMLElement>("[data-slot]").forEach((node) => {
+        node.style.outline = "";
+        node.style.cursor = "";
+        node.removeAttribute("contenteditable");
       });
       return { markup: clone.innerHTML, slotStyles };
     },
   }));
 
   const apply = (mutator: (el: HTMLElement) => void) => {
-    if (!selected) return;
-    mutator(selected);
+    const el = selectedRef.current;
+    if (!el) return;
+    mutator(el);
     onDirty();
-    positionToolbar(selected);
-    force((v) => v + 1);
+    positionToolbar(el);
   };
 
   return (
     <div
+      data-cs-canvas
       ref={containerRef}
       className="relative w-full overflow-hidden bg-white"
       style={{ height: scale > 0 ? height * scale : undefined }}
@@ -942,42 +1035,65 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, {
       <div
         ref={designRef}
         style={{ width, height, transform: `scale(${scale})`, transformOrigin: "top left" }}
-        dangerouslySetInnerHTML={{ __html: markup }}
       />
-      {toolbar && selected ? (
+      {toolbar && selectedRef.current ? (
         <div
           data-cs-toolbar
           className="absolute z-10 flex items-center gap-0.5 rounded-md border border-border bg-background p-1 shadow-lg"
           style={{ top: toolbar.top, left: toolbar.left }}
         >
-          <ToolbarButton label="Smaller" onClick={() => apply((el) => {
-            const cur = parseFloat(getComputedStyle(el).fontSize) || 16;
-            el.style.fontSize = `${Math.max(6, cur - 2)}px`;
-          })}>
+          <ToolbarButton
+            label="Smaller"
+            onClick={() =>
+              apply((el) => {
+                const cur = parseFloat(getComputedStyle(el).fontSize) || 16;
+                el.style.fontSize = `${Math.max(8, Math.round(cur / 1.1))}px`;
+              })
+            }
+          >
             <Minus className="h-4 w-4" />
           </ToolbarButton>
-          <ToolbarButton label="Bigger" onClick={() => apply((el) => {
-            const cur = parseFloat(getComputedStyle(el).fontSize) || 16;
-            el.style.fontSize = `${cur + 2}px`;
-          })}>
+          <ToolbarButton
+            label="Bigger"
+            onClick={() =>
+              apply((el) => {
+                const cur = parseFloat(getComputedStyle(el).fontSize) || 16;
+                el.style.fontSize = `${Math.min(600, Math.round(cur * 1.1))}px`;
+              })
+            }
+          >
             <Plus className="h-4 w-4" />
           </ToolbarButton>
-          <ToolbarButton label="Bold" onClick={() => apply((el) => {
-            const w = getComputedStyle(el).fontWeight;
-            const bold = w === "bold" || Number(w) >= 600;
-            el.style.fontWeight = bold ? "400" : "700";
-          })}>
+          <ToolbarButton
+            label="Bold"
+            onClick={() =>
+              apply((el) => {
+                const w = getComputedStyle(el).fontWeight;
+                el.style.fontWeight = w === "bold" || Number(w) >= 600 ? "400" : "800";
+              })
+            }
+          >
             <Bold className="h-4 w-4" />
           </ToolbarButton>
-          <ToolbarButton label="Italic" onClick={() => apply((el) => {
-            el.style.fontStyle = getComputedStyle(el).fontStyle === "italic" ? "normal" : "italic";
-          })}>
+          <ToolbarButton
+            label="Italic"
+            onClick={() =>
+              apply((el) => {
+                el.style.fontStyle = getComputedStyle(el).fontStyle === "italic" ? "normal" : "italic";
+              })
+            }
+          >
             <Italic className="h-4 w-4" />
           </ToolbarButton>
-          <ToolbarButton label="Underline" onClick={() => apply((el) => {
-            const d = getComputedStyle(el).textDecorationLine;
-            el.style.textDecoration = d.includes("underline") ? "none" : "underline";
-          })}>
+          <ToolbarButton
+            label="Underline"
+            onClick={() =>
+              apply((el) => {
+                const d = getComputedStyle(el).textDecorationLine;
+                el.style.textDecoration = d.includes("underline") ? "none" : "underline";
+              })
+            }
+          >
             <Underline className="h-4 w-4" />
           </ToolbarButton>
           <ToolbarButton label="Align left" onClick={() => apply((el) => { el.style.textAlign = "left"; })}>
