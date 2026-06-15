@@ -46,8 +46,11 @@ public sealed class MaterializeAnalysisCommandHandler
 
     public async Task<Result<ContentSetResponse>> Handle(MaterializeAnalysisCommand request, CancellationToken ct)
     {
-        // The studio set's "source run" is the analysis — one set per (org, analysis), idempotent.
-        var existing = await _sets.GetByRunAsync(request.OrganizationId, request.AnalysisId, ct);
+        // One studio set per (analysis, client). The set table's idempotency unique index is on
+        // (org, source_run_id) only, so we fold both ids into a synthetic run id; otherwise several
+        // clients sharing one analysis would co-mingle into the first client's set.
+        var setRunId = DeriveSetRunId(request.AnalysisId, request.ClientId);
+        var existing = await _sets.GetByRunAsync(request.OrganizationId, setRunId, ct);
 
         var results = await _formatResults.ListByAnalysisAndClientAsync(
             request.OrganizationId, request.AnalysisId, request.ClientId, ct);
@@ -96,7 +99,7 @@ public sealed class MaterializeAnalysisCommandHandler
                 ContentSetId.New(),
                 request.OrganizationId,
                 request.ClientId,
-                SetOrigin.ForRun(GeneratorKind.SingleAnalyzer, request.AnalysisId),
+                SetOrigin.ForRun(GeneratorKind.SingleAnalyzer, setRunId),
                 now);
 
             if (setResult.IsFailure)
@@ -187,6 +190,23 @@ public sealed class MaterializeAnalysisCommandHandler
             new ContentKind(result.FormatKey, medium),
             draft,
             now);
+    }
+
+    /// <summary>
+    /// Deterministic synthetic run id for the (analysis, client) pair, so each client gets an
+    /// isolated, idempotent studio set even though they share the same analysis.
+    /// </summary>
+    private static Guid DeriveSetRunId(Guid analysisId, Guid clientId)
+    {
+        var a = analysisId.ToByteArray();
+        var c = clientId.ToByteArray();
+        var combined = new byte[16];
+        for (var i = 0; i < combined.Length; i++)
+        {
+            combined[i] = (byte)(a[i] ^ c[i]);
+        }
+
+        return new Guid(combined);
     }
 
     private static bool IsMaterializable(ContentGenerationFormatResult r) =>
