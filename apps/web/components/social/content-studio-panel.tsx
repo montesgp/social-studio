@@ -693,6 +693,97 @@ function ItemDetail(props: ItemDetailProps) {
   );
 }
 
+interface ReelScriptScene {
+  timestamp?: string;
+  voiceover?: string;
+  onScreenText?: string;
+}
+
+interface ReelScript {
+  hook?: string;
+  scenes?: ReelScriptScene[];
+  ctaText?: string;
+  suggestedMusicMood?: string;
+}
+
+function tryParseReelScript(text: string): ReelScript | null {
+  try {
+    const parsed = JSON.parse(text) as ReelScript;
+    return parsed && Array.isArray(parsed.scenes) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Readable view for text formats (reel scripts etc.): one cue per row with its timecode in bold. */
+function ScriptPreview({ text }: { text: string }) {
+  const script = tryParseReelScript(text);
+  if (script) {
+    return (
+      <div className="rounded-xl border border-border bg-background p-6 text-sm leading-relaxed shadow-sm">
+        {script.hook ? (
+          <p className="mb-4">
+            <span className="mr-2 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
+              Hook
+            </span>
+            {script.hook}
+          </p>
+        ) : null}
+        <div className="flex flex-col gap-3">
+          {(script.scenes ?? []).map((scene, i) => (
+            <div key={i} className="flex gap-3">
+              <span className="w-14 shrink-0 font-semibold tabular-nums text-foreground">
+                {scene.timestamp ?? `#${i + 1}`}
+              </span>
+              <div className="flex flex-col gap-0.5">
+                {scene.voiceover ? <span>{scene.voiceover}</span> : null}
+                {scene.onScreenText ? (
+                  <span className="text-xs text-muted-foreground">On-screen: {scene.onScreenText}</span>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+        {script.ctaText ? (
+          <p className="mt-4">
+            <span className="mr-2 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-600">
+              CTA
+            </span>
+            {script.ctaText}
+          </p>
+        ) : null}
+        {script.suggestedMusicMood ? (
+          <p className="mt-2 text-xs text-muted-foreground">♫ {script.suggestedMusicMood}</p>
+        ) : null}
+      </div>
+    );
+  }
+
+  // Fallback: keep line breaks, and bold a leading timecode per line if present.
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return (
+    <div className="rounded-xl border border-border bg-background p-6 text-sm leading-relaxed shadow-sm">
+      {lines.map((line, i) => {
+        const match = /^(\[?\d{1,2}:\d{2}(?::\d{2})?\]?)(\s*[-–—]?\s*)(.*)$/.exec(line);
+        return (
+          <div key={i} className="py-0.5">
+            {match ? (
+              <>
+                <span className="font-semibold tabular-nums">{match[1]}</span> <span>{match[3]}</span>
+              </>
+            ) : (
+              <span>{line}</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Instagram-faithful post: editable design (carousel) on the left, IG sidebar on the right. */
 function InstagramPost({
   item,
@@ -737,7 +828,9 @@ function InstagramPost({
   };
 
   if (total === 0) {
-    return (
+    return caption.trim().length > 0 ? (
+      <ScriptPreview text={caption} />
+    ) : (
       <div className="rounded-xl border border-dashed border-border bg-background p-10 text-center text-sm italic text-muted-foreground">
         No rendered design available for this piece.
       </div>
