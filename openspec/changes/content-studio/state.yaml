@@ -1,0 +1,118 @@
+change: content-studio
+status: implemented
+completed_at: null
+adr: docs/architecture/adr/0004-content-studio-review-model.md
+
+artifacts:
+  proposal: openspec/changes/content-studio/proposal.md
+  design: openspec/changes/content-studio/design.md
+  tasks: openspec/changes/content-studio/tasks.md
+  diagram: docs/architecture/diagrams/content-studio-flow.md
+  specs:
+    - openspec/changes/content-studio/specs/content-studio/spec.md
+    - openspec/changes/content-studio/specs/content-generation/spec-delta.md
+    - openspec/changes/content-studio/specs/content-plan/spec-delta.md
+    - openspec/changes/content-studio/specs/publishing/spec-delta.md
+
+scope:
+  phase: 1
+  name: "Foundation on Single Analyzer"
+  roadmap:
+    - phase: 2
+      name: "Visual/layout editing + variants + single-item regenerate"
+      status: implemented
+      notes: "Variants + visual draft editing (markup/assets/background) done. Single-format regenerate deferred (deep generation-engine orchestration)."
+    - phase: 3
+      name: "Bulk operations (mass approve/reject/regenerate/validate)"
+      status: implemented
+      notes: "Bulk approve/reject/discard/delete (synchronous, partial-success). Async background bulk for large-N deferred with P5."
+    - phase: 4
+      name: "ContentPlan linkage + client presentations + PPTX/PDF export"
+      status: implemented
+      notes: "Plan linkage + client-presentation PPTX export (reuses IPptxExportAdapter). PDF export via the existing frontend util is a small follow-up."
+    - phase: 5
+      name: "Magic Generator source + Campaign grouping (large-N, async bulk)"
+      status: deferred
+      notes: "Paired with the Magic Generator epic (a new peer generator). Content Studio is already source-agnostic-ready to consume it (GeneratorKind + materializer). Campaign grouping + async bulk are large-N infra best built alongside that generator."
+
+validation:
+  gates: PASS
+  detail: "Run-Gates.ps1 — 16 pass / 2 skipped, no MUST gate failed. tests 1325 passed/0 failed/2 skipped (Phases 1-4); architecture.imports clean (CS-10 isolation); web build+lint clean."
+  scope_implemented: "Phases 1-4 (core review/edit/approve/handoff + variants + visual edit + bulk + PPTX export + plan link). Phase 5 (Magic Generator + Campaign + async bulk) deferred."
+
+phases:
+  - id: 1
+    name: "Domain: Value Objects"
+    pr: 1
+    status: complete
+    refs: [CS-01, CS-02]
+
+  - id: 2
+    name: "Domain: ReviewState + ContentItem + ContentSet"
+    pr: 1
+    status: complete
+    refs: [CS-01, CS-03, CS-05, CS-06, CS-08, CS-09]
+
+  - id: 3
+    name: "Infrastructure: Persistence"
+    pr: 1
+    status: complete
+    refs: [CS-10, CS-11]
+
+  - id: 4
+    name: "Application: Ports, Materializer, Feature Slices"
+    pr: 1
+    status: complete
+    refs: [CS-04, CS-06, CS-07, CS-08]
+
+  - id: 5
+    name: "Handoff Contract"
+    pr: 1
+    status: complete
+    refs: [CS-09, PUB-HANDOFF-01, PUB-HANDOFF-02]
+
+  - id: 6
+    name: "Api: Endpoints"
+    pr: 1
+    status: complete
+    refs: [CS-11, CS-12]
+
+  - id: 7
+    name: "Frontend: Studio Surface"
+    pr: 1
+    status: complete
+    refs: [CS-07, CS-12]
+
+  - id: 8
+    name: "Docs Sync, Diagram, and Cleanup"
+    pr: 1
+    status: in-progress
+    notes: >
+      Flow diagram done (docs/architecture/diagrams/content-studio-flow.md).
+      Remaining: PRD/SDD "Content Studio" section + merge openspec specs (at archive);
+      frontend component tests (no web test harness configured yet); state.yaml maintenance.
+    refs: [CS-01, CS-02, CS-03, CS-04, CS-05, CS-06, CS-07, CS-08, CS-09, CS-10, CS-11, CS-12]
+
+migrations:
+  - name: Add_ContentStudio
+    applied: false
+    note: "Generated (20260614051456). Additive — creates social.content_studio_items/_sets/_set_items. Apply to DB at deploy."
+
+delivery:
+  strategy: single-pr
+  size_exception: true   # one PR to dev, chosen by user; review risk mitigated via per-layer work-unit commits
+  target_branch: dev
+  branch: feature/content-studio
+  prs:
+    - number: 1
+      branch: feature/content-studio
+      base: dev
+      title: "feat(content-studio): Phase 1 — foundation + Single Analyzer integration"
+      status: ready-for-review   # gate-validated locally; GitHub PR pending user request
+      commits:
+        - "08af622 docs: SDD + ADR 0004 + flow diagram"
+        - "2d13d09 feat: domain layer"
+        - "902b900 feat: persistence + migration"
+        - "3bf5224 feat: application (materializer, operations, handoff)"
+        - "dfe3a6c feat: API endpoints"
+        - "7a26dce feat: frontend Studio tab"

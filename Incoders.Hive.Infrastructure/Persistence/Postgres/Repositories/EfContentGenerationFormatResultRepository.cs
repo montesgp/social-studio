@@ -53,6 +53,24 @@ public sealed class EfContentGenerationFormatResultRepository : IContentGenerati
         return entities.Select(Map).ToList();
     }
 
+    public async Task<IReadOnlyList<ContentGenerationFormatResult>> ListByAnalysisAndClientAsync(
+        Guid organizationId,
+        Guid analysisId,
+        Guid clientId,
+        CancellationToken ct)
+    {
+        var entities = await _db.ContentGenerationFormatResults
+            .AsNoTracking()
+            .Where(x => x.Job != null
+                && x.Job.OrganizationId == organizationId
+                && x.Job.AnalysisId == analysisId
+                && x.Job.ClientId == clientId)
+            .OrderBy(x => x.Job!.CreatedAt)
+            .ToListAsync(ct);
+
+        return entities.Select(Map).ToList();
+    }
+
     public async Task<IReadOnlyList<ContentGenerationFormatResult>> ListByIdsAsync(
         IReadOnlySet<Guid> resultIds,
         CancellationToken ct)

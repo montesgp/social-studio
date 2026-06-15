@@ -85,6 +85,12 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<CanvaUserTokenData> CanvaUserTokens => Set<CanvaUserTokenData>();
 
+    public DbSet<ContentStudioItemData> ContentStudioItems => Set<ContentStudioItemData>();
+
+    public DbSet<ContentStudioSetData> ContentStudioSets => Set<ContentStudioSetData>();
+
+    public DbSet<ContentStudioSetItemData> ContentStudioSetItems => Set<ContentStudioSetItemData>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -1095,6 +1101,133 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
             entity.HasIndex(x => new { x.ContentPlanId, x.SortOrder })
                 .HasDatabaseName("ix_content_plan_slots_plan_sort_order");
+        });
+
+        // ── Content Studio (editorial working surface; soft refs to generation/plan) ──
+        builder.Entity<ContentStudioItemData>(entity =>
+        {
+            entity.ToTable("content_studio_items", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+
+            // Origin (soft Guids — no FK to generation/package)
+            entity.Property(x => x.GeneratorKind).HasColumnName("generator_kind").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.SourceRunId).HasColumnName("source_run_id").IsRequired();
+            entity.Property(x => x.SourcePackageId).HasColumnName("source_package_id");
+            entity.Property(x => x.FormatResultId).HasColumnName("format_result_id").IsRequired();
+            entity.Property(x => x.FormatKey).HasColumnName("format_key").HasMaxLength(64).IsRequired();
+
+            entity.Property(x => x.ContentMedium).HasColumnName("content_medium").HasColumnType("smallint").IsRequired();
+
+            // Draft (editable working payload)
+            entity.Property(x => x.DraftText).HasColumnName("draft_text");
+            entity.Property(x => x.DraftVisualSpecMarkup).HasColumnName("draft_visual_spec_markup");
+            entity.Property(x => x.TargetNetwork).HasColumnName("target_network").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.TargetPlacement).HasColumnName("target_placement").HasMaxLength(64).IsRequired();
+            ConfigureJsonbCollection<ContentStudioItemData, ContentStudioAssetData>(entity, x => x.DraftAssets, "draft_assets");
+
+            // Lifecycle
+            entity.Property(x => x.ReviewState).HasColumnName("review_state").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.RejectionReason).HasColumnName("rejection_reason").HasMaxLength(2000);
+            entity.Property(x => x.ReviewerUserId).HasColumnName("reviewer_user_id");
+
+            // Variants
+            entity.Property(x => x.VariantGroupId).HasColumnName("variant_group_id").IsRequired();
+            entity.Property(x => x.IsPrimaryVariant).HasColumnName("is_primary_variant").IsRequired();
+
+            // Edit trace (owned, prefixed edit_*)
+            entity.Property(x => x.EditLastSource).HasColumnName("edit_last_source").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.EditLastAtUtc).HasColumnName("edit_last_at_utc");
+            entity.Property(x => x.EditPromptVersion).HasColumnName("edit_prompt_version").HasMaxLength(64);
+
+            // Plan context (owned, nullable, prefixed plan_*)
+            entity.Property(x => x.PlanContentPlanId).HasColumnName("plan_content_plan_id");
+            entity.Property(x => x.PlanPeriodKind).HasColumnName("plan_period_kind").HasColumnType("smallint");
+            entity.Property(x => x.PlanYear).HasColumnName("plan_year");
+            entity.Property(x => x.PlanMonth).HasColumnName("plan_month");
+            entity.Property(x => x.PlanCalendarSlotId).HasColumnName("plan_calendar_slot_id");
+
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: client_id → social.clients(id) ON DELETE CASCADE
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => x.OrganizationId).HasDatabaseName("ix_content_studio_items_organization_id");
+            entity.HasIndex(x => x.ClientId).HasDatabaseName("ix_content_studio_items_client_id");
+            entity.HasIndex(x => x.SourceRunId).HasDatabaseName("ix_content_studio_items_source_run_id");
+            entity.HasIndex(x => new { x.OrganizationId, x.ReviewState }).HasDatabaseName("ix_content_studio_items_org_review_state");
+            entity.HasIndex(x => x.VariantGroupId).HasDatabaseName("ix_content_studio_items_variant_group_id");
+        });
+
+        builder.Entity<ContentStudioSetData>(entity =>
+        {
+            entity.ToTable("content_studio_sets", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.SetKind).HasColumnName("set_kind").HasColumnType("smallint").IsRequired();
+
+            // Origin (soft, nullable)
+            entity.Property(x => x.OriginGeneratorKind).HasColumnName("origin_generator_kind").HasColumnType("smallint");
+            entity.Property(x => x.OriginSourceRunId).HasColumnName("origin_source_run_id");
+            entity.Property(x => x.OriginCampaignId).HasColumnName("origin_campaign_id");
+            entity.Property(x => x.OriginPeriodKind).HasColumnName("origin_period_kind").HasColumnType("smallint");
+            entity.Property(x => x.OriginYear).HasColumnName("origin_year");
+            entity.Property(x => x.OriginMonth).HasColumnName("origin_month");
+
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => x.ClientId).HasDatabaseName("ix_content_studio_sets_client_id");
+            entity.HasIndex(x => x.OriginSourceRunId).HasDatabaseName("ix_content_studio_sets_origin_source_run_id");
+
+            // Idempotency guard: at most one GenerationRun set per (org, source run)
+            entity.HasIndex(x => new { x.OrganizationId, x.OriginSourceRunId })
+                .IsUnique()
+                .HasFilter("origin_source_run_id IS NOT NULL")
+                .HasDatabaseName("ix_content_studio_sets_org_run_unique");
+
+            // set → items (FK lives on the join row; item_id stays a soft ref)
+            entity.HasMany(x => x.Items)
+                .WithOne(x => x.Set)
+                .HasForeignKey(x => x.SetId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ContentStudioSetItemData>(entity =>
+        {
+            entity.ToTable("content_studio_set_items", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SetId).HasColumnName("set_id").IsRequired();
+            entity.Property(x => x.ItemId).HasColumnName("item_id").IsRequired();
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
+
+            entity.HasIndex(x => new { x.SetId, x.ItemId })
+                .IsUnique()
+                .HasDatabaseName("ix_content_studio_set_items_set_item");
+            entity.HasIndex(x => x.ItemId)
+                .HasDatabaseName("ix_content_studio_set_items_item_id");
         });
     }
 

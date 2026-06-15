@@ -103,6 +103,38 @@ public sealed class EfContentGenerationFormatAssetRepository : IContentGeneratio
         return rows;
     }
 
+    public async Task<IReadOnlyList<FormatAssetRow>> ListByAnalysisAndClientAsync(
+        Guid organizationId,
+        Guid analysisId,
+        Guid clientId,
+        CancellationToken ct)
+    {
+        var rows = await _db.ContentGenerationFormatAssets
+            .AsNoTracking()
+            .Where(x => x.FormatResult != null
+                && x.FormatResult.Job != null
+                && x.FormatResult.Job.OrganizationId == organizationId
+                && x.FormatResult.Job.AnalysisId == analysisId
+                && x.FormatResult.Job.ClientId == clientId)
+            .Select(x => new FormatAssetRow(
+                Id: x.Id,
+                FormatResultId: x.FormatResultId,
+                AssetIndex: x.AssetIndex,
+                StoragePath: x.StoragePath,
+                Filename: x.Filename,
+                MimeType: x.MimeType,
+                SizeBytes: x.SizeBytes,
+                ContentHash: x.ContentHash,
+                CreatedAt: x.CreatedAt,
+                UpdatedAt: x.UpdatedAt,
+                JobCreatedAtUtc: x.FormatResult != null && x.FormatResult.Job != null
+                    ? x.FormatResult.Job.CreatedAt
+                    : x.CreatedAt))
+            .ToListAsync(ct);
+
+        return rows;
+    }
+
     public async Task DeleteByFormatResultIdAsync(Guid formatResultId, CancellationToken ct)
     {
         var existing = await _db.ContentGenerationFormatAssets

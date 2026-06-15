@@ -159,10 +159,15 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
                 new P.ApplicationNonVisualDrawingProperties()),
             new P.GroupShapeProperties(new D.TransformGroup()));
 
-        // ---- 1. Background picture (behind text) ----
-        if (!string.IsNullOrWhiteSpace(envelope.BackgroundImageRef))
+        // ---- 1. Background / flattened picture (behind text) ----
+        // A flattened render (Content Studio "save design") is the full WYSIWYG PNG of the edited
+        // markup — background + decorations + text. When present it IS the slide, and the editable
+        // text boxes below are skipped, so the export is pixel-faithful to whatever the studio shows.
+        var flattened = !string.IsNullOrWhiteSpace(envelope.FlattenedImageRef);
+        var pictureRef = flattened ? envelope.FlattenedImageRef : envelope.BackgroundImageRef;
+        if (!string.IsNullOrWhiteSpace(pictureRef))
         {
-            var bgBytes = TryDecodeDataUri(envelope.BackgroundImageRef);
+            var bgBytes = TryDecodeDataUri(pictureRef);
             if (bgBytes is not null)
             {
                 var imagePart = slidePart.AddNewPart<ImagePart>("image/png", "rIdBg");
@@ -173,36 +178,39 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
             }
         }
 
-        // ---- 2. Text boxes from slot geometry ----
-        uint shapeId = 2U;
-        var slots = ExtractSlots(envelope.Markup);
-
-        if (envelope.SlotGeometry.Count > 0)
+        // ---- 2. Text boxes from slot geometry (skipped for a flattened render) ----
+        if (!flattened)
         {
-            // Geometry-driven layout (D3 normal path)
-            foreach (var geo in envelope.SlotGeometry)
-            {
-                var slotText = slots.TryGetValue(geo.Slot, out var t) ? t : string.Empty;
-                var x = (long)(geo.X * emuPerPx);
-                var y = (long)(geo.Y * emuPerPx);
-                var w = (long)(geo.Width * emuPerPx);
-                var h = (long)(geo.Height * emuPerPx);
+            uint shapeId = 2U;
+            var slots = ExtractSlots(envelope.Markup);
 
-                spTree.AppendChild(BuildTextBox(shapeId++, geo.Slot, slotText, x, y, w, h, geo));
+            if (envelope.SlotGeometry.Count > 0)
+            {
+                // Geometry-driven layout (D3 normal path)
+                foreach (var geo in envelope.SlotGeometry)
+                {
+                    var slotText = slots.TryGetValue(geo.Slot, out var t) ? t : string.Empty;
+                    var x = (long)(geo.X * emuPerPx);
+                    var y = (long)(geo.Y * emuPerPx);
+                    var w = (long)(geo.Width * emuPerPx);
+                    var h = (long)(geo.Height * emuPerPx);
+
+                    spTree.AppendChild(BuildTextBox(shapeId++, geo.Slot, slotText, x, y, w, h, geo));
+                }
             }
-        }
-        else if (slots.Count > 0)
-        {
-            // Stacked fallback (no geometry — deterministic layout)
-            var stackY = (long)(slideHeightEmu * 0.1);
-            var stackH = (long)(slideHeightEmu * 0.1);
-            var stackX = (long)(slideWidthEmu * 0.05);
-            var stackW = (long)(slideWidthEmu * 0.9);
-
-            foreach (var (slot, text) in slots)
+            else if (slots.Count > 0)
             {
-                spTree.AppendChild(BuildTextBox(shapeId++, slot, text, stackX, stackY, stackW, stackH, null));
-                stackY += stackH + (long)(slideHeightEmu * 0.02);
+                // Stacked fallback (no geometry — deterministic layout)
+                var stackY = (long)(slideHeightEmu * 0.1);
+                var stackH = (long)(slideHeightEmu * 0.1);
+                var stackX = (long)(slideWidthEmu * 0.05);
+                var stackW = (long)(slideWidthEmu * 0.9);
+
+                foreach (var (slot, text) in slots)
+                {
+                    spTree.AppendChild(BuildTextBox(shapeId++, slot, text, stackX, stackY, stackW, stackH, null));
+                    stackY += stackH + (long)(slideHeightEmu * 0.02);
+                }
             }
         }
 

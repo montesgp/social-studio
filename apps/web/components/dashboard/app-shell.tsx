@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "@/components/auth/sign-out-button";
@@ -29,11 +37,13 @@ import { subscribe as subscribeSignOut, getSnapshot as getSignOutSnapshot } from
 function NavGroupSection({
   group,
   pathname,
-  layoutId
+  layoutId,
+  onNavigateStart
 }: {
   group: NavGroup;
   pathname: string;
   layoutId: string;
+  onNavigateStart: () => void;
 }) {
   return (
     <div>
@@ -66,6 +76,10 @@ function NavGroupSection({
             <Link
               key={item.href}
               href={item.href}
+              onClick={(event) => {
+                if (active || shouldSkipClientNavigationLoader(event)) return;
+                onNavigateStart();
+              }}
               className={cn(
                 "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground",
                 active && "text-primary"
@@ -85,6 +99,20 @@ function NavGroupSection({
         })}
       </div>
     </div>
+  );
+}
+
+function shouldSkipClientNavigationLoader(event: ReactMouseEvent<HTMLAnchorElement>): boolean {
+  const target = event.currentTarget.getAttribute("target");
+
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    (target !== null && target !== "_self")
   );
 }
 
@@ -177,6 +205,21 @@ export function AppShell({
   const layoutId = `sidebar-active-${activeArea}`;
   const waitingForInitialShellData =
     !accessToken || !modulesLoaded || (!isPlatformAdmin && !isOrgInitialized);
+
+  const startClientRouteLoading = useCallback(() => {
+    if (routeLoadingTimeoutRef.current) {
+      clearTimeout(routeLoadingTimeoutRef.current);
+      routeLoadingTimeoutRef.current = null;
+    }
+
+    setRouteSawHttpPending(false);
+    setRouteLoading(true);
+
+    routeLoadingTimeoutRef.current = setTimeout(() => {
+      setRouteLoading(false);
+      routeLoadingTimeoutRef.current = null;
+    }, 12000);
+  }, []);
 
   useEffect(() => {
     modulesLoadedRef.current = modulesLoaded;
@@ -349,7 +392,13 @@ export function AppShell({
 
             <nav>
               {navGroups.map((group, i) => (
-                <NavGroupSection key={i} group={group} pathname={pathname} layoutId={layoutId} />
+                <NavGroupSection
+                  key={i}
+                  group={group}
+                  pathname={pathname}
+                  layoutId={layoutId}
+                  onNavigateStart={startClientRouteLoading}
+                />
               ))}
             </nav>
           </aside>
