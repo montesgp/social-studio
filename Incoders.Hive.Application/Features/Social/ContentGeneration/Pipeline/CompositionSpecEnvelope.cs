@@ -88,12 +88,19 @@ public static class CompositionSpecJson
 /// <param name="BackgroundImageRef">
 /// Storage reference for the background-only PNG (future WU-2+). Null until captured.
 /// </param>
+/// <param name="FlattenedImageRef">
+/// Data-URI for the FULL flattened render (background + decorations + text) produced when the
+/// Content Studio saves a visual edit. When present, the PPTX export uses it as the slide image and
+/// skips editable text boxes, so the export is pixel-faithful to whatever the studio shows. Null
+/// until flattened. Additive — envelopes written before this field deserialize it as null.
+/// </param>
 public sealed record CompositionSpecEnvelope(
     int SchemaVersion,
     string Markup,
     CanvasDimensions Canvas,
     IReadOnlyList<SlotGeometryEntry> SlotGeometry,
-    string? BackgroundImageRef = null)
+    string? BackgroundImageRef = null,
+    string? FlattenedImageRef = null)
 {
     /// <summary>Current envelope schema version.</summary>
     public const int CurrentSchemaVersion = 1;
