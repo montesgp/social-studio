@@ -851,6 +851,33 @@ interface DesignCanvasHandle {
   getState: () => { markup: string; slotStyles: SlotStyle[] };
 }
 
+/** Picks the editable element under a click — any element except the layout wrappers / background. */
+function pickElement(node: Node, root: HTMLElement): HTMLElement | null {
+  const el = node instanceof HTMLElement ? node : (node.parentElement as HTMLElement | null);
+  if (!el || !root.contains(el) || el === root) return null;
+  if (
+    el.hasAttribute("data-layer") ||
+    el.classList.contains("composition") ||
+    el.classList.contains("layer-content") ||
+    el.classList.contains("layer-background")
+  ) {
+    return null;
+  }
+  return el;
+}
+
+/** Promotes a flow element to absolute positioning at its current spot so it becomes draggable. */
+function ensurePositioned(el: HTMLElement) {
+  const pos = getComputedStyle(el).position;
+  if (pos === "static" || pos === "") {
+    const left = el.offsetLeft;
+    const top = el.offsetTop;
+    el.style.position = "absolute";
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+  }
+}
+
 /**
  * Renders the design markup inline (imperatively, so React never wipes edits) and turns its
  * [data-slot] elements into selectable, draggable, editable text boxes with a floating toolbar.
@@ -864,25 +891,21 @@ const DesignCanvas = forwardRef<
   const scaleRef = useRef(0);
   const [scale, setScale] = useState(0);
   const selectedRef = useRef<HTMLElement | null>(null);
-  const [, setSelectedTick] = useState(0);
-  const [toolbar, setToolbar] = useState<{ top: number; left: number } | null>(null);
-  const dragRef = useRef<{ el: HTMLElement; sx: number; sy: number; left: number; top: number; moved: boolean } | null>(
-    null,
-  );
+  const [selRect, setSelRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  const dragRef = useRef<
+    | { mode: "move"; el: HTMLElement; sx: number; sy: number; left: number; top: number; moved: boolean }
+    | { mode: "resize"; el: HTMLElement; sx: number; sy: number; w: number; h: number; fs: number; moved: boolean }
+    | null
+  >(null);
 
   // Imperative innerHTML — React does not manage these children, so our DOM edits are never wiped.
   useEffect(() => {
     const el = designRef.current;
     if (!el) return;
     el.innerHTML = markup;
-    if (canEdit) {
-      el.querySelectorAll<HTMLElement>("[data-slot]").forEach((n) => {
-        n.style.cursor = "move";
-      });
-    }
     selectedRef.current = null;
-    setToolbar(null);
-  }, [markup, canEdit]);
+    setSelRect(null);
+  }, [markup]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -898,12 +921,15 @@ const DesignCanvas = forwardRef<
     return () => observer.disconnect();
   }, [width]);
 
-  const positionToolbar = useCallback((target: HTMLElement) => {
+  const positionToolbar = useCallback((target: HTMLElement | null) => {
     const cont = containerRef.current;
-    if (!cont) return;
+    if (!cont || !target) {
+      setSelRect(null);
+      return;
+    }
     const r = target.getBoundingClientRect();
     const cr = cont.getBoundingClientRect();
-    setToolbar({ top: Math.max(2, r.top - cr.top - 40), left: Math.min(Math.max(2, r.left - cr.left), cont.clientWidth - 320) });
+    setSelRect({ top: r.top - cr.top, left: r.left - cr.left, width: r.width, height: r.height });
   }, []);
 
   const select = useCallback(
@@ -917,11 +943,9 @@ const DesignCanvas = forwardRef<
       if (target) {
         target.style.outline = "2px solid #6366f1";
         target.style.outlineOffset = "1px";
-        positionToolbar(target);
-      } else {
-        setToolbar(null);
+        target.style.cursor = "move";
       }
-      setSelectedTick((t) => t + 1);
+      positionToolbar(target);
     },
     [positionToolbar],
   );
@@ -932,25 +956,44 @@ const DesignCanvas = forwardRef<
 
     const onPointerDown = (e: PointerEvent) => {
       if (!canEdit) return;
-      const slot = (e.target as HTMLElement).closest<HTMLElement>("[data-slot]");
-      if (!slot || !el.contains(slot)) return;
-      if (slot.isContentEditable) return; // editing text — let the caret work
-      select(slot);
-      dragRef.current = { el: slot, sx: e.clientX, sy: e.clientY, left: slot.offsetLeft, top: slot.offsetTop, moved: false };
+      const target = pickElement(e.target as Node, el);
+      if (!target) return;
+      if (target.isContentEditable) return; // editing text — let the caret work
+      select(target);
+      ensurePositioned(target);
+      dragRef.current = {
+        mode: "move",
+        el: target,
+        sx: e.clientX,
+        sy: e.clientY,
+        left: target.offsetLeft,
+        top: target.offsetTop,
+        moved: false,
+      };
       e.preventDefault();
     };
     const onPointerMove = (e: PointerEvent) => {
       const d = dragRef.current;
       if (!d) return;
       const sc = scaleRef.current || 1;
-      let nl = d.left + (e.clientX - d.sx) / sc;
-      let nt = d.top + (e.clientY - d.sy) / sc;
-      nl = Math.max(0, Math.min(nl, width - d.el.offsetWidth));
-      nt = Math.max(0, Math.min(nt, height - d.el.offsetHeight));
-      d.el.style.left = `${Math.round(nl)}px`;
-      d.el.style.top = `${Math.round(nt)}px`;
-      d.el.style.right = "auto";
-      d.el.style.bottom = "auto";
+      if (d.mode === "move") {
+        const halfW = d.el.offsetWidth / 2;
+        const halfH = d.el.offsetHeight / 2;
+        let nl = d.left + (e.clientX - d.sx) / sc;
+        let nt = d.top + (e.clientY - d.sy) / sc;
+        // Clamp by the element's center so wide boxes still slide sideways freely.
+        nl = Math.max(8 - halfW, Math.min(nl, width - halfW - 8));
+        nt = Math.max(8 - halfH, Math.min(nt, height - halfH - 8));
+        d.el.style.left = `${Math.round(nl)}px`;
+        d.el.style.top = `${Math.round(nt)}px`;
+        d.el.style.right = "auto";
+        d.el.style.bottom = "auto";
+      } else {
+        const nw = Math.max(24, d.w + (e.clientX - d.sx) / sc);
+        const nh = Math.max(16, d.h + (e.clientY - d.sy) / sc);
+        d.el.style.width = `${Math.round(nw)}px`;
+        d.el.style.fontSize = `${Math.max(8, Math.round(d.fs * (nh / d.h)))}px`;
+      }
       d.moved = true;
       positionToolbar(d.el);
     };
@@ -961,16 +1004,21 @@ const DesignCanvas = forwardRef<
     };
     const onDblClick = (e: MouseEvent) => {
       if (!canEdit) return;
-      const slot = (e.target as HTMLElement).closest<HTMLElement>("[data-slot]");
-      if (!slot || !el.contains(slot)) return;
-      slot.contentEditable = "true";
-      select(slot);
-      slot.focus();
+      const target = pickElement(e.target as Node, el);
+      if (!target) return;
+      target.contentEditable = "true";
+      select(target);
+      target.focus();
     };
-    const onInput = () => onDirty();
+    const onInput = () => {
+      onDirty();
+      if (selectedRef.current) positionToolbar(selectedRef.current);
+    };
     const onDocPointerDown = (e: PointerEvent) => {
       const t = e.target as HTMLElement;
-      if (!t.closest("[data-cs-canvas]") && !t.closest("[data-cs-toolbar]")) select(null);
+      if (!t.closest("[data-cs-canvas]") && !t.closest("[data-cs-toolbar]") && !t.closest("[data-cs-handle]")) {
+        select(null);
+      }
     };
 
     el.addEventListener("pointerdown", onPointerDown);
@@ -1008,8 +1056,9 @@ const DesignCanvas = forwardRef<
         };
       });
       const clone = el.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll<HTMLElement>("[data-slot]").forEach((node) => {
+      clone.querySelectorAll<HTMLElement>("*").forEach((node) => {
         node.style.outline = "";
+        node.style.outlineOffset = "";
         node.style.cursor = "";
         node.removeAttribute("contenteditable");
       });
@@ -1036,11 +1085,36 @@ const DesignCanvas = forwardRef<
         ref={designRef}
         style={{ width, height, transform: `scale(${scale})`, transformOrigin: "top left" }}
       />
-      {toolbar && selectedRef.current ? (
+      {selRect ? (
+        <>
+        <div
+          data-cs-handle
+          onPointerDown={(e) => {
+            const sel = selectedRef.current;
+            if (!sel) return;
+            dragRef.current = {
+              mode: "resize",
+              el: sel,
+              sx: e.clientX,
+              sy: e.clientY,
+              w: sel.offsetWidth,
+              h: sel.offsetHeight,
+              fs: parseFloat(getComputedStyle(sel).fontSize) || 16,
+              moved: false,
+            };
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          className="absolute z-20 h-3.5 w-3.5 cursor-nwse-resize rounded-sm border-2 border-white bg-indigo-500 shadow"
+          style={{ top: selRect.top + selRect.height - 7, left: selRect.left + selRect.width - 7 }}
+        />
         <div
           data-cs-toolbar
           className="absolute z-10 flex items-center gap-0.5 rounded-md border border-border bg-background p-1 shadow-lg"
-          style={{ top: toolbar.top, left: toolbar.left }}
+          style={{
+            top: Math.max(2, selRect.top - 40),
+            left: Math.min(Math.max(2, selRect.left), (containerRef.current?.clientWidth ?? 360) - 320),
+          }}
         >
           <ToolbarButton
             label="Smaller"
@@ -1112,6 +1186,7 @@ const DesignCanvas = forwardRef<
             className="h-6 w-6 cursor-pointer rounded border border-border bg-transparent p-0"
           />
         </div>
+        </>
       ) : null}
     </div>
   );
