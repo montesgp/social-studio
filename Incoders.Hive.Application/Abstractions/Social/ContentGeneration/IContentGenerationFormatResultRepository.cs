@@ -17,6 +17,17 @@ public interface IContentGenerationFormatResultRepository
         IReadOnlySet<Guid> resultIds,
         CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>([]);
+
+    /// <summary>
+    /// Returns every format result a client generated from a single analysis, across all jobs.
+    /// Used by the analysis-scoped Content Studio materializer. Default returns empty for test doubles.
+    /// </summary>
+    Task<IReadOnlyList<ContentGenerationFormatResult>> ListByAnalysisAndClientAsync(
+        Guid organizationId,
+        Guid analysisId,
+        Guid clientId,
+        CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>([]);
 }
 
 /// <summary>

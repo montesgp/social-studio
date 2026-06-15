@@ -34,6 +34,12 @@ public static class ContentStudioEndpointsExtensions
             .Produces<ContentSetResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest);
 
+        group.MapPost("/analyses/{analysisId:guid}/materialize", MaterializeAnalysisAsync)
+            .WithName("MaterializeContentStudioAnalysis")
+            .WithSummary("Lazily (idempotently) materialize the Content Studio set for ALL formats a client generated from an analysis (aggregates every generation job)")
+            .Produces<ContentSetResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
+
         group.MapGet("/sets/{setId:guid}", GetSetAsync)
             .WithName("GetContentStudioSet")
             .Produces<ContentSetResponse>(StatusCodes.Status200OK)
@@ -132,6 +138,18 @@ public static class ContentStudioEndpointsExtensions
         }
 
         var result = await sender.Send(new MaterializeRunCommand(org.Value, body.ClientId, jobId), ct);
+        return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
+    private static async Task<IResult> MaterializeAnalysisAsync(
+        Guid analysisId, [FromBody] MaterializeRunRequest body, ICurrentTenant tenant, ISender sender, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } org)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var result = await sender.Send(new MaterializeAnalysisCommand(org.Value, body.ClientId, analysisId), ct);
         return result.Match(r => (IResult)TypedResults.Ok(r));
     }
 

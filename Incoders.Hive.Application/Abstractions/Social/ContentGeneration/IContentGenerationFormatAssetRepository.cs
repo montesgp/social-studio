@@ -28,6 +28,17 @@ public interface IContentGenerationFormatAssetRepository
         CancellationToken ct);
 
     /// <summary>
+    /// Returns all asset rows for a client's format results from a single analysis, across all jobs.
+    /// Used by the analysis-scoped Content Studio materializer. Default returns empty for test doubles.
+    /// </summary>
+    Task<IReadOnlyList<FormatAssetRow>> ListByAnalysisAndClientAsync(
+        Guid organizationId,
+        Guid analysisId,
+        Guid clientId,
+        CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<FormatAssetRow>>([]);
+
+    /// <summary>
     /// Physically removes all asset rows for the given format result.
     /// Used by delete-item (INC-5): storage objects must be deleted separately before calling this.
     /// </summary>

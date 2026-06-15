@@ -118,6 +118,15 @@ export function materializeRun(jobId: string, clientId: string, token?: string):
   );
 }
 
+/** Materializes ALL formats a client generated from a single analysis (aggregates every generation job). */
+export function materializeAnalysis(analysisId: string, clientId: string, token?: string): Promise<ContentSet> {
+  return apiRequest<ContentSet>(
+    `${base}/analyses/${analysisId}/materialize`,
+    { method: "POST", body: JSON.stringify({ clientId }) },
+    token,
+  );
+}
+
 export function getContentSet(setId: string, token?: string): Promise<ContentSet> {
   return apiRequest<ContentSet>(`${base}/sets/${setId}`, undefined, token);
 }

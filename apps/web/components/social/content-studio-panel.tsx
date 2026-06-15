@@ -42,7 +42,7 @@ import {
   getContentSet,
   linkItemToPlan,
   listContentItems,
-  materializeRun,
+  materializeAnalysis,
   rejectItem,
   spawnVariant,
   stageItem,
@@ -58,7 +58,7 @@ import { listClientOwnAccounts } from "@/lib/api/client-own-accounts";
 import type { ContentPlan, ContentPlanSummary } from "@/lib/api/types";
 
 interface ContentStudioPanelProps {
-  jobId: string | null;
+  analysisId: string | null;
   clientId: string | null;
   token: string;
   onClose: () => void;
@@ -154,7 +154,7 @@ function errorMessage(err: unknown): string {
   return "Something went wrong.";
 }
 
-export function ContentStudioPanel({ jobId, clientId, token, onClose }: ContentStudioPanelProps) {
+export function ContentStudioPanel({ analysisId, clientId, token, onClose }: ContentStudioPanelProps) {
   const [set, setSet] = useState<ContentSet | null>(null);
   const [items, setItems] = useState<ContentItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -169,14 +169,23 @@ export function ContentStudioPanel({ jobId, clientId, token, onClose }: ContentS
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
   const [bulkReason, setBulkReason] = useState("");
 
+  // Lock the page scroll behind the full-screen studio so only the studio's own scroll shows.
   useEffect(() => {
-    if (!jobId || !clientId) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!analysisId || !clientId) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const materialized = await materializeRun(jobId, clientId, token);
+        const materialized = await materializeAnalysis(analysisId, clientId, token);
         const list = await listContentItems(materialized.id, undefined, token);
         if (cancelled) return;
         setSet(materialized);
@@ -191,7 +200,7 @@ export function ContentStudioPanel({ jobId, clientId, token, onClose }: ContentS
     return () => {
       cancelled = true;
     };
-  }, [jobId, clientId, token]);
+  }, [analysisId, clientId, token]);
 
   useEffect(() => {
     if (!clientId) return;
@@ -319,7 +328,7 @@ export function ContentStudioPanel({ jobId, clientId, token, onClose }: ContentS
           </div>
         ) : null}
 
-        {!jobId || !clientId ? (
+        {!analysisId || !clientId ? (
           <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
             Select a client context with a generated package to open Content Studio.
           </div>
@@ -740,7 +749,7 @@ function InstagramPost({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm md:flex md:max-h-[78vh] md:items-stretch">
+      <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm md:flex md:items-stretch">
         {/* Media (editable design) */}
         <div className="relative flex min-w-0 flex-1 items-start justify-center bg-black">
           <div className="relative w-full">
@@ -797,7 +806,7 @@ function InstagramPost({
             <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-sky-500" />
             <MoreHorizontal className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5 text-sm">
+          <div className="px-3 py-2.5 text-sm">
             {caption ? (
               <p className="whitespace-pre-wrap break-words">
                 <span className="font-semibold">{handle}</span> {caption}

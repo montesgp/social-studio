@@ -3281,7 +3281,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
       {studioOpen && (
         <ContentStudioPanel
-          jobId={packageJobId}
+          analysisId={videoResult?.id ?? null}
           clientId={selectedClientId || null}
           token={token}
           onClose={() => setStudioOpen(false)}
