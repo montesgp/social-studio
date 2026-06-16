@@ -4,6 +4,7 @@ using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Assemble;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Catalog;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Download;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Export;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
@@ -87,6 +88,16 @@ public static class ContentGenerationEndpointsExtensions
             .WithSummary("Returns the per-client package tree (formats + assets) for the given analysis, sourced from DB")
             .Produces<AnalysisPackagesApiResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // Format catalog (no analysis/job scope — org auth only, read-only)
+        var catalogGroup = app.MapGroup("/api/social/content-generation")
+            .WithTags("Content Generation")
+            .RequireAuthorization();
+
+        catalogGroup.MapGet("/formats", ContentGenerationEndpointFacade.ListFormatCatalogAsync)
+            .WithName("ListFormatCatalog")
+            .WithSummary("Returns the content format catalog entries for format selection UI (ADR-6 / SCENARIO-12).")
+            .Produces<ListFormatCatalogResponse>(StatusCodes.Status200OK);
 
         // Job status and download (shared group)
         var jobsGroup = app.MapGroup("/api/social/content-generation-jobs")
@@ -180,6 +191,25 @@ public static class ContentGenerationEndpointFacade
 {
     private static readonly Error OrganizationRequired =
         Error.Validation("tenant.required", "An organization context is required for this operation.");
+
+    /// <summary>
+    /// GET /api/social/content-generation/formats
+    ///
+    /// Returns all catalog entries projected to <see cref="FormatCatalogEntryDto"/> so the FE
+    /// can drive format selection from the server rather than a hand-maintained TS union.
+    /// Satisfies ADR-6 / REQ-09 / SCENARIO-12.
+    /// </summary>
+    public static async Task<IResult> ListFormatCatalogAsync(
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { })
+            return OrganizationRequired.ToProblem();
+
+        var result = await sender.Send(new ListFormatCatalogQuery(), cancellationToken);
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
 
     public static async Task<IResult> GeneratePackageAsync(
         Guid analysisId,

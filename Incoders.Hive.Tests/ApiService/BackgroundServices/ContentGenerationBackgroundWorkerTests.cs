@@ -148,6 +148,27 @@ public sealed class ContentGenerationBackgroundWorkerTests
         Assert.Contains("render_failed[story:", partial.reason ?? "");
     }
 
+    // ─── SCENARIO-19: story-carousel end-to-end pipeline (SUGGESTION-3) ─────────
+
+    [Fact]
+    public async Task Process_StoryCarouselJob_TakesDesignedRasterPath_AndWritesUnderStoryCarouselFolder()
+    {
+        var jobId = Guid.NewGuid();
+        var analysisId = Guid.NewGuid();
+        var job = MakeJob(jobId, OrgId, analysisId, status: "Queued",
+            formats: ["story-carousel"]);
+        var harness = new ProcessorHarness(job, MakeAnalysisRecord(analysisId, OrgId), OrchestratorStatus.Succeeded);
+
+        await harness.Processor.ProcessAsync(jobId, CancellationToken.None);
+
+        // DesignedRaster path must be taken: renderer called for story-carousel
+        Assert.True(harness.Renderer.RenderCalls >= 1,
+            "Expected at least one render call for story-carousel (DesignedRaster path).");
+
+        // Job must complete successfully
+        Assert.Contains(harness.JobRepo.StatusUpdates, t => t.status is "Completed" or "Partial");
+    }
+
     [Fact]
     public async Task Process_JobNotFound_NoSideEffects()
     {

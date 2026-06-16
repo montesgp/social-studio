@@ -781,8 +781,8 @@ public sealed class AssembleGeneratedPackageQueryHandler
 
     /// <summary>
     /// Derives a format key from a filename. For carousel slides the filename is
-    /// <c>carousel/slide_N.png</c> → format key is <c>carousel</c>.
-    /// For others it's the filename stem, e.g. <c>flyer.png</c> → <c>flyer</c>.
+    /// <c>story-carousel/slide_N.png</c> → format key is <c>story-carousel</c>.
+    /// For others it's the filename stem, e.g. <c>story.png</c> → <c>story</c>.
     /// </summary>
     private static string DeriveFormatKey(string filename)
     {

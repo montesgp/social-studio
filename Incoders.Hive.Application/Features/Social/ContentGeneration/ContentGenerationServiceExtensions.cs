@@ -38,9 +38,11 @@ public static class ContentGenerationServiceExtensions
         // Register each generator under both the concrete type (for typed resolution in tests)
         // and the IFormatContentGenerator interface (for registry enumeration via DI).
 
-        // Shared CarouselGenerator — registered as concrete type so the two decorators can
-        // resolve it. Also registered directly as IFormatContentGenerator with key "carousel"
-        // so legacy "carousel" format key (if ever passed) still resolves (backward-compat).
+        // Shared CarouselGenerator — registered as concrete type so the two surface-scoped
+        // decorators (SurfaceScopedCarouselGenerator) can resolve it as their inner dependency.
+        // Also registered directly as IFormatContentGenerator so the registry resolves it under
+        // the shared "carousel" behavior (the two decorators override FormatKey for story-carousel
+        // and feed-carousel respectively).
         services.AddScoped<CarouselGenerator>();
         services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<CarouselGenerator>());
 

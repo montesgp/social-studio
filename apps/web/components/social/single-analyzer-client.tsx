@@ -77,6 +77,8 @@ import {
   exportPackageToCanva,
   ALL_FORMAT_KEYS,
   FORMAT_LABELS,
+  listFormatCatalog,
+  type FormatCatalogEntry,
 } from "@/lib/api/content-generation";
 import { useContentGenerationJob } from "@/lib/hooks/use-content-generation-job";
 import { usePackageWorkspace } from "@/lib/hooks/use-package-workspace";
@@ -501,9 +503,10 @@ type LocalFormatEntry = {
 
 const SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS: ContentFormatKey[] = [
   "reel-script",
-  "carousel",
   "story",
+  "story-carousel",
   "feed-post",
+  "feed-carousel",
 ];
 
 const LOCAL_NO_CLIENT_KEY = "__no_client__";
@@ -523,6 +526,9 @@ function isKnownFormatKey(key: string): key is ContentFormatKey {
 
 function packageManifestKeyToContentFormatKey(key: string): ContentFormatKey | null {
   if (key === "script") return "reel-script";
+  // Legacy "carousel" stored in old manifests maps to "story-carousel" for display purposes;
+  // the assembly path handles the backward-compat on the backend side.
+  if (key === "carousel") return "story-carousel";
   return isKnownFormatKey(key) ? key : null;
 }
 
@@ -530,8 +536,9 @@ function packageManifestKeyToContentFormatKey(key: string): ContentFormatKey | n
 const FORMAT_FILE_NAMES: Record<ContentFormatKey, string> = {
   "reel-script": "script.md",
   story: "story.pptx",
+  "story-carousel": "story-carousel/",
   "feed-post": "feed-post.pptx",
-  carousel: "carousel/",
+  "feed-carousel": "feed-carousel/",
   "content-idea": "content-idea.txt",
   "cta-variation": "cta-variation.txt",
   caption: "caption.txt",
@@ -569,7 +576,7 @@ function resolvePackageFormatFiles(
   if (formatKey === "story") return ["story.pptx"];
   if (formatKey === "feed-post") return ["feed-post.pptx"];
   if (formatKey === "reel-script") return ["script.md"];
-  if (formatKey === "carousel") {
+  if (formatKey === "story-carousel" || formatKey === "feed-carousel") {
     const orderedAssets = [...assets].sort((a, b) => a.index - b.index);
     return (orderedAssets.length > 0 ? orderedAssets : [{ index: 1, filename: "slide_1" }])
       .map((_, index) => `slide_${index + 1}.pptx`);
@@ -691,7 +698,29 @@ interface SingleAnalyzerClientProps {
 
 const SINGLE_ANALYZER_BLOCKING_LOADER_ID = "single-analyzer.initial-resources";
 
-type MutationMode = "script" | "carousel" | "story" | "feed-post";
+/**
+ * The three root surface selections exposed in the format picker (SCENARIO-12).
+ * Script has no layout toggle. Story and Feed each show Single ↔ Carousel.
+ */
+type MutationSurface = "script" | "story" | "feed";
+
+/**
+ * The active layout selection for Story and Feed surfaces.
+ * Script surfaces ignore this value.
+ */
+type MutationLayout = "single" | "carousel";
+
+/**
+ * Derived from MutationSurface + MutationLayout; kept for backward-compat with
+ * internal helpers that already accept the resolved ContentFormatKey.
+ * SCENARIO-12 mapping:
+ *   script          → reel-script
+ *   story + single  → story
+ *   story + carousel→ story-carousel
+ *   feed  + single  → feed-post
+ *   feed  + carousel→ feed-carousel
+ */
+type MutationMode = "script" | "story" | "story-carousel" | "feed-post" | "feed-carousel";
 
 type PendingRegenerationRequest =
   | {
@@ -755,6 +784,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [rightPanelTab, setRightPanelTab] = useState<"conversion" | "package">("conversion");
   const [studioOpen, setStudioOpen] = useState(false);
   const [mutationMode, setMutationMode] = useState<MutationMode>("script");
+  // Surface root (3 buttons) + layout toggle (Single/Carousel for Story and Feed).
+  const [mutationSurface, setMutationSurface] = useState<MutationSurface>("script");
+  const [mutationLayout, setMutationLayout] = useState<MutationLayout>("single");
+  // Server-driven format catalog; falls back to static union when unavailable.
+  const [formatCatalogEntries, setFormatCatalogEntries] = useState<FormatCatalogEntry[]>([]);
   const [historyItems, setHistoryItems] = useState<SingleContentAnalysisHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -893,6 +927,28 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     historyLoading ||
     clientsLoading ||
     !clientsReady;
+
+  // Load the server-driven format catalog once (best-effort; falls back to static union).
+  useEffect(() => {
+    if (!effectiveToken) return;
+    let cancelled = false;
+    listFormatCatalog({ token: effectiveToken })
+      .then((entries) => { if (!cancelled) setFormatCatalogEntries(entries); })
+      .catch(() => { /* non-fatal: static union is the fallback */ });
+    return () => { cancelled = true; };
+  }, [effectiveToken]);
+
+  // Derive MutationMode from surface + layout whenever either changes (SCENARIO-12).
+  useEffect(() => {
+    if (mutationSurface === "script") {
+      setMutationMode("script");
+    } else if (mutationSurface === "story") {
+      setMutationMode(mutationLayout === "carousel" ? "story-carousel" : "story");
+    } else {
+      // feed
+      setMutationMode(mutationLayout === "carousel" ? "feed-carousel" : "feed-post");
+    }
+  }, [mutationSurface, mutationLayout]);
 
   useEffect(() => {
     if (!initialToolLoading) {
@@ -1436,6 +1492,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setDuplicateAnalysisPrompt(null);
     setRightPanelTab("conversion");
     setMutationMode("script");
+    setMutationSurface("script");
+    setMutationLayout("single");
     setPendingRegeneration(null);
     setPendingDeleteHistoryItem(null);
     setPendingNavigationHref(null);
@@ -1681,10 +1739,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }
 
   function formatForMutationMode(mode: MutationMode = mutationMode): ContentFormatKey {
+    // MutationMode is now the resolved ContentFormatKey for the 5 active formats,
+    // except "script" → "reel-script" (surface name differs from the API key).
     if (mode === "script") return "reel-script";
-    if (mode === "carousel") return "carousel";
-    if (mode === "feed-post") return "feed-post";
-    return "story";
+    return mode as ContentFormatKey;
   }
 
   function hasLocalGeneratedFormat(formatKey: ContentFormatKey): boolean {
@@ -2962,25 +3020,46 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     <div className="order-1 space-y-3">
                       {/* Format mode selector */}
                       <div className="flex flex-wrap gap-1.5">
-                        {(["script", "carousel", "story", "feed-post"] as const).map((mode) => (
+                        {/* 3 root surface buttons (Script / Story / Feed) — SCENARIO-12 */}
+                        {(["script", "story", "feed"] as const).map((surface) => (
                           <button
-                            key={mode}
+                            key={surface}
                             type="button"
-                            onClick={() => setMutationMode(mode)}
+                            onClick={() => setMutationSurface(surface)}
                             className={cn(
                               "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium border transition-colors capitalize",
-                              mutationMode === mode
+                              mutationSurface === surface
                                 ? "border-purple-500/50 bg-purple-500/10 text-purple-400"
                                 : "border-border/40 text-muted-foreground hover:text-foreground"
                             )}
                           >
-                            {mode === "script" && <Film className="h-3 w-3" />}
-                            {mode === "carousel" && <ImageIcon className="h-3 w-3" />}
-                            {mode === "story" && <Megaphone className="h-3 w-3" />}
-                            {mode === "feed-post" && <FileImage className="h-3 w-3" />}
-                            {mode === "feed-post" ? "Feed Post" : mode}
+                            {surface === "script" && <Film className="h-3 w-3" />}
+                            {surface === "story" && <Megaphone className="h-3 w-3" />}
+                            {surface === "feed" && <FileImage className="h-3 w-3" />}
+                            {surface === "script" ? "Script" : surface === "story" ? "Story" : "Feed"}
                           </button>
                         ))}
+                        {/* Single ↔ Carousel layout toggle for Story and Feed (Script has none) */}
+                        {mutationSurface !== "script" && (
+                          <div className="flex gap-1 ml-1">
+                            {(["single", "carousel"] as const).map((layout) => (
+                              <button
+                                key={layout}
+                                type="button"
+                                onClick={() => setMutationLayout(layout)}
+                                className={cn(
+                                  "flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium border transition-colors",
+                                  mutationLayout === layout
+                                    ? "border-purple-400/60 bg-purple-500/10 text-purple-300"
+                                    : "border-border/30 text-muted-foreground/70 hover:text-foreground"
+                                )}
+                              >
+                                {layout === "single" ? <ImageIcon className="h-2.5 w-2.5" /> : <ImageIcon className="h-2.5 w-2.5" />}
+                                {layout === "single" ? "Single" : "Carousel"}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       {/* Per-format generate section */}
@@ -3058,7 +3137,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 )}
                               {packageJob.manifest?.has_stored_assets &&
                                 packageSucceededFormats.includes(selectedFormatKey) &&
-                                (mutationMode === "carousel" || mutationMode === "story" || mutationMode === "feed-post") &&
+                                mutationSurface !== "script" &&
                                 packageJobId && (
                                   <Button
                                     size="sm"
@@ -3089,7 +3168,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                               {/* B3 WU-7 — Export to Canva (visual formats only) */}
                               {packageJob.manifest?.has_stored_assets &&
                                 packageSucceededFormats.includes(selectedFormatKey) &&
-                                (mutationMode === "carousel" || mutationMode === "story" || mutationMode === "feed-post") &&
+                                mutationSurface !== "script" &&
                                 packageJobId && (
                                   <Button
                                     size="sm"

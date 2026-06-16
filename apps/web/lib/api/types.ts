@@ -837,9 +837,10 @@ export interface UpsertContentPlanPayload {
 // ── Content Generation types (single-analyzer package pipeline) ──────────────
 
 export type ContentFormatKey =
-  | "carousel"
   | "story"
+  | "story-carousel"
   | "feed-post"
+  | "feed-carousel"
   | "reel-script"
   | "content-idea"
   | "cta-variation"

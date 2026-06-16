@@ -1,5 +1,6 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Tenancy;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Catalog;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Download;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Status;
@@ -36,7 +37,7 @@ public sealed class ContentGenerationEndpointTests
 
         var result = await EndpointHandlers.GeneratePackageAsync(
             analysisId: AnalysisId,
-            requestedFormats: ["carousel", "story"],
+            requestedFormats: ["story-carousel", "story"],
             sender: sender,
             tenant: tenant);
 
@@ -56,7 +57,7 @@ public sealed class ContentGenerationEndpointTests
 
         var result = await EndpointHandlers.GeneratePackageAsync(
             analysisId: AnalysisId,
-            requestedFormats: ["carousel"],
+            requestedFormats: ["story-carousel"],
             sender: sender,
             tenant: tenant);
 
@@ -96,12 +97,39 @@ public sealed class ContentGenerationEndpointTests
 
         var result = await EndpointHandlers.GeneratePackageAsync(
             analysisId: Guid.NewGuid(),
-            requestedFormats: ["carousel"],
+            requestedFormats: ["story-carousel"],
             sender: sender,
             tenant: tenant);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
         Assert.Equal(StatusCodes.Status404NotFound, problem.StatusCode);
+    }
+
+    // ─── GET /formats — contract test (S4-T1 / SCENARIO-12 / SCENARIO-13) ──────
+
+    [Fact]
+    public async Task ListFormatCatalog_ReturnsDeliverableEntries_AndDoesNotIncludeBareCarousel()
+    {
+        var entries = new ListFormatCatalogQueryHandler().ExecuteQuery();
+        var sender = new FakeSender<ListFormatCatalogQuery, ListFormatCatalogResponse>(
+            Result.Success(new ListFormatCatalogResponse(Entries: entries)));
+        var tenant = new FakeTenant(OrgId);
+
+        var result = await EndpointHandlers.ListFormatCatalogAsync(sender, tenant);
+
+        var ok = Assert.IsType<Ok<ListFormatCatalogResponse>>(result);
+        Assert.NotNull(ok.Value);
+        var responseEntries = ok.Value!.Entries;
+
+        // SCENARIO-12: all 5 deliverable keys present
+        Assert.Contains(responseEntries, e => e.FormatKey == "story-carousel");
+        Assert.Contains(responseEntries, e => e.FormatKey == "feed-carousel");
+        Assert.Contains(responseEntries, e => e.FormatKey == "story");
+        Assert.Contains(responseEntries, e => e.FormatKey == "feed-post");
+        Assert.Contains(responseEntries, e => e.FormatKey == "reel-script");
+
+        // SCENARIO-13: bare "carousel" is NOT in the response
+        Assert.DoesNotContain(responseEntries, e => e.FormatKey == "carousel");
     }
 
     // ─── GET /status — happy path ─────────────────────────────────────────────
@@ -296,6 +324,20 @@ file static class EndpointHandlers
                 result.Value.ContentStream,
                 contentType: "application/zip",
                 fileDownloadName: $"content-package-{jobId}.zip")
+            : ProblemFor(result.Error);
+    }
+
+    public static async Task<IResult> ListFormatCatalogAsync(
+        ISender sender,
+        ICurrentTenant tenant)
+    {
+        if (tenant.TenantId is not { } _)
+            return ProblemFor(OrganizationRequired);
+
+        var result = await sender.Send(new ListFormatCatalogQuery(), CancellationToken.None);
+
+        return result.IsSuccess
+            ? TypedResults.Ok(result.Value)
             : ProblemFor(result.Error);
     }
 
