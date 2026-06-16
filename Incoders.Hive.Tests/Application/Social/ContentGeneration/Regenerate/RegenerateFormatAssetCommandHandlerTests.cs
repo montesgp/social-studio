@@ -44,7 +44,7 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
             OrganizationId: orgId,
             ClientId: clientId,
             AnalysisId: analysisId,
-            RequestedFormats: formats ?? ["flyer", "hook"],
+            RequestedFormats: formats ?? ["story", "hook"],
             Status: "Completed",
             StatusReason: null,
             ErrorCode: null,
@@ -65,12 +65,12 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
     public async Task Handle_RegenerateFlyer_OverwritesStorageAndReplacesRows()
     {
         // Arrange
-        var flyerRow = MakeRow(FlyerResultId, 0, $"{OrgId}/{ClientId}/{AnalysisId}/flyer.png", "flyer.png");
+        var flyerRow = MakeRow(FlyerResultId, 0, $"{OrgId}/{ClientId}/{AnalysisId}/flyer.png", "story.png");
         var hookRow = MakeRow(HookResultId, 0, $"{OrgId}/{ClientId}/{AnalysisId}/hook.txt", "hook.txt", "text/plain");
 
         var formatResults = new List<ContentGenerationFormatResult>
         {
-            new(Id: FlyerResultId, JobId: JobId, FormatKey: "flyer", Status: "Rendered",
+            new(Id: FlyerResultId, JobId: JobId, FormatKey: "story", Status: "Rendered",
                 OutputJson: """{"title":"Old Title"}""", CompositionSpecJson: null,
                 RenderedAssetUri: null, InferredFieldsJson: null, PromptVersion: null,
                 ErrorCode: null, CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow),
@@ -87,15 +87,15 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
         var formatResultRepo = new FakeRegenerateFormatResultRepository(formatResults);
         var jobRepo = new FakeRegenerateJobRepository(job);
         var analysisRepo = new FakeRegenerateAnalysisRepository(OrgId, AnalysisId);
-        var composer = new FakeRegenerateComposer(MakeSpec("flyer"));
-        var renderer = new FakeRegenerateRenderer("image/png", "flyer.png", new byte[] { 1, 2, 3 });
+        var composer = new FakeRegenerateComposer(MakeSpec("story"));
+        var renderer = new FakeRegenerateRenderer("image/png", "story.png", new byte[] { 1, 2, 3 });
         var brandLoader = new FakeRegenerateBrandLoader(MakeBrand());
 
         var handler = new RegenerateFormatAssetCommandHandler(
             storage, assetRepo, formatResultRepo, jobRepo, analysisRepo, composer, renderer, brandLoader);
 
         var command = new RegenerateFormatAssetCommand(
-            AnalysisId, OrgId, ClientId, "flyer", Objection: null);
+            AnalysisId, OrgId, ClientId, "story", Objection: null);
 
         // Act
         var result = await handler.Handle(command, CancellationToken.None);
@@ -123,7 +123,7 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
         var handler = BuildMinimalHandler(job, analysisOrgId: OrgId, analysisId: AnalysisId);
 
         // Requesting org is different from the analysis org
-        var command = new RegenerateFormatAssetCommand(AnalysisId, OtherOrgId, ClientId, "flyer", null);
+        var command = new RegenerateFormatAssetCommand(AnalysisId, OtherOrgId, ClientId, "story", null);
         var result = await handler.Handle(command, CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -138,7 +138,7 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
         // No format results for "carousel"
         var formatResults = new List<ContentGenerationFormatResult>
         {
-            new(Id: FlyerResultId, JobId: JobId, FormatKey: "flyer", Status: "Rendered",
+            new(Id: FlyerResultId, JobId: JobId, FormatKey: "story", Status: "Rendered",
                 OutputJson: """{"title":"Flyer"}""", CompositionSpecJson: null,
                 RenderedAssetUri: null, InferredFieldsJson: null, PromptVersion: null,
                 ErrorCode: null, CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow),
@@ -162,7 +162,7 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
         // JobRepo returns null for this analysis+client
         var handler = BuildMinimalHandler(job: null, OrgId, AnalysisId);
 
-        var command = new RegenerateFormatAssetCommand(AnalysisId, OrgId, ClientId, "flyer", null);
+        var command = new RegenerateFormatAssetCommand(AnalysisId, OrgId, ClientId, "story", null);
         var result = await handler.Handle(command, CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -239,8 +239,8 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
         var formatResultRepo = new FakeRegenerateFormatResultRepository(formatResults ?? []);
         var jobRepo = new FakeRegenerateJobRepository(job);
         var analysisRepo = new FakeRegenerateAnalysisRepository(analysisOrgId, analysisId);
-        var composer = new FakeRegenerateComposer(MakeSpec("flyer"));
-        var renderer = new FakeRegenerateRenderer("image/png", "flyer.png", new byte[] { 1, 2, 3 });
+        var composer = new FakeRegenerateComposer(MakeSpec("story"));
+        var renderer = new FakeRegenerateRenderer("image/png", "story.png", new byte[] { 1, 2, 3 });
         var brandLoader = new FakeRegenerateBrandLoader(MakeBrand());
 
         return new RegenerateFormatAssetCommandHandler(
@@ -354,14 +354,14 @@ public sealed class DeleteFormatAssetCommandHandlerTests
     [Fact]
     public async Task Handle_FormatNotFound_SucceedsIdempotently()
     {
-        // No rows for "flyer"
+        // No rows for "story"
         var storage = new FakeRegenerateStorage();
         var assetRepo = new FakeRegenerateAssetRepository([]);
         var analysisRepo = new FakeRegenerateAnalysisRepository(OrgId, AnalysisId);
 
         var handler = new DeleteFormatAssetCommandHandler(storage, assetRepo, analysisRepo);
 
-        var command = new DeleteFormatAssetCommand(AnalysisId, OrgId, ClientId, "flyer");
+        var command = new DeleteFormatAssetCommand(AnalysisId, OrgId, ClientId, "story");
         var result = await handler.Handle(command, CancellationToken.None);
 
         Assert.True(result.IsSuccess);

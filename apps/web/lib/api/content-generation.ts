@@ -22,10 +22,11 @@ export type {
   AnalysisPackagesResponse,
 };
 
-/** All 7 supported format keys — used when the user wants to generate all formats. */
+/** All supported format keys — used when the user wants to generate all formats. */
 export const ALL_FORMAT_KEYS: ContentFormatKey[] = [
   "carousel",
-  "flyer",
+  "story",
+  "feed-post",
   "reel-script",
   "content-idea",
   "cta-variation",
@@ -36,7 +37,8 @@ export const ALL_FORMAT_KEYS: ContentFormatKey[] = [
 /** Human-readable labels for each format key. */
 export const FORMAT_LABELS: Record<ContentFormatKey, string> = {
   carousel: "Carousel",
-  flyer: "Flyer",
+  story: "Story",
+  "feed-post": "Feed Post",
   "reel-script": "Reel Script",
   "content-idea": "Content Idea",
   "cta-variation": "CTA Variation",
@@ -443,7 +445,7 @@ export async function exportFormatToCanva(
 /**
  * POST /api/social/single-analyzer/{analysisId}/package/export-to-canva
  *
- * Exports the whole VISUAL package of a job (flyer + carousel slides) to Canva as ONE editable
+ * Exports the whole VISUAL package of a job (story + carousel slides) to Canva as ONE editable
  * multi-page design, titled after the client. Same error contract as {@link exportFormatToCanva}.
  */
 export async function exportPackageToCanva(

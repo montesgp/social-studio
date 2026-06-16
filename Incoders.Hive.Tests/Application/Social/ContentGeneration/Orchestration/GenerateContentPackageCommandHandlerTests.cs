@@ -32,7 +32,7 @@ public sealed class GenerateContentPackageCommandHandlerTests
             OrganizationId: OrgId,
             ClientId: ClientId,
             AnalysisId: AnalysisId,
-            RequestedFormats: ["carousel", "flyer"],
+            RequestedFormats: ["carousel", "story"],
             CorrelationId: null);
 
         var result = await handler.Handle(command, CancellationToken.None);
@@ -186,7 +186,7 @@ public sealed class GenerateContentPackageCommandHandlerTests
         var queue = new FakeContentGenerationJobQueue();
         var failurePolicy = new FakeContentGenerationFailurePolicy(new Dictionary<string, int>
         {
-            ["flyer"] = GenerateContentPackageCommandHandler.MaxFailedAttemptsPerFormat,
+            ["story"] = GenerateContentPackageCommandHandler.MaxFailedAttemptsPerFormat,
         });
         var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue, failurePolicy);
 
@@ -194,7 +194,7 @@ public sealed class GenerateContentPackageCommandHandlerTests
             OrganizationId: OrgId,
             ClientId: ClientId,
             AnalysisId: AnalysisId,
-            RequestedFormats: ["flyer"],
+            RequestedFormats: ["story"],
             CorrelationId: null);
 
         var result = await handler.Handle(command, CancellationToken.None);

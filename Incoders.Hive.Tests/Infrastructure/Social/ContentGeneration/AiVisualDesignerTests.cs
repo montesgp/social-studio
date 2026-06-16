@@ -129,7 +129,7 @@ public sealed class AiVisualDesignerTests
         {
             new BrandBackgroundTemplateSnapshot(
                 "ref-bg-1", "https://cdn.example.com/ref1.png", null,
-                BackgroundTier.Reference, "flyer", false)
+                BackgroundTier.Reference, "story", false)
         });
 
         var designer = BuildDesigner(new StubAiGateway(BuildSuccessMarkup()));
@@ -153,7 +153,7 @@ public sealed class AiVisualDesignerTests
 
     private static VisualCompositionSpec BuildSpec() =>
         new VisualCompositionSpec(
-            FormatKey: "flyer",
+            FormatKey: "story",
             LayoutType: "story-flyer",
             Palette: new CompositionPalette("#111111", "#222222", "#3B82F6", "#FFFFFF", "#F9FAFB"),
             Typography: new CompositionTypography("Inter", 24, "Inter", 14),
@@ -175,7 +175,7 @@ public sealed class AiVisualDesignerTests
             Notes: null);
 
     private static string BuildSuccessMarkup() =>
-        """<div class="composition" data-format="flyer" style="width:1080px;height:1920px;background:#111111;"><div class="layer-background" data-layer="background" style="background:#111111;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;font-size:48px;">Your Brand Headline</h1></div></div>""";
+        """<div class="composition" data-format="story" style="width:1080px;height:1920px;background:#111111;"><div class="layer-background" data-layer="background" style="background:#111111;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;font-size:48px;">Your Brand Headline</h1></div></div>""";
 }
 
 /// <summary>Stub AI selector — mirrors the org's configured AI (provider + model) for the designer.</summary>

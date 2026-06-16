@@ -73,7 +73,7 @@ public sealed class ContentGenerationJobWatchdogTests
         OrganizationId: Guid.NewGuid(),
         ClientId: Guid.NewGuid(),
         AnalysisId: Guid.NewGuid(),
-        RequestedFormats: ["flyer"],
+        RequestedFormats: ["story"],
         Status: status,
         StatusReason: null,
         ErrorCode: null,

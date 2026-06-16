@@ -1,7 +1,7 @@
-namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Flyer;
+namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.FeedPost;
 
-/// <summary>Structured output schema for flyer format generation.</summary>
-public sealed record FlyerContent(
+/// <summary>Structured output schema for feed post format generation.</summary>
+public sealed record FeedPostContent(
     string Title,
     string? Subtitle,
     string? Body,

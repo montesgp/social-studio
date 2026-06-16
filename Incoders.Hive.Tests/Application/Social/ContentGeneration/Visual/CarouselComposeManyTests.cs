@@ -52,7 +52,7 @@ public sealed class CarouselComposeManyTests
         // Single-asset formats return a 1-element list via the fallback path.
         var service = new VisualCompositionService();
 
-        var specs = await service.ComposeManyAsync("flyer", new object(), EmptyBrand, CancellationToken.None);
+        var specs = await service.ComposeManyAsync("story", new object(), EmptyBrand, CancellationToken.None);
 
         Assert.Single(specs);
     }

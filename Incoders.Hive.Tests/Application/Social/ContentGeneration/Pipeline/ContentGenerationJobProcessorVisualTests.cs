@@ -43,7 +43,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
         var designer = new SucceedingDesigner();
 
         var processor = BuildProcessor(
-            formatKey: "flyer",
+            formatKey: "story",
             payload: new object(),
             renderer: rendererSpy,
             designer: designer,
@@ -71,11 +71,11 @@ public sealed class ContentGenerationJobProcessorVisualTests
     [Fact]
     public async Task Pipeline_Tier1ForcedDefault_DesignerReceivesForcedDefaultUrl()
     {
-        // GIVEN snapshot with ForcedDefault entry for "flyer"
+        // GIVEN snapshot with ForcedDefault entry for "story"
         var designerSpy = new SpyDesigner();
 
         var processor = BuildProcessor(
-            formatKey: "flyer",
+            formatKey: "story",
             payload: new object(),
             renderer: new SpyRenderer(),
             designer: designerSpy,
@@ -98,7 +98,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
         var rendererSpy = new CapturingGeometryRenderer();
 
         var processor = BuildProcessor(
-            formatKey: "flyer",
+            formatKey: "story",
             payload: new object(),
             renderer: rendererSpy,
             designer: new SucceedingDesigner(),
@@ -125,7 +125,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
         var rendererSpy = new CapturingGeometryRenderer();
 
         var processor = BuildProcessor(
-            formatKey: "flyer",
+            formatKey: "story",
             payload: new object(),
             renderer: rendererSpy,
             designer: new SucceedingDesigner(),
@@ -158,7 +158,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
         var inactiveDesigner = new InactiveNoOpDesigner();
 
         var processor = BuildProcessor(
-            formatKey: "flyer",
+            formatKey: "story",
             payload: new object(),
             renderer: rendererSpy,
             designer: inactiveDesigner,
@@ -211,7 +211,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
         var activeFailingDesigner = new ActiveFailingDesigner();
 
         var processor = BuildProcessor(
-            formatKey: "flyer",
+            formatKey: "story",
             payload: new object(),
             renderer: rendererSpy,
             designer: activeFailingDesigner,
@@ -238,7 +238,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
         var rendererSpy = new CapturingGeometryRenderer();
 
         var processor = BuildProcessor(
-            formatKey: "flyer",
+            formatKey: "story",
             payload: new object(),
             renderer: rendererSpy,
             designer: new SucceedingDesigner(),
@@ -271,7 +271,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
         var designer = new ContextCapturingDesigner(providerCallContext);
 
         var processor = BuildProcessor(
-            formatKey: "flyer",
+            formatKey: "story",
             payload: new object(),
             renderer: new SpyRenderer(),
             designer: designer,
@@ -305,7 +305,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
                         "https://cdn.example.com/forced-flyer-bg.png",
                         null,
                         BackgroundTier.ForcedDefault,
-                        "flyer",
+                        "story",
                         true)
                 ],
                 Typography: new[] { "Inter" },
@@ -490,7 +490,7 @@ file sealed class SpyDesigner : IVisualDesigner
     }
 
     private static string BuildValidMarkup() =>
-        """<div class="composition" data-format="flyer" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""";
+        """<div class="composition" data-format="story" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""";
 }
 
 /// <summary>
@@ -515,7 +515,7 @@ file sealed class ContextCapturingDesigner(ProviderCallContext context) : IVisua
         WasCalled = true;
         ContextWasActive = context.Current is not null;
         var output = new VisualDesignOutput(
-            Markup: """<div class="composition" data-format="flyer" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""",
+            Markup: """<div class="composition" data-format="story" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""",
             PromptVersionKey: "visual-designer/v1",
             IsValid: false);
         return Task.FromResult(Result.Success(output));
@@ -535,7 +535,7 @@ file sealed class SucceedingDesigner : IVisualDesigner
         CancellationToken cancellationToken)
     {
         var output = new VisualDesignOutput(
-            Markup: """<div class="composition" data-format="flyer" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""",
+            Markup: """<div class="composition" data-format="story" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""",
             PromptVersionKey: "visual-designer/v1",
             IsValid: false);
         return Task.FromResult(Result.Success(output));
@@ -639,7 +639,7 @@ file sealed class ForcedDefaultBrandLoader : IClientBrandSnapshotLoader
                     "https://cdn.example.com/forced-flyer-bg.png",
                     null,
                     BackgroundTier.ForcedDefault,
-                    "flyer",
+                    "story",
                     true)
             ],
             Typography: new[] { "Inter" },

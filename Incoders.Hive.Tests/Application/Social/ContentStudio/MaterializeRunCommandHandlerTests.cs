@@ -29,14 +29,14 @@ public sealed class MaterializeRunCommandHandlerTests
 
         var formatResults = new FakeFormatResultRepo(new[]
         {
-            FormatResult(flyerResultId, jobId, "flyer", "Succeeded", outputJson: null, compositionSpec: "<spec/>", errorCode: null),
+            FormatResult(flyerResultId, jobId, "story", "Succeeded", outputJson: null, compositionSpec: "<spec/>", errorCode: null),
             FormatResult(captionResultId, jobId, "caption", "Succeeded", outputJson: "{\"caption\":\"hi\"}", compositionSpec: null, errorCode: null),
             FormatResult(failedResultId, jobId, "carousel", "Failed", outputJson: null, compositionSpec: null, errorCode: "content-gen.failed"),
         });
 
         var assets = new FakeFormatAssetRepo(new[]
         {
-            new FormatAssetRow(Guid.NewGuid(), flyerResultId, 0, "storage://flyer.pptx", "flyer.pptx",
+            new FormatAssetRow(Guid.NewGuid(), flyerResultId, 0, "storage://flyer.pptx", "story.pptx",
                 "application/vnd.openxmlformats-officedocument.presentationml.presentation", 10, "hash", Now, Now),
         });
 
@@ -58,7 +58,7 @@ public sealed class MaterializeRunCommandHandlerTests
         Assert.All(persisted, i => Assert.Equal(jobId, i.Origin.SourceRunId));
         Assert.All(persisted, i => Assert.Equal(packageId, i.Origin.SourcePackageId));
 
-        var flyer = persisted.Single(i => i.Origin.FormatKey == "flyer");
+        var flyer = persisted.Single(i => i.Origin.FormatKey == "story");
         Assert.Equal(flyerResultId, flyer.Origin.FormatResultId);
         Assert.Equal(ContentMedium.Visual, flyer.Kind.Medium);
         Assert.Equal("<spec/>", flyer.Draft.VisualSpecMarkup);
@@ -87,7 +87,7 @@ public sealed class MaterializeRunCommandHandlerTests
             new EfContentItemRepository(db),
             new FakeFormatResultRepo(new[]
             {
-                FormatResult(Guid.NewGuid(), Guid.NewGuid(), "flyer", "Failed", null, null, "content-gen.failed"),
+                FormatResult(Guid.NewGuid(), Guid.NewGuid(), "story", "Failed", null, null, "content-gen.failed"),
             }),
             new FakeFormatAssetRepo(Array.Empty<FormatAssetRow>()),
             new FakePackageRepo(null),

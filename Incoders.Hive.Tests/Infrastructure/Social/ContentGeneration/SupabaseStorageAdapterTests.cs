@@ -34,7 +34,7 @@ public sealed class SupabaseStorageAdapterTests
         var adapter = BuildAdapter(handler);
 
         await adapter.PutAssetAsync(
-            new StoredAssetKey(OrgId, ClientId, AnalysisId, "flyer.png"),
+            new StoredAssetKey(OrgId, ClientId, AnalysisId, "story.png"),
             new StoredAssetContent([1, 2, 3], "image/png"),
             CancellationToken.None);
 
@@ -44,7 +44,7 @@ public sealed class SupabaseStorageAdapterTests
         Assert.Contains(OrgId.ToString(), path);
         Assert.Contains(ClientId.ToString(), path);
         Assert.Contains(AnalysisId.ToString(), path);
-        Assert.Contains("flyer.png", path);
+        Assert.Contains("story.png", path);
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public sealed class SupabaseStorageAdapterTests
         var adapter = BuildAdapter(handler);
 
         await adapter.PutAssetAsync(
-            new StoredAssetKey(OrgId, ClientId, AnalysisId, "flyer.png"),
+            new StoredAssetKey(OrgId, ClientId, AnalysisId, "story.png"),
             new StoredAssetContent([1, 2, 3], "image/png"),
             CancellationToken.None);
 
@@ -99,7 +99,7 @@ public sealed class SupabaseStorageAdapterTests
     {
         var handler = new FakeHttpMessageHandler(HttpStatusCode.OK, "{}");
         var adapter = BuildAdapter(handler);
-        var key = new StoredAssetKey(OrgId, ClientId, AnalysisId, "flyer.png");
+        var key = new StoredAssetKey(OrgId, ClientId, AnalysisId, "story.png");
 
         var result = await adapter.PutAssetAsync(
             key,
@@ -121,7 +121,7 @@ public sealed class SupabaseStorageAdapterTests
 
         await Assert.ThrowsAsync<GeneratedAssetStorageException>(() =>
             adapter.PutAssetAsync(
-                new StoredAssetKey(OrgId, ClientId, AnalysisId, "flyer.png"),
+                new StoredAssetKey(OrgId, ClientId, AnalysisId, "story.png"),
                 new StoredAssetContent([1], "image/png"),
                 CancellationToken.None));
     }
@@ -133,7 +133,7 @@ public sealed class SupabaseStorageAdapterTests
     [Fact]
     public async Task ListAsync_SendsPostToListEndpoint()
     {
-        var listResponse = SerializeListResponse([new FakeStorageItem("flyer.png", 1024, "image/png")]);
+        var listResponse = SerializeListResponse([new FakeStorageItem("story.png", 1024, "image/png")]);
         var handler = new FakeHttpMessageHandler(HttpStatusCode.OK, listResponse);
         var adapter = BuildAdapter(handler);
 
@@ -163,7 +163,7 @@ public sealed class SupabaseStorageAdapterTests
     {
         var items = new[]
         {
-            new FakeStorageItem("flyer.png", 2048, "image/png"),
+            new FakeStorageItem("story.png", 2048, "image/png"),
             new FakeStorageItem("reel-script.txt", 512, "text/plain"),
         };
         var handler = new FakeHttpMessageHandler(HttpStatusCode.OK, SerializeListResponse(items));

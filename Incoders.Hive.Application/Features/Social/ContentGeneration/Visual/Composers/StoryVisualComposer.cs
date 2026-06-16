@@ -1,16 +1,16 @@
 using System.Text.RegularExpressions;
-using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Flyer;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Composers;
 
-internal sealed class FlyerVisualComposer : IFormatVisualComposer
+internal sealed class StoryVisualComposer : IFormatVisualComposer
 {
-    public string FormatKey => "flyer";
+    public string FormatKey => "story";
 
     public VisualCompositionSpec Compose(object generatedPayload, BrandSnapshot brand, InferenceAccumulator inferred)
     {
-        var payload = PayloadReader.As<FlyerContent>(generatedPayload);
+        var payload = PayloadReader.As<StoryContent>(generatedPayload);
         var palette = CompositionDefaults.ResolvePalette(brand, inferred);
         var typography = CompositionDefaults.ResolveTypography(brand, inferred);
 
@@ -21,7 +21,7 @@ internal sealed class FlyerVisualComposer : IFormatVisualComposer
 
         var copySlots = new Dictionary<string, string>
         {
-            ["headline"] = payload?.Title ?? "Flyer Headline",
+            ["headline"] = payload?.Title ?? "Story Headline",
             ["cta"] = payload?.CtaText ?? "Call to Action"
         };
 
@@ -50,7 +50,7 @@ internal sealed class FlyerVisualComposer : IFormatVisualComposer
 
         return new VisualCompositionSpec(
             FormatKey: FormatKey,
-            LayoutType: payload?.LayoutHint ?? "story-flyer",
+            LayoutType: payload?.LayoutHint ?? "story",
             Palette: palette,
             Typography: typography,
             AssetSlots: new Dictionary<string, AssetSlotSpec>

@@ -85,7 +85,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
         var assetStorage = new SpyAssetStorage();
         var assetRepo = new SpyAssetRepository();
 
-        var processor = BuildProcessor("flyer", new object(), assetStorage, assetRepo);
+        var processor = BuildProcessor("story", new object(), assetStorage, assetRepo);
 
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
@@ -99,7 +99,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
         var assetStorage = new SpyAssetStorage();
         var assetRepo = new SpyAssetRepository();
 
-        var processor = BuildProcessor("flyer", new object(), assetStorage, assetRepo);
+        var processor = BuildProcessor("story", new object(), assetStorage, assetRepo);
 
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
@@ -116,7 +116,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
         var formatResults = new FakeFormatResultRepository();
 
         var processor = BuildProcessor(
-            "flyer",
+            "story",
             new object(),
             assetStorage,
             assetRepo,
@@ -139,7 +139,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
         var formatResults = new FakeFormatResultRepository();
 
         var processor = BuildProcessor(
-            "flyer",
+            "story",
             new object(),
             assetStorage,
             assetRepo,
@@ -164,7 +164,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
         var analysisClientId = Guid.Parse("88888888-8888-8888-8888-888888888888");
 
         var processor = BuildProcessor(
-            "flyer",
+            "story",
             new object(),
             assetStorage,
             assetRepo,
@@ -173,7 +173,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
 
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
-        var flyerPut = Assert.Single(assetStorage.Puts, p => p.Key.RelativePath == "flyer.txt");
+        var flyerPut = Assert.Single(assetStorage.Puts, p => p.Key.RelativePath == "story.txt");
         Assert.Equal(requestedClientId, flyerPut.Key.ClientId);
     }
 
@@ -187,7 +187,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
         var assetStorage = new FailingAssetStorage();
         var assetRepo = new SpyAssetRepository();
 
-        var processor = BuildProcessor("flyer", new object(), assetStorage, assetRepo);
+        var processor = BuildProcessor("story", new object(), assetStorage, assetRepo);
 
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
@@ -202,11 +202,11 @@ public sealed class ContentGenerationJobProcessorStorageTests
     [Fact]
     public async Task ProcessAsync_PartialSuccess_SucceededFormatHasAssetRow()
     {
-        var assetStorage = new PartiallyFailingAssetStorage(failFor: "flyer.png");
+        var assetStorage = new PartiallyFailingAssetStorage(failFor: "story.png");
         var assetRepo = new SpyAssetRepository();
 
         var processor = BuildProcessorMultiFormat(
-            new[] { ("flyer", (object)new object()), ("reel-script", (object)"text payload") },
+            new[] { ("story", (object)new object()), ("reel-script", (object)"text payload") },
             assetStorage,
             assetRepo);
 
@@ -230,7 +230,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
         var assetStorage = new SpyAssetStorage();
         var assetRepo = new SpyAssetRepository();
 
-        var processor = BuildProcessor("flyer", new object(), assetStorage, assetRepo);
+        var processor = BuildProcessor("story", new object(), assetStorage, assetRepo);
 
         await processor.ProcessAsync(JobId, CancellationToken.None);
 

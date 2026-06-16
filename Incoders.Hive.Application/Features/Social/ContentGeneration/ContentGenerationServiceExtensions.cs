@@ -3,7 +3,8 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Captio
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.ContentIdea;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.CtaVariation;
-using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Flyer;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.FeedPost;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Hook;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.ReelScript;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
@@ -19,7 +20,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration;
 
 /// <summary>
 /// Application-layer DI registrations for the content generation feature.
-/// Registers all 7 format generators, the orchestrator, visual composition service,
+/// Registers all 9 format generators, the orchestrator, visual composition service,
 /// per-format visual composers, and the package builder.
 /// Infrastructure adapters (IAiCompletionGateway, IClientBrandSnapshotLoader, IContentRenderer,
 /// IGeneratedPackageStorage) are registered by the Infrastructure layer.
@@ -37,8 +38,11 @@ public static class ContentGenerationServiceExtensions
         services.AddScoped<CarouselGenerator>();
         services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<CarouselGenerator>());
 
-        services.AddScoped<FlyerGenerator>();
-        services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<FlyerGenerator>());
+        services.AddScoped<StoryGenerator>();
+        services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<StoryGenerator>());
+
+        services.AddScoped<FeedPostGenerator>();
+        services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<FeedPostGenerator>());
 
         services.AddScoped<ReelScriptGenerator>();
         services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<ReelScriptGenerator>());
@@ -63,7 +67,8 @@ public static class ContentGenerationServiceExtensions
         // resolves with an empty collection and every Compose call throws
         // "No visual composer registered for format key 'X'" at runtime.
         services.AddScoped<IFormatVisualComposer, CarouselVisualComposer>();
-        services.AddScoped<IFormatVisualComposer, FlyerVisualComposer>();
+        services.AddScoped<IFormatVisualComposer, StoryVisualComposer>();
+        services.AddScoped<IFormatVisualComposer, FeedPostVisualComposer>();
         services.AddScoped<IFormatVisualComposer, HookVisualComposer>();
         services.AddScoped<IFormatVisualComposer, CaptionVisualComposer>();
         services.AddScoped<IFormatVisualComposer, CtaVariationVisualComposer>();

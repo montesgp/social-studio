@@ -60,7 +60,7 @@ public sealed class ContentGenerationFormatResultEntityMappingTests
         {
             Id = Guid.NewGuid(),
             JobId = jobId,
-            FormatKey = "flyer",
+            FormatKey = "story",
             Status = "Rendered",
             RenderedAssetUri = "file:///tmp/test.png",
             PromptVersion = "flyer.v1",
@@ -71,7 +71,7 @@ public sealed class ContentGenerationFormatResultEntityMappingTests
         await db.SaveChangesAsync();
 
         var read = await db.ContentGenerationFormatResults.FindAsync(r1.Id);
-        Assert.Equal("flyer", read!.FormatKey);
+        Assert.Equal("story", read!.FormatKey);
         Assert.Equal("file:///tmp/test.png", read.RenderedAssetUri);
     }
 
@@ -140,7 +140,7 @@ public sealed class ContentGenerationFormatResultEntityMappingTests
             Id = jobId,
             OrganizationId = Guid.NewGuid(),
             AnalysisId = Guid.NewGuid(),
-            RequestedFormats = new List<string> { "carousel", "flyer" },
+            RequestedFormats = new List<string> { "carousel", "story" },
             Status = "Running",
             BrandSnapshotJson = "{}",
             CorrelationId = Guid.NewGuid(),

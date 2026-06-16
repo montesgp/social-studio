@@ -21,11 +21,11 @@ public sealed class ClientBrandManualForcedDefaultTests
     [Fact]
     public void ClientBrandManual_FirstForcedDefault_SameFormat_Succeeds()
     {
-        // GIVEN no existing ForcedDefault for FormatKey="flyer"
+        // GIVEN no existing ForcedDefault for FormatKey="story"
         var entry = BackgroundEntry.Create("bg", "https://cdn.example.com/bg.png", null,
-            BackgroundTier.ForcedDefault, "flyer", true).Value;
+            BackgroundTier.ForcedDefault, "story", true).Value;
 
-        // WHEN entry with IsFormatDefault=true, FormatKey="flyer" is added
+        // WHEN entry with IsFormatDefault=true, FormatKey="story" is added
         var result = ClientBrandManual.Create(
             ClientBrandManualId.New(), ValidClientId, ValidOrgId,
             "My Manual",
@@ -45,13 +45,13 @@ public sealed class ClientBrandManualForcedDefaultTests
     [Fact]
     public void ClientBrandManual_SecondForcedDefault_SameFormat_Fails()
     {
-        // GIVEN one entry with IsFormatDefault=true for FormatKey="flyer" already exists
+        // GIVEN one entry with IsFormatDefault=true for FormatKey="story" already exists
         var entry1 = BackgroundEntry.Create("bg1", "https://cdn.example.com/bg1.png", null,
-            BackgroundTier.ForcedDefault, "flyer", true).Value;
+            BackgroundTier.ForcedDefault, "story", true).Value;
         var entry2 = BackgroundEntry.Create("bg2", "https://cdn.example.com/bg2.png", null,
-            BackgroundTier.ForcedDefault, "flyer", true).Value;
+            BackgroundTier.ForcedDefault, "story", true).Value;
 
-        // WHEN a second entry with IsFormatDefault=true, FormatKey="flyer" is added
+        // WHEN a second entry with IsFormatDefault=true, FormatKey="story" is added
         var result = ClientBrandManual.Create(
             ClientBrandManualId.New(), ValidClientId, ValidOrgId,
             "My Manual",
@@ -72,9 +72,9 @@ public sealed class ClientBrandManualForcedDefaultTests
     [Fact]
     public void ClientBrandManual_ForcedDefaults_DifferentFormats_Succeed()
     {
-        // GIVEN ForcedDefault for FormatKey="flyer" AND ForcedDefault for FormatKey="carousel"
+        // GIVEN ForcedDefault for FormatKey="story" AND ForcedDefault for FormatKey="carousel"
         var flyerEntry = BackgroundEntry.Create("bg-flyer", "https://cdn.example.com/bg-flyer.png", null,
-            BackgroundTier.ForcedDefault, "flyer", true).Value;
+            BackgroundTier.ForcedDefault, "story", true).Value;
         var carouselEntry = BackgroundEntry.Create("bg-carousel", "https://cdn.example.com/bg-carousel.png", null,
             BackgroundTier.ForcedDefault, "carousel", true).Value;
 

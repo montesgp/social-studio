@@ -125,19 +125,19 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
 
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(resultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+            MakeRow(resultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/story.png", "story.png"),
             MakeRow(resultId2, 0, $"{OrgId}/{ClientId2}/{AnalysisId}/reel-script.md", "reel-script.md", "text/markdown"),
         };
 
         var files = new Dictionary<string, byte[]>
         {
-            [$"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png"] = "client1-flyer-bytes"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/story.png"] = "client1-flyer-bytes"u8.ToArray(),
             [$"{OrgId}/{ClientId2}/{AnalysisId}/reel-script.md"] = "client2-reel-bytes"u8.ToArray(),
         };
 
         var formatResults = new[]
         {
-            MakeFormatResult(resultId1, jobId, "flyer", EnvelopeJson("client-1-flyer")),
+            MakeFormatResult(resultId1, jobId, "story", EnvelopeJson("client-1-flyer")),
             MakeFormatResult(resultId2, jobId, "reel-script"),
         };
 
@@ -362,14 +362,14 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         var jobId = Guid.NewGuid();
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(flyerResultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+            MakeRow(flyerResultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/story.png", "story.png"),
             MakeRow(carouselResultId, 1, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png", "slide_1.png"),
             MakeRow(carouselResultId, 2, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png", "slide_2.png"),
             MakeRow(scriptResultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/reel-script.md", "reel-script.md", "text/markdown"),
         };
         var files = new Dictionary<string, byte[]>
         {
-            [$"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png"] = "flyer-bytes"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/story.png"] = "story-bytes"u8.ToArray(),
             [$"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png"] = "slide-1-bytes"u8.ToArray(),
             [$"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png"] = "slide-2-bytes"u8.ToArray(),
             [$"{OrgId}/{ClientId1}/{AnalysisId}/reel-script.md"] = "# Script\n\nUse this on social."u8.ToArray(),
@@ -388,8 +388,8 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
                 MakeFormatResult(
                     flyerResultId,
                     jobId,
-                    "flyer",
-                    EnvelopeJson("flyer"),
+                    "story",
+                    EnvelopeJson("story"),
                     """{"publicationDescription":"Caption for the client account."}""",
                     """["brand.voice"]"""),
                 MakeFormatResult(
@@ -417,17 +417,17 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
             [
                 "Incoders/carousel/slide_1.pptx",
                 "Incoders/carousel/slide_2.pptx",
-                "Incoders/flyer/flyer.pptx",
+                "Incoders/story/story.pptx",
                 "Incoders/script/script.md",
                 "manifest.json",
             ],
             entries);
         Assert.DoesNotContain("editable-package.pptx", entries);
-        Assert.DoesNotContain("Incoders/flyer.png", entries);
+        Assert.DoesNotContain("Incoders/story.png", entries);
         Assert.DoesNotContain("Incoders/carousel/slide_1.png", entries);
 
-        var flyerBytes = await ReadEntryBytesAsync(zip, "Incoders/flyer/flyer.pptx");
-        Assert.Equal(PptxBytesForEnvelope(CompositionSpecJson.ParseList(EnvelopeJson("flyer"))[0]), flyerBytes);
+        var flyerBytes = await ReadEntryBytesAsync(zip, "Incoders/story/story.pptx");
+        Assert.Equal(PptxBytesForEnvelope(CompositionSpecJson.ParseList(EnvelopeJson("story"))[0]), flyerBytes);
 
         var script = await ReadEntryTextAsync(zip, "Incoders/script/script.md");
         Assert.StartsWith("# Script", script, StringComparison.Ordinal);
@@ -436,7 +436,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         Assert.Contains("\"clients\"", manifestJson);
         Assert.Contains("\"Incoders\"", manifestJson);
         Assert.Contains("\"client_folder_name\": \"Incoders\"", manifestJson);
-        Assert.Contains("\"relative_path\": \"Incoders/flyer/flyer.pptx\"", manifestJson);
+        Assert.Contains("\"relative_path\": \"Incoders/story/story.pptx\"", manifestJson);
         Assert.Contains("\"relative_path\": \"Incoders/carousel/slide_1.pptx\"", manifestJson);
         Assert.Contains("\"relative_path\": \"Incoders/script/script.md\"", manifestJson);
         Assert.Contains("\"mime\": \"application/vnd.openxmlformats-officedocument.presentationml.presentation\"", manifestJson);
@@ -471,11 +471,11 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         var jobId = Guid.NewGuid();
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+            MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/story.png", "story.png"),
         };
         var files = new Dictionary<string, byte[]>
         {
-            [$"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png"] = "flyer-bytes"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/story.png"] = "story-bytes"u8.ToArray(),
         };
 
         var client = Client.Restore(
@@ -490,7 +490,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
             AnalysisId,
             clientRepo,
             formatResultRepository: new FakeFormatResultRepository([
-                MakeFormatResult(resultId, jobId, "flyer", EnvelopeJson("flyer")),
+                MakeFormatResult(resultId, jobId, "story", EnvelopeJson("story")),
             ]),
             pptxAdapter: new FakePptxAdapter(PptxBytesForEnvelope));
 
@@ -517,11 +517,11 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         var jobId = Guid.NewGuid();
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+            MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/story.png", "story.png"),
         };
         var files = new Dictionary<string, byte[]>
         {
-            [$"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png"] = "bytes"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/story.png"] = "bytes"u8.ToArray(),
         };
 
         var client = Client.Restore(
@@ -536,7 +536,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
             AnalysisId,
             clientRepo,
             formatResultRepository: new FakeFormatResultRepository([
-                MakeFormatResult(resultId, jobId, "flyer", EnvelopeJson("flyer")),
+                MakeFormatResult(resultId, jobId, "story", EnvelopeJson("story")),
             ]),
             pptxAdapter: new FakePptxAdapter(PptxBytesForEnvelope));
 
@@ -561,11 +561,11 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         var jobId = Guid.NewGuid();
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+            MakeRow(resultId, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/story.png", "story.png"),
         };
         var files = new Dictionary<string, byte[]>
         {
-            [$"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png"] = "bytes"u8.ToArray(),
+            [$"{OrgId}/{ClientId1}/{AnalysisId}/story.png"] = "bytes"u8.ToArray(),
         };
 
         // Empty client repo — no client record for ClientId1
@@ -578,7 +578,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
             AnalysisId,
             clientRepo,
             formatResultRepository: new FakeFormatResultRepository([
-                MakeFormatResult(resultId, jobId, "flyer", EnvelopeJson("flyer")),
+                MakeFormatResult(resultId, jobId, "story", EnvelopeJson("story")),
             ]),
             pptxAdapter: new FakePptxAdapter(PptxBytesForEnvelope));
 

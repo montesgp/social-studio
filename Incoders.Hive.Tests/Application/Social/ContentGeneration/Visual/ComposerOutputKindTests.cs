@@ -72,7 +72,7 @@ public sealed class ComposerOutputKindTests
     {
         var service = new VisualCompositionService();
 
-        var spec = await service.ComposeAsync("flyer", new { }, NoBrand, CancellationToken.None);
+        var spec = await service.ComposeAsync("story", new { }, NoBrand, CancellationToken.None);
 
         Assert.Equal(CompositionOutputKind.Raster, spec.OutputKind);
         Assert.Null(spec.TextBody);

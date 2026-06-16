@@ -351,7 +351,7 @@ public sealed class LocalSvgContentRendererTests
 
     private static VisualCompositionSpec BuildFlyerSpec(string? backgroundUrl = null) =>
         new VisualCompositionSpec(
-            FormatKey: "flyer",
+            FormatKey: "story",
             LayoutType: "story-flyer",
             Palette: new CompositionPalette("#111827", "#374151", "#2563EB", "#111827", "#F8FAFC"),
             Typography: new CompositionTypography("Arial", 28, "Arial", 16),

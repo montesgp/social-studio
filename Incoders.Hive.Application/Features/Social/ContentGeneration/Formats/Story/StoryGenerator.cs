@@ -4,35 +4,35 @@ using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Microsoft.Extensions.Logging;
 
-namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Flyer;
+namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 
-/// <summary>Format generator for promotional flyer content.</summary>
-public sealed class FlyerGenerator : FormatContentGeneratorBase<FlyerContent>
+/// <summary>Format generator for story content (single 9:16 vertical image).</summary>
+public sealed class StoryGenerator : FormatContentGeneratorBase<StoryContent>
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public FlyerGenerator(
+    public StoryGenerator(
         IAiCompletionGateway aiGateway,
         ProviderCallContext providerCallContext,
-        ILogger<FlyerGenerator>? logger = null)
+        ILogger<StoryGenerator>? logger = null)
         : base(aiGateway, providerCallContext, logger) { }
 
-    public override string FormatKey => "flyer";
-    public override string PromptVersion => ContentGenerationPromptVersions.Flyer;
+    public override string FormatKey => "story";
+    public override string PromptVersion => ContentGenerationPromptVersions.Story;
 
     protected override string BuildPromptJson(GenerationContext ctx)
     {
         var input = new
         {
-            instruction = "Generate branded flyer content. " +
+            instruction = "Generate branded story content. " +
                           GenerationPromptContext.BrandConstraint + " " +
                           "Respect the primary derived idea and make layout/copy decisions from the client context. " +
-                          "The flyer is a single 9:16 story image. If the active brand manual includes " +
+                          "The story is a single 9:16 story image. If the active brand manual includes " +
                           "backgroundTemplates, use them as the visual base and write copy that fits over that template. " +
                           "If it has no background template, resolve a concise backgroundPrompt for a branded AI-created background. " +
                           "Apply any manual notes such as required signatures or handles in signatureText. " +
                           "Respond with ONLY raw JSON.",
-            format = "flyer",
+            format = "story",
             analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis, ctx.RegenerationObjection),
             clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new
@@ -45,7 +45,7 @@ public sealed class FlyerGenerator : FormatContentGeneratorBase<FlyerContent>
                 backgroundPrompt = "string|null - visual background direction when no brand template exists",
                 signatureText = "string|null - required footer/signature/handle from brand manual when applicable",
                 layoutHint = "string|null - layout suggestion e.g. grid, hero, split",
-                publicationDescription = "string|null - social post copy to publish with this flyer"
+                publicationDescription = "string|null - social post copy to publish with this story"
             }
         };
         return JsonSerializer.Serialize(input, JsonOptions);

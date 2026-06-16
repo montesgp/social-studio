@@ -83,7 +83,7 @@ public sealed class ExportFormatToPptxQueryHandlerTests
     public async Task Handle_FormatKeyNotFound_ReturnsNotFoundError()
     {
         var job = MakeJob(JobId, OrgId);
-        // Format result is for "carousel", not "flyer"
+        // Format result is for "carousel", not "story"
         var formatResult = MakeFormatResult(JobId, "carousel", JsonSerializer.Serialize(StubEnvelope(), JsonOptions));
 
         var jobRepo = new FakeJobRepo(job);
@@ -91,7 +91,7 @@ public sealed class ExportFormatToPptxQueryHandlerTests
         var adapter = new FakePptxAdapter(Result.Success<byte[]>([]));
 
         var handler = new ExportFormatToPptxQueryHandler(jobRepo, formatResultRepo, adapter);
-        var query = new ExportFormatToPptxQuery(JobId, "flyer", OrgId); // querying "flyer"
+        var query = new ExportFormatToPptxQuery(JobId, "story", OrgId); // querying "story"
 
         var result = await handler.Handle(query, CancellationToken.None);
 

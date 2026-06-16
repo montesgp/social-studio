@@ -51,7 +51,7 @@ public sealed class ContentGenerationBackgroundWorkerTests
         var jobId = Guid.NewGuid();
         var analysisId = Guid.NewGuid();
         var job = MakeJob(jobId, OrgId, analysisId, status: "Queued",
-            formats: ["carousel", "flyer"]);
+            formats: ["carousel", "story"]);
 
         var harness = new ProcessorHarness(job, MakeAnalysisRecord(analysisId, OrgId), OrchestratorStatus.Succeeded);
 
@@ -76,7 +76,7 @@ public sealed class ContentGenerationBackgroundWorkerTests
         // Orchestrator must only have been asked for the missing format (flyer). Carousel's
         // cached payload is reused — no extra Claude tokens.
         Assert.NotNull(harness.Orchestrator.LastRequest);
-        Assert.Equal(["flyer"], harness.Orchestrator.LastRequest!.RequestedFormats);
+        Assert.Equal(["story"], harness.Orchestrator.LastRequest!.RequestedFormats);
 
         // Both formats end up rendered and in the package.
         Assert.Equal(2, harness.Renderer.RenderCalls);
@@ -132,10 +132,10 @@ public sealed class ContentGenerationBackgroundWorkerTests
         var jobId = Guid.NewGuid();
         var analysisId = Guid.NewGuid();
         var job = MakeJob(jobId, OrgId, analysisId, status: "Queued",
-            formats: ["carousel", "flyer"]);
+            formats: ["carousel", "story"]);
 
         var harness = new ProcessorHarness(job, MakeAnalysisRecord(analysisId, OrgId), OrchestratorStatus.Succeeded);
-        harness.Renderer.FailForFormat = "flyer";
+        harness.Renderer.FailForFormat = "story";
 
         await harness.Processor.ProcessAsync(jobId, CancellationToken.None);
 
@@ -145,7 +145,7 @@ public sealed class ContentGenerationBackgroundWorkerTests
 
         // The Partial status carries the actual render error in its reason — not a generic code.
         var partial = harness.JobRepo.StatusUpdates.Last(s => s.status == "Partial");
-        Assert.Contains("render_failed[flyer:", partial.reason ?? "");
+        Assert.Contains("render_failed[story:", partial.reason ?? "");
     }
 
     [Fact]
@@ -333,7 +333,7 @@ file sealed class FakeOrchestrator : IContentGenerationOrchestrator
                         fmt switch
                         {
                             "carousel" => new { format = fmt, publicationDescription = "carousel publication description" },
-                            "flyer" => new { format = fmt, publicationDescription = "flyer publication description" },
+                            "story" => new { format = fmt, publicationDescription = "flyer publication description" },
                             _ => new { format = fmt }
                         },
                         "v1",

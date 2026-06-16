@@ -31,7 +31,7 @@ public sealed class GeneratedPackageManifestTests
         var formats = new Dictionary<string, FormatAssetMetadata>
         {
             ["carousel"] = new FormatAssetMetadata("carousel", "image/png", "carousel.png", 1024, "hash1"),
-            ["flyer"]    = new FormatAssetMetadata("flyer",    "image/png", "flyer.png",    2048, "hash2")
+            ["story"]    = new FormatAssetMetadata("story",    "image/png", "story.png",    2048, "hash2")
         };
 
         var manifest = new GeneratedPackageManifest(

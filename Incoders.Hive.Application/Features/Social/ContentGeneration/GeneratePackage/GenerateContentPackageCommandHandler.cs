@@ -19,11 +19,12 @@ public sealed class GenerateContentPackageCommandHandler
     internal const int MaxRegenerationObjectionLength = 1000;
     internal const int MaxFailedAttemptsPerFormat = 2;
 
-    /// <summary>The 7 supported format keys.</summary>
+    /// <summary>The 9 supported format keys.</summary>
     internal static readonly IReadOnlySet<string> KnownFormatKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "carousel",
-        "flyer",
+        "story",
+        "feed-post",
         "reel-script",
         "content-idea",
         "cta-variation",

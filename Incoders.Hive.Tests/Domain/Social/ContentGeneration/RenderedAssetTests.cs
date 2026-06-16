@@ -44,7 +44,7 @@ public sealed class RenderedAssetTests
     public void GetBytes_ReturnsOriginalBytes()
     {
         var bytes = new byte[] { 10, 20, 30, 40 };
-        var asset = RenderedAsset.Create("flyer", "image/png", "flyer.png", bytes);
+        var asset = RenderedAsset.Create("story", "image/png", "story.png", bytes);
 
         Assert.Equal(bytes, asset.GetBytes());
     }

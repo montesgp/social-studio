@@ -16,14 +16,14 @@ public sealed class ContentOriginTests
         var runId = Guid.NewGuid();
         var resultId = Guid.NewGuid();
 
-        var a = new ContentOrigin(GeneratorKind.SingleAnalyzer, runId, null, resultId, "flyer");
-        var b = new ContentOrigin(GeneratorKind.SingleAnalyzer, runId, null, resultId, "flyer");
+        var a = new ContentOrigin(GeneratorKind.SingleAnalyzer, runId, null, resultId, "story");
+        var b = new ContentOrigin(GeneratorKind.SingleAnalyzer, runId, null, resultId, "story");
 
         Assert.Equal(GeneratorKind.SingleAnalyzer, a.GeneratorKind);
         Assert.Equal(runId, a.SourceRunId);
         Assert.Null(a.SourcePackageId);
         Assert.Equal(resultId, a.FormatResultId);
-        Assert.Equal("flyer", a.FormatKey);
+        Assert.Equal("story", a.FormatKey);
         Assert.Equal(a, b);
     }
 

@@ -74,7 +74,7 @@ public sealed class DeleteFormatAssetCommandHandler
         // 3. Filter to rows belonging to this format for this specific client.
         //    Path layout: {orgId}/{clientId}/{analysisId}/{relative}
         //    Detect format by the relative segment after the analysis path prefix.
-        //    e.g. ".../flyer.png" → format key "flyer"
+        //    e.g. ".../story.png" → format key "story"
         //         ".../carousel/slide_1.png" → format key "carousel"
         var clientPrefix = $"{command.OrganizationId}/{command.ClientId}/{command.AnalysisId}/";
         var formatRows = allRows
@@ -111,7 +111,7 @@ public sealed class DeleteFormatAssetCommandHandler
     /// Derives the format key from the full storage path given the client-specific prefix.
     /// <para>Examples (clientPrefix = "{org}/{client}/{analysis}/"):
     /// <list type="bullet">
-    ///   <item>"…/flyer.png" → "flyer"</item>
+    ///   <item>"…/story.png" → "story"</item>
     ///   <item>"…/reel-script.txt" → "reel-script"</item>
     ///   <item>"…/carousel/slide_1.png" → "carousel"</item>
     /// </list>

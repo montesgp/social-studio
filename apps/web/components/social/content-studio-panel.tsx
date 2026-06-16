@@ -619,37 +619,50 @@ function ItemDetail(props: ItemDetailProps) {
         />
       ) : (
         <>
-          <InstagramPost
-            key={`${item.id}:${item.updatedAtUtc}`}
-            item={item}
-            igHandle={props.igHandle}
-            caption={draftText}
-            canEdit={canEdit && isVisual}
-            busy={busy}
-            onSaveVisual={isVisual ? props.onSaveVisual : undefined}
-          />
-
-          <div className="flex flex-col gap-2">
-            <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Caption / post copy</label>
-            <textarea
-              value={draftText}
-              onChange={(e) => props.onDraftChange(e.target.value)}
-              disabled={!canEdit || busy}
-              rows={4}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
-              placeholder="No caption."
+          {item.formatKey === "story" ? (
+            <InstagramStoryPost
+              key={`${item.id}:${item.updatedAtUtc}`}
+              item={item}
+              igHandle={props.igHandle}
+              canEdit={canEdit && isVisual}
+              busy={busy}
+              onSaveVisual={isVisual ? props.onSaveVisual : undefined}
             />
-            <div>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={!canEdit || busy || draftText === (item.text ?? "")}
-                onClick={props.onSaveText}
-              >
-                Save caption
-              </Button>
+          ) : (
+            <InstagramPost
+              key={`${item.id}:${item.updatedAtUtc}`}
+              item={item}
+              igHandle={props.igHandle}
+              caption={draftText}
+              canEdit={canEdit && isVisual}
+              busy={busy}
+              onSaveVisual={isVisual ? props.onSaveVisual : undefined}
+            />
+          )}
+
+          {item.formatKey !== "story" ? (
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Caption / post copy</label>
+              <textarea
+                value={draftText}
+                onChange={(e) => props.onDraftChange(e.target.value)}
+                disabled={!canEdit || busy}
+                rows={4}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
+                placeholder="No caption."
+              />
+              <div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!canEdit || busy || draftText === (item.text ?? "")}
+                  onClick={props.onSaveText}
+                >
+                  Save caption
+                </Button>
+              </div>
             </div>
-          </div>
+          ) : null}
         </>
       )}
 
@@ -935,6 +948,106 @@ function EditableScript({
           <Button size="sm" variant="secondary" disabled={busy || !dirty} onClick={onSave}>
             Save script
           </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function InstagramStory({ children, username }: { children: ReactNode; username?: string }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl bg-black" style={{ width: 377, height: 670 }}>
+      <div className="absolute inset-0">{children}</div>
+      <div className="absolute inset-x-0 top-0 z-10 p-3">
+        <div className="flex gap-1 mb-2">
+          <div className="flex-1 h-0.5 rounded-full bg-white/80" />
+          <div className="flex-1 h-0.5 rounded-full bg-white/40" />
+          <div className="flex-1 h-0.5 rounded-full bg-white/40" />
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-full bg-white/20 border-2 border-white/60" />
+          <span className="text-white text-xs font-semibold">{username ?? "Your Brand"}</span>
+          <span className="text-white/60 text-xs">2h</span>
+          <div className="ml-auto text-white/80 text-base">✕</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Story viewer: editable design fills the 9:16 frame, story chrome overlaid, no engagement sidebar. */
+function InstagramStoryPost({
+  item,
+  igHandle,
+  canEdit,
+  busy,
+  onSaveVisual,
+}: {
+  item: ContentItem;
+  igHandle: string | null;
+  canEdit: boolean;
+  busy: boolean;
+  onSaveVisual?: (markup: string | null, assets: VisualAssetInput[]) => void;
+}) {
+  const [envelopes, setEnvelopes] = useState<Envelope[]>(() => parseEnvelopes(item.visualSpecMarkup));
+  const canvasRef = useRef<DesignCanvasHandle>(null);
+  const initialJson = useMemo(() => serializeEnvelopes(parseEnvelopes(item.visualSpecMarkup)), [item.visualSpecMarkup]);
+  const [dirty, setDirty] = useState(false);
+
+  const slide = envelopes[0];
+
+  const commitCurrent = useCallback((): Envelope[] => {
+    const state = canvasRef.current?.getState();
+    if (!state) return envelopes;
+    const next = [{ ...envelopes[0], markup: state.markup, slotGeometry: syncGeometry(envelopes[0].slotGeometry, state.slotStyles) }];
+    setEnvelopes(next);
+    setDirty(serializeEnvelopes(next) !== initialJson);
+    return next;
+  }, [envelopes, initialJson]);
+
+  if (!slide) {
+    return (
+      <div className="rounded-xl border border-dashed border-border bg-background p-10 text-center text-sm italic text-muted-foreground">
+        No rendered design available for this piece.
+      </div>
+    );
+  }
+
+  const width = slide.canvas?.width ?? 1080;
+  const height = slide.canvas?.height ?? 1920;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <InstagramStory username={igHandle ?? undefined}>
+        <DesignCanvas
+          key={item.id}
+          ref={canvasRef}
+          markup={slide.markup ?? ""}
+          width={width}
+          height={height}
+          canEdit={canEdit}
+          onDirty={() => setDirty(true)}
+        />
+      </InstagramStory>
+      {canEdit ? (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">Click a text to select it, drag to move, double-click to edit.</p>
+          {onSaveVisual ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy || !dirty}
+              onClick={() => {
+                const next = commitCurrent();
+                onSaveVisual(
+                  serializeEnvelopes(next),
+                  item.assets.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime })),
+                );
+              }}
+            >
+              Save design changes
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </div>

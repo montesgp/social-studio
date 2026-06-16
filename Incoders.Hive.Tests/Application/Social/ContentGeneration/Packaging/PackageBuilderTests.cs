@@ -47,7 +47,7 @@ public sealed class PackageBuilderTests
         var assets = new[]
         {
             RenderedAsset.Create("carousel", "image/png", "carousel.png", new byte[] { 1, 2, 3 }),
-            RenderedAsset.Create("flyer", "image/png", "flyer.png", new byte[] { 4, 5, 6, 7 }),
+            RenderedAsset.Create("story", "image/png", "story.png", new byte[] { 4, 5, 6, 7 }),
         };
         var input = new BuildPackageInput(
             Assets: assets,
@@ -58,14 +58,14 @@ public sealed class PackageBuilderTests
             PublicationByFormat: new Dictionary<string, PublicationMetadata>
             {
                 ["carousel"] = new("Carousel publication description"),
-                ["flyer"] = new("Flyer publication description"),
+                ["story"] = new("Flyer publication description"),
             });
 
         var result = await builder.BuildAsync(input, CancellationToken.None);
 
         Assert.Equal(2, result.Manifest.Formats.Count);
         Assert.Contains("carousel", result.Manifest.Formats.Keys);
-        Assert.Contains("flyer", result.Manifest.Formats.Keys);
+        Assert.Contains("story", result.Manifest.Formats.Keys);
         Assert.Single(result.Manifest.InferredFields);
         Assert.Single(result.Manifest.Warnings);
         Assert.Equal(
@@ -73,7 +73,7 @@ public sealed class PackageBuilderTests
             result.Manifest.Formats["carousel"].Publication?.Description);
         Assert.Equal(
             "Flyer publication description",
-            result.Manifest.Formats["flyer"].Publication?.Description);
+            result.Manifest.Formats["story"].Publication?.Description);
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public sealed class PackageBuilderTests
         var builder = new GeneratedPackageBuilder();
         var assets = new[]
         {
-            RenderedAsset.Create("flyer", "image/png", "flyer.png", new byte[] { 1, 2 }),
+            RenderedAsset.Create("story", "image/png", "story.png", new byte[] { 1, 2 }),
             RenderedAsset.Create("carousel", "image/png", "carousel.png", new byte[] { 3, 4 }),
         };
         var input = new BuildPackageInput(

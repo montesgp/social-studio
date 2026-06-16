@@ -215,7 +215,7 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
   const [generatedScripts, setGeneratedScripts] = useState<Record<string, string>>({});
   const [generatedCarousels, setGeneratedCarousels] = useState<Record<string, string[]>>({});
   const [generatedFlyers, setGeneratedFlyers] = useState<Record<string, string>>({});
-  const [generatingConversion, setGeneratingConversion] = useState<Record<string, "script" | "carousel" | "flyer">>({});
+  const [generatingConversion, setGeneratingConversion] = useState<Record<string, "script" | "carousel" | "story">>({});
   const [cardPipelineRunning, setCardPipelineRunning] = useState<Record<string, boolean>>({});
 
   // Preview panel tabs + mutation
@@ -791,7 +791,7 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
   }
 
   async function generateFlyer(resultId: string) {
-    setGeneratingConversion((prev) => ({ ...prev, [resultId]: "flyer" }));
+    setGeneratingConversion((prev) => ({ ...prev, [resultId]: "story" }));
     await sleep(1000);
     setGeneratedFlyers((prev) => ({
       ...prev,
@@ -804,7 +804,7 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
     });
   }
 
-  async function runCardPipeline(resultId: string, type: "script" | "carousel" | "flyer") {
+  async function runCardPipeline(resultId: string, type: "script" | "carousel" | "story") {
     if (cardPipelineRef.current.has(resultId)) return;
     cardPipelineRef.current.add(resultId);
     setCardPipelineRunning((prev) => ({ ...prev, [resultId]: true }));
@@ -1265,14 +1265,14 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                             size="sm"
                             variant="outline"
                             disabled={cardPipelineRunning[result.id]}
-                            onClick={() => void runCardPipeline(result.id, "flyer")}
+                            onClick={() => void runCardPipeline(result.id, "story")}
                           >
-                            {generatingConversion[result.id] === "flyer" ? (
+                            {generatingConversion[result.id] === "story" ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <Bookmark className="h-4 w-4" />
                             )}
-                            Flyer
+                            Story
                           </Button>
                           {/* Analyze button */}
                           <Button
@@ -1438,12 +1438,12 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
                           disabled={!!generatingConversion[activeResultId ?? ""]}
                           onClick={() => activeResultId && void generateFlyer(activeResultId)}
                         >
-                          {generatingConversion[activeResultId ?? ""] === "flyer" ? (
+                          {generatingConversion[activeResultId ?? ""] === "story" ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
                             <Bookmark className="h-4 w-4" />
                           )}
-                          Generate flyer
+                          Generate story
                         </Button>
                       )}
                     </div>

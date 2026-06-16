@@ -34,7 +34,7 @@ public sealed class ExportPackageToCanvaCommandHandlerTests
         var formatResults = new List<ContentGenerationFormatResult>
         {
             MakeFormatResult("carousel", carouselJson),
-            MakeFormatResult("flyer", flyerJson),
+            MakeFormatResult("story", flyerJson),
             MakeFormatResult("reel-script", null), // text → no composition → excluded
         };
 
@@ -99,7 +99,7 @@ public sealed class ExportPackageToCanvaCommandHandlerTests
     public async Task Handle_UserNotConnected_ReturnsNotConnected_AndDoesNotImport()
     {
         var flyerJson = CompositionSpecJson.Serialize([Env("<div data-slot=\"h\">Flyer</div>")]);
-        var formatResults = new List<ContentGenerationFormatResult> { MakeFormatResult("flyer", flyerJson) };
+        var formatResults = new List<ContentGenerationFormatResult> { MakeFormatResult("story", flyerJson) };
 
         var import = new RecordingImportClient(
             Result.Success(new CanvaImportResult("d", "https://x", DateTimeOffset.UtcNow)));
@@ -135,7 +135,7 @@ public sealed class ExportPackageToCanvaCommandHandlerTests
         OrganizationId: orgId,
         ClientId: Guid.NewGuid(),
         AnalysisId: Guid.NewGuid(),
-        RequestedFormats: ["flyer", "carousel"],
+        RequestedFormats: ["story", "carousel"],
         Status: "Completed",
         StatusReason: null,
         ErrorCode: null,

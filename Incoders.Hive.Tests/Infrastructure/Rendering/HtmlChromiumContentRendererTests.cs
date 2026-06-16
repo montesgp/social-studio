@@ -20,7 +20,7 @@ public sealed class HtmlChromiumContentRendererTests
 
     private static VisualCompositionSpec BuildHtmlSpec(string? designerMarkup = null, int w = 1080, int h = 1920) =>
         new VisualCompositionSpec(
-            FormatKey: "flyer",
+            FormatKey: "story",
             LayoutType: "story-flyer",
             Palette: new CompositionPalette("#111111", "#222222", "#3B82F6", "#FFFFFF", "#F9FAFB"),
             Typography: new CompositionTypography("Inter", 24, "Inter", 14),
@@ -34,7 +34,7 @@ public sealed class HtmlChromiumContentRendererTests
         };
 
     private static string BuildSampleHtml() =>
-        """<div class="composition" data-format="flyer" style="width:1080px;height:1920px;background:#111111;"><div class="layer-background" data-layer="background" style="background:#111111;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;font-size:48px;">Test Headline</h1></div></div>""";
+        """<div class="composition" data-format="story" style="width:1080px;height:1920px;background:#111111;"><div class="layer-background" data-layer="background" style="background:#111111;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;font-size:48px;">Test Headline</h1></div></div>""";
 
     // -----------------------------------------------------------------------
     // Task 7.6 RED: unit tests (no real Chromium required)
@@ -54,7 +54,7 @@ public sealed class HtmlChromiumContentRendererTests
             options: new RenderingOptions { Engine = RenderingEngine.Skia });
 
         var rasterSpec = new VisualCompositionSpec(
-            FormatKey: "flyer",
+            FormatKey: "story",
             LayoutType: "story-flyer",
             Palette: new CompositionPalette("#111", "#222", "#333", "#FFF", "#EEE"),
             Typography: new CompositionTypography("Inter", 24, "Inter", 14),

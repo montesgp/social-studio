@@ -13,10 +13,10 @@ public sealed class IGeneratedAssetStorageContractTests
     [Fact]
     public void StoredAssetKey_CanBeConstructed()
     {
-        var key = new StoredAssetKey(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "flyer.png");
+        var key = new StoredAssetKey(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "story.png");
 
         Assert.NotEqual(Guid.Empty, key.OrganizationId);
-        Assert.Equal("flyer.png", key.RelativePath);
+        Assert.Equal("story.png", key.RelativePath);
     }
 
     [Fact]
@@ -51,10 +51,10 @@ public sealed class IGeneratedAssetStorageContractTests
     [Fact]
     public void StoredAssetEntry_CanBeConstructed()
     {
-        var entry = new StoredAssetEntry("org/client/analysis/flyer.png", "flyer.png", 2048, "image/png", DateTimeOffset.UtcNow, false);
+        var entry = new StoredAssetEntry("org/client/analysis/flyer.png", "story.png", 2048, "image/png", DateTimeOffset.UtcNow, false);
 
         Assert.False(entry.IsFolder);
-        Assert.Equal("flyer.png", entry.Name);
+        Assert.Equal("story.png", entry.Name);
     }
 
     [Fact]

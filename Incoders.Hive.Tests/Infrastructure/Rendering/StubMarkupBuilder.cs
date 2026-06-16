@@ -16,7 +16,7 @@ public static class StubMarkupBuilder
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
     /// <summary>
-    /// Flyer envelope: 1080×1920, 96 dpi, two data-slot elements (headline + cta),
+    /// Story envelope: 1080×1920, 96 dpi, two data-slot elements (headline + cta),
     /// a data-layer="background" element, and a synthetic inline-PNG backgroundImageRef.
     /// </summary>
     public static CompositionSpecEnvelope BuildFlyerEnvelope() =>
@@ -56,7 +56,7 @@ public static class StubMarkupBuilder
     }
 
     private static string BuildMarkup(int width, int height) => $"""
-        <div class="composition" data-format="flyer" style="width:{width}px;height:{height}px;">
+        <div class="composition" data-format="story" style="width:{width}px;height:{height}px;">
           <div class="layer-background" data-layer="background" style="background:#000000;"></div>
           <div class="layer-content" data-layer="content">
             <h1 data-slot="headline" style="font-family:Inter;font-size:48px;color:#FFFFFF;text-align:left;">

@@ -57,7 +57,7 @@ public sealed record AssembleGeneratedPackageResponse(
 /// 2. Load all asset rows for the analysis/org from the repository.
 /// 3. For each selected client (filtered by <see cref="ClientSelection.FormatKeys"/> when provided),
 ///    materialize supported format deliverables under <c>{client-folder}/{format}/...</c>.
-///    Visual formats (<c>flyer</c>, <c>carousel</c>) are exported as editable PPTX from persisted
+///    Visual formats (<c>story</c>, <c>feed-post</c>, <c>carousel</c>) are exported as editable PPTX from persisted
 ///    composition specs; script is copied as Markdown from durable storage.
 /// 4. Write <c>manifest.json</c> at the ZIP root using the client-first manifest contract.
 /// 5. Return the seekable MemoryStream + Content-Disposition filename.
@@ -283,7 +283,7 @@ public sealed class AssembleGeneratedPackageQueryHandler
 
                 AssembledFormatManifest? formatManifest = packageFormatKey switch
                 {
-                    "flyer" => await TryWriteFlyerAsync(
+                    "story" or "feed-post" => await TryWriteStoryAsync(
                         archive,
                         folder,
                         formatGroup.ToList(),
@@ -350,7 +350,7 @@ public sealed class AssembleGeneratedPackageQueryHandler
             Warnings: globalWarnings);
     }
 
-    private async Task<AssembledFormatManifest?> TryWriteFlyerAsync(
+    private async Task<AssembledFormatManifest?> TryWriteStoryAsync(
         ZipArchive archive,
         string clientFolder,
         IReadOnlyList<ParsedFormatAsset> rows,
@@ -363,7 +363,7 @@ public sealed class AssembleGeneratedPackageQueryHandler
         var envelopes = CompositionSpecJson.ParseList(result?.CompositionSpecJson);
         if (_pptxAdapter is null || result is null || envelopes.Count == 0)
         {
-            warnings.Add("flyer skipped because no editable composition spec was available.");
+            warnings.Add("story skipped because no editable composition spec was available.");
             return null;
         }
 
@@ -373,21 +373,22 @@ public sealed class AssembleGeneratedPackageQueryHandler
 
         if (buildResult.IsFailure)
         {
-            warnings.Add($"flyer skipped because PPTX export failed: {buildResult.Error.Code}.");
+            warnings.Add($"story skipped because PPTX export failed: {buildResult.Error.Code}.");
             return null;
         }
 
+        var formatKey = result.FormatKey ?? "story";
         var file = await WriteBytesEntryAsync(
             archive,
             writtenEntries,
-            $"{clientFolder}/flyer/flyer.pptx",
+            $"{clientFolder}/{formatKey}/{formatKey}.pptx",
             buildResult.Value,
             PptxMime,
             ct);
 
         return file is null
             ? null
-            : BuildFormatManifest("flyer", file, ResolvePublicationMetadata("flyer", result.OutputJson));
+            : BuildFormatManifest(formatKey, file, ResolvePublicationMetadata(formatKey, result.OutputJson));
     }
 
     private async Task<AssembledFormatManifest?> TryWriteCarouselAsync(
@@ -562,9 +563,14 @@ public sealed class AssembleGeneratedPackageQueryHandler
 
     private static string? NormalizePackageFormatKey(string formatKey)
     {
-        if (string.Equals(formatKey, "flyer", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(formatKey, "story", StringComparison.OrdinalIgnoreCase))
         {
-            return "flyer";
+            return "story";
+        }
+
+        if (string.Equals(formatKey, "feed-post", StringComparison.OrdinalIgnoreCase))
+        {
+            return "feed-post";
         }
 
         if (string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase))
@@ -584,7 +590,8 @@ public sealed class AssembleGeneratedPackageQueryHandler
     private static PublicationMetadata? ResolvePublicationMetadata(string formatKey, string? outputJson)
     {
         if (!string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(formatKey, "flyer", StringComparison.OrdinalIgnoreCase))
+            && !string.Equals(formatKey, "story", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(formatKey, "feed-post", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }

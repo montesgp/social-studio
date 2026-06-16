@@ -49,7 +49,7 @@ public sealed class ContentGenerationJobProcessorBackgroundTests
         var renderer = new StubGeometryRendererWithBackground(FakeDataUri);
 
         var processor = BuildProcessor(
-            formatKey: "flyer",
+            formatKey: "story",
             payload: new object(),
             renderer: renderer,
             formatResults: formatResultRepo);
@@ -84,7 +84,7 @@ public sealed class ContentGenerationJobProcessorBackgroundTests
         var renderer = new StubGeometryRendererWithBackground(backgroundDataUri: null);
 
         var processor = BuildProcessor(
-            formatKey: "flyer",
+            formatKey: "story",
             payload: new object(),
             renderer: renderer,
             formatResults: formatResultRepo);
@@ -260,7 +260,7 @@ file sealed class HtmlOutputDesigner : IVisualDesigner
         BackgroundSelection backgroundSelection,
         CancellationToken cancellationToken)
     {
-        const string markup = """<div class="composition" data-format="flyer" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 data-slot="headline" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""";
+        const string markup = """<div class="composition" data-format="story" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 data-slot="headline" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""";
         return Task.FromResult(Result.Success(new VisualDesignOutput(
             Markup: markup,
             PromptVersionKey: "visual-designer/v1",

@@ -59,7 +59,7 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
     {
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "story.png"),
         };
 
         var handler = BuildHandler(rows, OrgId, AnalysisId);
@@ -72,12 +72,12 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
         Assert.Single(pkg.Clients);
         Assert.Equal(ClientId1, pkg.Clients[0].ClientId);
         Assert.Single(pkg.Clients[0].Formats);
-        Assert.Equal("flyer", pkg.Clients[0].Formats[0].FormatKey);
-        Assert.Equal("flyer.png", pkg.Clients[0].Formats[0].Filename);
+        Assert.Equal("story", pkg.Clients[0].Formats[0].FormatKey);
+        Assert.Equal("story.png", pkg.Clients[0].Formats[0].Filename);
         Assert.Equal("image/png", pkg.Clients[0].Formats[0].Mime);
         Assert.Single(pkg.Clients[0].Formats[0].Assets);
         Assert.Equal(0, pkg.Clients[0].Formats[0].Assets[0].Index);
-        Assert.Equal("flyer.png", pkg.Clients[0].Formats[0].Assets[0].Filename);
+        Assert.Equal("story.png", pkg.Clients[0].Formats[0].Assets[0].Filename);
         Assert.Equal($"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png",
             pkg.Clients[0].Formats[0].Assets[0].StoragePath);
     }
@@ -89,7 +89,7 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
     {
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "story.png"),
             MakeRow(ResultId2, 0, $"{OrgId}/{ClientId2}/{AnalysisId}/reel-script.txt", "reel-script.txt", "text/plain"),
         };
 
@@ -105,7 +105,7 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
         var client2 = result.Value.Clients.Single(c => c.ClientId == ClientId2);
 
         Assert.Single(client1.Formats);
-        Assert.Equal("flyer", client1.Formats[0].FormatKey);
+        Assert.Equal("story", client1.Formats[0].FormatKey);
 
         Assert.Single(client2.Formats);
         Assert.Equal("reel-script", client2.Formats[0].FormatKey);
@@ -185,7 +185,7 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
     {
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "story.png"),
         };
 
         // Handler built for OrgId, but query uses OtherOrgId
@@ -222,7 +222,7 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
     {
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "flyer.png"),
+            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "story.png"),
             MakeRow(ResultId2, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/reel-script.txt", "reel-script.txt", "text/plain"),
             MakeRow(ResultId3, 1, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png", "slide_1.png"),
             MakeRow(ResultId3, 2, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png", "slide_2.png"),

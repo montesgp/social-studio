@@ -20,8 +20,8 @@ public sealed class ContentItemTests
     public void Materialize_StartsInDraft_WithInitialTrace_AndOwnVariantGroup()
     {
         var id = ContentItemId.New();
-        var origin = new ContentOrigin(GeneratorKind.SingleAnalyzer, Guid.NewGuid(), null, Guid.NewGuid(), "flyer");
-        var kind = new ContentKind("flyer", ContentMedium.Visual);
+        var origin = new ContentOrigin(GeneratorKind.SingleAnalyzer, Guid.NewGuid(), null, Guid.NewGuid(), "story");
+        var kind = new ContentKind("story", ContentMedium.Visual);
         var draft = ContentDraft.ForText(null, new TargetChannel("instagram", "feed"));
 
         var result = ContentItem.Materialize(id, Org, Client, origin, kind, draft, Now);

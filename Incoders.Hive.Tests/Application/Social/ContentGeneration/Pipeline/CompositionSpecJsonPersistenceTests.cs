@@ -50,7 +50,7 @@ public sealed class CompositionSpecJsonPersistenceTests
         const string expectedMarkup = "<html data-slot='headline'>Test</html>";
         var formatResults = new SpyFormatResultRepository();
         var processor = BuildProcessor(
-            formatKey: "flyer",
+            formatKey: "story",
             markup: expectedMarkup,
             formatResults: formatResults);
 
@@ -75,7 +75,7 @@ public sealed class CompositionSpecJsonPersistenceTests
         // GIVEN
         const string expectedMarkup = "<div data-slot='headline'>Hello</div>";
         var formatResults = new SpyFormatResultRepository();
-        var processor = BuildProcessor("flyer", expectedMarkup, formatResults);
+        var processor = BuildProcessor("story", expectedMarkup, formatResults);
 
         // WHEN
         await processor.ProcessAsync(JobId, CancellationToken.None);
@@ -100,7 +100,7 @@ public sealed class CompositionSpecJsonPersistenceTests
         const string markup = "<div data-slot='headline'>Canvas test</div>";
         var formatResults = new SpyFormatResultRepository();
         var processor = BuildProcessor(
-            "flyer", markup, formatResults,
+            "story", markup, formatResults,
             specWidth: 1080, specHeight: 1920, specDpi: 96);
 
         // WHEN
@@ -137,7 +137,7 @@ public sealed class CompositionSpecJsonPersistenceTests
         };
         var formatResults = new SpyFormatResultRepository();
         var processor = BuildProcessorWithGeometryRenderer(
-            "flyer", markup, geometry, formatResults);
+            "story", markup, geometry, formatResults);
 
         // WHEN
         await processor.ProcessAsync(JobId, CancellationToken.None);
@@ -169,7 +169,7 @@ public sealed class CompositionSpecJsonPersistenceTests
         // GIVEN a legacy renderer (IContentRenderer only, no geometry)
         const string markup = "<div data-slot='headline'>No geom</div>";
         var formatResults = new SpyFormatResultRepository();
-        var processor = BuildProcessor("flyer", markup, formatResults);
+        var processor = BuildProcessor("story", markup, formatResults);
 
         // WHEN
         await processor.ProcessAsync(JobId, CancellationToken.None);
@@ -199,7 +199,7 @@ public sealed class CompositionSpecJsonPersistenceTests
         // GIVEN guardrails always fail (the AI markup is rejected)
         var formatResults = new SpyFormatResultRepository();
         var processor = BuildProcessorWithFailingGuardrails(
-            "flyer", "<div>Should fail</div>", formatResults);
+            "story", "<div>Should fail</div>", formatResults);
 
         // WHEN
         await processor.ProcessAsync(JobId, CancellationToken.None);

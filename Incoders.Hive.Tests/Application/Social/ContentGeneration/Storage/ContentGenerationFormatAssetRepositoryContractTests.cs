@@ -19,7 +19,7 @@ public sealed class ContentGenerationFormatAssetRepositoryContractTests
             FormatResultId: Guid.NewGuid(),
             AssetIndex: 0,
             StoragePath: "org/client/analysis/flyer.png",
-            Filename: "flyer.png",
+            Filename: "story.png",
             MimeType: "image/png",
             SizeBytes: 2048,
             ContentHash: "abc123",
@@ -27,7 +27,7 @@ public sealed class ContentGenerationFormatAssetRepositoryContractTests
             UpdatedAt: now);
 
         Assert.Equal(0, row.AssetIndex);
-        Assert.Equal("flyer.png", row.Filename);
+        Assert.Equal("story.png", row.Filename);
         Assert.Equal("image/png", row.MimeType);
         Assert.Equal(2048, row.SizeBytes);
     }

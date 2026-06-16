@@ -23,7 +23,7 @@ public sealed class ContentGenerationJobStatusQueryTests
         var formatResults = new List<ContentGenerationFormatResult>
         {
             MakeFormatResult(jobId, "carousel", "Generated"),
-            MakeFormatResult(jobId, "flyer", "Pending"),
+            MakeFormatResult(jobId, "story", "Pending"),
         };
 
         var jobRepo = new FakeJobRepository(job);
@@ -38,7 +38,7 @@ public sealed class ContentGenerationJobStatusQueryTests
         Assert.Equal("Running", result.Value.Status);
         Assert.Equal(2, result.Value.PerFormatStatus.Count);
         Assert.Equal("Generated", result.Value.PerFormatStatus["carousel"]);
-        Assert.Equal("Pending", result.Value.PerFormatStatus["flyer"]);
+        Assert.Equal("Pending", result.Value.PerFormatStatus["story"]);
         Assert.Null(result.Value.ManifestJson); // not completed
     }
 
@@ -70,11 +70,11 @@ public sealed class ContentGenerationJobStatusQueryTests
         var jobRepo = new FakeJobRepository(job);
         var formatResultRepo = new FakeFormatResultRepository(
         [
-            MakeFormatResult(jobId, "flyer", "RenderFailed"),
+            MakeFormatResult(jobId, "story", "RenderFailed"),
         ]);
         var failurePolicy = new FakeFailurePolicy(new Dictionary<string, int>
         {
-            ["flyer"] = 2,
+            ["story"] = 2,
             ["carousel"] = 1,
         });
         var handler = new ContentGenerationJobStatusQueryHandler(jobRepo, formatResultRepo, failurePolicy);
@@ -83,7 +83,7 @@ public sealed class ContentGenerationJobStatusQueryTests
         var result = await handler.Handle(query, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(2, result.Value.PerFormatFailureCounts!["flyer"]);
+        Assert.Equal(2, result.Value.PerFormatFailureCounts!["story"]);
         Assert.Equal(1, result.Value.PerFormatFailureCounts!["carousel"]);
     }
 
@@ -135,7 +135,7 @@ public sealed class ContentGenerationJobStatusQueryTests
             OrganizationId: orgId,
             ClientId: clientId,
             AnalysisId: Guid.NewGuid(),
-            RequestedFormats: ["carousel", "flyer"],
+            RequestedFormats: ["carousel", "story"],
             Status: status,
             StatusReason: null,
             ErrorCode: null,

@@ -62,7 +62,7 @@ public sealed class IVisualDesignerContractTests
         IVisualDesigner designer = new StubVisualDesigner();
 
         var spec = new VisualCompositionSpec(
-            FormatKey: "flyer",
+            FormatKey: "story",
             LayoutType: "story-flyer",
             Palette: new CompositionPalette("#FFFFFF", "#000000", "#0055FF", "#333333", "#F9FAFB"),
             Typography: new CompositionTypography("Inter", 32, "Roboto", 16),
@@ -126,7 +126,7 @@ file sealed class StubVisualDesigner : IVisualDesigner
         var extra = extraStyle ?? string.Empty;
         var headline = headlineText ?? "Hello World";
         return $"""
-            <div class="composition" data-format="flyer" style="width:1080px;height:1920px;{extra}">
+            <div class="composition" data-format="story" style="width:1080px;height:1920px;{extra}">
               <div class="layer-background" data-layer="background" style="background:#000000;"></div>
               <div class="layer-content" data-layer="content">
                 <h1 class="slot" data-slot="headline" data-max-lines="3" style="{ffStyle}color:#FFFFFF;">{headline}</h1>

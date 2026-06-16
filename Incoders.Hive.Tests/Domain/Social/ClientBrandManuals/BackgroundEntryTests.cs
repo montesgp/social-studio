@@ -36,10 +36,10 @@ public sealed class BackgroundEntryTests
     [Fact]
     public void BackgroundEntry_FullRoundTrip_ForcedDefaultFields()
     {
-        // GIVEN a BackgroundEntry with Tier=ForcedDefault, FormatKey="flyer", IsFormatDefault=true
+        // GIVEN a BackgroundEntry with Tier=ForcedDefault, FormatKey="story", IsFormatDefault=true
         var original = BackgroundEntry.Create(
             "bg", "https://cdn.example.com/bg.png", null,
-            BackgroundTier.ForcedDefault, "flyer", true).Value;
+            BackgroundTier.ForcedDefault, "story", true).Value;
 
         var opts = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var json = JsonSerializer.Serialize(original, opts);
@@ -48,7 +48,7 @@ public sealed class BackgroundEntryTests
         // THEN all three new fields round-trip correctly
         Assert.NotNull(restored);
         Assert.Equal(BackgroundTier.ForcedDefault, restored!.Tier);
-        Assert.Equal("flyer", restored.FormatKey);
+        Assert.Equal("story", restored.FormatKey);
         Assert.True(restored.IsFormatDefault);
     }
 

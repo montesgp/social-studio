@@ -502,7 +502,8 @@ type LocalFormatEntry = {
 const SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS: ContentFormatKey[] = [
   "reel-script",
   "carousel",
-  "flyer",
+  "story",
+  "feed-post",
 ];
 
 const LOCAL_NO_CLIENT_KEY = "__no_client__";
@@ -528,7 +529,8 @@ function packageManifestKeyToContentFormatKey(key: string): ContentFormatKey | n
 /** Default filenames shown in the Package tab tree when the backend manifest is absent. */
 const FORMAT_FILE_NAMES: Record<ContentFormatKey, string> = {
   "reel-script": "script.md",
-  flyer: "flyer.pptx",
+  story: "story.pptx",
+  "feed-post": "feed-post.pptx",
   carousel: "carousel/",
   "content-idea": "content-idea.txt",
   "cta-variation": "cta-variation.txt",
@@ -564,7 +566,8 @@ function resolvePackageFormatFiles(
   formatKey: ContentFormatKey,
   assets: { filename: string; index: number }[]
 ): string[] {
-  if (formatKey === "flyer") return ["flyer.pptx"];
+  if (formatKey === "story") return ["story.pptx"];
+  if (formatKey === "feed-post") return ["feed-post.pptx"];
   if (formatKey === "reel-script") return ["script.md"];
   if (formatKey === "carousel") {
     const orderedAssets = [...assets].sort((a, b) => a.index - b.index);
@@ -688,7 +691,7 @@ interface SingleAnalyzerClientProps {
 
 const SINGLE_ANALYZER_BLOCKING_LOADER_ID = "single-analyzer.initial-resources";
 
-type MutationMode = "script" | "carousel" | "flyer";
+type MutationMode = "script" | "carousel" | "story" | "feed-post";
 
 type PendingRegenerationRequest =
   | {
@@ -1124,7 +1127,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }, [packageJobId, isExportingToCanva, effectiveToken, videoResult?.id, selectedOrganizationId]);
 
   /**
-   * Sends the whole VISUAL package of the current job (flyer + carousel slides) to Canva as ONE
+   * Sends the whole VISUAL package of the current job (story + carousel slides) to Canva as ONE
    * editable multi-page design, titled after the client. Mirrors exportFormatToCanvaFile's
    * connect-on-demand behavior. B3 — package-level Send to Canva.
    */
@@ -1680,7 +1683,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   function formatForMutationMode(mode: MutationMode = mutationMode): ContentFormatKey {
     if (mode === "script") return "reel-script";
     if (mode === "carousel") return "carousel";
-    return "flyer";
+    if (mode === "feed-post") return "feed-post";
+    return "story";
   }
 
   function hasLocalGeneratedFormat(formatKey: ContentFormatKey): boolean {
@@ -1705,7 +1709,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setPackageJobError(null);
     // Set the requested-format count BEFORE the await so the progress overlay can never show a
     // stale denominator (e.g. "(1/3)") for a single-format job — it must read 1 from the moment
-    // the overlay can appear. A flyer is one format = one file; >1 only applies to a carousel.
+    // the overlay can appear. A story is one format = one file; >1 only applies to a carousel.
     setPackageRequestedFormats([formatKey]);
     try {
       const response = await requestPackage(
@@ -1795,7 +1799,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   );
   // "Regenerate all formats" is offered ONLY when the user actually ran an all-formats generation
   // (a single all-formats job that has finished — completed or partial). Generating formats one by
-  // one — e.g. just a flyer — must NOT enable all-formats regeneration, even if every format happens
+  // one — e.g. just a story — must NOT enable all-formats regeneration, even if every format happens
   // to exist from separate single-format runs.
   const shouldRegenerateAllFormats =
     packageGenerationIsAllFormatJob &&
@@ -2800,7 +2804,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-medium text-foreground">Convert to all formats</p>
                             <p className="text-xs text-muted-foreground/70">
-                              Generate the active formats on this screen: script, carousel, and flyer.
+                              Generate the active formats on this screen: script, carousel, story, and feed post.
                               Download the <code className="text-[10px]">package.zip</code> when ready.
                             </p>
                           </div>
@@ -2957,8 +2961,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
                     <div className="order-1 space-y-3">
                       {/* Format mode selector */}
-                      <div className="flex gap-1.5">
-                        {(["script", "carousel", "flyer"] as const).map((mode) => (
+                      <div className="flex flex-wrap gap-1.5">
+                        {(["script", "carousel", "story", "feed-post"] as const).map((mode) => (
                           <button
                             key={mode}
                             type="button"
@@ -2972,8 +2976,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                           >
                             {mode === "script" && <Film className="h-3 w-3" />}
                             {mode === "carousel" && <ImageIcon className="h-3 w-3" />}
-                            {mode === "flyer" && <Megaphone className="h-3 w-3" />}
-                            {mode}
+                            {mode === "story" && <Megaphone className="h-3 w-3" />}
+                            {mode === "feed-post" && <FileImage className="h-3 w-3" />}
+                            {mode === "feed-post" ? "Feed Post" : mode}
                           </button>
                         ))}
                       </div>
@@ -3053,7 +3058,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                                 )}
                               {packageJob.manifest?.has_stored_assets &&
                                 packageSucceededFormats.includes(selectedFormatKey) &&
-                                (mutationMode === "carousel" || mutationMode === "flyer") &&
+                                (mutationMode === "carousel" || mutationMode === "story" || mutationMode === "feed-post") &&
                                 packageJobId && (
                                   <Button
                                     size="sm"
@@ -3084,7 +3089,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                               {/* B3 WU-7 — Export to Canva (visual formats only) */}
                               {packageJob.manifest?.has_stored_assets &&
                                 packageSucceededFormats.includes(selectedFormatKey) &&
-                                (mutationMode === "carousel" || mutationMode === "flyer") &&
+                                (mutationMode === "carousel" || mutationMode === "story" || mutationMode === "feed-post") &&
                                 packageJobId && (
                                   <Button
                                     size="sm"
@@ -3647,7 +3652,7 @@ function PackageTabContent({
       </Button>
 
       {/* Send to Canva — only when the org has Canva configured. Sends the visual package
-          (flyer + carousel slides) as ONE editable multi-page Canva design. */}
+          (story + carousel slides) as ONE editable multi-page Canva design. */}
       {showSendToCanva && (
         <Button
           size="sm"
@@ -3668,7 +3673,7 @@ function PackageTabContent({
               ? "Package is not ready yet."
               : !canSendToCanva
               ? "A current generation job is required before sending this package to Canva."
-              : "Send the visual package (flyer + carousel) to Canva as one editable design."
+              : "Send the visual package (story + carousel) to Canva as one editable design."
           }
         >
           {isSendingToCanva ? (

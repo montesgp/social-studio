@@ -21,7 +21,8 @@ public sealed class VisualCompositionService : IVisualCompositionService
         var composers = new IFormatVisualComposer[]
         {
             new CarouselVisualComposer(),
-            new FlyerVisualComposer(),
+            new StoryVisualComposer(),
+            new FeedPostVisualComposer(),
             new HookVisualComposer(),
             new CaptionVisualComposer(),
             new CtaVariationVisualComposer(),

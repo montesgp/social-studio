@@ -26,7 +26,7 @@ public sealed class VisualGuardrailValidatorTests
 
     private static VisualCompositionSpec BuildSpec(int width = 1080, int height = 1920) =>
         new(
-            FormatKey: "flyer",
+            FormatKey: "story",
             LayoutType: "story-flyer",
             Palette: new CompositionPalette("#FFFFFF", "#000000", "#0055FF", "#333333", "#F9FAFB"),
             Typography: new CompositionTypography("Inter", 32, "Roboto", 16),
@@ -50,7 +50,7 @@ public sealed class VisualGuardrailValidatorTests
         var extra = extraStyle ?? string.Empty;
         var headline = headlineText ?? "Hello World";
         return
-            $"""<div class="composition" data-format="flyer" style="width:1080px;height:1920px;{extra}"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="{ffStyle}color:#FFFFFF;">{headline}</h1></div></div>""";
+            $"""<div class="composition" data-format="story" style="width:1080px;height:1920px;{extra}"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="{ffStyle}color:#FFFFFF;">{headline}</h1></div></div>""";
     }
 
     // -----------------------------------------------------------------------
@@ -149,7 +149,7 @@ public sealed class VisualGuardrailValidatorTests
         var longText = new string('A', 300);
         // Build markup with data-max-lines=1 to force overflow
         var markup =
-            $"""<div class="composition" data-format="flyer" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="1" style="font-family:Inter;color:#FFFFFF;">{longText}</h1></div></div>""";
+            $"""<div class="composition" data-format="story" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="1" style="font-family:Inter;color:#FFFFFF;">{longText}</h1></div></div>""";
         var output = ValidOutput(markup);
         var brand = BuildBrand();
         var spec = BuildSpec();
@@ -322,7 +322,7 @@ public sealed class VisualGuardrailValidatorTests
             </style>
             </head>
             <body>
-            <div class="composition" data-format="flyer" style="width:1080px;height:1920px;">
+            <div class="composition" data-format="story" style="width:1080px;height:1920px;">
               <div data-layer="background" style="background:#000000;"></div>
               <div data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Hola</h1></div>
             </div>

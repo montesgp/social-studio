@@ -86,7 +86,7 @@ public sealed class VisualCompositionSpecTests
     public void Equality_TwoSpecsWithDifferentFormatKey_FormatKeysDiffer()
     {
         var spec1 = BuildValid("carousel");
-        var spec2 = BuildValid("flyer");
+        var spec2 = BuildValid("story");
 
         Assert.NotEqual(spec1.FormatKey, spec2.FormatKey);
     }

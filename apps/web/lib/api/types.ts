@@ -838,7 +838,8 @@ export interface UpsertContentPlanPayload {
 
 export type ContentFormatKey =
   | "carousel"
-  | "flyer"
+  | "story"
+  | "feed-post"
   | "reel-script"
   | "content-idea"
   | "cta-variation"

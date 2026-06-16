@@ -23,7 +23,7 @@ public sealed class ContentGenerationJobEntityMappingTests
             OrganizationId = Guid.NewGuid(),
             ClientId = Guid.NewGuid(),
             AnalysisId = analysisId,
-            RequestedFormats = new List<string> { "carousel", "flyer" },
+            RequestedFormats = new List<string> { "carousel", "story" },
             Status = "Queued",
             StatusReason = null,
             StartedAt = null,

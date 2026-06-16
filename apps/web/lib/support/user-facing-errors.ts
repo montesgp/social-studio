@@ -105,7 +105,7 @@ const ERROR_COPY: Record<string, UserFacingError> = {
       "This analysis can't run because no AI provider is configured for your organization's workflow yet. An admin needs to set up the AI routing in Settings → Integrations. If you're not sure how, contact support and we'll help you get it configured.",
     isConfigIssue: true,
   },
-  // ── Content generation (flyer/carousel) failures ────────────────────────────
+  // ── Content generation (story/carousel) failures ────────────────────────────
   // These are usually NOT fixed by retrying as-is (a blind retry just re-spends AI
   // credits), so the copy points the user to support instead of nudging "try again".
   "social.content_generation.failed": {
@@ -135,7 +135,7 @@ const ERROR_COPY: Record<string, UserFacingError> = {
 };
 
 // Specific failure codes the backend embeds inside a job's aggregate status_reason
-// (e.g. "render_failed[flyer: guardrail-failed:visual-guardrail.off-palette: …]").
+// (e.g. "render_failed[story: guardrail-failed:visual-guardrail.off-palette: …]").
 // Order matters: first match wins.
 const GENERATION_FAILURE_CODES: readonly string[] = [
   "visual-guardrail.off-palette",

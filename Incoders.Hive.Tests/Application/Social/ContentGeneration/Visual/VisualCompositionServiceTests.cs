@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Flyer;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
@@ -53,15 +53,15 @@ public sealed class VisualCompositionServiceTests
     }
 
     // -------------------------------------------------------------------
-    // Flyer + brand → flyer-specific layout
+    // Story + brand → story-specific layout
     // -------------------------------------------------------------------
 
     [Fact]
-    public async Task ComposeAsync_Flyer_FullBrand_ProducesFlyerLayout()
+    public async Task ComposeAsync_Story_FullBrand_ProducesStoryLayout()
     {
         var service = CreateService();
         var brand = BuildFullBrand();
-        var payload = new FlyerContent(
+        var payload = new StoryContent(
             "Grand Opening",
             "This week only",
             "A flyer based on the selected idea.",
@@ -71,9 +71,9 @@ public sealed class VisualCompositionServiceTests
             "@client",
             null);
 
-        var spec = await service.ComposeAsync("flyer", payload, brand, CancellationToken.None);
+        var spec = await service.ComposeAsync("story", payload, brand, CancellationToken.None);
 
-        Assert.Equal("flyer", spec.FormatKey);
+        Assert.Equal("story", spec.FormatKey);
         Assert.Equal(1080, spec.Dimensions.Width);
         Assert.Equal(1920, spec.Dimensions.Height);
         // Product rule: if the client has a background image in the manual, use it as the

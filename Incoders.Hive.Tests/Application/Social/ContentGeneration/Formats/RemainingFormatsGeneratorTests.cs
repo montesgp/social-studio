@@ -3,7 +3,7 @@ using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Caption;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.ContentIdea;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.CtaVariation;
-using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Flyer;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Hook;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.ReelScript;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
@@ -14,7 +14,7 @@ using Incoders.Hive.Domain.Social.SingleAnalyzer;
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Formats;
 
 /// <summary>
-/// TDD tests for Flyer, ReelScript, ContentIdea, CtaVariation, Caption, Hook generators.
+/// TDD tests for Story, ReelScript, ContentIdea, CtaVariation, Caption, Hook generators.
 /// RED phase: references types that don't exist yet.
 /// Each format has:
 ///   - Success returns correct status + prompt version + format key
@@ -29,13 +29,13 @@ public sealed class RemainingFormatsGeneratorTests
     private static readonly Guid CorrelationId = Guid.NewGuid();
 
     // ================================================================
-    // FLYER
+    // STORY
     // ================================================================
 
     [Fact]
-    public async Task FlyerGenerator_Success_ReturnsSucceededWithFlyerContent()
+    public async Task StoryGenerator_Success_ReturnsSucceededWithStoryContent()
     {
-        var flyer = new FlyerContent(
+        var story = new StoryContent(
             "Big Title",
             "Subtitle",
             "Body text",
@@ -44,33 +44,33 @@ public sealed class RemainingFormatsGeneratorTests
             "Branded product background",
             "@client",
             "grid");
-        var gateway = new SucceedingGateway<FlyerContent>(flyer);
+        var gateway = new SucceedingGateway<StoryContent>(story);
         var ctx = BuildContext();
-        var providerCtx = BeginContext("format:flyer");
-        var generator = new FlyerGenerator(gateway, providerCtx);
+        var providerCtx = BeginContext("format:story");
+        var generator = new StoryGenerator(gateway, providerCtx);
 
         var result = await generator.GenerateAsync(ctx, CancellationToken.None);
 
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
-        Assert.Equal(flyer.Title, result.Payload!.Title);
-        Assert.Equal("flyer.v2", result.PromptVersion);
+        Assert.Equal(story.Title, result.Payload!.Title);
+        Assert.Equal("story.v1", result.PromptVersion);
         Assert.NotNull(gateway.LastRequest);
         Assert.Contains("publicationDescription", gateway.LastRequest!.InputJson);
     }
 
     [Fact]
-    public void FlyerGenerator_FormatKeyAndPromptVersion_AreCorrect()
+    public void StoryGenerator_FormatKeyAndPromptVersion_AreCorrect()
     {
-        var gen = new FlyerGenerator(new SucceedingGateway<FlyerContent>(BuildFlyer()), BeginContext("format:flyer"));
-        Assert.Equal("flyer", gen.FormatKey);
-        Assert.Equal(ContentGenerationPromptVersions.Flyer, gen.PromptVersion);
+        var gen = new StoryGenerator(new SucceedingGateway<StoryContent>(BuildStory()), BeginContext("format:story"));
+        Assert.Equal("story", gen.FormatKey);
+        Assert.Equal(ContentGenerationPromptVersions.Story, gen.PromptVersion);
     }
 
     [Fact]
-    public async Task FlyerGenerator_AiFailure_ReturnsFailedResult()
+    public async Task StoryGenerator_AiFailure_ReturnsFailedResult()
     {
-        var gateway = new FailingGateway<FlyerContent>(Error.Failure("ai.fail", "fail"));
-        var gen = new FlyerGenerator(gateway, BeginContext("format:flyer"));
+        var gateway = new FailingGateway<StoryContent>(Error.Failure("ai.fail", "fail"));
+        var gen = new StoryGenerator(gateway, BeginContext("format:story"));
         var result = await gen.GenerateAsync(BuildContext(), CancellationToken.None);
         Assert.Equal(FormatGenerationStatus.Failed, result.Status);
     }
@@ -270,7 +270,7 @@ public sealed class RemainingFormatsGeneratorTests
     // Helpers
     // ================================================================
 
-    private static FlyerContent BuildFlyer() =>
+    private static StoryContent BuildStory() =>
         new("Title", "Sub", "Body", [], "CTA", "Branded background", "@client", null);
 
     private static ReelScriptContent BuildReelScript() =>

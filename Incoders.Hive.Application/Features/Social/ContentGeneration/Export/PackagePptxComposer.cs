@@ -12,7 +12,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Export;
 /// </summary>
 internal static class PackagePptxComposer
 {
-    private static readonly string[] VisualFormatOrder = ["flyer", "carousel"];
+    private static readonly string[] VisualFormatOrder = ["story", "feed-post", "carousel"];
 
     public static async Task<Result<byte[]>> BuildAsync(
         IReadOnlyList<ContentGenerationFormatResult> formatResults,

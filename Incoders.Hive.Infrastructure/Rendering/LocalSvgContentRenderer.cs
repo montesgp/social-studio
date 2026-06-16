@@ -13,7 +13,7 @@ namespace Incoders.Hive.Infrastructure.Rendering;
 /// using SkiaSharp primitives directly — no external SVG library required.
 /// <para>
 /// Text-only formats (hook, caption, cta-variation, content-idea, reel-script) produce a
-/// styled "text card" PNG. Visual formats (carousel, flyer) produce a branded background with
+/// styled "text card" PNG. Visual formats (carousel, story, feed-post) produce a branded background with
 /// copy slots painted as text.
 /// </para>
 /// <para>
@@ -78,7 +78,9 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
 
     private byte[] RenderToPng(VisualCompositionSpec spec)
     {
-        if (string.Equals(spec.FormatKey, "flyer", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(spec.FormatKey, "story", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(spec.FormatKey, "feed-post", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(spec.FormatKey, "flyer", StringComparison.OrdinalIgnoreCase))
         {
             return RenderFlyerToPng(spec);
         }

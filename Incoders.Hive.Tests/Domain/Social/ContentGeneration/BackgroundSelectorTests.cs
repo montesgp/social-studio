@@ -17,16 +17,16 @@ public sealed class BackgroundSelectorTests
     [Fact]
     public void Tier1_ForcedDefault_ReturnedWithoutGeneration()
     {
-        // GIVEN snapshot has Tier=ForcedDefault, FormatKey="flyer", IsFormatDefault=true
+        // GIVEN snapshot has Tier=ForcedDefault, FormatKey="story", IsFormatDefault=true
         var templates = new[]
         {
             new BrandBackgroundTemplateSnapshot(
                 "flyer-bg", "https://cdn.example.com/flyer-bg.png", null,
-                BackgroundTier.ForcedDefault, "flyer", true)
+                BackgroundTier.ForcedDefault, "story", true)
         };
 
-        // WHEN SelectBackgroundTemplate("flyer") called
-        var result = BackgroundSelector.Select(templates, "flyer");
+        // WHEN SelectBackgroundTemplate("story") called
+        var result = BackgroundSelector.Select(templates, "story");
 
         // THEN result is BackgroundSelection.ForcedDefault carrying that Url
         var forced = Assert.IsType<BackgroundSelection.ForcedDefault>(result);
@@ -50,8 +50,8 @@ public sealed class BackgroundSelectorTests
                 BackgroundTier.Reference, null, false),
         };
 
-        // WHEN SelectBackgroundTemplate("flyer") called
-        var result = BackgroundSelector.Select(templates, "flyer");
+        // WHEN SelectBackgroundTemplate("story") called
+        var result = BackgroundSelector.Select(templates, "story");
 
         // THEN result is BackgroundSelection.References carrying both entries
         var refs = Assert.IsType<BackgroundSelection.References>(result);
@@ -73,8 +73,8 @@ public sealed class BackgroundSelectorTests
                 BackgroundTier.Creative, null, false),
         };
 
-        // WHEN SelectBackgroundTemplate("flyer") called
-        var result = BackgroundSelector.Select(templates, "flyer");
+        // WHEN SelectBackgroundTemplate("story") called
+        var result = BackgroundSelector.Select(templates, "story");
 
         // THEN result is BackgroundSelection.References so the pipeline can enforce it as a manual template.
         var refs = Assert.IsType<BackgroundSelection.References>(result);
@@ -85,7 +85,7 @@ public sealed class BackgroundSelectorTests
     [Fact]
     public void Tier3_Creative_WhenNoManualTemplatesExist()
     {
-        var result = BackgroundSelector.Select([], "flyer");
+        var result = BackgroundSelector.Select([], "story");
 
         Assert.IsType<BackgroundSelection.Creative>(result);
     }
@@ -104,8 +104,8 @@ public sealed class BackgroundSelectorTests
                 BackgroundTier.ForcedDefault, "carousel", true),
         };
 
-        // WHEN SelectBackgroundTemplate("flyer") called
-        var result = BackgroundSelector.Select(templates, "flyer");
+        // WHEN SelectBackgroundTemplate("story") called
+        var result = BackgroundSelector.Select(templates, "story");
 
         // THEN result is NOT ForcedDefault; carousel default is not used for flyer
         Assert.IsNotType<BackgroundSelection.ForcedDefault>(result);

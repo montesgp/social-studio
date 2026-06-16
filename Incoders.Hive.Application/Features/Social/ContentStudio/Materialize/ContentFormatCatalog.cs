@@ -10,7 +10,7 @@ public static class ContentFormatCatalog
 {
     public static ContentMedium MediumFor(string formatKey) => Normalize(formatKey) switch
     {
-        "flyer" or "carousel" or "slide" or "slides" or "story" or "thumbnail" or "post" => ContentMedium.Visual,
+        "flyer" or "carousel" or "slide" or "slides" or "story" or "feed-post" or "thumbnail" or "post" => ContentMedium.Visual,
         "reel" or "short" or "video" => ContentMedium.Video,
         "presentation" or "pptx" or "deck" => ContentMedium.Document,
         _ => ContentMedium.Text, // caption, hook, idea(s), cta, reel-script, markdown-script, script...
@@ -22,6 +22,7 @@ public static class ContentFormatCatalog
         "story" => new TargetChannel("instagram", "story"),
         "carousel" => new TargetChannel("instagram", "carousel"),
         "short" => new TargetChannel("youtube", "short"),
+        "feed-post" => new TargetChannel("instagram", "feed"),
         "tiktok" => new TargetChannel("tiktok", "feed"),
         _ => new TargetChannel("instagram", "feed"),
     };

@@ -32,23 +32,23 @@ public sealed class ContentPackageOrchestratorTests
         var generators = new IFormatContentGenerator[]
         {
             new FakeGenerator("carousel", FormatGenerationStatus.Succeeded),
-            new FakeGenerator("flyer", FormatGenerationStatus.Succeeded),
+            new FakeGenerator("story", FormatGenerationStatus.Succeeded),
         };
         var brandLoader = new SucceedingBrandLoader();
         var orchestrator = new ContentPackageOrchestrator(generators, brandLoader, new ProviderCallContext(), new SucceedingWorkflowResolver());
 
         var request = new OrchestratorRequest(
             OrgId, ClientId, AnalysisId, BuildAnalysis(),
-            ["carousel", "flyer"], CorrelationId);
+            ["carousel", "story"], CorrelationId);
 
         var result = await orchestrator.RunAsync(request, CancellationToken.None);
 
         Assert.Equal(OrchestratorStatus.Succeeded, result.OverallStatus);
         Assert.Equal(2, result.PerFormatResults.Count);
         Assert.True(result.PerFormatResults.ContainsKey("carousel"));
-        Assert.True(result.PerFormatResults.ContainsKey("flyer"));
+        Assert.True(result.PerFormatResults.ContainsKey("story"));
         Assert.Equal(FormatGenerationStatus.Succeeded, result.PerFormatResults["carousel"].Status);
-        Assert.Equal(FormatGenerationStatus.Succeeded, result.PerFormatResults["flyer"].Status);
+        Assert.Equal(FormatGenerationStatus.Succeeded, result.PerFormatResults["story"].Status);
     }
 
     // -------------------------------------------------------------------
@@ -61,7 +61,7 @@ public sealed class ContentPackageOrchestratorTests
         var generators = new IFormatContentGenerator[]
         {
             new FakeGenerator("carousel", FormatGenerationStatus.Succeeded),
-            new FakeGenerator("flyer", FormatGenerationStatus.Succeeded),
+            new FakeGenerator("story", FormatGenerationStatus.Succeeded),
             new FakeGenerator("hook", FormatGenerationStatus.Succeeded),
         };
         var brandLoader = new SucceedingBrandLoader();
@@ -76,7 +76,7 @@ public sealed class ContentPackageOrchestratorTests
         Assert.Equal(OrchestratorStatus.Succeeded, result.OverallStatus);
         Assert.Single(result.PerFormatResults);
         Assert.True(result.PerFormatResults.ContainsKey("carousel"));
-        Assert.False(result.PerFormatResults.ContainsKey("flyer"));
+        Assert.False(result.PerFormatResults.ContainsKey("story"));
     }
 
     // -------------------------------------------------------------------
@@ -89,21 +89,21 @@ public sealed class ContentPackageOrchestratorTests
         var generators = new IFormatContentGenerator[]
         {
             new FakeGenerator("carousel", FormatGenerationStatus.Succeeded),
-            new FakeGenerator("flyer", FormatGenerationStatus.Failed),
+            new FakeGenerator("story", FormatGenerationStatus.Failed),
         };
         var brandLoader = new SucceedingBrandLoader();
         var orchestrator = new ContentPackageOrchestrator(generators, brandLoader, new ProviderCallContext(), new SucceedingWorkflowResolver());
 
         var request = new OrchestratorRequest(
             OrgId, ClientId, AnalysisId, BuildAnalysis(),
-            ["carousel", "flyer"], CorrelationId);
+            ["carousel", "story"], CorrelationId);
 
         var result = await orchestrator.RunAsync(request, CancellationToken.None);
 
         Assert.Equal(OrchestratorStatus.Partial, result.OverallStatus);
         Assert.Equal(FormatGenerationStatus.Succeeded, result.PerFormatResults["carousel"].Status);
-        Assert.Equal(FormatGenerationStatus.Failed, result.PerFormatResults["flyer"].Status);
-        Assert.NotNull(result.PerFormatResults["flyer"].FailureReason);
+        Assert.Equal(FormatGenerationStatus.Failed, result.PerFormatResults["story"].Status);
+        Assert.NotNull(result.PerFormatResults["story"].FailureReason);
     }
 
     // -------------------------------------------------------------------
@@ -116,14 +116,14 @@ public sealed class ContentPackageOrchestratorTests
         var generators = new IFormatContentGenerator[]
         {
             new FakeGenerator("carousel", FormatGenerationStatus.Failed),
-            new FakeGenerator("flyer", FormatGenerationStatus.Failed),
+            new FakeGenerator("story", FormatGenerationStatus.Failed),
         };
         var brandLoader = new SucceedingBrandLoader();
         var orchestrator = new ContentPackageOrchestrator(generators, brandLoader, new ProviderCallContext(), new SucceedingWorkflowResolver());
 
         var request = new OrchestratorRequest(
             OrgId, ClientId, AnalysisId, BuildAnalysis(),
-            ["carousel", "flyer"], CorrelationId);
+            ["carousel", "story"], CorrelationId);
 
         var result = await orchestrator.RunAsync(request, CancellationToken.None);
 

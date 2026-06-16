@@ -36,7 +36,7 @@ public sealed class ContentGenerationEndpointTests
 
         var result = await EndpointHandlers.GeneratePackageAsync(
             analysisId: AnalysisId,
-            requestedFormats: ["carousel", "flyer"],
+            requestedFormats: ["carousel", "story"],
             sender: sender,
             tenant: tenant);
 

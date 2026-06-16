@@ -5,7 +5,7 @@ using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
-using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Flyer;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
@@ -58,11 +58,11 @@ public sealed class ContentGenerationJobProcessor
     private readonly ILogger<ContentGenerationJobProcessor> _logger;
 
     /// <summary>
-    /// Designed-raster formats: flyer + carousel slides.
+    /// Designed-raster formats: story, feed-post, and carousel slides.
     /// Text formats (hook, caption, cta-variation, reel-script, content-idea) bypass the designer.
     /// </summary>
     private static readonly HashSet<string> DesignedRasterFormats =
-        new(StringComparer.OrdinalIgnoreCase) { "flyer", "carousel" };
+        new(StringComparer.OrdinalIgnoreCase) { "story", "feed-post", "carousel" };
 
     public ContentGenerationJobProcessor(
         IContentGenerationJobRepository jobs,
@@ -714,11 +714,12 @@ public sealed class ContentGenerationJobProcessor
                 _ => ReadPublicationDescription(payload)
             };
         }
-        else if (string.Equals(formatKey, "flyer", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(formatKey, "story", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(formatKey, "feed-post", StringComparison.OrdinalIgnoreCase))
         {
             description = payload switch
             {
-                FlyerContent flyer => flyer.PublicationDescription,
+                StoryContent story => story.PublicationDescription,
                 _ => ReadPublicationDescription(payload)
             };
         }
@@ -960,7 +961,7 @@ public sealed class ContentGenerationJobProcessor
         var bodyFont = CssString(spec.Typography.BodyFamily);
 
         var title = FirstSlot(spec.CopySlots, isCarousel ? ["title", "headline"] : ["headline", "title"])
-            ?? (isCarousel ? "Carousel" : "Flyer");
+            ?? (isCarousel ? "Carousel" : "Story");
         var subtitle = FirstSlot(spec.CopySlots, ["subtitle", "body", "text"]);
         var body = isCarousel
             ? null
@@ -970,7 +971,7 @@ public sealed class ContentGenerationJobProcessor
 
         var content = isCarousel
             ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont)
-            : BuildFlyerTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont);
+            : BuildStoryTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont);
 
         var backgroundDecor = isCarousel
             ? """
@@ -979,7 +980,6 @@ public sealed class ContentGenerationJobProcessor
               """
             : """
               <div style="position:absolute;left:56px;right:56px;top:170px;bottom:150px;border-radius:56px;background:rgba(0,0,0,0.50);box-shadow:0 32px 90px rgba(0,0,0,0.34);"></div>
-              <div style="position:absolute;left:88px;top:205px;width:168px;height:10px;border-radius:999px;background:rgba(255,255,255,0.86);"></div>
               """;
 
         // Background layer. With a brand template we hard-enforce the image; without one (Creative
@@ -1020,7 +1020,7 @@ public sealed class ContentGenerationJobProcessor
             """;
     }
 
-    private static string BuildFlyerTemplateSlots(
+    private static string BuildStoryTemplateSlots(
         string title,
         string? subtitle,
         string? body,
@@ -1031,6 +1031,15 @@ public sealed class ContentGenerationJobProcessor
     {
         var slots = new List<string>
         {
+            // Decorative accent pill — moved out of the background raster so it becomes an
+            // editable shape in Content Studio. Positioned identically to the former background div.
+            Slot(
+                "div",
+                "accent",
+                string.Empty,
+                "position:absolute;left:88px;top:205px;width:168px;height:10px;" +
+                "border-radius:999px;background:rgba(255,255,255,0.86);",
+                1),
             Slot(
                 "h1",
                 "headline",

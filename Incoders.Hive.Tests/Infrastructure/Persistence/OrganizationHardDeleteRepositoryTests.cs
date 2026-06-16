@@ -145,7 +145,7 @@ public sealed class OrganizationHardDeleteRepositoryTests
             Id = Guid.NewGuid(),
             ContentPlanId = contentPlanId,
             Day = 1,
-            ContentFormat = "flyer",
+            ContentFormat = "story",
             CreatedAtUtc = Now,
             UpdatedAtUtc = Now,
         });
@@ -467,7 +467,7 @@ public sealed class OrganizationHardDeleteRepositoryTests
         OrganizationId = organizationId,
         ClientId = clientId,
         AnalysisId = analysisId,
-        RequestedFormats = ["flyer"],
+        RequestedFormats = ["story"],
         Status = "Completed",
         BrandSnapshotJson = "{}",
         CorrelationId = Guid.NewGuid(),
@@ -479,7 +479,7 @@ public sealed class OrganizationHardDeleteRepositoryTests
     {
         Id = id,
         JobId = jobId,
-        FormatKey = "flyer",
+        FormatKey = "story",
         Status = "Rendered",
         CreatedAt = Now,
         UpdatedAt = Now,
