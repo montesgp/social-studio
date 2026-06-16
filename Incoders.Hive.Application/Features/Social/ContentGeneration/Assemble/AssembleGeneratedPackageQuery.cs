@@ -9,6 +9,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Packaging;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.Clients;
+using Incoders.Hive.Domain.Social.ContentFormats;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using MediatR;
 
@@ -281,33 +282,51 @@ public sealed class AssembleGeneratedPackageQueryHandler
                     continue;
                 }
 
-                AssembledFormatManifest? formatManifest = packageFormatKey switch
+                // Resolve the definition for routing. Multi-asset = carousel family.
+                var routingDef = FormatCatalog.ResolveForAssembly(formatGroup.Key);
+
+                AssembledFormatManifest? formatManifest;
+                if (packageFormatKey == "script")
                 {
-                    "story" or "feed-post" => await TryWriteStoryAsync(
-                        archive,
-                        folder,
-                        formatGroup.ToList(),
-                        selectedFormatResults,
-                        writtenEntries,
-                        clientWarnings,
-                        ct),
-                    "carousel" => await TryWriteCarouselAsync(
-                        archive,
-                        folder,
-                        formatGroup.ToList(),
-                        selectedFormatResults,
-                        writtenEntries,
-                        clientWarnings,
-                        ct),
-                    "script" => await TryWriteScriptAsync(
+                    formatManifest = await TryWriteScriptAsync(
                         archive,
                         folder,
                         formatGroup.OrderBy(row => row.Row.AssetIndex).ToList(),
                         writtenEntries,
                         clientWarnings,
-                        ct),
-                    _ => null,
-                };
+                        ct);
+                }
+                else if (routingDef?.IsMultiAsset == true)
+                {
+                    // Carousel family: story-carousel, feed-carousel, legacy carousel.
+                    // storageFolder comes from the resolved definition so each key writes
+                    // to its own folder (ADR-5 / SCENARIO-05/07).
+                    formatManifest = await TryWriteCarouselAsync(
+                        archive,
+                        folder,
+                        formatGroup.ToList(),
+                        selectedFormatResults,
+                        writtenEntries,
+                        clientWarnings,
+                        routingDef.StorageFolder,
+                        ct);
+                }
+                else if (routingDef is not null && !routingDef.IsMultiAsset)
+                {
+                    // Single-asset visual (story, feed-post).
+                    formatManifest = await TryWriteStoryAsync(
+                        archive,
+                        folder,
+                        formatGroup.ToList(),
+                        selectedFormatResults,
+                        writtenEntries,
+                        clientWarnings,
+                        ct);
+                }
+                else
+                {
+                    formatManifest = null;
+                }
 
                 if (formatManifest is not null)
                 {
@@ -391,6 +410,14 @@ public sealed class AssembleGeneratedPackageQueryHandler
             : BuildFormatManifest(formatKey, file, ResolvePublicationMetadata(formatKey, result.OutputJson));
     }
 
+    /// <summary>
+    /// Writes carousel-family slides to the ZIP as editable PPTX files.
+    /// </summary>
+    /// <param name="storageFolder">
+    /// The folder token used in ZIP paths (e.g. "story-carousel", "feed-carousel", "carousel").
+    /// Sourced from <see cref="FormatDefinition.StorageFolder"/> via ResolveForAssembly (ADR-5).
+    /// New keys write under their own folder; legacy "carousel" rows keep the historical layout.
+    /// </param>
     private async Task<AssembledFormatManifest?> TryWriteCarouselAsync(
         ZipArchive archive,
         string clientFolder,
@@ -398,13 +425,14 @@ public sealed class AssembleGeneratedPackageQueryHandler
         IReadOnlyList<ContentGenerationFormatResult> selectedFormatResults,
         HashSet<string> writtenEntries,
         List<string> warnings,
+        string storageFolder,
         CancellationToken ct)
     {
         var result = ResolveFormatResult(rows, selectedFormatResults);
         var envelopes = CompositionSpecJson.ParseList(result?.CompositionSpecJson);
         if (_pptxAdapter is null || result is null || envelopes.Count == 0)
         {
-            warnings.Add("carousel skipped because no editable composition spec was available.");
+            warnings.Add($"{storageFolder} skipped because no editable composition spec was available.");
             return null;
         }
 
@@ -414,14 +442,14 @@ public sealed class AssembleGeneratedPackageQueryHandler
             var buildResult = await _pptxAdapter.BuildAsync(envelopes[i], ct);
             if (buildResult.IsFailure)
             {
-                warnings.Add($"carousel slide {i + 1} skipped because PPTX export failed: {buildResult.Error.Code}.");
+                warnings.Add($"{storageFolder} slide {i + 1} skipped because PPTX export failed: {buildResult.Error.Code}.");
                 continue;
             }
 
             var file = await WriteBytesEntryAsync(
                 archive,
                 writtenEntries,
-                $"{clientFolder}/carousel/slide_{i + 1}.pptx",
+                $"{clientFolder}/{storageFolder}/slide_{i + 1}.pptx",
                 buildResult.Value,
                 PptxMime,
                 ct);
@@ -438,11 +466,11 @@ public sealed class AssembleGeneratedPackageQueryHandler
         }
 
         return BuildFormatManifest(
-            "carousel",
+            storageFolder,
             files,
-            ResolvePublicationMetadata("carousel", result.OutputJson),
-            aggregateFilename: "carousel/",
-            aggregateRelativePath: $"{clientFolder}/carousel/");
+            ResolvePublicationMetadata(storageFolder, result.OutputJson),
+            aggregateFilename: $"{storageFolder}/",
+            aggregateRelativePath: $"{clientFolder}/{storageFolder}/");
     }
 
     private async Task<AssembledFormatManifest?> TryWriteScriptAsync(
@@ -561,37 +589,48 @@ public sealed class AssembleGeneratedPackageQueryHandler
             Assets: files);
     }
 
+    /// <summary>
+    /// Resolves a stored format key to the routing token used by the assembly switch.
+    /// Uses <see cref="FormatCatalog.ResolveForAssembly"/> so both canonical keys (story-carousel,
+    /// feed-carousel, story, feed-post, reel-script) and the legacy "carousel" alias resolve.
+    /// Returns null for unknown keys that cannot be assembled.
+    /// </summary>
     private static string? NormalizePackageFormatKey(string formatKey)
     {
-        if (string.Equals(formatKey, "story", StringComparison.OrdinalIgnoreCase))
-        {
-            return "story";
-        }
-
-        if (string.Equals(formatKey, "feed-post", StringComparison.OrdinalIgnoreCase))
-        {
-            return "feed-post";
-        }
-
-        if (string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase))
-        {
-            return "carousel";
-        }
-
+        // Special-case script/reel-script before catalog lookup: the catalog key is
+        // "reel-script" but the assembly routing uses the shorter token "script".
         if (string.Equals(formatKey, "script", StringComparison.OrdinalIgnoreCase)
             || string.Equals(formatKey, "reel-script", StringComparison.OrdinalIgnoreCase))
         {
             return "script";
         }
 
-        return null;
+        // Catalog + alias aware lookup (canonical keys AND legacy "carousel" alias).
+        var def = FormatCatalog.ResolveForAssembly(formatKey);
+        if (def is null)
+        {
+            return null;
+        }
+
+        // Multi-asset carousel family (story-carousel, feed-carousel, legacy carousel):
+        // route to the carousel writer; preserve the original format key so the writer
+        // uses the correct storageFolder.
+        if (def.IsMultiAsset)
+        {
+            return formatKey; // caller passes storageFolder = def.StorageFolder
+        }
+
+        // Single-asset visual formats (story, feed-post).
+        return def.FormatKey;
     }
 
     private static PublicationMetadata? ResolvePublicationMetadata(string formatKey, string? outputJson)
     {
-        if (!string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(formatKey, "story", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(formatKey, "feed-post", StringComparison.OrdinalIgnoreCase))
+        // Publication metadata is only available for visual formats (catalog-driven check).
+        // Falls back to the legacy "carousel" alias via ResolveForAssembly so legacy rows still get
+        // publication metadata if present.
+        var def = FormatCatalog.ResolveForAssembly(formatKey);
+        if (def is null || !def.IsVisual)
         {
             return null;
         }

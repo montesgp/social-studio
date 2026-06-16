@@ -125,7 +125,7 @@ public sealed class PackageBuilderTests
         using var archive = new ZipArchive(result.Content, ZipArchiveMode.Read, leaveOpen: true);
 
         // Files live under the display-name folder (PKG-01: case and spaces preserved)
-        Assert.Contains(archive.Entries, e => e.FullName == "Acme Corp/flyer.png");
+        Assert.Contains(archive.Entries, e => e.FullName == "Acme Corp/story.png");
         Assert.Contains(archive.Entries, e => e.FullName == "Acme Corp/carousel/slide_1.png");
         // manifest.json stays at root
         Assert.Contains(archive.Entries, e => e.FullName == "manifest.json");

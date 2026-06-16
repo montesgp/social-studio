@@ -106,7 +106,7 @@ public sealed class SupabaseStorageAdapterTests
             new StoredAssetContent([0xDE, 0xAD, 0xBE, 0xEF], "image/png"),
             CancellationToken.None);
 
-        var expectedPath = $"{OrgId}/{ClientId}/{AnalysisId}/flyer.png";
+        var expectedPath = $"{OrgId}/{ClientId}/{AnalysisId}/story.png";
         Assert.Equal(expectedPath, result.StoragePath);
         Assert.Equal("image/png", result.Mime);
         Assert.Equal(4L, result.SizeBytes);

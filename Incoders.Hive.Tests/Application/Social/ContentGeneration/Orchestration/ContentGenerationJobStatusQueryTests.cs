@@ -75,7 +75,7 @@ public sealed class ContentGenerationJobStatusQueryTests
         var failurePolicy = new FakeFailurePolicy(new Dictionary<string, int>
         {
             ["story"] = 2,
-            ["carousel"] = 1,
+            ["story-carousel"] = 1, // updated: "carousel" is no longer a known key; use surface-scoped key
         });
         var handler = new ContentGenerationJobStatusQueryHandler(jobRepo, formatResultRepo, failurePolicy);
 
@@ -84,7 +84,7 @@ public sealed class ContentGenerationJobStatusQueryTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(2, result.Value.PerFormatFailureCounts!["story"]);
-        Assert.Equal(1, result.Value.PerFormatFailureCounts!["carousel"]);
+        Assert.Equal(1, result.Value.PerFormatFailureCounts!["story-carousel"]);
     }
 
 

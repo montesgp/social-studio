@@ -9,6 +9,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.ContentFormats;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 using Microsoft.Extensions.Logging;
@@ -58,11 +59,17 @@ public sealed class ContentGenerationJobProcessor
     private readonly ILogger<ContentGenerationJobProcessor> _logger;
 
     /// <summary>
-    /// Designed-raster formats: story, feed-post, and carousel slides.
+    /// Designed-raster formats: all visual (image/video) catalog deliverables.
+    /// Derived from <see cref="FormatCatalog"/> so new catalog rows are picked up automatically.
     /// Text formats (hook, caption, cta-variation, reel-script, content-idea) bypass the designer.
+    /// Note: the legacy "carousel" alias is NOT included — only canonical keys appear here.
+    /// Legacy "carousel" rows are handled at assemble time via ResolveForAssembly (ADR-3.6).
     /// </summary>
     private static readonly HashSet<string> DesignedRasterFormats =
-        new(StringComparer.OrdinalIgnoreCase) { "story", "feed-post", "carousel" };
+        FormatCatalog.All()
+            .Where(d => d.IsVisual)
+            .Select(d => d.FormatKey)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     public ContentGenerationJobProcessor(
         IContentGenerationJobRepository jobs,
@@ -431,12 +438,15 @@ public sealed class ContentGenerationJobProcessor
                     }
 
                     // Determine the relative path for storage.
-                    // Carousel: carousel/slide_{N}.png (1-based index)
-                    // Single-asset: just the filename (e.g. flyer.png, reel-script.txt)
+                    // Multi-asset (carousel family): {storageFolder}/slide_{N}.png (1-based index).
+                    // Resolved via FormatCatalog.ResolveForAssembly so legacy "carousel" keys
+                    // continue to write under carousel/ while new keys use their own folder.
+                    // Single-asset: just the filename (e.g. story.png, reel-script.txt).
                     string relativePath;
-                    if (string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase) && specs.Count > 1)
+                    var formatDef = FormatCatalog.ResolveForAssembly(formatKey);
+                    if (formatDef?.IsMultiAsset == true && specs.Count > 1)
                     {
-                        relativePath = $"carousel/slide_{specIndex + 1}.png";
+                        relativePath = $"{formatDef.StorageFolder}/slide_{specIndex + 1}.png";
                     }
                     else
                     {
@@ -546,22 +556,24 @@ public sealed class ContentGenerationJobProcessor
                             ct);
                     }
 
-                    // Create carousel folder placeholder.
+                    // Create carousel-family folder placeholder.
+                    // Applies to any multi-asset format (story-carousel, feed-carousel, legacy carousel).
+                    var folderDef = FormatCatalog.ResolveForAssembly(formatKey);
                     if (_assetStorage is not null
-                        && string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase)
+                        && folderDef?.IsMultiAsset == true
                         && specs.Count > 1)
                     {
                         try
                         {
-                            var folderPath = $"{job.OrganizationId}/{effectiveClientId}/{job.AnalysisId}/carousel";
+                            var folderPath = $"{job.OrganizationId}/{effectiveClientId}/{job.AnalysisId}/{folderDef.StorageFolder}";
                             await _assetStorage.PutFolderPlaceholderAsync(folderPath, ct);
                         }
                         catch (GeneratedAssetStorageException ex)
                         {
                             // Folder placeholder failure is non-fatal — log and continue.
                             _logger.LogWarning(ex,
-                                "ContentGeneration: carousel folder placeholder PUT failed (job {JobId}). Continuing.",
-                                job.Id);
+                                "ContentGeneration: carousel folder placeholder PUT failed for '{FormatKey}' (job {JobId}). Continuing.",
+                                formatKey, job.Id);
                         }
                     }
                 }

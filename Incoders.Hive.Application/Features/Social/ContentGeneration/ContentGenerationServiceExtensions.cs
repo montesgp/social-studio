@@ -13,6 +13,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Composers;
+using Incoders.Hive.Domain.Social.ContentFormats;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -33,10 +34,25 @@ public static class ContentGenerationServiceExtensions
     /// </summary>
     public static IServiceCollection AddContentGeneration(this IServiceCollection services)
     {
+        // ── Generators ─────────────────────────────────────────────────────────
         // Register each generator under both the concrete type (for typed resolution in tests)
         // and the IFormatContentGenerator interface (for registry enumeration via DI).
+
+        // Shared CarouselGenerator — registered as concrete type so the two decorators can
+        // resolve it. Also registered directly as IFormatContentGenerator with key "carousel"
+        // so legacy "carousel" format key (if ever passed) still resolves (backward-compat).
         services.AddScoped<CarouselGenerator>();
         services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<CarouselGenerator>());
+
+        // Surface-scoped carousel decorator registrations (ADR-4 / SCENARIO-18).
+        // story-carousel and feed-carousel each get their own decorator wrapping the shared generator.
+        var storyCarouselDef = FormatCatalog.TryGet("story-carousel")!;
+        var feedCarouselDef = FormatCatalog.TryGet("feed-carousel")!;
+
+        services.AddScoped<IFormatContentGenerator>(sp =>
+            new SurfaceScopedCarouselGenerator("story-carousel", sp.GetRequiredService<CarouselGenerator>()));
+        services.AddScoped<IFormatContentGenerator>(sp =>
+            new SurfaceScopedCarouselGenerator("feed-carousel", sp.GetRequiredService<CarouselGenerator>()));
 
         services.AddScoped<StoryGenerator>();
         services.AddScoped<IFormatContentGenerator>(sp => sp.GetRequiredService<StoryGenerator>());
@@ -62,11 +78,24 @@ public static class ContentGenerationServiceExtensions
         // Orchestrator resolves all IFormatContentGenerator registrations via IEnumerable<>
         services.AddScoped<IContentGenerationOrchestrator, ContentPackageOrchestrator>();
 
-        // Per-format visual composers — VisualCompositionService picks them up via
-        // IEnumerable<IFormatVisualComposer>. Without these explicit registrations the service
-        // resolves with an empty collection and every Compose call throws
-        // "No visual composer registered for format key 'X'" at runtime.
-        services.AddScoped<IFormatVisualComposer, CarouselVisualComposer>();
+        // ── Visual composers ───────────────────────────────────────────────────
+        // VisualCompositionService picks them up via IEnumerable<IFormatVisualComposer>.
+        // Without these registrations the service resolves with an empty collection and
+        // every Compose call throws "No visual composer registered for format key 'X'".
+
+        // Shared CarouselVisualComposer — registered as concrete type for decorator construction.
+        services.AddScoped<CarouselVisualComposer>();
+
+        // Surface-scoped carousel visual composer decorators (ADR-4 / SCENARIO-19 / S5).
+        services.AddScoped<IFormatVisualComposer>(sp =>
+            new SurfaceScopedCarouselVisualComposer(
+                storyCarouselDef,
+                sp.GetRequiredService<CarouselVisualComposer>()));
+        services.AddScoped<IFormatVisualComposer>(sp =>
+            new SurfaceScopedCarouselVisualComposer(
+                feedCarouselDef,
+                sp.GetRequiredService<CarouselVisualComposer>()));
+
         services.AddScoped<IFormatVisualComposer, StoryVisualComposer>();
         services.AddScoped<IFormatVisualComposer, FeedPostVisualComposer>();
         services.AddScoped<IFormatVisualComposer, HookVisualComposer>();

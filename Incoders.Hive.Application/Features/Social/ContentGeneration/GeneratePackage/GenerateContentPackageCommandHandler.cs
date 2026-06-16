@@ -1,6 +1,7 @@
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.ContentFormats;
 using MediatR;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
@@ -19,18 +20,15 @@ public sealed class GenerateContentPackageCommandHandler
     internal const int MaxRegenerationObjectionLength = 1000;
     internal const int MaxFailedAttemptsPerFormat = 2;
 
-    /// <summary>The 9 supported format keys.</summary>
-    internal static readonly IReadOnlySet<string> KnownFormatKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "carousel",
-        "story",
-        "feed-post",
-        "reel-script",
-        "content-idea",
-        "cta-variation",
-        "caption",
-        "hook",
-    };
+    /// <summary>
+    /// Catalog-derived whitelist of accepted format keys.
+    /// Derived from <see cref="FormatCatalog.KnownKeys()"/> so any new catalog row is
+    /// automatically accepted without a code change here.
+    /// The legacy "carousel" alias is NOT included — bare "carousel" is rejected at the API
+    /// (CRITICAL-2 / SCENARIO-04). The FE sends surface-scoped keys (story-carousel, feed-carousel).
+    /// </summary>
+    internal static readonly IReadOnlySet<string> KnownFormatKeys =
+        FormatCatalog.KnownKeys().ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     private readonly ISingleContentAnalysisRepository _analysisRepository;
     private readonly IContentGenerationJobRepository _jobRepository;

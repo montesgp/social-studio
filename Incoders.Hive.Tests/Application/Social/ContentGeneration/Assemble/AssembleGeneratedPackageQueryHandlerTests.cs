@@ -163,9 +163,9 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read, leaveOpen: false);
         var entries = zip.Entries.Select(e => e.FullName).ToList();
 
-        Assert.Contains($"{ClientId1}/flyer/flyer.pptx", entries);
+        Assert.Contains($"{ClientId1}/story/story.pptx", entries);
         Assert.Contains($"{ClientId2}/script/script.md", entries);
-        Assert.DoesNotContain($"{ClientId1}/flyer.png", entries);
+        Assert.DoesNotContain($"{ClientId1}/story.png", entries);
         Assert.DoesNotContain($"{ClientId2}/reel-script.md", entries);
     }
 
@@ -413,12 +413,14 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         using var zip = new ZipArchive(result.Value.ZipStream, ZipArchiveMode.Read);
         var entries = zip.Entries.Select(e => e.FullName).OrderBy(e => e).ToList();
 
+        // Entries are ordered alphabetically (via OrderBy above).
+        // Path order: carousel/ < script/ < story/ < manifest.json
         Assert.Equal(
             [
                 "Incoders/carousel/slide_1.pptx",
                 "Incoders/carousel/slide_2.pptx",
-                "Incoders/story/story.pptx",
                 "Incoders/script/script.md",
+                "Incoders/story/story.pptx",
                 "manifest.json",
             ],
             entries);
@@ -505,7 +507,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         var entries = zip.Entries.Select(e => e.FullName).ToList();
 
         // Folder must be display name, NOT the GUID
-        Assert.Contains("Acme Corp/flyer/flyer.pptx", entries);
+        Assert.Contains("Acme Corp/story/story.pptx", entries);
         Assert.DoesNotContain(entries, e => e.StartsWith($"{ClientId1}/"));
     }
 
@@ -550,7 +552,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         var entries = zip.Entries.Select(e => e.FullName).ToList();
 
         // : / ? stripped; no slug dashes added
-        Assert.Contains("ClientNameTest/flyer/flyer.pptx", entries);
+        Assert.Contains("ClientNameTest/story/story.pptx", entries);
     }
 
     [Fact]
@@ -592,7 +594,7 @@ public sealed class AssembleGeneratedPackageQueryHandlerTests
         var entries = zip.Entries.Select(e => e.FullName).ToList();
 
         // Fallback: folder is the GUID string when client not found
-        Assert.Contains($"{ClientId1}/flyer/flyer.pptx", entries);
+        Assert.Contains($"{ClientId1}/story/story.pptx", entries);
     }
 }
 

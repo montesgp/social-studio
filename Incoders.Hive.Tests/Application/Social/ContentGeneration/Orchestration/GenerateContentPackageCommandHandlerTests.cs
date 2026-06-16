@@ -32,7 +32,7 @@ public sealed class GenerateContentPackageCommandHandlerTests
             OrganizationId: OrgId,
             ClientId: ClientId,
             AnalysisId: AnalysisId,
-            RequestedFormats: ["carousel", "story"],
+            RequestedFormats: ["story-carousel", "story"],
             CorrelationId: null);
 
         var result = await handler.Handle(command, CancellationToken.None);
@@ -68,7 +68,7 @@ public sealed class GenerateContentPackageCommandHandlerTests
             OrganizationId: OrgId,
             ClientId: null,
             AnalysisId: AnalysisId,
-            RequestedFormats: ["carousel"],
+            RequestedFormats: ["story-carousel"],
             CorrelationId: null);
 
         var result = await handler.Handle(command, CancellationToken.None);
@@ -91,7 +91,7 @@ public sealed class GenerateContentPackageCommandHandlerTests
             OrganizationId: OrgId,
             ClientId: ClientId,
             AnalysisId: AnalysisId,
-            RequestedFormats: ["carousel"],
+            RequestedFormats: ["story-carousel"],
             CorrelationId: null,
             RegenerationObjection: "  The CTA is inaccurate for this brand.  ");
 
@@ -115,7 +115,7 @@ public sealed class GenerateContentPackageCommandHandlerTests
             OrganizationId: OrgId,
             ClientId: ClientId,
             AnalysisId: AnalysisId,
-            RequestedFormats: ["carousel"],
+            RequestedFormats: ["story-carousel"],
             CorrelationId: null,
             RegenerationObjection: new string('x', 1001));
 
@@ -141,7 +141,7 @@ public sealed class GenerateContentPackageCommandHandlerTests
             OrganizationId: OrgId,
             ClientId: null,
             AnalysisId: AnalysisId,
-            RequestedFormats: ["carousel"],
+            RequestedFormats: ["story-carousel"],
             CorrelationId: null);
 
         var result = await handler.Handle(command, CancellationToken.None);
@@ -166,7 +166,7 @@ public sealed class GenerateContentPackageCommandHandlerTests
             OrganizationId: OrgId,
             ClientId: requestedClientId,
             AnalysisId: AnalysisId,
-            RequestedFormats: ["carousel"],
+            RequestedFormats: ["story-carousel"],
             CorrelationId: null);
 
         var result = await handler.Handle(command, CancellationToken.None);
@@ -222,7 +222,7 @@ public sealed class GenerateContentPackageCommandHandlerTests
             OrganizationId: OrgId, // different from analysis.OrganizationId
             ClientId: null,
             AnalysisId: AnalysisId,
-            RequestedFormats: ["carousel"],
+            RequestedFormats: ["story-carousel"],
             CorrelationId: null);
 
         var result = await handler.Handle(command, CancellationToken.None);
@@ -258,6 +258,73 @@ public sealed class GenerateContentPackageCommandHandlerTests
 
         Assert.True(result.IsFailure);
         Assert.Equal(ErrorType.Validation, result.Error.Type);
+    }
+
+    // ─── SCENARIO-04: KnownFormatKeys catalog-derived whitelist ─────────────
+
+    [Theory]
+    [InlineData("story-carousel")]
+    [InlineData("feed-carousel")]
+    [InlineData("story")]
+    [InlineData("feed-post")]
+    [InlineData("reel-script")]
+    [InlineData("content-idea")]
+    [InlineData("cta-variation")]
+    [InlineData("caption")]
+    [InlineData("hook")]
+    public async Task Handle_CatalogKnownKey_Succeeds(string formatKey)
+    {
+        var analysis = MakeAnalysisRecord(OrgId);
+        var analysisRepo = new FakeAnalysisRepository(analysis);
+        var jobRepo = new FakeContentGenerationJobRepository();
+        var queue = new FakeContentGenerationJobQueue();
+        var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue);
+
+        var command = new GenerateContentPackageCommand(
+            OrganizationId: OrgId, ClientId: ClientId, AnalysisId: AnalysisId,
+            RequestedFormats: [formatKey], CorrelationId: null);
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Expected '{formatKey}' to be accepted but got: {(result.IsFailure ? result.Error.Code : "ok")}");
+    }
+
+    [Theory]
+    [InlineData("carousel")]      // CRITICAL-2: bare carousel rejected at API
+    [InlineData("feed-text")]
+    [InlineData("flyer")]
+    [InlineData("story:single:image")]
+    [InlineData("")]
+    public async Task Handle_LegacyOrUnknownKey_ReturnsValidationError(string formatKey)
+    {
+        var analysis = MakeAnalysisRecord(OrgId);
+        var analysisRepo = new FakeAnalysisRepository(analysis);
+        var jobRepo = new FakeContentGenerationJobRepository();
+        var queue = new FakeContentGenerationJobQueue();
+        var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue);
+
+        var command = new GenerateContentPackageCommand(
+            OrganizationId: OrgId, ClientId: ClientId, AnalysisId: AnalysisId,
+            RequestedFormats: [formatKey], CorrelationId: null);
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsFailure, $"Expected '{formatKey}' to be rejected but result was success.");
+        Assert.Equal(ErrorType.Validation, result.Error.Type);
+    }
+
+    [Fact]
+    public void KnownFormatKeys_IsDerivedFromCatalog_AndExcludesLegacyCarousel()
+    {
+        var keys = GenerateContentPackageCommandHandler.KnownFormatKeys;
+
+        Assert.Contains("story-carousel", keys, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("feed-carousel", keys, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("story", keys, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("feed-post", keys, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("reel-script", keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("carousel", keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("flyer", keys, StringComparer.OrdinalIgnoreCase);
     }
 
     // ─── Validation: unknown format key ──────────────────────────────────────
@@ -300,7 +367,7 @@ public sealed class GenerateContentPackageCommandHandlerTests
             OrganizationId: OrgId,
             ClientId: null,
             AnalysisId: Guid.NewGuid(),
-            RequestedFormats: ["carousel"],
+            RequestedFormats: ["story-carousel"],
             CorrelationId: null);
 
         var result = await handler.Handle(command, CancellationToken.None);

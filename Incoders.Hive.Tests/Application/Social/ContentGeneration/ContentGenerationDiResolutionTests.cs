@@ -21,22 +21,28 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration;
 
 /// <summary>
-/// Verifies that all 9 format generators and the orchestrator are resolvable from DI.
-/// RED phase: AddContentGeneration extension method does not exist yet.
+/// Verifies that all format generators and the orchestrator are resolvable from DI.
+/// Updated for the FormatCatalog refactor: story-carousel and feed-carousel are registered
+/// as SurfaceScopedCarouselGenerator decorators in addition to the shared CarouselGenerator.
 /// </summary>
 public sealed class ContentGenerationDiResolutionTests
 {
     [Fact]
-    public void DI_ResolvesAllNineFormatGenerators()
+    public void DI_ResolvesAllFormatGenerators()
     {
         var sp = BuildServiceProvider();
 
         var generators = sp.GetServices<IFormatContentGenerator>().ToList();
 
-        Assert.Equal(9, generators.Count);
+        // CarouselGenerator (shared) + 2 surface-scoped decorators (story-carousel, feed-carousel)
+        // + StoryGenerator + FeedPostGenerator + ReelScriptGenerator
+        // + ContentIdeaGenerator + CtaVariationGenerator + CaptionGenerator + HookGenerator = 10
+        Assert.Equal(10, generators.Count);
 
         var keys = generators.Select(g => g.FormatKey).ToHashSet();
-        Assert.Contains("carousel", keys);
+        Assert.Contains("carousel", keys);           // shared CarouselGenerator (legacy key)
+        Assert.Contains("story-carousel", keys);     // SurfaceScopedCarouselGenerator decorator
+        Assert.Contains("feed-carousel", keys);      // SurfaceScopedCarouselGenerator decorator
         Assert.Contains("story", keys);
         Assert.Contains("feed-post", keys);
         Assert.Contains("reel-script", keys);

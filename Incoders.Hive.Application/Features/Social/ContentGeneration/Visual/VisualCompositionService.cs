@@ -16,6 +16,17 @@ public sealed class VisualCompositionService : IVisualCompositionService
     private readonly IReadOnlyDictionary<string, IFormatVisualComposer> _composers;
     private InferenceAccumulator _lastInferred = new();
 
+    /// <summary>
+    /// Parameterless constructor that builds a hardcoded composer list.
+    /// </summary>
+    /// <remarks>
+    /// DEPRECATED — use the DI constructor <see cref="VisualCompositionService(IEnumerable{IFormatVisualComposer})"/>.
+    /// This ctor predates the FormatCatalog and does NOT include catalog-derived surface-scoped
+    /// carousel composers (story-carousel, feed-carousel). Production code goes through DI;
+    /// tests that need a no-DI instance must supply the full composer set explicitly
+    /// (including both <c>SurfaceScopedCarouselVisualComposer</c> instances).
+    /// </remarks>
+    [Obsolete("Use the DI constructor; the hardcoded composer list does not include catalog-derived surface-scoped composers.", error: false)]
     public VisualCompositionService()
     {
         var composers = new IFormatVisualComposer[]

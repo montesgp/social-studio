@@ -65,7 +65,7 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
     public async Task Handle_RegenerateFlyer_OverwritesStorageAndReplacesRows()
     {
         // Arrange
-        var flyerRow = MakeRow(FlyerResultId, 0, $"{OrgId}/{ClientId}/{AnalysisId}/flyer.png", "story.png");
+        var flyerRow = MakeRow(FlyerResultId, 0, $"{OrgId}/{ClientId}/{AnalysisId}/story.png", "story.png");
         var hookRow = MakeRow(HookResultId, 0, $"{OrgId}/{ClientId}/{AnalysisId}/hook.txt", "hook.txt", "text/plain");
 
         var formatResults = new List<ContentGenerationFormatResult>
@@ -103,8 +103,8 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
         // Assert
         Assert.True(result.IsSuccess, result.IsFailure ? result.Error.MessageKey : "");
 
-        // Storage was written for flyer
-        Assert.Contains($"{OrgId}/{ClientId}/{AnalysisId}/flyer.png", storage.PutPaths);
+        // Storage was written for the story format asset
+        Assert.Contains($"{OrgId}/{ClientId}/{AnalysisId}/story.png", storage.PutPaths);
 
         // Asset rows were replaced for the flyer format result
         Assert.Equal(FlyerResultId, assetRepo.LastUpsertedFormatResultId);

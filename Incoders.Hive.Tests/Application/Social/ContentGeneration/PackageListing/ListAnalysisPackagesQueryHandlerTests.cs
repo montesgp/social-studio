@@ -59,7 +59,7 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
     {
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "story.png"),
+            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/story.png", "story.png"),
         };
 
         var handler = BuildHandler(rows, OrgId, AnalysisId);
@@ -78,7 +78,7 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
         Assert.Single(pkg.Clients[0].Formats[0].Assets);
         Assert.Equal(0, pkg.Clients[0].Formats[0].Assets[0].Index);
         Assert.Equal("story.png", pkg.Clients[0].Formats[0].Assets[0].Filename);
-        Assert.Equal($"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png",
+        Assert.Equal($"{OrgId}/{ClientId1}/{AnalysisId}/story.png",
             pkg.Clients[0].Formats[0].Assets[0].StoragePath);
     }
 
@@ -89,7 +89,7 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
     {
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "story.png"),
+            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/story.png", "story.png"),
             MakeRow(ResultId2, 0, $"{OrgId}/{ClientId2}/{AnalysisId}/reel-script.txt", "reel-script.txt", "text/plain"),
         };
 
