@@ -619,7 +619,7 @@ function ItemDetail(props: ItemDetailProps) {
         />
       ) : (
         <>
-          {item.formatKey === "story" ? (
+          {item.targetPlacement === "story" ? (
             <InstagramStoryPost
               key={`${item.id}:${item.updatedAtUtc}`}
               item={item}
@@ -640,7 +640,7 @@ function ItemDetail(props: ItemDetailProps) {
             />
           )}
 
-          {item.formatKey !== "story" ? (
+          {item.targetPlacement !== "story" ? (
             <div className="flex flex-col gap-2">
               <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Caption / post copy</label>
               <textarea
@@ -954,15 +954,32 @@ function EditableScript({
   );
 }
 
-function InstagramStory({ children, username }: { children: ReactNode; username?: string }) {
+function InstagramStory({
+  children,
+  username,
+  slideCount = 1,
+  currentIndex = 0,
+}: {
+  children: ReactNode;
+  username?: string;
+  slideCount?: number;
+  currentIndex?: number;
+}) {
+  const segments = Math.max(1, slideCount);
   return (
     <div className="relative overflow-hidden rounded-2xl bg-black" style={{ width: 377, height: 670 }}>
       <div className="absolute inset-0">{children}</div>
       <div className="absolute inset-x-0 top-0 z-10 p-3">
         <div className="flex gap-1 mb-2">
-          <div className="flex-1 h-0.5 rounded-full bg-white/80" />
-          <div className="flex-1 h-0.5 rounded-full bg-white/40" />
-          <div className="flex-1 h-0.5 rounded-full bg-white/40" />
+          {Array.from({ length: segments }).map((_, i) => (
+            <div
+              key={i}
+              className={cn(
+                "flex-1 h-0.5 rounded-full",
+                i < currentIndex ? "bg-white/80" : i === currentIndex ? "bg-white" : "bg-white/40",
+              )}
+            />
+          ))}
         </div>
         <div className="flex items-center gap-2">
           <div className="h-8 w-8 rounded-full bg-white/20 border-2 border-white/60" />
@@ -975,7 +992,12 @@ function InstagramStory({ children, username }: { children: ReactNode; username?
   );
 }
 
-/** Story viewer: editable design fills the 9:16 frame, story chrome overlaid, no engagement sidebar. */
+/**
+ * Story viewer: editable design fills the 9:16 frame, story chrome overlaid, no engagement sidebar.
+ * Supports carousel (multi-slide) stories — navigation moves between slides while keeping the story
+ * chrome (top progress bars reflect slide count + position), unlike a feed carousel which shows the
+ * Instagram engagement sidebar.
+ */
 function InstagramStoryPost({
   item,
   igHandle,
@@ -990,20 +1012,30 @@ function InstagramStoryPost({
   onSaveVisual?: (markup: string | null, assets: VisualAssetInput[]) => void;
 }) {
   const [envelopes, setEnvelopes] = useState<Envelope[]>(() => parseEnvelopes(item.visualSpecMarkup));
+  const [current, setCurrent] = useState(0);
   const canvasRef = useRef<DesignCanvasHandle>(null);
   const initialJson = useMemo(() => serializeEnvelopes(parseEnvelopes(item.visualSpecMarkup)), [item.visualSpecMarkup]);
   const [dirty, setDirty] = useState(false);
 
-  const slide = envelopes[0];
+  const total = envelopes.length;
+  const idx = total === 0 ? 0 : Math.min(current, total - 1);
+  const slide = envelopes[idx];
 
   const commitCurrent = useCallback((): Envelope[] => {
     const state = canvasRef.current?.getState();
     if (!state) return envelopes;
-    const next = [{ ...envelopes[0], markup: state.markup, slotGeometry: syncGeometry(envelopes[0].slotGeometry, state.slotStyles) }];
+    const next = envelopes.map((e, i) =>
+      i === idx ? { ...e, markup: state.markup, slotGeometry: syncGeometry(e.slotGeometry, state.slotStyles) } : e,
+    );
     setEnvelopes(next);
     setDirty(serializeEnvelopes(next) !== initialJson);
     return next;
-  }, [envelopes, initialJson]);
+  }, [envelopes, idx, initialJson]);
+
+  const goTo = (target: number) => {
+    commitCurrent();
+    setCurrent(((target % total) + total) % total);
+  };
 
   if (!slide) {
     return (
@@ -1018,17 +1050,39 @@ function InstagramStoryPost({
 
   return (
     <div className="flex flex-col gap-3">
-      <InstagramStory username={igHandle ?? undefined}>
-        <DesignCanvas
-          key={item.id}
-          ref={canvasRef}
-          markup={slide.markup ?? ""}
-          width={width}
-          height={height}
-          canEdit={canEdit}
-          onDirty={() => setDirty(true)}
-        />
-      </InstagramStory>
+      <div className="relative w-fit">
+        <InstagramStory username={igHandle ?? undefined} slideCount={total} currentIndex={idx}>
+          <DesignCanvas
+            key={item.id}
+            ref={canvasRef}
+            markup={slide.markup ?? ""}
+            width={width}
+            height={height}
+            canEdit={canEdit}
+            onDirty={() => setDirty(true)}
+          />
+        </InstagramStory>
+        {total > 1 ? (
+          <>
+            <button
+              type="button"
+              aria-label="Previous slide"
+              onClick={() => goTo(idx - 1)}
+              className="absolute left-2 top-1/2 z-20 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white/80 text-lg text-black shadow hover:bg-white"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              aria-label="Next slide"
+              onClick={() => goTo(idx + 1)}
+              className="absolute right-2 top-1/2 z-20 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white/80 text-lg text-black shadow hover:bg-white"
+            >
+              ›
+            </button>
+          </>
+        ) : null}
+      </div>
       {canEdit ? (
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">Click a text to select it, drag to move, double-click to edit.</p>
@@ -1117,7 +1171,7 @@ function InstagramPost({
         <div className="relative flex min-w-0 flex-1 items-start justify-center bg-black">
           <div className="relative w-full">
             <DesignCanvas
-              key={`${item.id}:${idx}`}
+              key={item.id}
               ref={canvasRef}
               markup={slide?.markup ?? ""}
               width={width}
@@ -1251,6 +1305,23 @@ function ensurePositioned(el: HTMLElement) {
 }
 
 /**
+ * Strips document-wrapper drift from designer markup before it is injected inline.
+ * Weaker models sometimes wrap the composition in a full HTML document
+ * (<html><head><style>…</head><body>…). A <style>/<link> injected via innerHTML applies to the WHOLE
+ * page — silently changing the studio navbar/item fonts and button styles. The server renderer paints
+ * from the spec slots and ignores these tags, so removing them keeps the preview faithful to the
+ * actual rendered asset. When a `.composition` subtree is present we keep just that fragment.
+ */
+function sanitizeDesignMarkup(markup: string): string {
+  if (typeof document === "undefined" || !markup) return markup;
+  const tpl = document.createElement("template");
+  tpl.innerHTML = markup;
+  tpl.content.querySelectorAll("style, link, meta, script, title, base").forEach((n) => n.remove());
+  const composition = tpl.content.querySelector(".composition");
+  return composition ? composition.outerHTML : tpl.innerHTML;
+}
+
+/**
  * Renders the design markup inline (imperatively, so React never wipes edits) and turns its
  * [data-slot] elements into selectable, draggable, editable text boxes with a floating toolbar.
  */
@@ -1274,7 +1345,7 @@ const DesignCanvas = forwardRef<
   useEffect(() => {
     const el = designRef.current;
     if (!el) return;
-    el.innerHTML = markup;
+    el.innerHTML = sanitizeDesignMarkup(markup);
     selectedRef.current = null;
     setSelRect(null);
   }, [markup]);

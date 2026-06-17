@@ -914,6 +914,17 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     regenerationObjectionTarget !== null &&
     regenerationObjection.trim().length > 0;
   const hasResolvedToken = token.length > 0;
+
+  // When a package generation finishes, surface the Package tab so the user immediately sees what the
+  // conversion produced. Fires once per job; a later manual tab switch by the user is respected.
+  const autoSwitchedPackageJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!packageJobId) return;
+    if (!(packageGenerationIsCompleted || packageGenerationIsPartial)) return;
+    if (autoSwitchedPackageJobRef.current === packageJobId) return;
+    autoSwitchedPackageJobRef.current = packageJobId;
+    setRightPanelTab("package");
+  }, [packageJobId, packageGenerationIsCompleted, packageGenerationIsPartial]);
   const organizationSelectionReady = isPlatformAdmin
     ? organizationsInitialized && (organizations.length === 0 || selectedOrganizationId.length > 0)
     : activeOrgInitialized && (activeOrgId === null || selectedOrganizationId === activeOrgId);
