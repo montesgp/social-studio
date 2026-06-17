@@ -613,3 +613,101 @@ The `PromptVersionKey` MUST be deterministic for a given prompt template — the
 - WHEN `ComposeAsync` is called and schema/guardrail validation runs against the stub output
 - THEN all validation steps complete without making any real LLM call
 - AND `PromptVersionKey` is a non-empty string in the test output
+
+---
+
+## Format Taxonomy — Change: content-format-taxonomy
+
+> Added by `content-format-taxonomy`. This section is additive; no existing requirements are modified.
+> Commits: a2f82fa (domain), b1133f0 (backend), 7edda4b (frontend), S5 (extensibility proof + doc sync).
+
+### Taxonomy Model
+
+Content formats are described by three orthogonal axis types in `Domain/Social/ContentFormats/`:
+
+- `Surface` — Script | Story | Feed
+- `Layout` — Single | Carousel (null for Script)
+- `Medium` — Image | Video | Text
+
+These are combined into `FormatDefinition` rows held by the immutable `FormatCatalog` static class.
+
+### v1 Catalog Keys
+
+Valid API write keys (accepted by `POST /api/social/content-generation/packages`):
+
+| FormatKey | Surface | Layout | Medium | Channel | IsMultiAsset |
+|---|---|---|---|---|---|
+| reel-script | Script | — | Text | instagram/reel | false |
+| story | Story | Single | Image | instagram/story | false |
+| story-carousel | Story | Carousel | Image | instagram/story | true |
+| feed-post | Feed | Single | Image | instagram/feed | false |
+| feed-carousel | Feed | Carousel | Image | instagram/feed | true |
+
+Plus auxiliaries: content-idea, cta-variation, caption, hook (Text medium; included in API whitelist, excluded from frontend picker).
+
+The legacy key `"carousel"` is NOT a valid write key. It is a read-only alias resolved on the assemble path only.
+
+### Catalog Endpoint
+
+`GET /api/social/content-generation/formats` returns a list of `FormatCatalogEntryDto`:
+
+```json
+{
+  "entries": [
+    { "formatKey": "story", "surface": "Story", "layout": "Single", "medium": "Image",
+      "displayLabel": "Story", "isMultiAsset": false, "isAuxiliary": false },
+    ...
+  ]
+}
+```
+
+The frontend format picker is driven by this endpoint (3 root buttons: Script / Story / Feed; Single↔Carousel toggle for Story+Feed).
+
+### Requirement: FMT-01 — Catalog Is the Single Source of Truth
+
+All downstream consumers MUST derive from `FormatCatalog.All()` rather than maintaining separate literal lists:
+- `KnownFormatKeys` API validation whitelist
+- `DesignedRasterFormats` (formats that produce visual raster assets)
+- `PackagePptxComposer.VisualFormatOrder`
+- `ContentFormatCatalog.MediumFor` / `ChannelFor`
+- `ContentGenerationServiceExtensions` registrations
+
+Adding a new catalog row MUST automatically flow into all of the above without additional edits.
+
+### Requirement: FMT-02 — Legacy "carousel" Rows Assemble Without Migration
+
+Stored rows with `format_key = 'carousel'` and assets at `carousel/slide_N.png` MUST continue to assemble correctly via the alias layer (`FormatCatalog.ResolveForAssembly("carousel")`). No schema migration is required.
+
+#### Scenario: FMT-02a — Legacy carousel assembles to {client}/carousel/
+
+- GIVEN a stored package row where `format_key = 'carousel'`
+- AND assets at `carousel/slide_1.png`, `carousel/slide_2.png`
+- WHEN the package is assembled
+- THEN the ZIP contains entries under `{client}/carousel/`
+- AND no exception is thrown
+
+### Requirement: FMT-03 — New Carousel Keys Use Surface-Scoped Paths
+
+New generations MUST write to surface-scoped storage prefixes that do NOT collide with the legacy `carousel/` prefix.
+
+#### Scenario: FMT-03a — story-carousel writes under story-carousel/
+
+- GIVEN a new package generation with `format_key = 'story-carousel'`
+- WHEN the job completes
+- THEN assets are stored under `story-carousel/slide_N.png`
+- AND the assembled ZIP contains entries under `{client}/story-carousel/`
+
+#### Scenario: FMT-03b — feed-carousel writes under feed-carousel/
+
+- GIVEN a new package generation with `format_key = 'feed-carousel'`
+- WHEN the job completes
+- THEN assets are stored under `feed-carousel/slide_N.png`
+- AND the assembled ZIP contains entries under `{client}/feed-carousel/`
+
+### Requirement: FMT-04 — Extensibility: Adding Video Requires One Catalog Row
+
+Adding a future format (e.g. Story + Single + Video, key `"story-video"`) MUST require:
+1. One `FormatDefinition` row in `FormatCatalog`
+2. Wiring of a new generator and/or composer for that key
+
+It MUST NOT require changes to `Surface` / `Layout` / `Medium` axis types, the catalog API (`TryGet` / `All` / `BySurface` / `ValidLayoutsFor`), or the derive/normalize layer (`DeriveFormatKey` / `NormalizePackageFormatKey`).
