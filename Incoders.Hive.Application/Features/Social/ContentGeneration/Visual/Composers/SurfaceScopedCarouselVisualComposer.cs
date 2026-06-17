@@ -33,6 +33,15 @@ internal sealed class SurfaceScopedCarouselVisualComposer : IFormatVisualCompose
     /// <inheritdoc />
     public string FormatKey => _def.FormatKey;
 
+    /// <summary>
+    /// Canvas dimensions for this surface. Story carousels are full-screen 9:16 (so the design fills
+    /// the story frame); feed carousels keep the 4:5 feed ratio. The inner composer is surface-agnostic
+    /// and emits the feed default, so the decorator re-stamps the correct dimensions per definition.
+    /// </summary>
+    private CompositionDimensions Dimensions => _def.Surface == Surface.Story
+        ? CompositionDefaults.StoryDimensions
+        : CompositionDefaults.CarouselDimensions;
+
     /// <inheritdoc />
     public VisualCompositionSpec Compose(
         object generatedPayload,
@@ -40,7 +49,7 @@ internal sealed class SurfaceScopedCarouselVisualComposer : IFormatVisualCompose
         InferenceAccumulator inferred)
     {
         var spec = _inner.Compose(generatedPayload, brand, inferred);
-        return spec with { FormatKey = _def.FormatKey };
+        return spec with { FormatKey = _def.FormatKey, Dimensions = Dimensions };
     }
 
     /// <inheritdoc />
@@ -50,6 +59,6 @@ internal sealed class SurfaceScopedCarouselVisualComposer : IFormatVisualCompose
         InferenceAccumulator inferred)
     {
         var specs = _inner.ComposeMany(generatedPayload, brand, inferred);
-        return specs.Select(s => s with { FormatKey = _def.FormatKey }).ToList();
+        return specs.Select(s => s with { FormatKey = _def.FormatKey, Dimensions = Dimensions }).ToList();
     }
 }

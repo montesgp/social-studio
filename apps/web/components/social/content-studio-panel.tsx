@@ -178,8 +178,16 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
     };
   }, []);
 
+  // Guards against firing materialize twice for the same analysis+client. materialize is a POST that
+  // creates/updates the studio set; React StrictMode double-invokes effects in dev, and the `cancelled`
+  // flag only suppresses state updates — it does NOT abort the in-flight POST. Two concurrent POSTs race
+  // on the server and surface a DbUpdateConcurrencyException, so we de-dupe by (analysis, client) here.
+  const materializeKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!analysisId || !clientId) return;
+    const key = `${analysisId}:${clientId}`;
+    if (materializeKeyRef.current === key) return;
+    materializeKeyRef.current = key;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -193,6 +201,8 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
         setSelectedId((prev) => prev ?? list[0]?.id ?? null);
       } catch (err) {
         if (!cancelled) setError(errorMessage(err));
+        // Allow a retry on the next deps change if this attempt failed.
+        materializeKeyRef.current = null;
       } finally {
         if (!cancelled) setLoading(false);
       }
