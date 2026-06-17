@@ -178,38 +178,37 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
     };
   }, []);
 
-  // Guards against firing materialize twice for the same analysis+client. materialize is a POST that
-  // creates/updates the studio set; React StrictMode double-invokes effects in dev, and the `cancelled`
-  // flag only suppresses state updates — it does NOT abort the in-flight POST. Two concurrent POSTs race
-  // on the server and surface a DbUpdateConcurrencyException, so we de-dupe by (analysis, client) here.
+  // Materialize once per (analysis, client). materialize is a POST that creates/updates the studio
+  // set; React StrictMode double-invokes effects in dev, so two runs would otherwise fire two
+  // concurrent POSTs that race on the server. We de-dupe via this ref and DO NOT cancel on cleanup —
+  // the second StrictMode run is skipped here, and the result is applied only while this key is still
+  // the active one (so a fast client switch can't write stale data, and the lone request's result is
+  // never discarded — discarding it left the studio stuck loading).
   const materializeKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!analysisId || !clientId) return;
     const key = `${analysisId}:${clientId}`;
     if (materializeKeyRef.current === key) return;
     materializeKeyRef.current = key;
-    let cancelled = false;
-    (async () => {
+    void (async () => {
       setLoading(true);
       setError(null);
       try {
         const materialized = await materializeAnalysis(analysisId, clientId, token);
         const list = await listContentItems(materialized.id, undefined, token);
-        if (cancelled) return;
+        if (materializeKeyRef.current !== key) return;
         setSet(materialized);
         setItems(list);
         setSelectedId((prev) => prev ?? list[0]?.id ?? null);
       } catch (err) {
-        if (!cancelled) setError(errorMessage(err));
-        // Allow a retry on the next deps change if this attempt failed.
-        materializeKeyRef.current = null;
+        if (materializeKeyRef.current === key) {
+          setError(errorMessage(err));
+          materializeKeyRef.current = null; // allow a retry on the next deps change
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (materializeKeyRef.current === key) setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [analysisId, clientId, token]);
 
   useEffect(() => {
