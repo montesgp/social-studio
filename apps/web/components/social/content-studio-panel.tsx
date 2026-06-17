@@ -1634,8 +1634,20 @@ const DesignCanvas = forwardRef<
           </ToolbarButton>
           <input
             type="color"
-            aria-label="Text color"
-            onChange={(e) => apply((el) => { el.style.color = e.target.value; })}
+            aria-label="Color"
+            title="Color (text, or fill for decorative shapes/lines)"
+            onChange={(e) =>
+              apply((el) => {
+                const value = e.target.value;
+                // Text elements recolor their glyphs; decorative shapes/lines (no text content)
+                // recolor their fill, so a divider/line bar can actually change color.
+                if ((el.textContent ?? "").trim().length > 0) {
+                  el.style.color = value;
+                } else {
+                  el.style.backgroundColor = value;
+                }
+              })
+            }
             className="h-6 w-6 cursor-pointer rounded border border-border bg-transparent p-0"
           />
         </div>
