@@ -14,7 +14,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Export;
 /// <para>Spec: PPTX-02 (download as editable PPTX), PPTX-04 (single read path).</para>
 /// </summary>
 /// <param name="JobId">The content-generation job that produced the format.</param>
-/// <param name="FormatKey">The format key (e.g. "carousel", "flyer").</param>
+/// <param name="FormatKey">The format key (e.g. "carousel", "story").</param>
 /// <param name="OrganizationId">Tenant scope — cross-org job ids return NotFound.</param>
 public sealed record ExportFormatToPptxQuery(
     Guid JobId,

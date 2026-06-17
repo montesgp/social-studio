@@ -63,7 +63,7 @@ public sealed class ContentGenerationFormatResultEntityMappingTests
             FormatKey = "story",
             Status = "Rendered",
             RenderedAssetUri = "file:///tmp/test.png",
-            PromptVersion = "flyer.v1",
+            PromptVersion = "story.v1",
             CreatedAt = Now,
             UpdatedAt = Now,
         };

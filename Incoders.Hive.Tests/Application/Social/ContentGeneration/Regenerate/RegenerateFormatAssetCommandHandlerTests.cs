@@ -19,7 +19,7 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
     private static readonly Guid ClientId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid AnalysisId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
     private static readonly Guid JobId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-    private static readonly Guid FlyerResultId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+    private static readonly Guid StoryResultId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
     private static readonly Guid HookResultId = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
 
     private static FormatAssetRow MakeRow(
@@ -62,15 +62,15 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
     // ─── T5.1.1 — Regenerate overwrites storage and replaces asset rows ────────
 
     [Fact]
-    public async Task Handle_RegenerateFlyer_OverwritesStorageAndReplacesRows()
+    public async Task Handle_RegenerateStory_OverwritesStorageAndReplacesRows()
     {
         // Arrange
-        var flyerRow = MakeRow(FlyerResultId, 0, $"{OrgId}/{ClientId}/{AnalysisId}/story.png", "story.png");
+        var storyRow = MakeRow(StoryResultId, 0, $"{OrgId}/{ClientId}/{AnalysisId}/story.png", "story.png");
         var hookRow = MakeRow(HookResultId, 0, $"{OrgId}/{ClientId}/{AnalysisId}/hook.txt", "hook.txt", "text/plain");
 
         var formatResults = new List<ContentGenerationFormatResult>
         {
-            new(Id: FlyerResultId, JobId: JobId, FormatKey: "story", Status: "Rendered",
+            new(Id: StoryResultId, JobId: JobId, FormatKey: "story", Status: "Rendered",
                 OutputJson: """{"title":"Old Title"}""", CompositionSpecJson: null,
                 RenderedAssetUri: null, InferredFieldsJson: null, PromptVersion: null,
                 ErrorCode: null, CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow),
@@ -83,7 +83,7 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
         var job = MakeJob(JobId, OrgId, ClientId, AnalysisId);
 
         var storage = new FakeRegenerateStorage();
-        var assetRepo = new FakeRegenerateAssetRepository([flyerRow, hookRow]);
+        var assetRepo = new FakeRegenerateAssetRepository([storyRow, hookRow]);
         var formatResultRepo = new FakeRegenerateFormatResultRepository(formatResults);
         var jobRepo = new FakeRegenerateJobRepository(job);
         var analysisRepo = new FakeRegenerateAnalysisRepository(OrgId, AnalysisId);
@@ -106,8 +106,8 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
         // Storage was written for the story format asset
         Assert.Contains($"{OrgId}/{ClientId}/{AnalysisId}/story.png", storage.PutPaths);
 
-        // Asset rows were replaced for the flyer format result
-        Assert.Equal(FlyerResultId, assetRepo.LastUpsertedFormatResultId);
+        // Asset rows were replaced for the story format result
+        Assert.Equal(StoryResultId, assetRepo.LastUpsertedFormatResultId);
         Assert.NotEmpty(assetRepo.LastUpsertedRows);
 
         // Hook rows were NOT touched
@@ -138,8 +138,8 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
         // No format results for "carousel"
         var formatResults = new List<ContentGenerationFormatResult>
         {
-            new(Id: FlyerResultId, JobId: JobId, FormatKey: "story", Status: "Rendered",
-                OutputJson: """{"title":"Flyer"}""", CompositionSpecJson: null,
+            new(Id: StoryResultId, JobId: JobId, FormatKey: "story", Status: "Rendered",
+                OutputJson: """{"title":"Story"}""", CompositionSpecJson: null,
                 RenderedAssetUri: null, InferredFieldsJson: null, PromptVersion: null,
                 ErrorCode: null, CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow),
         };

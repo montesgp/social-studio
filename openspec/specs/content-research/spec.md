@@ -14,11 +14,11 @@ Content research retrieves candidate high-performing content by client, niche, r
 - Single-content package generation MUST resolve a client from either the generation request or, when absent, the analysis record before invoking AI format generation.
 - Single-content package generation MUST allow the same analyzed video to be converted for multiple active clients in the organization; each output is scoped to the client selected at generation time.
 - Single-content package regeneration MAY include `regenerationObjection` text from the user; when provided, prompt context MUST include that correction and the backend MUST reject values longer than 1000 characters.
-- `manifest.json` MUST include `formats.<format_key>.publication.description` for `carousel` and `flyer` when that publication copy is generated.
+- `manifest.json` MUST include `formats.<format_key>.publication.description` for `carousel` and `story` when that publication copy is generated.
 - Single-content package generation prompts MUST include the resolved client's profile, active brand manual, strategy, current/latest monthly objective and KPIs, active referent accounts, and active competitor accounts.
 - Generated visual package assets MUST use explicit client brand palette and typography when present, falling back only for missing brand fields.
-- Generated flyer package assets MUST be a single 9:16 story PNG. If the active brand manual has a background template, the flyer MUST use that template; otherwise the system MUST create a branded background from the generated flyer direction and client context.
-- Generated flyer package assets MUST apply active brand manual notes that affect visuals, including required signatures or handles.
+- Generated story package assets MUST be a single 9:16 story PNG. If the active brand manual has a background template, the story MUST use that template; otherwise the system MUST create a branded background from the generated story direction and client context.
+- Generated story package assets MUST apply active brand manual notes that affect visuals, including required signatures or handles.
 - When a single-content analysis workflow offers client selection, selectable clients MUST be active and scoped to the resolved organization.
 - Client edit forms MUST keep unsaved child collection changes in frontend state until the user saves the client.
 - Referent accounts edited in the client form MUST be synchronized as a complete ordered list on client save, not persisted on each row add/edit/reorder action.
@@ -99,8 +99,8 @@ Content extraction uses per-platform Apify adapters. Supported platforms:
 - When the scraped thumbnail is missing or unavailable, the snapshot card MUST show a placeholder image and MUST NOT render the scraped description text block.
 - Instagram/CDN thumbnails returned by extraction providers MUST NOT be hotlinked directly from the browser; the frontend MUST use the local placeholder unless a backend-safe/proxied thumbnail URL is provided.
 - When the scraped title is missing or matches the scraped description, the snapshot card SHOULD prioritize a detected hook as the displayed title.
-- In the Single Analyzer convert panel, individual format generation actions (script/carousel/flyer) SHOULD be visually prioritized above the convert-all section.
-- In the Single Analyzer convert panel, "Convert to all formats" MUST request only the active formats visible on the screen (script, carousel, flyer).
+- In the Single Analyzer convert panel, individual format generation actions (script/carousel/story) SHOULD be visually prioritized above the convert-all section.
+- In the Single Analyzer convert panel, "Convert to all formats" MUST request only the active formats visible on the screen (script, carousel, story).
 - The `package.zip` action MUST be shown as a section-level conversion action and MUST package all formats already generated for the loaded analysis, grouped by client folder when multiple clients have generated outputs.
 
 ## Events
@@ -132,7 +132,7 @@ Content extraction uses per-platform Apify adapters. Supported platforms:
 - A CM sees a placeholder thumbnail (and no description text block) when the scraper does not provide a valid image.
 - A CM viewing an Instagram analysis does not trigger direct browser requests to Instagram/Facebook CDN thumbnail hosts.
 - A CM sees individual format conversion controls before convert-all controls in the convert panel.
-- A CM using "Convert to all formats" generates only script, carousel, and flyer while those are the active Single Analyzer formats.
+- A CM using "Convert to all formats" generates only script, carousel, and story while those are the active Single Analyzer formats.
 - A CM can download `package.zip` from a general conversion action, and that package includes all formats already generated for the analysis grouped by generated client.
 - A CM cannot submit analyze-by-URL with invalid/unsupported input from the analyzer UI.
 - When no AI integration is configured, the endpoint returns 422 with `code: "AI.NoProviderConfigured"`.

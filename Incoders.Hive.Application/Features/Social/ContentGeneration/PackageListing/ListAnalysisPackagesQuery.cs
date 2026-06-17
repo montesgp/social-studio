@@ -216,7 +216,7 @@ public sealed class ListAnalysisPackagesQueryHandler
     /// Examples:
     /// <list type="bullet">
     ///   <item><c>carousel/slide_1.png</c> → <c>carousel</c></item>
-    ///   <item><c>flyer.png</c> → <c>flyer</c></item>
+    ///   <item><c>story.png</c> → <c>story</c></item>
     ///   <item><c>reel-script.txt</c> → <c>reel-script</c></item>
     /// </list>
     /// </summary>

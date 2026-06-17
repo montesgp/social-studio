@@ -105,7 +105,7 @@ public sealed class ContentGenerationJobProcessor
         _guardrails = guardrails;
         // The designer makes an AI call from the render loop — OUTSIDE the orchestrator's
         // provider-call scope. Without an ambient ProviderCallContext the instrumentation
-        // decorator throws "ProviderCallContext.Current is null", failing every flyer/carousel.
+        // decorator throws "ProviderCallContext.Current is null", failing every story/carousel.
         // In production DI injects the scoped instance the decorator reads; the fallback only
         // keeps unit construction simple.
         _providerCallContext = providerCallContext ?? new ProviderCallContext();
@@ -272,7 +272,7 @@ public sealed class ContentGenerationJobProcessor
 
                 // WU-1 (B3 D1+D3): one editable composition envelope (validated markup + canvas +
                 // per-slot geometry + background data-URI) is captured PER successfully rendered
-                // slide and persisted in composition_spec_json. Single-asset formats (flyer) yield
+                // slide and persisted in composition_spec_json. Single-asset formats (story) yield
                 // one; carousel yields one per slide so every slide stays editable on export.
                 var capturedEnvelopes = new List<CompositionSpecEnvelope>();
 
@@ -292,7 +292,7 @@ public sealed class ContentGenerationJobProcessor
                     IReadOnlyList<SlotGeometryEntry> capturedGeometry = [];
                     string? capturedBackgroundDataUri = null;
 
-                    // Designer + guardrail stage for designed-raster formats (flyer, carousel).
+                    // Designer + guardrail stage for designed-raster formats (story, carousel).
                     // Text/markdown formats bypass entirely (spec.OutputKind != Raster means they
                     // are already text/markdown — the designer only applies to raster specs from
                     // designed formats).
@@ -368,7 +368,7 @@ public sealed class ContentGenerationJobProcessor
                         //   2. AI markup that passed guardrails → use the design.
                         //   3. Otherwise → deterministic brand-bound composition built from the copy
                         //      slots (Creative gradient). This is the resilience backstop that
-                        //      guarantees the flyer/carousel is produced for ANY model.
+                        //      guarantees the story/carousel is produced for ANY model.
                         var enforcedBackground = ResolveEnforcedBackground(selection);
                         string validatedMarkup;
                         if (enforcedBackground is not null)

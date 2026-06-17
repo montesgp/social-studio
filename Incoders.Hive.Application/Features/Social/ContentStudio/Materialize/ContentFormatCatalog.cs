@@ -16,7 +16,6 @@ public static class ContentFormatCatalog
     /// Returns the <see cref="ContentMedium"/> for the given format key.
     /// Catalog-known keys (and legacy "carousel") resolve via <see cref="FormatCatalog"/>;
     /// non-catalog variants fall back to the static classification below.
-    /// Note: "flyer" is intentionally absent — the Flyer format was removed.
     /// </summary>
     public static ContentMedium MediumFor(string formatKey)
     {

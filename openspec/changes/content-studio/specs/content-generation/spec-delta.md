@@ -28,16 +28,16 @@ This requirement does not add a new write path; it asserts that the already-pers
 
 #### Scenario: A completed run's formats are readable for materialization (CG-READ-01-a)
 
-- GIVEN a completed generation run that successfully produced `flyer`, `carousel`, and `reel-script`
+- GIVEN a completed generation run that successfully produced `story`, `carousel`, and `reel-script`
 - WHEN the per-format results are read for materialization
 - THEN each result exposes its `FormatKey`, rendered asset URI + MIME, and (for visual formats) its persisted designer markup
 - AND no AI composition or Chromium render is triggered by the read
 
 #### Scenario: A failed format is not exposed as a materializable result (CG-READ-01-b)
 
-- GIVEN a run where the `flyer` format failed before a rendered asset was persisted
+- GIVEN a run where the `story` format failed before a rendered asset was persisted
 - WHEN the per-format results are read for materialization
-- THEN the failed `flyer` format is not returned as a successful materializable result
+- THEN the failed `story` format is not returned as a successful materializable result
 - AND only successfully rendered formats are available to materialize
 
 ---

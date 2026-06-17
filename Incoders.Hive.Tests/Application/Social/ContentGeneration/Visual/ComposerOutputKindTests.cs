@@ -5,7 +5,7 @@ namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Visual;
 
 /// <summary>
 /// T1.3 TDD — asserts text format composers set OutputKind=Text and populate TextBody;
-/// raster composers (flyer, carousel) leave OutputKind=Raster.
+/// raster composers (story, carousel) leave OutputKind=Raster.
 /// Tested via the public <see cref="VisualCompositionService"/> API (composers are internal).
 /// </summary>
 public sealed class ComposerOutputKindTests
@@ -68,7 +68,7 @@ public sealed class ComposerOutputKindTests
     // ------------------------------------------------------------------
 
     [Fact]
-    public async Task FlyerComposer_Compose_OutputKindIsRaster()
+    public async Task StoryComposer_Compose_OutputKindIsRaster()
     {
         var service = new VisualCompositionService();
 

@@ -50,9 +50,9 @@ public sealed class FormatCatalogIntegrationTests
     }
 
     [Fact]
-    public void MediumFor_StoryCarousel_IsNotFlyerLiteral()
+    public void MediumFor_StoryCarousel_IsNotStoryLiteral()
     {
-        // Regression guard: "flyer" was removed; story-carousel must not fall through to unknown
+        // Regression guard: "story" was removed; story-carousel must not fall through to unknown
         var medium = ContentFormatCatalog.MediumFor("story-carousel");
 
         Assert.NotEqual(ContentMedium.Text, medium); // must be Visual, not unknown-text-fallback

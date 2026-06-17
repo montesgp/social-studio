@@ -103,7 +103,6 @@ public sealed class FormatCatalogTests
     [Theory]
     [InlineData("carousel")]
     [InlineData("feed-text")]
-    [InlineData("flyer")]
     [InlineData("story:single:image")]
     [InlineData("unknown-key")]
     [InlineData("")]

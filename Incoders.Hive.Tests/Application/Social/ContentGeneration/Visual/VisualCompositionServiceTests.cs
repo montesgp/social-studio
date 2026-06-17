@@ -64,7 +64,7 @@ public sealed class VisualCompositionServiceTests
         var payload = new StoryContent(
             "Grand Opening",
             "This week only",
-            "A flyer based on the selected idea.",
+            "A story based on the selected idea.",
             ["Brand-safe", "Story-ready"],
             "Book now",
             "Product-led branded background",

@@ -27,7 +27,7 @@ public sealed class VisualGuardrailValidatorTests
     private static VisualCompositionSpec BuildSpec(int width = 1080, int height = 1920) =>
         new(
             FormatKey: "story",
-            LayoutType: "story-flyer",
+            LayoutType: "story-story",
             Palette: new CompositionPalette("#FFFFFF", "#000000", "#0055FF", "#333333", "#F9FAFB"),
             Typography: new CompositionTypography("Inter", 32, "Roboto", 16),
             AssetSlots: new Dictionary<string, AssetSlotSpec>(),
@@ -55,7 +55,7 @@ public sealed class VisualGuardrailValidatorTests
 
     // -----------------------------------------------------------------------
     // VD-02 (advisory): Off-palette color does NOT block generation — render anyway.
-    // Product decision: the brand palette is a strong preference, not a hard gate. A flyer must
+    // Product decision: the brand palette is a strong preference, not a hard gate. A story must
     // always generate even if the AI deviates (e.g. white text for legibility).
     // -----------------------------------------------------------------------
 
@@ -238,7 +238,7 @@ public sealed class VisualGuardrailValidatorTests
     // -----------------------------------------------------------------------
     // VD-04 (robustness): the designer emits HTML, not XML. Render-valid HTML-isms that the
     // strict XmlDocument parser used to reject must NOT block generation. Regression tests for the
-    // intermittent `invalid-markup` flyer failures (Chromium renders all of these fine).
+    // intermittent `invalid-markup` story failures (Chromium renders all of these fine).
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -294,7 +294,7 @@ public sealed class VisualGuardrailValidatorTests
     {
         // GIVEN render-safe HTML with a CSS decorative character in an inline style.
         // XmlDocument rejects raw '<' inside attributes, but Chromium renders it; this exact
-        // parser strictness was blocking flyer generation after the visual designer succeeded.
+        // parser strictness was blocking story generation after the visual designer succeeded.
         var markup =
             """<div class="composition" style="width:1080px;height:1920px;"><div data-layer="background" style="background:#000000;"></div><div data-layer="content"><span class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;content:'<';">Hola</span></div></div>""";
 
@@ -308,7 +308,7 @@ public sealed class VisualGuardrailValidatorTests
     {
         // GIVEN a weaker model wraps the composition in a FULL HTML document — <!DOCTYPE>, <html>,
         // <head> and a class-based <style> block — exactly the production failure that hard-rejected
-        // the flyer even though Chromium renders this markup perfectly. The guardrail must validate
+        // the story even though Chromium renders this markup perfectly. The guardrail must validate
         // the composition subtree and ignore the document wrapper.
         var markup =
             """

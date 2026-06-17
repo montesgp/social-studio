@@ -11,7 +11,7 @@ public interface IVisualCompositionService
     /// <summary>
     /// Composes a visual spec for the given format, using brand data (with defaults for missing fields).
     /// </summary>
-    /// <param name="formatKey">The content format key (e.g. "carousel", "flyer").</param>
+    /// <param name="formatKey">The content format key (e.g. "carousel", "story").</param>
     /// <param name="generatedPayload">The format-specific generated content (deserialized JSON object or anonymous).</param>
     /// <param name="brand">The frozen brand snapshot for this job.</param>
     /// <param name="ct">Cancellation token.</param>

@@ -21,7 +21,7 @@ public sealed class HtmlChromiumContentRendererTests
     private static VisualCompositionSpec BuildHtmlSpec(string? designerMarkup = null, int w = 1080, int h = 1920) =>
         new VisualCompositionSpec(
             FormatKey: "story",
-            LayoutType: "story-flyer",
+            LayoutType: "story-story",
             Palette: new CompositionPalette("#111111", "#222222", "#3B82F6", "#FFFFFF", "#F9FAFB"),
             Typography: new CompositionTypography("Inter", 24, "Inter", 14),
             AssetSlots: new Dictionary<string, AssetSlotSpec>(),
@@ -55,7 +55,7 @@ public sealed class HtmlChromiumContentRendererTests
 
         var rasterSpec = new VisualCompositionSpec(
             FormatKey: "story",
-            LayoutType: "story-flyer",
+            LayoutType: "story-story",
             Palette: new CompositionPalette("#111", "#222", "#333", "#FFF", "#EEE"),
             Typography: new CompositionTypography("Inter", 24, "Inter", 14),
             AssetSlots: new Dictionary<string, AssetSlotSpec>(),

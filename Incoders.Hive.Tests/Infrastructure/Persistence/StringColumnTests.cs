@@ -5,7 +5,7 @@ namespace Incoders.Hive.Tests.Infrastructure.Persistence;
 /// <summary>
 /// Guards the persistence-boundary truncation that prevents Postgres
 /// <c>22001: value too long for type character varying(n)</c> from aborting a save and
-/// leaving the job stuck in "Running" (regression: flyer/carousel jobs never reached a
+/// leaving the job stuck in "Running" (regression: story/carousel jobs never reached a
 /// terminal status because the failure-reason write itself overflowed error_code(128)).
 /// </summary>
 public sealed class StringColumnTests

@@ -63,7 +63,7 @@ public sealed class IVisualDesignerContractTests
 
         var spec = new VisualCompositionSpec(
             FormatKey: "story",
-            LayoutType: "story-flyer",
+            LayoutType: "story-story",
             Palette: new CompositionPalette("#FFFFFF", "#000000", "#0055FF", "#333333", "#F9FAFB"),
             Typography: new CompositionTypography("Inter", 32, "Roboto", 16),
             AssetSlots: new Dictionary<string, AssetSlotSpec>(),

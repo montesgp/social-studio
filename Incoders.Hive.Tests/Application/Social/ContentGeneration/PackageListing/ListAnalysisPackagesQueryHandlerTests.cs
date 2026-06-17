@@ -185,7 +185,7 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
     {
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "story.png"),
+            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/story.png", "story.png"),
         };
 
         // Handler built for OrgId, but query uses OtherOrgId
@@ -222,7 +222,7 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
     {
         var rows = new List<FormatAssetRow>
         {
-            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/flyer.png", "story.png"),
+            MakeRow(ResultId1, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/story.png", "story.png"),
             MakeRow(ResultId2, 0, $"{OrgId}/{ClientId1}/{AnalysisId}/reel-script.txt", "reel-script.txt", "text/plain"),
             MakeRow(ResultId3, 1, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_1.png", "slide_1.png"),
             MakeRow(ResultId3, 2, $"{OrgId}/{ClientId1}/{AnalysisId}/carousel/slide_2.png", "slide_2.png"),
@@ -236,7 +236,7 @@ public sealed class ListAnalysisPackagesQueryHandlerTests
         Assert.True(result.IsSuccess);
         var client = Assert.Single(result.Value.Clients);
         Assert.Equal(ClientId1, client.ClientId);
-        Assert.Equal(3, client.Formats.Count); // flyer, reel-script, carousel
+        Assert.Equal(3, client.Formats.Count); // story, reel-script, carousel
         var carousel = client.Formats.Single(f => f.FormatKey == "carousel");
         Assert.Equal(2, carousel.Assets.Count);
     }

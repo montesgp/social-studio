@@ -30,7 +30,7 @@ public sealed record StoredAssetKey(
     Guid OrganizationId,
     Guid ClientId,
     Guid AnalysisId,
-    /// <summary>Relative path within the analysis folder, e.g. "flyer.png" or "carousel/slide_1.png".</summary>
+    /// <summary>Relative path within the analysis folder, e.g. "story.png" or "carousel/slide_1.png".</summary>
     string RelativePath);
 
 /// <summary>Binary content and MIME type for a storage PUT.</summary>

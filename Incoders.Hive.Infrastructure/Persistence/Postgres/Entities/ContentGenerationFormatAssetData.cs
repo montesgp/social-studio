@@ -21,7 +21,7 @@ public sealed class ContentGenerationFormatAssetData
     /// <summary>Full storage path: {orgId}/{clientId}/{analysisId}/[carousel/]filename</summary>
     public string StoragePath { get; set; } = string.Empty;
 
-    /// <summary>File name as stored in the bucket, e.g. "flyer.png" or "slide_1.png".</summary>
+    /// <summary>File name as stored in the bucket, e.g. "story.png" or "slide_1.png".</summary>
     public string Filename { get; set; } = string.Empty;
 
     /// <summary>MIME type of the stored asset, e.g. "image/png" or "text/plain; charset=utf-8".</summary>

@@ -104,7 +104,7 @@ public sealed class AiVisualDesignerTests
 
         var forcedDefaultSelection = new BackgroundSelection.ForcedDefault(
             Url: "https://cdn.example.com/forced-bg.png",
-            Name: "forced-flyer-bg");
+            Name: "forced-story-bg");
 
         await designer.ComposeAsync(OrgId, BuildSpec(), BuildBrand(), forcedDefaultSelection, CancellationToken.None);
 
@@ -154,7 +154,7 @@ public sealed class AiVisualDesignerTests
     private static VisualCompositionSpec BuildSpec() =>
         new VisualCompositionSpec(
             FormatKey: "story",
-            LayoutType: "story-flyer",
+            LayoutType: "story-story",
             Palette: new CompositionPalette("#111111", "#222222", "#3B82F6", "#FFFFFF", "#F9FAFB"),
             Typography: new CompositionTypography("Inter", 24, "Inter", 14),
             AssetSlots: new Dictionary<string, AssetSlotSpec>(),

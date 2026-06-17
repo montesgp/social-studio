@@ -73,7 +73,7 @@ public sealed class ContentGenerationBackgroundWorkerTests
 
         await harness.Processor.ProcessAsync(jobId, CancellationToken.None);
 
-        // Orchestrator must only have been asked for the missing format (flyer). Carousel's
+        // Orchestrator must only have been asked for the missing format (story). Carousel's
         // cached payload is reused — no extra Claude tokens.
         Assert.NotNull(harness.Orchestrator.LastRequest);
         Assert.Equal(["story"], harness.Orchestrator.LastRequest!.RequestedFormats);
@@ -354,7 +354,7 @@ file sealed class FakeOrchestrator : IContentGenerationOrchestrator
                         fmt switch
                         {
                             "carousel" => new { format = fmt, publicationDescription = "carousel publication description" },
-                            "story" => new { format = fmt, publicationDescription = "flyer publication description" },
+                            "story" => new { format = fmt, publicationDescription = "story publication description" },
                             _ => new { format = fmt }
                         },
                         "v1",

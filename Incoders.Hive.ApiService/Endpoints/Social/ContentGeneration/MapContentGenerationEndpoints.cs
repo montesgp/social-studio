@@ -70,7 +70,7 @@ public static class ContentGenerationEndpointsExtensions
 
         analyzerGroup.MapPost("/{analysisId:guid}/package/export-to-canva", ContentGenerationEndpointFacade.ExportPackageToCanvaAsync)
             .WithName("ExportPackageToCanva")
-            .WithSummary("Export the whole visual package (flyer + carousel slides) of a job to Canva as one editable multi-page design. Returns the Canva edit URL.")
+            .WithSummary("Export the whole visual package (story + carousel slides) of a job to Canva as one editable multi-page design. Returns the Canva edit URL.")
             .Produces<ExportFormatToCanvaResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -477,7 +477,7 @@ public static class ContentGenerationEndpointFacade
     /// <summary>
     /// POST /{analysisId}/package/export-to-canva
     ///
-    /// Exports the whole VISUAL package of a job (flyer + carousel slides) as one editable
+    /// Exports the whole VISUAL package of a job (story + carousel slides) as one editable
     /// multi-page Canva design, titled after the client. Same auth/error contract as the
     /// per-format export: 409 for not-connected/reconnect, 502 for Canva API failures.
     /// </summary>

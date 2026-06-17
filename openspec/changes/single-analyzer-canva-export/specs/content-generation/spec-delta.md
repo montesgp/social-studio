@@ -51,7 +51,7 @@ saved at render time.
 
 #### Scenario: Markup stored for every format in a multi-format job (PPTX-01-b)
 
-- GIVEN a content-generation job that renders two or more formats (e.g. flyer and carousel)
+- GIVEN a content-generation job that renders two or more formats (e.g. story and carousel)
 - WHEN all format results are persisted
 - THEN each successfully-rendered format result contains its own non-null markup
 
@@ -90,9 +90,9 @@ The downloaded file MUST use the MIME type
 
 #### Scenario: Slide dimensions match the source format (PPTX-02-c)
 
-- GIVEN a flyer format (portrait, e.g. 1080×1350 px) and a carousel format (square, e.g. 1080×1080 px)
+- GIVEN a story format (portrait, e.g. 1080×1350 px) and a carousel format (square, e.g. 1080×1080 px)
 - WHEN each is exported to PPTX
-- THEN the flyer `.pptx` slide has portrait dimensions matching the flyer canvas
+- THEN the story `.pptx` slide has portrait dimensions matching the story canvas
 - AND the carousel `.pptx` slide has square dimensions matching the carousel canvas
 - AND neither presentation uses a default widescreen (16:9) slide size
 

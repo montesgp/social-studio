@@ -214,7 +214,7 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
   // Conversion generation state
   const [generatedScripts, setGeneratedScripts] = useState<Record<string, string>>({});
   const [generatedCarousels, setGeneratedCarousels] = useState<Record<string, string[]>>({});
-  const [generatedFlyers, setGeneratedFlyers] = useState<Record<string, string>>({});
+  const [generatedStories, setGeneratedStories] = useState<Record<string, string>>({});
   const [generatingConversion, setGeneratingConversion] = useState<Record<string, "script" | "carousel" | "story">>({});
   const [cardPipelineRunning, setCardPipelineRunning] = useState<Record<string, boolean>>({});
 
@@ -790,10 +790,10 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
     });
   }
 
-  async function generateFlyer(resultId: string) {
+  async function generateStory(resultId: string) {
     setGeneratingConversion((prev) => ({ ...prev, [resultId]: "story" }));
     await sleep(1000);
-    setGeneratedFlyers((prev) => ({
+    setGeneratedStories((prev) => ({
       ...prev,
       [resultId]: `Headline: [Bold statement]\nSubtext: [Supporting detail]\nVisual: High-contrast image with brand colors\nCTA: [Action verb] + link in bio`
     }));
@@ -815,7 +815,7 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
       }
       if (type === "script") await generateScript(resultId);
       else if (type === "carousel") await generateCarousel(resultId);
-      else await generateFlyer(resultId);
+      else await generateStory(resultId);
     } finally {
       cardPipelineRef.current.delete(resultId);
       setCardPipelineRunning((prev) => {
@@ -1425,18 +1425,18 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
 
                     <div className="space-y-2">
                       <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                        Flyer concept
+                        Story concept
                       </p>
-                      {generatedFlyers[activeResultId ?? ""] ? (
+                      {generatedStories[activeResultId ?? ""] ? (
                         <div className="rounded-xl border border-border bg-background/40 p-3 text-sm whitespace-pre-line">
-                          {generatedFlyers[activeResultId ?? ""]}
+                          {generatedStories[activeResultId ?? ""]}
                         </div>
                       ) : (
                         <Button
                           size="sm"
                           variant="outline"
                           disabled={!!generatingConversion[activeResultId ?? ""]}
-                          onClick={() => activeResultId && void generateFlyer(activeResultId)}
+                          onClick={() => activeResultId && void generateStory(activeResultId)}
                         >
                           {generatingConversion[activeResultId ?? ""] === "story" ? (
                             <Loader2 className="h-4 w-4 animate-spin" />

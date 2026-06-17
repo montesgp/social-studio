@@ -292,7 +292,6 @@ public sealed class GenerateContentPackageCommandHandlerTests
     [Theory]
     [InlineData("carousel")]      // CRITICAL-2: bare carousel rejected at API
     [InlineData("feed-text")]
-    [InlineData("flyer")]
     [InlineData("story:single:image")]
     [InlineData("")]
     public async Task Handle_LegacyOrUnknownKey_ReturnsValidationError(string formatKey)
@@ -324,7 +323,6 @@ public sealed class GenerateContentPackageCommandHandlerTests
         Assert.Contains("feed-post", keys, StringComparer.OrdinalIgnoreCase);
         Assert.Contains("reel-script", keys, StringComparer.OrdinalIgnoreCase);
         Assert.DoesNotContain("carousel", keys, StringComparer.OrdinalIgnoreCase);
-        Assert.DoesNotContain("flyer", keys, StringComparer.OrdinalIgnoreCase);
     }
 
     // ─── Validation: unknown format key ──────────────────────────────────────

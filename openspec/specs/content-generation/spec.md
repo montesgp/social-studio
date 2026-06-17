@@ -5,7 +5,7 @@ Define capabilities, constraints, invariants, events, and acceptance criteria fo
 
 ## Capabilities
 - Compose visual content specs (reels, carousels, text cards, etc.) from brand snapshot and AI-generated content.
-- Produce visual deliverables as editable PPTX for flyer/carousel and Markdown for scripts.
+- Produce visual deliverables as editable PPTX for story/carousel and Markdown for scripts.
 - Use image files only as brand/manual background inputs or internal non-deliverable implementation details.
 - Package generated assets into downloadable archives (frozen-ZIP, assemble-on-demand).
 - Derive package folder names from client display names, sanitized for cross-OS compatibility.
@@ -34,13 +34,13 @@ Define capabilities, constraints, invariants, events, and acceptance criteria fo
 - Package-level "Send to Canva" must mirror the package download ready/disabled state.
 - Package downloads assembled from stored assets MUST always include `manifest.json` at the ZIP root.
 - Package downloads assembled from stored assets MUST organize deliverables as `{client-folder}/{format-folder}/{file}`.
-- Package downloads assembled from stored assets MUST deliver `flyer` and `carousel` as editable PPTX files, not PNG/JPG primary deliverables.
+- Package downloads assembled from stored assets MUST deliver `story` and `carousel` as editable PPTX files, not PNG/JPG primary deliverables.
 - Package downloads assembled from stored assets MUST deliver `reel-script` as `script/script.md`.
 - Package downloads assembled from stored assets MUST NOT include `editable-package.pptx` at the ZIP root.
 - If a client has an applicable background template for the requested visual format, that template MUST be hard-enforced as the PPTX background even if the AI proposes a different background.
 - If a client has no forced background template, the creative background may be generated from the client's brand manual and the AI proposal.
 - Package download and package-level "Send to Canva" actions MUST persist action counts/timestamps in the database.
-- Flyer visual generation must not fail solely because the visual designer emitted browser-renderable HTML that is stricter than XML.
+- Story visual generation must not fail solely because the visual designer emitted browser-renderable HTML that is stricter than XML.
 
 ---
 
@@ -52,12 +52,12 @@ The Package tab MUST render generated format files only from successful persiste
 job status, never from a generation request being merely queued. A failed job that produced no rendered
 asset MUST leave the package tree empty for that format.
 
-#### Scenario: Failed flyer generation does not show flyer.png
+#### Scenario: Failed story generation does not show story.png
 
-- GIVEN a single-analyzer generation job requested the `flyer` format
-- AND the job failed before a rendered flyer asset was persisted
+- GIVEN a single-analyzer generation job requested the `story` format
+- AND the job failed before a rendered story asset was persisted
 - WHEN the user opens the Package tab
-- THEN no `flyer` deliverable is shown under the client folder
+- THEN no `story` deliverable is shown under the client folder
 - AND the package download remains disabled until at least one format has succeeded
 
 ### Requirement: SAFETY-02 — Regeneration Locks After Two Failed Attempts
@@ -66,11 +66,11 @@ For each `(analysis, client, format)` scope, the system MUST count failed per-fo
 jobs. Once the count reaches `2`, new generation/regeneration requests for that format MUST be rejected
 by the backend and the frontend MUST disable the relevant regenerate controls with an explanatory hint.
 
-#### Scenario: Second failed flyer attempt locks regeneration
+#### Scenario: Second failed story attempt locks regeneration
 
-- GIVEN `flyer` generation failed once for an analysis/client pair
-- AND a subsequent `flyer` regeneration failed again for the same analysis/client pair
-- WHEN the user attempts to regenerate `flyer` a third time
+- GIVEN `story` generation failed once for an analysis/client pair
+- AND a subsequent `story` regeneration failed again for the same analysis/client pair
+- WHEN the user attempts to regenerate `story` a third time
 - THEN the backend rejects the request with a handled conflict error
 - AND the frontend disables the regenerate control
 - AND the frontend explains that regeneration is blocked to avoid burning AI tokens
@@ -124,11 +124,11 @@ at the ZIP root or directly inside the client folder.
 
 #### Scenario: Stored-asset package contains client-first manifest and format folders
 
-- GIVEN a client named `"Incoders"` has generated `flyer`, `carousel`, and `reel-script` formats
+- GIVEN a client named `"Incoders"` has generated `story`, `carousel`, and `reel-script` formats
 - AND the visual formats have persisted composition specs
 - WHEN the user downloads the assembled package
 - THEN the ZIP contains `manifest.json`
-- AND the ZIP contains `Incoders/flyer/flyer.pptx`
+- AND the ZIP contains `Incoders/story/story.pptx`
 - AND the ZIP contains `Incoders/carousel/slide_1.pptx`
 - AND the ZIP contains `Incoders/script/script.md`
 - AND the ZIP does not contain `editable-package.pptx` at the root
@@ -395,9 +395,9 @@ Persistence (`ClientBrandManualData` Postgres JSON column) MUST be additive: exi
 
 #### Scenario: New entry is created with explicit tier
 
-- GIVEN a brand manual update that sets a background entry with `Tier = ForcedDefault`, `FormatKey = "flyer"`, `IsFormatDefault = true`
+- GIVEN a brand manual update that sets a background entry with `Tier = ForcedDefault`, `FormatKey = "story"`, `IsFormatDefault = true`
 - WHEN the entry is persisted and reloaded
-- THEN the reloaded entry has `Tier = ForcedDefault`, `FormatKey = "flyer"`, and `IsFormatDefault = true`
+- THEN the reloaded entry has `Tier = ForcedDefault`, `FormatKey = "story"`, and `IsFormatDefault = true`
 
 #### Scenario: Legacy entry without tier field deserializes as Creative
 
@@ -422,20 +422,20 @@ The Domain aggregate `ClientBrandManual` MUST enforce the invariant: for any giv
 
 #### Scenario: First forced default for a format is accepted
 
-- GIVEN a brand manual with no existing ForcedDefault entry for `FormatKey = "flyer"`
-- WHEN an entry with `IsFormatDefault = true` and `FormatKey = "flyer"` is added
+- GIVEN a brand manual with no existing ForcedDefault entry for `FormatKey = "story"`
+- WHEN an entry with `IsFormatDefault = true` and `FormatKey = "story"` is added
 - THEN the operation succeeds and the entry is stored
 
 #### Scenario: Second forced default for the same format is rejected
 
-- GIVEN a brand manual that already has one entry with `IsFormatDefault = true` for `FormatKey = "flyer"`
-- WHEN a second entry with `IsFormatDefault = true` and `FormatKey = "flyer"` is added
+- GIVEN a brand manual that already has one entry with `IsFormatDefault = true` for `FormatKey = "story"`
+- WHEN a second entry with `IsFormatDefault = true` and `FormatKey = "story"` is added
 - THEN the operation returns a failed `Result` containing a domain error
 - AND the existing forced-default entry is unchanged
 
 #### Scenario: Two forced defaults for different formats are accepted
 
-- GIVEN a brand manual with one ForcedDefault entry for `FormatKey = "flyer"`
+- GIVEN a brand manual with one ForcedDefault entry for `FormatKey = "story"`
 - WHEN an entry with `IsFormatDefault = true` and `FormatKey = "carousel"` is added
 - THEN the operation succeeds
 - AND both entries are stored with their respective `IsFormatDefault = true`
@@ -460,16 +460,16 @@ The method MUST return a discriminated result type (`BackgroundSelection`) that 
 
 #### Scenario: Tier-1 forced default is returned without generation
 
-- GIVEN a brand snapshot with one entry: `Tier = ForcedDefault`, `FormatKey = "flyer"`, `IsFormatDefault = true`, `Url = "https://cdn.example.com/bg.png"`
-- WHEN `SelectBackgroundTemplate("flyer")` is called
+- GIVEN a brand snapshot with one entry: `Tier = ForcedDefault`, `FormatKey = "story"`, `IsFormatDefault = true`, `Url = "https://cdn.example.com/bg.png"`
+- WHEN `SelectBackgroundTemplate("story")` is called
 - THEN the result is `BackgroundSelection.ForcedDefault` carrying `Url = "https://cdn.example.com/bg.png"`
 - AND no generation flag is set and no external call is made
 
 #### Scenario: Tier-1 forced default is hard-enforced before render/export
 
-- GIVEN a client has a forced default background template for `flyer`
+- GIVEN a client has a forced default background template for `story`
 - AND the AI designer returns markup with a different generated background
-- WHEN the content generation pipeline renders the flyer
+- WHEN the content generation pipeline renders the story
 - THEN the background layer passed to rendering uses the forced brand-manual template URL
 - AND the AI-generated background layer is not used as the final background
 - AND text/content components remain available for editable PPTX export
@@ -478,29 +478,29 @@ The method MUST return a discriminated result type (`BackgroundSelection`) that 
 
 - GIVEN a brand snapshot with two entries both having `Tier = Reference`
 - AND no entry with `Tier = ForcedDefault`
-- WHEN `SelectBackgroundTemplate("flyer")` is called
+- WHEN `SelectBackgroundTemplate("story")` is called
 - THEN the result is `BackgroundSelection.References` carrying both reference entries
 
 #### Scenario: Legacy/default manual background is still treated as a template
 
 - GIVEN a brand snapshot with one background image entry whose `Tier = Creative`
 - AND the entry has no `FormatKey`
-- WHEN `SelectBackgroundTemplate("flyer")` is called
+- WHEN `SelectBackgroundTemplate("story")` is called
 - THEN the result is `BackgroundSelection.References` carrying that entry
 - AND the pipeline uses that manual image as the rendered background
 
 #### Scenario: Tier-3 creative is returned when no manual templates exist
 
 - GIVEN a brand snapshot with no background template entries
-- WHEN `SelectBackgroundTemplate("flyer")` is called
+- WHEN `SelectBackgroundTemplate("story")` is called
 - THEN the result is `BackgroundSelection.Creative`
 
 #### Scenario: Forced default for a different format does not match
 
 - GIVEN a brand snapshot with one ForcedDefault entry for `FormatKey = "carousel"`
-- WHEN `SelectBackgroundTemplate("flyer")` is called
+- WHEN `SelectBackgroundTemplate("story")` is called
 - THEN the result is NOT `BackgroundSelection.ForcedDefault`
-- AND the carousel forced default is not used for the flyer format
+- AND the carousel forced default is not used for the story format
 
 ---
 

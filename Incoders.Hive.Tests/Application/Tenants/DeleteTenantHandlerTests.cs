@@ -21,7 +21,7 @@ public sealed class DeleteTenantHandlerTests
             ClientIds: [clientId],
             UserIds: [userId],
             GeneratedPackageStorageUris: ["file:///tmp/org-package.zip"],
-            GeneratedAssetStoragePaths: [$"{organizationId}/{clientId}/analysis/flyer.png"]);
+            GeneratedAssetStoragePaths: [$"{organizationId}/{clientId}/analysis/story.png"]);
         var repository = new FakeHardDeleteRepository(deleteResult);
         var packageStorage = new SpyGeneratedPackageStorage();
         var assetStorage = new SpyGeneratedAssetStorage(
@@ -47,7 +47,7 @@ public sealed class DeleteTenantHandlerTests
         Assert.Equal(["file:///tmp/org-package.zip"], packageStorage.DeletedUris);
         Assert.Equal($"{organizationId}/", assetStorage.ListedPrefixes.Single());
         Assert.Equal(
-            [$"{organizationId}/{clientId}/analysis/flyer.png", $"{organizationId}/orphan/generated.png"],
+            [$"{organizationId}/{clientId}/analysis/story.png", $"{organizationId}/orphan/generated.png"],
             assetStorage.DeletedPaths.Order(StringComparer.Ordinal).ToArray());
         Assert.Equal([(organizationId, clientId)], clientAssetStorage.DeletedClientFolders);
     }

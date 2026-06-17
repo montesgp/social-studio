@@ -13,7 +13,7 @@ namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Export;
 
 /// <summary>
 /// Tests for <see cref="ExportPackageToCanvaCommandHandler"/> (B3 — package-level Send to Canva).
-/// The handler aggregates every VISUAL format of a job (flyer + each carousel slide) into ONE
+/// The handler aggregates every VISUAL format of a job (story + each carousel slide) into ONE
 /// multi-page PPTX, then imports it to Canva as a single editable design titled after the client.
 /// </summary>
 public sealed class ExportPackageToCanvaCommandHandlerTests
@@ -24,17 +24,17 @@ public sealed class ExportPackageToCanvaCommandHandlerTests
     private static readonly Guid JobId = Guid.NewGuid();
 
     [Fact]
-    public async Task Handle_AggregatesFlyerAndAllCarouselSlides_IntoOneMultiPageImport()
+    public async Task Handle_AggregatesStoryAndAllCarouselSlides_IntoOneMultiPageImport()
     {
-        // flyer = 1 editable envelope; carousel = 2 (one per slide) → 3 slides total.
-        var flyerJson = CompositionSpecJson.Serialize([Env("<div data-slot=\"h\">Flyer</div>")]);
+        // story = 1 editable envelope; carousel = 2 (one per slide) → 3 slides total.
+        var storyJson = CompositionSpecJson.Serialize([Env("<div data-slot=\"h\">Story</div>")]);
         var carouselJson = CompositionSpecJson.Serialize(
             [Env("<div data-slot=\"h\">Slide 1</div>"), Env("<div data-slot=\"h\">Slide 2</div>")]);
 
         var formatResults = new List<ContentGenerationFormatResult>
         {
             MakeFormatResult("carousel", carouselJson),
-            MakeFormatResult("story", flyerJson),
+            MakeFormatResult("story", storyJson),
             MakeFormatResult("reel-script", null), // text → no composition → excluded
         };
 
@@ -63,7 +63,7 @@ public sealed class ExportPackageToCanvaCommandHandlerTests
         Assert.Equal(new byte[] { 0x50, 0x4B }, import.LastPptxBytes);
         Assert.Equal(1, packageRepo.MarkSentToCanvaCalls);
         Assert.Equal(UserId, packageRepo.LastSentByUserId);
-        // flyer (1) + carousel (2) = 3 editable pages; reel-script excluded.
+        // story (1) + carousel (2) = 3 editable pages; reel-script excluded.
         Assert.Equal(3, pptx.LastEnvelopeCount);
     }
 
@@ -98,8 +98,8 @@ public sealed class ExportPackageToCanvaCommandHandlerTests
     [Fact]
     public async Task Handle_UserNotConnected_ReturnsNotConnected_AndDoesNotImport()
     {
-        var flyerJson = CompositionSpecJson.Serialize([Env("<div data-slot=\"h\">Flyer</div>")]);
-        var formatResults = new List<ContentGenerationFormatResult> { MakeFormatResult("story", flyerJson) };
+        var storyJson = CompositionSpecJson.Serialize([Env("<div data-slot=\"h\">Story</div>")]);
+        var formatResults = new List<ContentGenerationFormatResult> { MakeFormatResult("story", storyJson) };
 
         var import = new RecordingImportClient(
             Result.Success(new CanvaImportResult("d", "https://x", DateTimeOffset.UtcNow)));

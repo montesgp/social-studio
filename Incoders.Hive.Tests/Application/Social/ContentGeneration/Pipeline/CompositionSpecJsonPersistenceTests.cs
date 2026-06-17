@@ -486,7 +486,7 @@ file sealed class HtmlCompositionService(
     private VisualCompositionSpec BuildSpec(string fmtKey) =>
         new VisualCompositionSpec(
             FormatKey: fmtKey,
-            LayoutType: "story-flyer",
+            LayoutType: "story-story",
             Palette: new CompositionPalette("#111", "#222", "#333", "#FFF", "#EEE"),
             Typography: new CompositionTypography("Inter", 24, "Inter", 14),
             AssetSlots: new Dictionary<string, AssetSlotSpec>(),

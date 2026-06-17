@@ -40,7 +40,7 @@ public sealed class IGeneratedAssetStorageContractTests
     [Fact]
     public void StoredAssetRef_CanBeConstructed()
     {
-        var storagePath = "org-id/client-id/analysis-id/flyer.png";
+        var storagePath = "org-id/client-id/analysis-id/story.png";
         var assetRef = new StoredAssetRef(storagePath, "image/png", 1024L, "abc123hash");
 
         Assert.Equal(storagePath, assetRef.StoragePath);
@@ -51,7 +51,7 @@ public sealed class IGeneratedAssetStorageContractTests
     [Fact]
     public void StoredAssetEntry_CanBeConstructed()
     {
-        var entry = new StoredAssetEntry("org/client/analysis/flyer.png", "story.png", 2048, "image/png", DateTimeOffset.UtcNow, false);
+        var entry = new StoredAssetEntry("org/client/analysis/story.png", "story.png", 2048, "image/png", DateTimeOffset.UtcNow, false);
 
         Assert.False(entry.IsFolder);
         Assert.Equal("story.png", entry.Name);

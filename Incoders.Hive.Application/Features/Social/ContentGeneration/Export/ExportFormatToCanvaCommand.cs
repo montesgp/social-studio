@@ -23,7 +23,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Export;
 /// <para>Spec: CANVA-EXPORT-01 (edit URL), CANVA-EXPORT-02 (not connected → handled), CANVA-EXPORT-03 (API failures).</para>
 /// </summary>
 /// <param name="JobId">The content-generation job that produced the format.</param>
-/// <param name="FormatKey">The format key (e.g. "carousel", "flyer").</param>
+/// <param name="FormatKey">The format key (e.g. "carousel", "story").</param>
 /// <param name="OrganizationId">Tenant scope — cross-org job ids return NotFound.</param>
 /// <param name="OrganizationIntegrationId">The org-level Canva integration row id used to look up the per-user token.</param>
 /// <param name="UserId">The authenticated user requesting the export.</param>

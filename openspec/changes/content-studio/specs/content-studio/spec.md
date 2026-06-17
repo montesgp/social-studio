@@ -104,7 +104,7 @@ The system MUST provide a materializer that, given a completed generation run (`
 
 #### Scenario: First materialization creates a set of items
 
-- GIVEN a completed Single Analyzer run that produced `flyer`, `carousel`, and `reel-script`
+- GIVEN a completed Single Analyzer run that produced `story`, `carousel`, and `reel-script`
 - WHEN the run is materialized
 - THEN a `ContentSet` of kind `GenerationRun` is created for that run
 - AND it contains exactly one `ContentItem` per produced format, each in state `Draft`

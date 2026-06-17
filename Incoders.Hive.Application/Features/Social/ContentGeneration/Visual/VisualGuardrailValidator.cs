@@ -16,7 +16,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 ///   3. Typography  — fonts SHOULD be in the brand allow-list. ADVISORY (logged, never blocks).
 ///   4. Overflow    — static heuristic: char-count estimate vs data-max-lines per slot. HARD.
 ///
-/// Product decision: the brand palette/typography are strong preferences, not gates — a flyer must
+/// Product decision: the brand palette/typography are strong preferences, not gates — a story must
 /// always generate even if the AI's design deviates (e.g. white text for legibility). Only the HARD
 /// steps (a structurally invalid markup or text that won't fit the canvas) stop the render; the
 /// SOFT steps are logged for observability and otherwise allowed through.
@@ -53,7 +53,7 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
     {
         // Structural + text tags the designer legitimately uses. Kept deliberately small, but it
         // must cover the common, render-safe HTML the LLM emits (line breaks, emphasis, headings,
-        // ordered lists) — otherwise a perfectly renderable flyer is hard-rejected as invalid markup.
+        // ordered lists) — otherwise a perfectly renderable story is hard-rejected as invalid markup.
         "div", "h1", "h2", "h3", "h4", "p", "span", "img",
         "ul", "ol", "li", "br", "strong", "em", "b", "i", "u", "small"
     };

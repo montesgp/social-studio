@@ -275,7 +275,7 @@ file sealed class AlwaysPassGuardrails : IVisualGuardrailValidator
         Result.Success(output.WithValidated());
 }
 
-/// <summary>Composition service that returns an Html spec for designed formats (flyer/carousel).</summary>
+/// <summary>Composition service that returns an Html spec for designed formats (story/carousel).</summary>
 file sealed class HtmlCompositionService(string designedFormat) : IVisualCompositionService
 {
     private static readonly CompositionPalette DefaultPalette = new("#333", "#666", "#999", "#FFF", "#EEE");
@@ -301,7 +301,7 @@ file sealed class HtmlCompositionService(string designedFormat) : IVisualComposi
 
         return new VisualCompositionSpec(
             FormatKey: formatKey,
-            LayoutType: "story-flyer",
+            LayoutType: "story-story",
             Palette: DefaultPalette,
             Typography: DefaultTypo,
             AssetSlots: new Dictionary<string, AssetSlotSpec>(),

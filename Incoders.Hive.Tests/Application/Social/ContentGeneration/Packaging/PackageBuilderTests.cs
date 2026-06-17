@@ -58,7 +58,7 @@ public sealed class PackageBuilderTests
             PublicationByFormat: new Dictionary<string, PublicationMetadata>
             {
                 ["carousel"] = new("Carousel publication description"),
-                ["story"] = new("Flyer publication description"),
+                ["story"] = new("Story publication description"),
             });
 
         var result = await builder.BuildAsync(input, CancellationToken.None);
@@ -72,7 +72,7 @@ public sealed class PackageBuilderTests
             "Carousel publication description",
             result.Manifest.Formats["carousel"].Publication?.Description);
         Assert.Equal(
-            "Flyer publication description",
+            "Story publication description",
             result.Manifest.Formats["story"].Publication?.Description);
     }
 

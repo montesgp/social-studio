@@ -18,7 +18,7 @@ public sealed class DeleteSocialClientHandlerTests
             OrganizationId: organizationId,
             ClientName: "Garbage client",
             GeneratedPackageStorageUris: ["file:///tmp/package.zip"],
-            GeneratedAssetStoragePaths: ["org/client/analysis/flyer.png"]);
+            GeneratedAssetStoragePaths: ["org/client/analysis/story.png"]);
         var repository = new FakeHardDeleteRepository(deleteResult);
         var packageStorage = new SpyGeneratedPackageStorage();
         var assetStorage = new SpyGeneratedAssetStorage();
@@ -39,7 +39,7 @@ public sealed class DeleteSocialClientHandlerTests
         Assert.Equal("Garbage client", result.Value.Name);
         Assert.Equal(1, unitOfWork.SaveChangesCalls);
         Assert.Equal(["file:///tmp/package.zip"], packageStorage.DeletedUris);
-        Assert.Equal(["org/client/analysis/flyer.png"], assetStorage.DeletedPaths);
+        Assert.Equal(["org/client/analysis/story.png"], assetStorage.DeletedPaths);
         Assert.Equal([(organizationId, clientId)], clientAssetStorage.DeletedClientFolders);
     }
 

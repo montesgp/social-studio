@@ -165,7 +165,7 @@ public static class FormatCatalog
     /// <summary>
     /// Returns the definition for a CANONICAL format key, or null if the key is
     /// not a canonical catalog entry. This method has NO alias awareness:
-    /// it returns null for "carousel", "flyer", "feed-text", and any other
+    /// it returns null for "carousel", "feed-text", and any other
     /// legacy or invalid key (SCENARIO-03).
     /// </summary>
     public static FormatDefinition? TryGet(string formatKey) =>

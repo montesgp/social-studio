@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 
 /// <summary>
-/// Serialization helper for <c>composition_spec_json</c>. A single-asset format (e.g. flyer) stores
+/// Serialization helper for <c>composition_spec_json</c>. A single-asset format (e.g. story) stores
 /// ONE envelope; a multi-asset format (carousel) stores ONE envelope PER slide so every slide stays
 /// editable on export. To stay backward-compatible with rows written before multi-slide support,
 /// a single envelope is serialized as a JSON object and many as a JSON array; the parser accepts

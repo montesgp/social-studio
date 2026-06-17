@@ -28,7 +28,7 @@ public sealed class PptxExportAdapterTests
     [Fact]
     public async Task BuildAsync_SingleAsset_ProducesOneSlidePart()
     {
-        var envelope = StubMarkupBuilder.BuildFlyerEnvelope();
+        var envelope = StubMarkupBuilder.BuildStoryEnvelope();
 
         var result = await Adapter.BuildAsync(envelope, CancellationToken.None);
 
@@ -73,7 +73,7 @@ public sealed class PptxExportAdapterTests
         // Canva's Design Import rejects schema-invalid PPTX with an opaque "internal_error". Guard the
         // structural contract that PowerPoint silently repairs but Canva does not: zero OpenXML
         // schema-validation errors AND a theme attached to the slide master.
-        var env = StubMarkupBuilder.BuildFlyerEnvelope();
+        var env = StubMarkupBuilder.BuildStoryEnvelope();
         var result = await Adapter.BuildAsync(env, CancellationToken.None);
         Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
 
@@ -139,11 +139,11 @@ public sealed class PptxExportAdapterTests
     // ------------------------------------------------------------------
 
     [Fact]
-    public async Task BuildAsync_SlideSize_MatchesFlyerCanvasInEmu()
+    public async Task BuildAsync_SlideSize_MatchesStoryCanvasInEmu()
     {
         // 1080×1920 at 96 dpi → 9525 EMU/px (914400 EMU/inch ÷ 96 dpi = 9525 exactly)
         // 1080 × 9525 = 10287000 EMU;  1920 × 9525 = 18288000 EMU
-        var envelope = StubMarkupBuilder.BuildFlyerEnvelope();
+        var envelope = StubMarkupBuilder.BuildStoryEnvelope();
 
         var result = await Adapter.BuildAsync(envelope, CancellationToken.None);
         Assert.True(result.IsSuccess);
@@ -180,7 +180,7 @@ public sealed class PptxExportAdapterTests
     [Fact]
     public async Task BuildAsync_DataSlot_ProducesEditableTextBox()
     {
-        var envelope = StubMarkupBuilder.BuildFlyerEnvelope();
+        var envelope = StubMarkupBuilder.BuildStoryEnvelope();
 
         var result = await Adapter.BuildAsync(envelope, CancellationToken.None);
         Assert.True(result.IsSuccess);
@@ -196,7 +196,7 @@ public sealed class PptxExportAdapterTests
     [Fact]
     public async Task BuildAsync_DataSlot_TextContentMatchesMarkup()
     {
-        var envelope = StubMarkupBuilder.BuildFlyerEnvelope();
+        var envelope = StubMarkupBuilder.BuildStoryEnvelope();
 
         var result = await Adapter.BuildAsync(envelope, CancellationToken.None);
         Assert.True(result.IsSuccess);
@@ -260,7 +260,7 @@ public sealed class PptxExportAdapterTests
         const double expectedWPx = 900;
         const double expectedHPx = 80;
 
-        var envelope = StubMarkupBuilder.BuildFlyerEnvelope();
+        var envelope = StubMarkupBuilder.BuildStoryEnvelope();
 
         var result = await Adapter.BuildAsync(envelope, CancellationToken.None);
         Assert.True(result.IsSuccess);
@@ -293,7 +293,7 @@ public sealed class PptxExportAdapterTests
     [Fact]
     public async Task BuildAsync_TextBox_FontAndColorMatchGeometry()
     {
-        var envelope = StubMarkupBuilder.BuildFlyerEnvelope();
+        var envelope = StubMarkupBuilder.BuildStoryEnvelope();
 
         var result = await Adapter.BuildAsync(envelope, CancellationToken.None);
         Assert.True(result.IsSuccess);
@@ -323,7 +323,7 @@ public sealed class PptxExportAdapterTests
     [Fact]
     public async Task BuildAsync_Background_ProducesPicturePart()
     {
-        var envelope = StubMarkupBuilder.BuildFlyerEnvelope(); // has backgroundImageRef
+        var envelope = StubMarkupBuilder.BuildStoryEnvelope(); // has backgroundImageRef
 
         var result = await Adapter.BuildAsync(envelope, CancellationToken.None);
         Assert.True(result.IsSuccess);
@@ -336,7 +336,7 @@ public sealed class PptxExportAdapterTests
     [Fact]
     public async Task BuildAsync_NoBackground_ProducesNoImagePart()
     {
-        var envelope = StubMarkupBuilder.BuildFlyerEnvelopeNoBackground(); // null backgroundImageRef
+        var envelope = StubMarkupBuilder.BuildStoryEnvelopeNoBackground(); // null backgroundImageRef
 
         var result = await Adapter.BuildAsync(envelope, CancellationToken.None);
         Assert.True(result.IsSuccess);
@@ -382,7 +382,7 @@ public sealed class PptxExportAdapterTests
     [Fact]
     public async Task BuildAsync_Deterministic_SameInputProducesStructurallyIdenticalOutput()
     {
-        var envelope = StubMarkupBuilder.BuildFlyerEnvelope();
+        var envelope = StubMarkupBuilder.BuildStoryEnvelope();
 
         var result1 = await Adapter.BuildAsync(envelope, CancellationToken.None);
         var result2 = await Adapter.BuildAsync(envelope, CancellationToken.None);

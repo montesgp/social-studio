@@ -3610,7 +3610,7 @@ function PackageTabContent({
                       </span>
                     </div>
                     {/* Deliverable files are shown as the downloadable package contract, not the
-                        stored render-preview asset rows. Flyer/carousel are editable PPTX; script is MD. */}
+                        stored render-preview asset rows. Story/carousel are editable PPTX; script is MD. */}
                     {files.map((filename) => (
                       <div key={filename} className="pl-12 flex items-center gap-1.5 py-0.5">
                         <FileText className="h-3.5 w-3.5 text-violet-400 shrink-0" />
