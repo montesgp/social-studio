@@ -3568,8 +3568,9 @@ function PackageTabContent({
 
   return (
     <div className="flex flex-col gap-4 py-2">
-      {/* File tree */}
-      <div className="rounded-lg border border-border/40 bg-muted/20 p-3 space-y-1">
+      {/* File tree — capped height with its own scroll so the last generated file stays reachable
+          when several formats/clients are present instead of being clipped off the bottom. */}
+      <div className="max-h-[60vh] overflow-y-auto rounded-lg border border-border/40 bg-muted/20 p-3 space-y-1">
         <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wide mb-2">
           Package contents
         </p>

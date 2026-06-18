@@ -1175,7 +1175,9 @@ function InstagramPost({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm md:flex md:items-stretch">
+      {/* Cap the post width like Instagram web (image ~470px + sidebar) so the preview fits the
+          viewport height instead of growing to the full panel width and forcing a vertical scroll. */}
+      <div className="mx-auto w-full max-w-[840px] overflow-hidden rounded-xl border border-border bg-background shadow-sm md:flex md:items-stretch">
         {/* Media (editable design) */}
         <div className="relative flex min-w-0 flex-1 items-start justify-center bg-black">
           <div className="relative w-full">
