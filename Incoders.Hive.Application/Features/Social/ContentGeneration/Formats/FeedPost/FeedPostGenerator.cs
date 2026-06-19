@@ -17,7 +17,7 @@ public sealed class FeedPostGenerator : FormatContentGeneratorBase<FeedPostConte
         ILogger<FeedPostGenerator>? logger = null)
         : base(aiGateway, providerCallContext, logger) { }
 
-    public override string FormatKey => "feed-post";
+    public override string FormatKey => "feed-single";
     public override string PromptVersion => ContentGenerationPromptVersions.FeedPost;
 
     protected override string BuildPromptJson(GenerationContext ctx)
@@ -26,13 +26,14 @@ public sealed class FeedPostGenerator : FormatContentGeneratorBase<FeedPostConte
         {
             instruction = "Generate branded feed post content. " +
                           GenerationPromptContext.BrandConstraint + " " +
+                          AttributionPolicy.PromptConstraint + " " +
                           "Respect the primary derived idea and make layout/copy decisions from the client context. " +
                           "The feed post is a single static image for the social media feed (not ephemeral). " +
                           "If the active brand manual includes backgroundTemplates, use them as the visual base and write copy that fits over that template. " +
                           "If it has no background template, resolve a concise backgroundPrompt for a branded AI-created background. " +
-                          "Apply any manual notes such as required signatures or handles in signatureText. " +
+                          "Use signatureText only for allowed target-client/brand attribution. " +
                           "Respond with ONLY raw JSON.",
-            format = "feed-post",
+            format = "feed-single",
             analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis, ctx.RegenerationObjection),
             clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
             expectedOutput = new

@@ -34,7 +34,7 @@ Define capabilities, constraints, invariants, events, and acceptance criteria fo
 - Package-level "Send to Canva" must mirror the package download ready/disabled state.
 - Package downloads assembled from stored assets MUST always include `manifest.json` at the ZIP root.
 - Package downloads assembled from stored assets MUST organize deliverables as `{client-folder}/{format-folder}/{file}`.
-- Package downloads assembled from stored assets MUST deliver `story` and `carousel` as editable PPTX files, not PNG/JPG primary deliverables.
+- Package downloads assembled from stored assets MUST deliver `story-single`, `story-carousel`, `feed-single`, and `feed-carousel` as editable PPTX files, not PNG/JPG primary deliverables.
 - Package downloads assembled from stored assets MUST deliver `reel-script` as `script/script.md`.
 - Package downloads assembled from stored assets MUST NOT include `editable-package.pptx` at the ZIP root.
 - If a client has an applicable background template for the requested visual format, that template MUST be hard-enforced as the PPTX background even if the AI proposes a different background.
@@ -54,10 +54,10 @@ asset MUST leave the package tree empty for that format.
 
 #### Scenario: Failed story generation does not show story.png
 
-- GIVEN a single-analyzer generation job requested the `story` format
+- GIVEN a single-analyzer generation job requested the `story-single` format
 - AND the job failed before a rendered story asset was persisted
 - WHEN the user opens the Package tab
-- THEN no `story` deliverable is shown under the client folder
+- THEN no `story-single` deliverable is shown under the client folder
 - AND the package download remains disabled until at least one format has succeeded
 
 ### Requirement: SAFETY-02 — Regeneration Locks After Two Failed Attempts
@@ -68,9 +68,9 @@ by the backend and the frontend MUST disable the relevant regenerate controls wi
 
 #### Scenario: Second failed story attempt locks regeneration
 
-- GIVEN `story` generation failed once for an analysis/client pair
-- AND a subsequent `story` regeneration failed again for the same analysis/client pair
-- WHEN the user attempts to regenerate `story` a third time
+- GIVEN `story-single` generation failed once for an analysis/client pair
+- AND a subsequent `story-single` regeneration failed again for the same analysis/client pair
+- WHEN the user attempts to regenerate `story-single` a third time
 - THEN the backend rejects the request with a handled conflict error
 - AND the frontend disables the regenerate control
 - AND the frontend explains that regeneration is blocked to avoid burning AI tokens
@@ -124,12 +124,12 @@ at the ZIP root or directly inside the client folder.
 
 #### Scenario: Stored-asset package contains client-first manifest and format folders
 
-- GIVEN a client named `"Incoders"` has generated `story`, `carousel`, and `reel-script` formats
+- GIVEN a client named `"Incoders"` has generated `story-single`, `story-carousel`, and `reel-script` formats
 - AND the visual formats have persisted composition specs
 - WHEN the user downloads the assembled package
 - THEN the ZIP contains `manifest.json`
-- AND the ZIP contains `Incoders/story/story.pptx`
-- AND the ZIP contains `Incoders/carousel/slide_1.pptx`
+- AND the ZIP contains `Incoders/story-single/story-single.pptx`
+- AND the ZIP contains `Incoders/story-carousel/slide_1.pptx`
 - AND the ZIP contains `Incoders/script/script.md`
 - AND the ZIP does not contain `editable-package.pptx` at the root
 - AND `manifest.json` includes the generated publication description when present
@@ -467,7 +467,7 @@ The method MUST return a discriminated result type (`BackgroundSelection`) that 
 
 #### Scenario: Tier-1 forced default is hard-enforced before render/export
 
-- GIVEN a client has a forced default background template for `story`
+- GIVEN a client has a forced default background template for `story-single`
 - AND the AI designer returns markup with a different generated background
 - WHEN the content generation pipeline renders the story
 - THEN the background layer passed to rendering uses the forced brand-manual template URL
@@ -638,14 +638,14 @@ Valid API write keys (accepted by `POST /api/social/content-generation/packages`
 | FormatKey | Surface | Layout | Medium | Channel | IsMultiAsset |
 |---|---|---|---|---|---|
 | reel-script | Script | — | Text | instagram/reel | false |
-| story | Story | Single | Image | instagram/story | false |
+| story-single | Story | Single | Image | instagram/story | false |
 | story-carousel | Story | Carousel | Image | instagram/story | true |
-| feed-post | Feed | Single | Image | instagram/feed | false |
+| feed-single | Feed | Single | Image | instagram/feed | false |
 | feed-carousel | Feed | Carousel | Image | instagram/feed | true |
 
 Plus auxiliaries: content-idea, cta-variation, caption, hook (Text medium; included in API whitelist, excluded from frontend picker).
 
-The legacy key `"carousel"` is NOT a valid write key. It is a read-only alias resolved on the assemble path only.
+The legacy keys `"story"` and `"feed-post"` are normalized to `"story-single"` and `"feed-single"` on write for compatibility, but new UI requests MUST emit the canonical keys. Existing single-format rows/assets using the legacy keys remain read-compatible. The legacy key `"carousel"` is NOT a valid write key. It is a read-only alias resolved on the assemble path only.
 
 ### Catalog Endpoint
 
@@ -654,7 +654,7 @@ The legacy key `"carousel"` is NOT a valid write key. It is a read-only alias re
 ```json
 {
   "entries": [
-    { "formatKey": "story", "surface": "Story", "layout": "Single", "medium": "Image",
+    { "formatKey": "story-single", "surface": "Story", "layout": "Single", "medium": "Image",
       "displayLabel": "Story", "isMultiAsset": false, "isAuxiliary": false },
     ...
   ]
@@ -662,6 +662,10 @@ The legacy key `"carousel"` is NOT a valid write key. It is a read-only alias re
 ```
 
 The frontend format picker is driven by this endpoint (3 root buttons: Script / Story / Feed; Single↔Carousel toggle for Story+Feed).
+
+### Requirement: Attribution Guardrail
+
+Prompt generators MUST state that source-origin identity (source author, URL, channel, referent accounts, and competitor accounts) is inspiration/metadata only and must never become target attribution/signature. Visual composers MUST prefer deterministic target-client/brand attribution and reject model-provided signatures that match referent or competitor account handles, labels, or URLs.
 
 ### Requirement: FMT-01 — Catalog Is the Single Source of Truth
 

@@ -122,7 +122,7 @@ public sealed class FormatCatalogExtensibilityTests
             .Select(d => d.FormatKey)
             .ToList();
 
-        Assert.Contains("story",          storyFormats);
+        Assert.Contains("story-single",   storyFormats);
         Assert.Contains("story-carousel", storyFormats);
         Assert.Contains("story-video",    storyFormats);
         Assert.Equal(3, storyFormats.Count);

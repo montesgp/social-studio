@@ -153,6 +153,21 @@ public sealed class CarouselGeneratorTests
         Assert.Contains("Adjust the hook to remove exaggerated claims.", gateway.LastRequest.InputJson);
     }
 
+    [Fact]
+    public async Task GenerateAsync_PromptIncludesAttributionGuardrail()
+    {
+        var carousel = BuildValidCarousel();
+        var gateway = new SucceedingGateway<CarouselContent>(carousel);
+        var providerCallContext = BeginContext(OrgId, ClientId, CorrelationId);
+        var generator = new CarouselGenerator(gateway, providerCallContext);
+
+        await generator.GenerateAsync(BuildContext(), CancellationToken.None);
+
+        Assert.NotNull(gateway.LastRequest);
+        Assert.Contains("Source-origin identity", gateway.LastRequest!.InputJson);
+        Assert.Contains("Final attribution must belong only to the target client/brand", gateway.LastRequest.InputJson);
+    }
+
     // -------------------------------------------------------------------
     // Task 2c: AI provider failure → Status=failed with provider reason
     // -------------------------------------------------------------------

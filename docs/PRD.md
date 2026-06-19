@@ -91,12 +91,14 @@ The content generation step (step 7 in the MVP Success Path) presents the user w
 
 The resolved selections map to these five catalog keys:
 - Script → `reel-script`
-- Story + Single → `story`
+- Story + Single → `story-single`
 - Story + Carousel → `story-carousel`
-- Feed + Single → `feed-post`
+- Feed + Single → `feed-single`
 - Feed + Carousel → `feed-carousel`
 
-**No schema migration required**: the `format_key` column remains string-based; the taxonomy lives entirely in the C# catalog. Legacy `carousel` keys in existing rows continue to assemble correctly via the read-path alias layer.
+**No schema migration required**: the `format_key` column remains string-based; the taxonomy lives entirely in the C# catalog. Legacy `story`, `feed-post`, and `carousel` keys in existing rows continue to assemble correctly via the read-path alias layer.
+
+**Attribution safety**: source authors, URLs, channels, referent accounts, and competitor accounts are analysis inspiration/metadata only. Generated deliverables must use target-client/brand attribution, never source-origin signatures.
 
 **Extensibility**: adding a future video format (e.g. Story + Video) requires one catalog row plus a generator/composer registration. No changes to the axis types, catalog API, or derive/normalize layer are needed.
 

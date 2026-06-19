@@ -168,6 +168,7 @@ public static class DependencyInjection
         services.AddScoped<IContentGenerationFailurePolicy, EfContentGenerationFailurePolicy>();
         services.AddScoped<IGeneratedPackageRepository, EfGeneratedPackageRepository>();
         services.AddScoped<IContentGenerationFormatAssetRepository, EfContentGenerationFormatAssetRepository>();
+        services.AddScoped<ILegacyPackageReconstructor, EfLegacyPackageReconstructor>();
         // Per-platform Apify scrape adapters (ISocialPlatformScrapeAdapter)
         services.AddScoped<ISocialPlatformScrapeAdapter, TikTokApifyScrapeAdapter>();
         services.AddScoped<ISocialPlatformScrapeAdapter, InstagramApifyScrapeAdapter>();

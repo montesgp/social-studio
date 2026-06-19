@@ -12,8 +12,8 @@ What a community manager (CM) sees when downloading a generated content package,
 1. Run a single-content analysis and select a client.
 2. Generate the desired formats from the convert panel.
    - **Script** → `reel-script`
-   - **Story** (Single) → `story` · **Story Carousel** → `story-carousel`
-   - **Feed Post** (Single) → `feed-post` · **Feed Carousel** → `feed-carousel`
+   - **Story** (Single) → `story-single` · **Story Carousel** → `story-carousel`
+   - **Feed Post** (Single) → `feed-single` · **Feed Carousel** → `feed-carousel`
 3. Click **package.zip** to assemble and download all generated formats at once.
 4. Open the ZIP — find each client's assets in a folder named after the client's display name.
 
@@ -24,14 +24,14 @@ What a community manager (CM) sees when downloading a generated content package,
 | Format key | Display name | File / folder inside ZIP |
 |---|---|---|
 | `reel-script` | Script | `{client}/script/script.md` |
-| `story` | Story | `{client}/story/story.pptx` |
+| `story-single` | Story | `{client}/story-single/story-single.pptx` |
 | `story-carousel` | Story · Carousel | `{client}/story-carousel/slide_1.pptx`, `slide_2.pptx`, … |
-| `feed-post` | Feed Post | `{client}/feed-post/feed-post.pptx` |
+| `feed-single` | Feed Single | `{client}/feed-single/feed-single.pptx` |
 | `feed-carousel` | Feed · Carousel | `{client}/feed-carousel/slide_1.pptx`, `slide_2.pptx`, … |
 | `caption` / `hook` / etc. | Auxiliaries | `{client}/{key}/{key}.txt` |
 
-Visual formats (story, story-carousel, feed-post, feed-carousel) are delivered as editable PPTX files.
-The legacy key `"carousel"` is no longer accepted for new generation requests; existing stored packages with `format_key = 'carousel'` continue to assemble correctly.
+Visual formats (story-single, story-carousel, feed-single, feed-carousel) are delivered as editable PPTX files.
+Legacy keys `"story"` and `"feed-post"` are read aliases for existing rows/assets. The legacy key `"carousel"` is no longer accepted for new generation requests; existing stored packages with `format_key = 'carousel'` continue to assemble correctly.
 
 **Reel script format.** The `reel-script.md` file contains newline-separated scene blocks. Each scene starts with a bold Markdown timestamp (`**0:00**`), followed by voiceover and on-screen text. Emojis in AI-generated text are preserved verbatim. A hook line opens the script and a CTA line closes it.
 

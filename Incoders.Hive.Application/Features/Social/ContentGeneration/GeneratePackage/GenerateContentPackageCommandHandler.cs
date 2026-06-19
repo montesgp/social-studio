@@ -72,8 +72,15 @@ public sealed class GenerateContentPackageCommandHandler
                 ContentGenerationErrors.EmptyFormats);
         }
 
-        // Validate: all formats are from the known whitelist
-        var unknownFormats = command.RequestedFormats
+        var normalizedRequestedFormats = command.RequestedFormats
+            .Select(NormalizeWriteFormatKey)
+            .Select(format => format.Trim().ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Validate: all formats are from the known whitelist. Legacy single keys are normalized
+        // above for compatibility; legacy "carousel" remains rejected on new writes.
+        var unknownFormats = normalizedRequestedFormats
             .Where(f => !KnownFormatKeys.Contains(f))
             .ToList();
 
@@ -101,11 +108,6 @@ public sealed class GenerateContentPackageCommandHandler
             return Result.Failure<GenerateContentPackageResponse>(
                 ContentGenerationErrors.ClientRequired);
         }
-
-        var normalizedRequestedFormats = command.RequestedFormats
-            .Select(format => format.Trim().ToLowerInvariant())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
 
         if (_failurePolicy is not null)
         {
@@ -158,6 +160,14 @@ public sealed class GenerateContentPackageCommandHandler
         var statusUrl = $"/api/social/content-generation-jobs/{jobId}/status";
         return Result.Success(new GenerateContentPackageResponse(jobId, statusUrl));
     }
+
+    private static string NormalizeWriteFormatKey(string formatKey) =>
+        formatKey.Trim().ToLowerInvariant() switch
+        {
+            "story" => "story-single",
+            "feed-post" => "feed-single",
+            _ => formatKey,
+        };
 }
 
 /// <summary>Domain errors specific to the content generation feature.</summary>

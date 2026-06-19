@@ -25,9 +25,9 @@ export type {
 /** All supported format keys — used when the user wants to generate all formats. */
 export const ALL_FORMAT_KEYS: ContentFormatKey[] = [
   "reel-script",
-  "story",
+  "story-single",
   "story-carousel",
-  "feed-post",
+  "feed-single",
   "feed-carousel",
   "content-idea",
   "cta-variation",
@@ -38,9 +38,9 @@ export const ALL_FORMAT_KEYS: ContentFormatKey[] = [
 /** Human-readable labels for each format key. */
 export const FORMAT_LABELS: Record<ContentFormatKey, string> = {
   "reel-script": "Reel Script",
-  story: "Story",
+  "story-single": "Story",
   "story-carousel": "Story · Carousel",
-  "feed-post": "Feed Post",
+  "feed-single": "Feed Single",
   "feed-carousel": "Feed · Carousel",
   "content-idea": "Content Idea",
   "cta-variation": "CTA Variation",
@@ -380,6 +380,28 @@ export async function deleteFormatItem(
 ): Promise<void> {
   return apiRequest<void>(
     `/api/social/single-analyzer/${encodeURIComponent(analysisId)}/formats/${encodeURIComponent(formatKey)}?clientId=${encodeURIComponent(clientId)}`,
+    {
+      method: "DELETE",
+      signal: opts?.signal,
+    },
+    opts?.token
+  );
+}
+
+/**
+ * DELETE /api/social/single-analyzer/{analysisId}/formats/{formatKey}/assets/{index}?clientId=...
+ * Physically deletes a single asset (one file / carousel slide) from storage and removes its DB row.
+ * When the deletion empties the format, the format folder is removed too (cascade).
+ */
+export async function deleteAsset(
+  analysisId: string,
+  formatKey: string,
+  clientId: string,
+  index: number,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<void> {
+  return apiRequest<void>(
+    `/api/social/single-analyzer/${encodeURIComponent(analysisId)}/formats/${encodeURIComponent(formatKey)}/assets/${index}?clientId=${encodeURIComponent(clientId)}`,
     {
       method: "DELETE",
       signal: opts?.signal,

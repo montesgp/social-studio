@@ -13,7 +13,7 @@ namespace Incoders.Hive.Infrastructure.Rendering;
 /// using SkiaSharp primitives directly — no external SVG library required.
 /// <para>
 /// Text-only formats (hook, caption, cta-variation, content-idea, reel-script) produce a
-/// styled "text card" PNG. Visual formats (carousel, story, feed-post) produce a branded background with
+/// styled "text card" PNG. Visual formats (carousel, story, story-single, feed-post, feed-single) produce a branded background with
 /// copy slots painted as text.
 /// </para>
 /// <para>
@@ -78,14 +78,19 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
 
     private byte[] RenderToPng(VisualCompositionSpec spec)
     {
-        if (string.Equals(spec.FormatKey, "story", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(spec.FormatKey, "feed-post", StringComparison.OrdinalIgnoreCase))
+        if (IsSingleVisualFormat(spec.FormatKey))
         {
             return RenderVisualToPng(spec);
         }
 
         return RenderTextCardToPng(spec);
     }
+
+    private static bool IsSingleVisualFormat(string formatKey) =>
+        string.Equals(formatKey, "story", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(formatKey, "story-single", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(formatKey, "feed-post", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(formatKey, "feed-single", StringComparison.OrdinalIgnoreCase);
 
     private static byte[] RenderTextCardToPng(VisualCompositionSpec spec)
     {

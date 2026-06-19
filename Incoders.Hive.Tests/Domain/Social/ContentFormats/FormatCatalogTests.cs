@@ -29,9 +29,9 @@ public sealed class FormatCatalogTests
 
     [Theory]
     [InlineData("reel-script",    Surface.Script, null,           Medium.Text,  false, "script")]
-    [InlineData("story",          Surface.Story,  Layout.Single,  Medium.Image, false, "story")]
+    [InlineData("story-single",          Surface.Story,  Layout.Single,  Medium.Image, false, "story-single")]
     [InlineData("story-carousel", Surface.Story,  Layout.Carousel,Medium.Image, true,  "story-carousel")]
-    [InlineData("feed-post",      Surface.Feed,   Layout.Single,  Medium.Image, false, "feed-post")]
+    [InlineData("feed-single",      Surface.Feed,   Layout.Single,  Medium.Image, false, "feed-single")]
     [InlineData("feed-carousel",  Surface.Feed,   Layout.Carousel,Medium.Image, true,  "feed-carousel")]
     public void All_EachDeliverable_HasCorrectAxesAndFolder(
         string  key, Surface surface, Layout? layout, Medium medium, bool isMultiAsset, string folder)
@@ -48,9 +48,9 @@ public sealed class FormatCatalogTests
 
     [Theory]
     [InlineData("reel-script",    "instagram", "reel",   ContentMedium.Text)]
-    [InlineData("story",          "instagram", "story",  ContentMedium.Visual)]
+    [InlineData("story-single",   "instagram", "story",  ContentMedium.Visual)]
     [InlineData("story-carousel", "instagram", "story",  ContentMedium.Visual)]
-    [InlineData("feed-post",      "instagram", "feed",   ContentMedium.Visual)]
+    [InlineData("feed-single",      "instagram", "feed",   ContentMedium.Visual)]
     [InlineData("feed-carousel",  "instagram", "feed",   ContentMedium.Visual)]
     public void All_EachDeliverable_HasCorrectChannelAndContentMedium(
         string key, string network, string placement, ContentMedium contentMedium)
@@ -84,9 +84,9 @@ public sealed class FormatCatalogTests
 
     [Theory]
     [InlineData("reel-script")]
-    [InlineData("story")]
+    [InlineData("story-single")]
     [InlineData("story-carousel")]
-    [InlineData("feed-post")]
+    [InlineData("feed-single")]
     [InlineData("feed-carousel")]
     public void TryGet_ReturnsDefinition_ForEachCanonicalDeliverableKey(string key)
     {
@@ -101,6 +101,8 @@ public sealed class FormatCatalogTests
     // ──────────────────────────────────────────────────────────────────────────
 
     [Theory]
+    [InlineData("story")]
+    [InlineData("feed-post")]
     [InlineData("carousel")]
     [InlineData("feed-text")]
     [InlineData("story:single:image")]
@@ -128,8 +130,20 @@ public sealed class FormatCatalogTests
     }
 
     [Theory]
-    [InlineData("story")]
-    [InlineData("feed-post")]
+    [InlineData("story", "story")]
+    [InlineData("feed-post", "feed-post")]
+    public void ResolveForAssembly_LegacySingleKeys_ReturnReadOnlyDefinitions(string key, string folder)
+    {
+        var result = FormatCatalog.ResolveForAssembly(key);
+
+        Assert.NotNull(result);
+        Assert.False(result.IsMultiAsset);
+        Assert.Equal(folder, result.StorageFolder);
+    }
+
+    [Theory]
+    [InlineData("story-single")]
+    [InlineData("feed-single")]
     [InlineData("reel-script")]
     [InlineData("story-carousel")]
     [InlineData("feed-carousel")]
@@ -171,9 +185,9 @@ public sealed class FormatCatalogTests
     }
 
     [Fact]
-    public void TryGet_Story_IsNotMultiAsset_FeedCarousel_IsMultiAsset()
+    public void TryGet_StorySingle_IsNotMultiAsset_FeedCarousel_IsMultiAsset()
     {
-        var story        = FormatCatalog.TryGet("story")!;
+        var story        = FormatCatalog.TryGet("story-single")!;
         var storyCarousel = FormatCatalog.TryGet("story-carousel")!;
         var feedCarousel  = FormatCatalog.TryGet("feed-carousel")!;
 
@@ -187,22 +201,22 @@ public sealed class FormatCatalogTests
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void BySurface_Story_ReturnsExactly_Story_And_StoryCarousel()
+    public void BySurface_Story_ReturnsExactly_StorySingle_And_StoryCarousel()
     {
         var result = FormatCatalog.BySurface(Surface.Story).Select(d => d.FormatKey).ToList();
 
         Assert.Equal(2, result.Count);
-        Assert.Contains("story",          result);
+        Assert.Contains("story-single",          result);
         Assert.Contains("story-carousel", result);
     }
 
     [Fact]
-    public void BySurface_Feed_ReturnsExactly_FeedPost_And_FeedCarousel()
+    public void BySurface_Feed_ReturnsExactly_FeedSingle_And_FeedCarousel()
     {
         var result = FormatCatalog.BySurface(Surface.Feed).Select(d => d.FormatKey).ToList();
 
         Assert.Equal(2, result.Count);
-        Assert.Contains("feed-post",     result);
+        Assert.Contains("feed-single",     result);
         Assert.Contains("feed-carousel", result);
     }
 
@@ -274,9 +288,9 @@ public sealed class FormatCatalogTests
 
     [Theory]
     [InlineData("reel-script")]
-    [InlineData("story")]
+    [InlineData("story-single")]
     [InlineData("story-carousel")]
-    [InlineData("feed-post")]
+    [InlineData("feed-single")]
     [InlineData("feed-carousel")]
     [InlineData("content-idea")]
     [InlineData("cta-variation")]

@@ -83,6 +83,12 @@ public static class ContentGenerationEndpointsExtensions
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        analyzerGroup.MapDelete("/{analysisId:guid}/formats/{formatKey}/assets/{index:int}", ContentGenerationEndpointFacade.DeleteAssetAsync)
+            .WithName("DeleteFormatSingleAsset")
+            .WithSummary("Physically delete one asset (a single file / carousel slide) from storage and remove its DB row; removes the format folder when it becomes empty")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         analyzerGroup.MapGet("/{analysisId:guid}/packages", ContentGenerationEndpointFacade.ListPackagesAsync)
             .WithName("ListAnalysisPackages")
             .WithSummary("Returns the per-client package tree (formats + assets) for the given analysis, sourced from DB")
@@ -332,6 +338,30 @@ public static class ContentGenerationEndpointFacade
                 OrganizationId: tenantId.Value,
                 ClientId: clientId,
                 FormatKey: formatKey),
+            cancellationToken);
+
+        return result.Match(() => (IResult)TypedResults.NoContent());
+    }
+
+    public static async Task<IResult> DeleteAssetAsync(
+        Guid analysisId,
+        string formatKey,
+        int index,
+        Guid clientId,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+            return OrganizationRequired.ToProblem();
+
+        var result = await sender.Send(
+            new DeleteAssetCommand(
+                AnalysisId: analysisId,
+                OrganizationId: tenantId.Value,
+                ClientId: clientId,
+                FormatKey: formatKey,
+                AssetIndex: index),
             cancellationToken);
 
         return result.Match(() => (IResult)TypedResults.NoContent());

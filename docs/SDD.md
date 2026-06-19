@@ -127,9 +127,9 @@ The content generation pipeline uses a **three-axis taxonomy** (`Surface × Layo
 | FormatKey | Surface | Layout | Medium | Channel | IsMultiAsset | StorageFolder |
 |---|---|---|---|---|---|---|
 | reel-script | Script | — | Text | instagram/reel | false | script |
-| story | Story | Single | Image | instagram/story | false | story |
+| story-single | Story | Single | Image | instagram/story | false | story-single |
 | story-carousel | Story | Carousel | Image | instagram/story | true | story-carousel |
-| feed-post | Feed | Single | Image | instagram/feed | false | feed-post |
+| feed-single | Feed | Single | Image | instagram/feed | false | feed-single |
 | feed-carousel | Feed | Carousel | Image | instagram/feed | true | feed-carousel |
 
 Auxiliaries (content-idea, cta-variation, caption, hook): Medium.Text, not shown in the UI picker, included in the API whitelist.
@@ -141,7 +141,7 @@ Auxiliaries (content-idea, cta-variation, caption, hook): Medium.Text, not shown
 | Catalog placement | `FormatCatalog` static class in Domain; Application delegates to it via `ContentFormatCatalog` |
 | Alias strategy | `"carousel"` (legacy stored key) is a READ-ONLY alias resolved only via `ResolveForAssembly`; API writes reject it |
 | API whitelist | `KnownFormatKeys` derived from `FormatCatalog.KnownKeys()` — no hand-maintained list |
-| Storage paths | `def.StorageFolder` drives all paths; new keys write to surface-scoped prefixes (story-carousel/, feed-carousel/) |
+| Storage paths | `def.StorageFolder` drives all paths; new keys write to canonical prefixes (story-single/, story-carousel/, feed-single/, feed-carousel/) |
 | Frontend picker | 3 root buttons (Script / Story / Feed) + Single↔Carousel toggle (Story+Feed only) |
 | Catalog endpoint | `GET /api/social/content-generation/formats` returns `FormatCatalogEntryDto` list |
 | No migration | Format taxonomy is C#-only; `format_key` column remains varchar; legacy rows unchanged |
@@ -151,7 +151,11 @@ Auxiliaries (content-idea, cta-variation, caption, hook): Medium.Text, not shown
 
 Legacy `format_key = 'carousel'` rows (written before this change) continue to assemble correctly: `NormalizePackageFormatKey` routes them through `ResolveForAssembly("carousel")` to the multi-asset writer branch, producing output under `{client}/carousel/` unchanged.
 
-New generations always use surface-scoped keys (`story-carousel`, `feed-carousel`) and write to non-colliding prefixes.
+New generations always use canonical keys (`story-single`, `story-carousel`, `feed-single`, `feed-carousel`) and write to non-colliding prefixes. Legacy `story` and `feed-post` write requests are normalized to `story-single` and `feed-single` for compatibility, but the UI emits only canonical keys. Legacy stored `story`, `feed-post`, and `carousel` rows remain read-compatible; `carousel` remains an assemble-path alias only, not a valid write key.
+
+### Attribution guardrail
+
+Generation prompts treat source-origin identity as inspiration/metadata only. Visual composition resolves final signature text from deterministic target client/brand fields first and rejects referent/competitor/source signatures.
 
 ---
 

@@ -33,6 +33,7 @@ public sealed class CarouselGenerator : FormatContentGeneratorBase<CarouselConte
         {
             instruction = "Generate a branded carousel post with a cover slide, content slides, and a CTA. " +
                           GenerationPromptContext.BrandConstraint + " " +
+                          AttributionPolicy.PromptConstraint + " " +
                           "Respect the primary derived idea and adapt it to the client context. " +
                           "Image prompt hints must reference the client's explicit palette, typography, logos, and visual notes when available. " +
                           "Respond with ONLY the raw JSON matching the expected structure.",

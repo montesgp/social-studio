@@ -58,7 +58,7 @@ public sealed class VisualCompositionService : IVisualCompositionService
     {
         _lastInferred = new InferenceAccumulator();
 
-        if (!_composers.TryGetValue(formatKey, out var composer))
+        if (!_composers.TryGetValue(NormalizeComposerKey(formatKey), out var composer))
         {
             throw new InvalidOperationException($"No visual composer registered for format key '{formatKey}'.");
         }
@@ -75,7 +75,7 @@ public sealed class VisualCompositionService : IVisualCompositionService
     {
         _lastInferred = new InferenceAccumulator();
 
-        if (!_composers.TryGetValue(formatKey, out var composer))
+        if (!_composers.TryGetValue(NormalizeComposerKey(formatKey), out var composer))
         {
             throw new InvalidOperationException($"No visual composer registered for format key '{formatKey}'.");
         }
@@ -92,4 +92,12 @@ public sealed class VisualCompositionService : IVisualCompositionService
     }
 
     public IReadOnlyList<string> GetInferredFields() => _lastInferred.Fields;
+
+    private static string NormalizeComposerKey(string formatKey) =>
+        formatKey switch
+        {
+            "story" => "story-single",
+            "feed-post" => "feed-single",
+            _ => formatKey,
+        };
 }

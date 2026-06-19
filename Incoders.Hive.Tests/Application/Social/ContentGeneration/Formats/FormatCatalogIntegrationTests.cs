@@ -19,6 +19,8 @@ public sealed class FormatCatalogIntegrationTests
     [Theory]
     [InlineData("story-carousel")]
     [InlineData("feed-carousel")]
+    [InlineData("story-single")]
+    [InlineData("feed-single")]
     [InlineData("story")]
     [InlineData("feed-post")]
     public void MediumFor_CatalogVisualFormats_ReturnsVisual(string formatKey)
@@ -79,18 +81,18 @@ public sealed class FormatCatalogIntegrationTests
     }
 
     [Fact]
-    public void ChannelFor_Story_ReturnsInstagramStory()
+    public void ChannelFor_StorySingle_ReturnsInstagramStory()
     {
-        var channel = ContentFormatCatalog.ChannelFor("story");
+        var channel = ContentFormatCatalog.ChannelFor("story-single");
 
         Assert.Equal("instagram", channel.Network);
         Assert.Equal("story", channel.Placement);
     }
 
     [Fact]
-    public void ChannelFor_FeedPost_ReturnsInstagramFeed()
+    public void ChannelFor_FeedSingle_ReturnsInstagramFeed()
     {
-        var channel = ContentFormatCatalog.ChannelFor("feed-post");
+        var channel = ContentFormatCatalog.ChannelFor("feed-single");
 
         Assert.Equal("instagram", channel.Network);
         Assert.Equal("feed", channel.Placement);
@@ -115,6 +117,8 @@ public sealed class FormatCatalogIntegrationTests
 
         Assert.Contains("story-carousel", keys);
         Assert.Contains("feed-carousel", keys);
+        Assert.Contains("story-single", keys);
+        Assert.Contains("feed-single", keys);
     }
 
     [Fact]
@@ -171,8 +175,8 @@ public sealed class FormatCatalogIntegrationTests
 
         Assert.Contains("story-carousel", keys);
         Assert.Contains("feed-carousel", keys);
-        Assert.Contains("story", keys);
-        Assert.Contains("feed-post", keys);
+        Assert.Contains("story-single", keys);
+        Assert.Contains("feed-single", keys);
     }
 
     [Fact]

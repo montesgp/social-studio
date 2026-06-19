@@ -15,14 +15,16 @@ internal static class PackagePptxComposer
 {
     /// <summary>
     /// Ordered list of visual format keys for PPTX export.
-    /// Derived from <see cref="FormatCatalog"/> in catalog declaration order (story, story-carousel,
-    /// feed-post, feed-carousel). The legacy "carousel" key is appended at the end so historical
-    /// packages that stored assets under "carousel" are still exported correctly (SCENARIO-10 / ADR-3.7).
+    /// Derived from <see cref="FormatCatalog"/> in catalog declaration order. Legacy single keys
+    /// ("story", "feed-post") and legacy "carousel" are appended so historical packages remain
+    /// exportable through the same editable PPTX path.
     /// </summary>
     private static readonly IReadOnlyList<string> VisualFormatOrder =
         FormatCatalog.All()
             .Where(d => d.IsVisual)
             .Select(d => d.FormatKey)
+            .Append("story")
+            .Append("feed-post")
             .Append("carousel") // legacy alias for historical export ordering
             .ToList();
 
@@ -58,7 +60,7 @@ internal static class PackagePptxComposer
         {
             if (byFormat.TryGetValue(formatKey, out var result))
             {
-                envelopes.AddRange(CompositionSpecJson.ParseList(result.CompositionSpecJson));
+                envelopes.AddRange(CompositionSpecJson.ParseActiveList(result.CompositionSpecJson));
             }
         }
 

@@ -73,7 +73,7 @@ public sealed class VisualCompositionServiceTests
 
         var spec = await service.ComposeAsync("story", payload, brand, CancellationToken.None);
 
-        Assert.Equal("story", spec.FormatKey);
+        Assert.Equal("story-single", spec.FormatKey);
         Assert.Equal(1080, spec.Dimensions.Width);
         Assert.Equal(1920, spec.Dimensions.Height);
         // Product rule: if the client has a background image in the manual, use it as the

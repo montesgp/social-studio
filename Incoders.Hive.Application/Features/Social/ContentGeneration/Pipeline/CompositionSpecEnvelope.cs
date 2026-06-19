@@ -26,9 +26,21 @@ public static class CompositionSpecJson
     }
 
     /// <summary>
+    /// Parses and returns only the ACTIVE envelopes — those not tombstoned via
+    /// <see cref="CompositionSpecEnvelope.Deleted"/>. Render/export paths use this so a
+    /// slide the user deleted never appears in a PPTX / Canva / ZIP deliverable, while the
+    /// tombstone is preserved on disk (positions are not renumbered). See
+    /// <see cref="ParseList"/> when the full list (including tombstones) is required.
+    /// </summary>
+    public static IReadOnlyList<CompositionSpecEnvelope> ParseActiveList(string? json) =>
+        ParseList(json).Where(e => !e.Deleted).ToList();
+
+    /// <summary>
     /// Parses <c>composition_spec_json</c> into a list of envelopes, accepting both the legacy
     /// single-object shape and the multi-slide array shape. Returns an empty list on
     /// null/blank/unparseable input (callers treat that as "not exportable").
+    /// Tombstoned envelopes are INCLUDED so positional slide indices stay stable; use
+    /// <see cref="ParseActiveList"/> for render/export.
     /// </summary>
     public static IReadOnlyList<CompositionSpecEnvelope> ParseList(string? json)
     {
@@ -94,13 +106,20 @@ public static class CompositionSpecJson
 /// skips editable text boxes, so the export is pixel-faithful to whatever the studio shows. Null
 /// until flattened. Additive — envelopes written before this field deserialize it as null.
 /// </param>
+/// <param name="Deleted">
+/// Tombstone flag. When true, the user deleted this slide from the package. The envelope is kept
+/// in place (slides are NOT renumbered) so remaining slide indices stay stable, but render/export
+/// paths skip it via <see cref="CompositionSpecJson.ParseActiveList"/>. Additive — envelopes written
+/// before this field deserialize it as false.
+/// </param>
 public sealed record CompositionSpecEnvelope(
     int SchemaVersion,
     string Markup,
     CanvasDimensions Canvas,
     IReadOnlyList<SlotGeometryEntry> SlotGeometry,
     string? BackgroundImageRef = null,
-    string? FlattenedImageRef = null)
+    string? FlattenedImageRef = null,
+    bool Deleted = false)
 {
     /// <summary>Current envelope schema version.</summary>
     public const int CurrentSchemaVersion = 1;

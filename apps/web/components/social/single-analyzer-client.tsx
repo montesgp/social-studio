@@ -72,6 +72,7 @@ import {
   downloadPackageFile,
   assemblePackage,
   deleteFormatItem,
+  deleteAsset,
   downloadFormatAsPptx,
   exportFormatToCanva,
   exportPackageToCanva,
@@ -503,9 +504,9 @@ type LocalFormatEntry = {
 
 const SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS: ContentFormatKey[] = [
   "reel-script",
-  "story",
+  "story-single",
   "story-carousel",
-  "feed-post",
+  "feed-single",
   "feed-carousel",
 ];
 
@@ -526,6 +527,8 @@ function isKnownFormatKey(key: string): key is ContentFormatKey {
 
 function packageManifestKeyToContentFormatKey(key: string): ContentFormatKey | null {
   if (key === "script") return "reel-script";
+  if (key === "story") return "story-single";
+  if (key === "feed-post") return "feed-single";
   // Legacy "carousel" stored in old manifests maps to "story-carousel" for display purposes;
   // the assembly path handles the backward-compat on the backend side.
   if (key === "carousel") return "story-carousel";
@@ -535,9 +538,9 @@ function packageManifestKeyToContentFormatKey(key: string): ContentFormatKey | n
 /** Default filenames shown in the Package tab tree when the backend manifest is absent. */
 const FORMAT_FILE_NAMES: Record<ContentFormatKey, string> = {
   "reel-script": "script.md",
-  story: "story.pptx",
+  "story-single": "story-single.pptx",
   "story-carousel": "story-carousel/",
-  "feed-post": "feed-post.pptx",
+  "feed-single": "feed-single.pptx",
   "feed-carousel": "feed-carousel/",
   "content-idea": "content-idea.txt",
   "cta-variation": "cta-variation.txt",
@@ -573,8 +576,8 @@ function resolvePackageFormatFiles(
   formatKey: ContentFormatKey,
   assets: { filename: string; index: number }[]
 ): string[] {
-  if (formatKey === "story") return ["story.pptx"];
-  if (formatKey === "feed-post") return ["feed-post.pptx"];
+  if (formatKey === "story-single") return ["story-single.pptx"];
+  if (formatKey === "feed-single") return ["feed-single.pptx"];
   if (formatKey === "reel-script") return ["script.md"];
   if (formatKey === "story-carousel" || formatKey === "feed-carousel") {
     const orderedAssets = [...assets].sort((a, b) => a.index - b.index);
@@ -715,12 +718,12 @@ type MutationLayout = "single" | "carousel";
  * internal helpers that already accept the resolved ContentFormatKey.
  * SCENARIO-12 mapping:
  *   script          → reel-script
- *   story + single  → story
+ *   story + single  → story-single
  *   story + carousel→ story-carousel
- *   feed  + single  → feed-post
+ *   feed  + single  → feed-single
  *   feed  + carousel→ feed-carousel
  */
-type MutationMode = "script" | "story" | "story-carousel" | "feed-post" | "feed-carousel";
+type MutationMode = "script" | "story-single" | "story-carousel" | "feed-single" | "feed-carousel";
 
 type PendingRegenerationRequest =
   | {
@@ -740,6 +743,17 @@ type PendingRegenerationRequest =
 type RegenerationTarget =
   | { kind: "single"; mode: MutationMode; formatKey: ContentFormatKey }
   | { kind: "all" };
+
+/** A pending package deletion awaiting modal confirmation: a whole format folder or one file/slide. */
+type PendingPackageDelete =
+  | { kind: "format"; clientId: string; formatKey: ContentFormatKey; label: string }
+  | {
+      kind: "asset";
+      clientId: string;
+      formatKey: ContentFormatKey;
+      index: number;
+      filename: string;
+    };
 
 function isSameRegenerationTarget(
   left: RegenerationTarget | null,
@@ -800,6 +814,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
   const [pendingRegeneration, setPendingRegeneration] =
     useState<PendingRegenerationRequest | null>(null);
+  // Pending package deletion (a format folder or a single file/slide), confirmed via a modal.
+  const [pendingPackageDelete, setPendingPackageDelete] =
+    useState<PendingPackageDelete | null>(null);
   // When loading from history, we want the new analysis's existing content-generation job to
   // re-attach to the convert panel. The packageJobId-reset effect runs AFTER setVideoResult,
   // so we pre-stage both the jobId and client context here and the effect reads them as it runs.
@@ -954,10 +971,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     if (mutationSurface === "script") {
       setMutationMode("script");
     } else if (mutationSurface === "story") {
-      setMutationMode(mutationLayout === "carousel" ? "story-carousel" : "story");
+      setMutationMode(mutationLayout === "carousel" ? "story-carousel" : "story-single");
     } else {
       // feed
-      setMutationMode(mutationLayout === "carousel" ? "feed-carousel" : "feed-post");
+      setMutationMode(mutationLayout === "carousel" ? "feed-carousel" : "feed-single");
     }
   }, [mutationSurface, mutationLayout]);
 
@@ -1013,7 +1030,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       if (!entry) return [];
       return entry.formats
         .map((format) => format.formatKey)
-        .filter(isKnownFormatKey);
+        .map(packageManifestKeyToContentFormatKey)
+        .filter((formatKey): formatKey is ContentFormatKey => formatKey !== null);
     },
     [clientPackages, selectedClientId]
   );
@@ -1847,6 +1865,41 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setPackageJobError({ message: err?.message ?? `Failed to delete ${formatKey}.` });
     } finally {
       setIsFormatMutating(false);
+    }
+  }
+
+  /**
+   * Confirms the pending package deletion (a format folder or a single file/slide).
+   * Deletes from storage + DB on the backend, then re-fetches the package tree so the
+   * UI reflects the cascade (an emptied folder disappears automatically).
+   */
+  async function confirmPackageDelete() {
+    const target = pendingPackageDelete;
+    const analysisId = videoResult?.id;
+    if (!target || !analysisId) {
+      setPendingPackageDelete(null);
+      return;
+    }
+    setIsFormatMutating(true);
+    setPackageJobError(null);
+    try {
+      if (target.kind === "format") {
+        await deleteFormatItem(analysisId, target.formatKey, target.clientId, {
+          token: effectiveToken,
+        });
+        markFormatDeleted(target.clientId, target.formatKey);
+      } else {
+        await deleteAsset(analysisId, target.formatKey, target.clientId, target.index, {
+          token: effectiveToken,
+        });
+      }
+      refreshPackages();
+    } catch (e) {
+      const err = e as { message?: string };
+      setPackageJobError({ message: err?.message ?? "Failed to delete from package." });
+    } finally {
+      setIsFormatMutating(false);
+      setPendingPackageDelete(null);
     }
   }
 
@@ -3327,6 +3380,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                     canSendToCanva={canDownloadPackage && packageJobId !== null}
                     isSendingToCanva={isExportingToCanva}
                     onSendToCanva={() => void sendPackageToCanva()}
+                    onDeleteFormat={(clientId, formatKey, label) =>
+                      setPendingPackageDelete({ kind: "format", clientId, formatKey, label })
+                    }
+                    onDeleteAsset={(clientId, formatKey, index, filename) =>
+                      setPendingPackageDelete({ kind: "asset", clientId, formatKey, index, filename })
+                    }
                   />
                 )}
 
@@ -3407,6 +3466,27 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         confirmVariant="destructive"
         onCancel={() => setPendingRegeneration(null)}
         onConfirm={confirmRegeneration}
+      />
+
+      <ConfirmationDialog
+        open={pendingPackageDelete !== null}
+        title={
+          pendingPackageDelete?.kind === "format"
+            ? "Delete this folder?"
+            : "Delete this file?"
+        }
+        description={
+          pendingPackageDelete?.kind === "format"
+            ? `The "${pendingPackageDelete.label}" folder and all its files will be permanently removed from storage and the database.`
+            : pendingPackageDelete
+              ? `"${pendingPackageDelete.filename}" will be permanently removed from storage and the database. If it is the last file in its folder, the folder is removed too.`
+              : ""
+        }
+        cancelLabel="Keep it"
+        confirmLabel="Delete permanently"
+        confirmVariant="destructive"
+        onCancel={() => setPendingPackageDelete(null)}
+        onConfirm={() => void confirmPackageDelete()}
       />
 
       <ConfirmationDialog
@@ -3516,6 +3596,15 @@ interface PackageTabContentProps {
   canSendToCanva: boolean;
   isSendingToCanva: boolean;
   onSendToCanva: () => void;
+  /** Request deletion of a whole format folder for a client (opens a confirmation modal). */
+  onDeleteFormat: (clientId: string, formatKey: ContentFormatKey, label: string) => void;
+  /** Request deletion of a single file/slide within a format (opens a confirmation modal). */
+  onDeleteAsset: (
+    clientId: string,
+    formatKey: ContentFormatKey,
+    index: number,
+    filename: string
+  ) => void;
 }
 
 function PackageTabContent({
@@ -3535,6 +3624,8 @@ function PackageTabContent({
   canSendToCanva,
   isSendingToCanva,
   onSendToCanva,
+  onDeleteFormat,
+  onDeleteAsset,
 }: PackageTabContentProps) {
   const allFormatKeys = Array.from(
     new Set([...Object.keys(localFormats) as ContentFormatKey[], ...packageSucceededFormats])
@@ -3599,7 +3690,7 @@ function PackageTabContent({
                 const formatFolder = resolvePackageFormatFolder(formatEntry.formatKey);
                 const files = resolvePackageFormatFiles(formatEntry.formatKey, formatEntry.assets);
                 return (
-                  <div key={formatEntry.formatKey}>
+                  <div key={formatEntry.formatKey} className="group/format">
                     {/* Format row */}
                     <div className="pl-6 flex items-center gap-1.5 py-0.5">
                       <FolderOpen className="h-3.5 w-3.5 text-amber-400 shrink-0" />
@@ -3609,17 +3700,50 @@ function PackageTabContent({
                       <span className="ml-auto inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 shrink-0">
                         Generated
                       </span>
+                      <button
+                        type="button"
+                        title={`Delete the ${formatFolder} folder`}
+                        aria-label={`Delete the ${formatFolder} folder`}
+                        onClick={() =>
+                          onDeleteFormat(clientEntry.clientId, formatEntry.formatKey, formatFolder)
+                        }
+                        className="shrink-0 rounded p-0.5 text-muted-foreground/40 opacity-0 transition hover:bg-red-500/10 hover:text-red-500 focus-visible:opacity-100 group-hover/format:opacity-100"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                     {/* Deliverable files are shown as the downloadable package contract, not the
                         stored render-preview asset rows. Story/carousel are editable PPTX; script is MD. */}
-                    {files.map((filename) => (
-                      <div key={filename} className="pl-12 flex items-center gap-1.5 py-0.5">
-                        <FileText className="h-3.5 w-3.5 text-violet-400 shrink-0" />
-                        <span className="font-mono text-xs text-foreground/80 truncate">
-                          {filename}
-                        </span>
-                      </div>
-                    ))}
+                    {files.map((filename, i) => {
+                      const assetIndex = formatEntry.assets[i]?.index ?? i;
+                      return (
+                        <div
+                          key={filename}
+                          className="group/file pl-12 flex items-center gap-1.5 py-0.5"
+                        >
+                          <FileText className="h-3.5 w-3.5 text-violet-400 shrink-0" />
+                          <span className="font-mono text-xs text-foreground/80 truncate">
+                            {filename}
+                          </span>
+                          <button
+                            type="button"
+                            title={`Delete ${filename}`}
+                            aria-label={`Delete ${filename}`}
+                            onClick={() =>
+                              onDeleteAsset(
+                                clientEntry.clientId,
+                                formatEntry.formatKey,
+                                assetIndex,
+                                filename
+                              )
+                            }
+                            className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/40 opacity-0 transition hover:bg-red-500/10 hover:text-red-500 focus-visible:opacity-100 group-hover/file:opacity-100"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}

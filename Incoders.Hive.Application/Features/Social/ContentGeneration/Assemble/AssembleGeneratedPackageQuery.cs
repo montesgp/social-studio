@@ -379,7 +379,7 @@ public sealed class AssembleGeneratedPackageQueryHandler
         CancellationToken ct)
     {
         var result = ResolveFormatResult(rows, selectedFormatResults);
-        var envelopes = CompositionSpecJson.ParseList(result?.CompositionSpecJson);
+        var envelopes = CompositionSpecJson.ParseActiveList(result?.CompositionSpecJson);
         if (_pptxAdapter is null || result is null || envelopes.Count == 0)
         {
             warnings.Add("story skipped because no editable composition spec was available.");
@@ -429,7 +429,7 @@ public sealed class AssembleGeneratedPackageQueryHandler
         CancellationToken ct)
     {
         var result = ResolveFormatResult(rows, selectedFormatResults);
-        var envelopes = CompositionSpecJson.ParseList(result?.CompositionSpecJson);
+        var envelopes = CompositionSpecJson.ParseActiveList(result?.CompositionSpecJson);
         if (_pptxAdapter is null || result is null || envelopes.Count == 0)
         {
             warnings.Add($"{storageFolder} skipped because no editable composition spec was available.");

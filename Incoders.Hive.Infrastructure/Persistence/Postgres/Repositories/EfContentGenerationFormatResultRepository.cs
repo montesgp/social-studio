@@ -88,6 +88,31 @@ public sealed class EfContentGenerationFormatResultRepository : IContentGenerati
         return entities.Select(Map).ToList();
     }
 
+    public async Task DeleteByIdAsync(Guid formatResultId, CancellationToken ct)
+    {
+        var existing = await _db.ContentGenerationFormatResults
+            .FirstOrDefaultAsync(x => x.Id == formatResultId, ct);
+
+        if (existing is not null)
+        {
+            _db.ContentGenerationFormatResults.Remove(existing);
+            await _db.SaveChangesAsync(ct);
+        }
+    }
+
+    public async Task UpdateCompositionSpecAsync(Guid formatResultId, string? compositionSpecJson, CancellationToken ct)
+    {
+        var existing = await _db.ContentGenerationFormatResults
+            .FirstOrDefaultAsync(x => x.Id == formatResultId, ct);
+
+        if (existing is not null)
+        {
+            existing.CompositionSpecJson = compositionSpecJson;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+        }
+    }
+
     private static ContentGenerationFormatResultData Map(ContentGenerationFormatResult r) => new()
     {
         Id = r.Id,

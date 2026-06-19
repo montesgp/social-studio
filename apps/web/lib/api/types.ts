@@ -837,9 +837,9 @@ export interface UpsertContentPlanPayload {
 // ── Content Generation types (single-analyzer package pipeline) ──────────────
 
 export type ContentFormatKey =
-  | "story"
+  | "story-single"
   | "story-carousel"
-  | "feed-post"
+  | "feed-single"
   | "feed-carousel"
   | "reel-script"
   | "content-idea"
@@ -847,7 +847,7 @@ export type ContentFormatKey =
   | "caption"
   | "hook";
 
-export type PackageManifestFormatKey = ContentFormatKey | "script" | "editable-package";
+export type PackageManifestFormatKey = ContentFormatKey | "story" | "feed-post" | "carousel" | "script" | "editable-package";
 
 export interface GeneratePackageRequest {
   clientId?: string | null;

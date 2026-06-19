@@ -43,8 +43,8 @@ public sealed class ContentGenerationDiResolutionTests
         Assert.Contains("carousel", keys);           // shared CarouselGenerator (legacy key)
         Assert.Contains("story-carousel", keys);     // SurfaceScopedCarouselGenerator decorator
         Assert.Contains("feed-carousel", keys);      // SurfaceScopedCarouselGenerator decorator
-        Assert.Contains("story", keys);
-        Assert.Contains("feed-post", keys);
+        Assert.Contains("story-single", keys);
+        Assert.Contains("feed-single", keys);
         Assert.Contains("reel-script", keys);
         Assert.Contains("content-idea", keys);
         Assert.Contains("cta-variation", keys);

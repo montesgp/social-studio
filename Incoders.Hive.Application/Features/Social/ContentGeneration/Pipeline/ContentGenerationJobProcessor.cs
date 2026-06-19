@@ -69,6 +69,7 @@ public sealed class ContentGenerationJobProcessor
         FormatCatalog.All()
             .Where(d => d.IsVisual)
             .Select(d => d.FormatKey)
+            .Concat(["story", "feed-post"])
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     public ContentGenerationJobProcessor(
@@ -441,7 +442,7 @@ public sealed class ContentGenerationJobProcessor
                     // Multi-asset (carousel family): {storageFolder}/slide_{N}.png (1-based index).
                     // Resolved via FormatCatalog.ResolveForAssembly so legacy "carousel" keys
                     // continue to write under carousel/ while new keys use their own folder.
-                    // Single-asset: just the filename (e.g. story.png, reel-script.txt).
+                    // Single-asset: just the filename (e.g. story-single.png, reel-script.txt).
                     string relativePath;
                     var formatDef = FormatCatalog.ResolveForAssembly(formatKey);
                     if (formatDef?.IsMultiAsset == true && specs.Count > 1)
@@ -726,7 +727,9 @@ public sealed class ContentGenerationJobProcessor
                 _ => ReadPublicationDescription(payload)
             };
         }
-        else if (string.Equals(formatKey, "story", StringComparison.OrdinalIgnoreCase)
+        else if (string.Equals(formatKey, "story-single", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(formatKey, "feed-single", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(formatKey, "story", StringComparison.OrdinalIgnoreCase)
                  || string.Equals(formatKey, "feed-post", StringComparison.OrdinalIgnoreCase))
         {
             description = payload switch

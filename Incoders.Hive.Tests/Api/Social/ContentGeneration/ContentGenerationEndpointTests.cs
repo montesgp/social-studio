@@ -124,11 +124,13 @@ public sealed class ContentGenerationEndpointTests
         // SCENARIO-12: all 5 deliverable keys present
         Assert.Contains(responseEntries, e => e.FormatKey == "story-carousel");
         Assert.Contains(responseEntries, e => e.FormatKey == "feed-carousel");
-        Assert.Contains(responseEntries, e => e.FormatKey == "story");
-        Assert.Contains(responseEntries, e => e.FormatKey == "feed-post");
+        Assert.Contains(responseEntries, e => e.FormatKey == "story-single");
+        Assert.Contains(responseEntries, e => e.FormatKey == "feed-single");
         Assert.Contains(responseEntries, e => e.FormatKey == "reel-script");
 
-        // SCENARIO-13: bare "carousel" is NOT in the response
+        // SCENARIO-13: legacy aliases are NOT preferred catalog keys.
+        Assert.DoesNotContain(responseEntries, e => e.FormatKey == "story");
+        Assert.DoesNotContain(responseEntries, e => e.FormatKey == "feed-post");
         Assert.DoesNotContain(responseEntries, e => e.FormatKey == "carousel");
     }
 

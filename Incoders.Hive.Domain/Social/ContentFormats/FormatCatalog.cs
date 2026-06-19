@@ -43,7 +43,7 @@ public static class FormatCatalog
             StorageFolder: "script"),
 
         new FormatDefinition(
-            FormatKey:     "story",
+            FormatKey:     "story-single",
             Surface:       Surface.Story,
             Layout:        Layout.Single,
             Medium:        Medium.Image,
@@ -51,7 +51,7 @@ public static class FormatCatalog
             ContentMedium: ContentMedium.Visual,
             IsMultiAsset:  false,
             DisplayLabel:  "Story",
-            StorageFolder: "story"),
+            StorageFolder: "story-single"),
 
         new FormatDefinition(
             FormatKey:     "story-carousel",
@@ -65,15 +65,15 @@ public static class FormatCatalog
             StorageFolder: "story-carousel"),
 
         new FormatDefinition(
-            FormatKey:     "feed-post",
+            FormatKey:     "feed-single",
             Surface:       Surface.Feed,
             Layout:        Layout.Single,
             Medium:        Medium.Image,
             Channel:       InstagramFeed,
             ContentMedium: ContentMedium.Visual,
             IsMultiAsset:  false,
-            DisplayLabel:  "Feed Post",
-            StorageFolder: "feed-post"),
+            DisplayLabel:  "Feed Single",
+            StorageFolder: "feed-single"),
 
         new FormatDefinition(
             FormatKey:     "feed-carousel",
@@ -131,7 +131,8 @@ public static class FormatCatalog
 
     // ──────────────────────────────────────────────────────────────────────────
     // Legacy alias map — ONLY used by ResolveForAssembly (read/assemble path)
-    // "carousel" is NOT a catalog row; it maps to a layout-only assembly descriptor.
+    // Legacy single keys and "carousel" are NOT catalog rows; they map to read-only
+    // assembly descriptors so historical rows/assets continue to export unchanged.
     // NEVER expose this map to validation/write paths.
     // ──────────────────────────────────────────────────────────────────────────
 
@@ -147,9 +148,35 @@ public static class FormatCatalog
             DisplayLabel:  "Carousel (legacy)",
             StorageFolder: "carousel");
 
+    private static readonly FormatDefinition LegacyStoryAssemblyDef =
+        new FormatDefinition(
+            FormatKey:     "story",
+            Surface:       Surface.Story,
+            Layout:        Layout.Single,
+            Medium:        Medium.Image,
+            Channel:       InstagramStory,
+            ContentMedium: ContentMedium.Visual,
+            IsMultiAsset:  false,
+            DisplayLabel:  "Story (legacy)",
+            StorageFolder: "story");
+
+    private static readonly FormatDefinition LegacyFeedPostAssemblyDef =
+        new FormatDefinition(
+            FormatKey:     "feed-post",
+            Surface:       Surface.Feed,
+            Layout:        Layout.Single,
+            Medium:        Medium.Image,
+            Channel:       InstagramFeed,
+            ContentMedium: ContentMedium.Visual,
+            IsMultiAsset:  false,
+            DisplayLabel:  "Feed Post (legacy)",
+            StorageFolder: "feed-post");
+
     private static readonly IReadOnlyDictionary<string, FormatDefinition> AliasIndex =
         new Dictionary<string, FormatDefinition>(StringComparer.OrdinalIgnoreCase)
         {
+            ["story"] = LegacyStoryAssemblyDef,
+            ["feed-post"] = LegacyFeedPostAssemblyDef,
             ["carousel"] = LegacyCarouselAssemblyDef,
         };
 

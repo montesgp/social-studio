@@ -53,7 +53,7 @@ public sealed class RemainingFormatsGeneratorTests
 
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
         Assert.Equal(story.Title, result.Payload!.Title);
-        Assert.Equal("story.v1", result.PromptVersion);
+        Assert.Equal(ContentGenerationPromptVersions.Story, result.PromptVersion);
         Assert.NotNull(gateway.LastRequest);
         Assert.Contains("publicationDescription", gateway.LastRequest!.InputJson);
     }
@@ -62,7 +62,7 @@ public sealed class RemainingFormatsGeneratorTests
     public void StoryGenerator_FormatKeyAndPromptVersion_AreCorrect()
     {
         var gen = new StoryGenerator(new SucceedingGateway<StoryContent>(BuildStory()), BeginContext("format:story"));
-        Assert.Equal("story", gen.FormatKey);
+        Assert.Equal("story-single", gen.FormatKey);
         Assert.Equal(ContentGenerationPromptVersions.Story, gen.PromptVersion);
     }
 

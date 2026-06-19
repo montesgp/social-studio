@@ -39,6 +39,7 @@ import {
   duplicateItem,
   editItemText,
   editItemVisual,
+  fetchContentItemAsset,
   getContentSet,
   linkItemToPlan,
   listContentItems,
@@ -95,9 +96,12 @@ interface SlotGeometry {
 interface Envelope {
   markup: string;
   canvas?: { width?: number; height?: number };
+  flattenedImageRef?: string | null;
   slotGeometry?: SlotGeometry[];
   [key: string]: unknown;
 }
+
+type AutosaveStatus = "idle" | "saving" | "saved" | "error";
 
 interface SlotStyle {
   slot: string;
@@ -118,7 +122,9 @@ function parseEnvelopes(visualSpecMarkup: string | null): Envelope[] {
     const list = Array.isArray(parsed) ? parsed : [parsed];
     return list.filter((e): e is Envelope => Boolean(e) && typeof (e as Envelope).markup === "string");
   } catch {
-    return [];
+    return /<([a-z][\w:-]*)(\s|>)/i.test(visualSpecMarkup)
+      ? [{ markup: visualSpecMarkup, canvas: { width: 1080, height: 1080 } }]
+      : [];
   }
 }
 
@@ -154,6 +160,36 @@ function errorMessage(err: unknown): string {
   return "Something went wrong.";
 }
 
+function useVisualAutosaveRevision() {
+  const latestRevisionRef = useRef(0);
+  const savedRevisionRef = useRef(0);
+  const [pendingRevision, setPendingRevision] = useState(0);
+
+  const markEdited = useCallback(() => {
+    const nextRevision = latestRevisionRef.current + 1;
+    latestRevisionRef.current = nextRevision;
+    setPendingRevision(nextRevision);
+  }, []);
+
+  const markSaveNeeded = useCallback((hasUnsavedChanges: boolean) => {
+    if (!hasUnsavedChanges || latestRevisionRef.current !== savedRevisionRef.current) return;
+
+    const nextRevision = latestRevisionRef.current + 1;
+    latestRevisionRef.current = nextRevision;
+    setPendingRevision(nextRevision);
+  }, []);
+
+  const markSavedIfLatest = useCallback((revision: number) => {
+    if (latestRevisionRef.current !== revision) return false;
+
+    savedRevisionRef.current = revision;
+    setPendingRevision(revision);
+    return true;
+  }, []);
+
+  return { markEdited, markSaveNeeded, markSavedIfLatest, pendingRevision, savedRevisionRef };
+}
+
 export function ContentStudioPanel({ analysisId, clientId, token, onClose }: ContentStudioPanelProps) {
   const [set, setSet] = useState<ContentSet | null>(null);
   const [items, setItems] = useState<ContentItem[]>([]);
@@ -162,6 +198,8 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [igHandle, setIgHandle] = useState<string | null>(null);
+  const [saveStatusByItemId, setSaveStatusByItemId] = useState<Record<string, AutosaveStatus>>({});
+  const [saveErrorByItemId, setSaveErrorByItemId] = useState<Record<string, string | null>>({});
 
   const [draftText, setDraftText] = useState("");
   const [rejecting, setRejecting] = useState(false);
@@ -266,6 +304,15 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
     [refresh],
   );
 
+  const patchItem = useCallback((updated: ContentItem) => {
+    setItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+  }, []);
+
+  const setItemSaveStatus = useCallback((itemId: string, status: AutosaveStatus, message: string | null = null) => {
+    setSaveStatusByItemId((prev) => (prev[itemId] === status ? prev : { ...prev, [itemId]: status }));
+    setSaveErrorByItemId((prev) => (prev[itemId] === message ? prev : { ...prev, [itemId]: message }));
+  }, []);
+
   const toggleBulk = useCallback((id: string) => {
     setBulkSelected((prev) => {
       const next = new Set(prev);
@@ -300,6 +347,30 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
       setBusy(false);
     }
   }, [set, token]);
+
+  const autosaveSelectedText = useCallback(
+    (text: string) => {
+      if (!selectedId) return Promise.reject(new Error("No content item selected."));
+      return editItemText(selectedId, text, token);
+    },
+    [selectedId, token],
+  );
+
+  const autosaveSelectedVisual = useCallback(
+    (markup: string | null, assets: VisualAssetInput[]) => {
+      if (!selectedId) return Promise.reject(new Error("No content item selected."));
+      return editItemVisual(selectedId, markup, assets, token);
+    },
+    [selectedId, token],
+  );
+
+  const handleSelectedSaveStatusChange = useCallback(
+    (status: AutosaveStatus, message: string | null = null) => {
+      if (!selectedId) return;
+      setItemSaveStatus(selectedId, status, message);
+    },
+    [selectedId, setItemSaveStatus],
+  );
 
   return (
     <AnimatePresence>
@@ -398,8 +469,11 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
                 <ItemDetail
                   key={selected.id}
                   item={selected}
+                  token={token}
                   igHandle={igHandle}
                   busy={busy}
+                  saveStatus={saveStatusByItemId[selected.id] ?? "idle"}
+                  saveError={saveErrorByItemId[selected.id] ?? null}
                   draftText={draftText}
                   onDraftChange={setDraftText}
                   rejecting={rejecting}
@@ -411,6 +485,10 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
                     setRejectReason("");
                   }}
                   onSaveText={() => runAction(() => editItemText(selected.id, draftText, token), selected.id)}
+                  onAutosaveText={autosaveSelectedText}
+                  onAutosaveVisual={autosaveSelectedVisual}
+                  onItemSaved={patchItem}
+                  onSaveStatusChange={handleSelectedSaveStatusChange}
                   onApprove={() => runAction(() => approveItem(selected.id, token), selected.id)}
                   onConfirmReject={() =>
                     runAction(async () => {
@@ -566,8 +644,11 @@ function ItemList({
 
 interface ItemDetailProps {
   item: ContentItem;
+  token: string;
   igHandle: string | null;
   busy: boolean;
+  saveStatus: AutosaveStatus;
+  saveError: string | null;
   draftText: string;
   onDraftChange: (value: string) => void;
   rejecting: boolean;
@@ -576,6 +657,10 @@ interface ItemDetailProps {
   onStartReject: () => void;
   onCancelReject: () => void;
   onSaveText: () => void;
+  onAutosaveText: (text: string) => Promise<ContentItem>;
+  onAutosaveVisual: (markup: string | null, assets: VisualAssetInput[]) => Promise<ContentItem>;
+  onItemSaved: (item: ContentItem) => void;
+  onSaveStatusChange: (status: AutosaveStatus, message?: string | null) => void;
   onApprove: () => void;
   onConfirmReject: () => void;
   onDiscard: () => void;
@@ -630,21 +715,33 @@ function ItemDetail(props: ItemDetailProps) {
         <>
           {item.targetPlacement === "story" ? (
             <InstagramStoryPost
-              key={`${item.id}:${item.updatedAtUtc}`}
+              key={item.id}
               item={item}
+              token={props.token}
               igHandle={props.igHandle}
               canEdit={canEdit && isVisual}
               busy={busy}
+              saveStatus={props.saveStatus}
+              saveError={props.saveError}
+              onAutosaveVisual={props.onAutosaveVisual}
+              onItemSaved={props.onItemSaved}
+              onSaveStatusChange={props.onSaveStatusChange}
               onSaveVisual={isVisual ? props.onSaveVisual : undefined}
             />
           ) : (
             <InstagramPost
-              key={`${item.id}:${item.updatedAtUtc}`}
+              key={item.id}
               item={item}
+              token={props.token}
               igHandle={props.igHandle}
               caption={draftText}
               canEdit={canEdit && isVisual}
               busy={busy}
+              saveStatus={props.saveStatus}
+              saveError={props.saveError}
+              onAutosaveVisual={props.onAutosaveVisual}
+              onItemSaved={props.onItemSaved}
+              onSaveStatusChange={props.onSaveStatusChange}
               onSaveVisual={isVisual ? props.onSaveVisual : undefined}
             />
           )}
@@ -661,6 +758,16 @@ function ItemDetail(props: ItemDetailProps) {
                 placeholder="No caption."
               />
               <div>
+                <CaptionAutosave
+                  item={item}
+                  value={draftText}
+                  canEdit={canEdit}
+                  busy={busy}
+                  onAutosaveText={props.onAutosaveText}
+                  onItemSaved={props.onItemSaved}
+                  onSaveStatusChange={props.onSaveStatusChange}
+                />
+                <AutosaveIndicator status={props.saveStatus} error={props.saveError} />
                 <Button
                   size="sm"
                   variant="secondary"
@@ -963,6 +1070,68 @@ function EditableScript({
   );
 }
 
+function CaptionAutosave({
+  item,
+  value,
+  canEdit,
+  busy,
+  onAutosaveText,
+  onItemSaved,
+  onSaveStatusChange,
+}: {
+  item: ContentItem;
+  value: string;
+  canEdit: boolean;
+  busy: boolean;
+  onAutosaveText: (text: string) => Promise<ContentItem>;
+  onItemSaved: (item: ContentItem) => void;
+  onSaveStatusChange: (status: AutosaveStatus, message?: string | null) => void;
+}) {
+  const seq = useRef(0);
+  const persistedRef = useRef(item.text ?? "");
+
+  useEffect(() => {
+    persistedRef.current = item.text ?? "";
+  }, [item.id, item.text]);
+
+  useEffect(() => {
+    if (!canEdit || busy || value === persistedRef.current) return;
+    const saveId = ++seq.current;
+    onSaveStatusChange("saving");
+    const timer = window.setTimeout(() => {
+      onAutosaveText(value)
+        .then((updated) => {
+          if (seq.current !== saveId) return;
+          persistedRef.current = updated.text ?? "";
+          onItemSaved(updated);
+          onSaveStatusChange("saved");
+        })
+        .catch((err) => {
+          if (seq.current !== saveId) return;
+          onSaveStatusChange("error", errorMessage(err));
+        });
+    }, 700);
+
+    return () => {
+      seq.current++;
+      window.clearTimeout(timer);
+    };
+  }, [value, canEdit, busy, onAutosaveText, onItemSaved, onSaveStatusChange]);
+
+  return null;
+}
+
+function AutosaveIndicator({ status, error }: { status: AutosaveStatus; error: string | null }) {
+  if (status === "idle") return null;
+  const label =
+    status === "saving" ? "Saving…" : status === "saved" ? "Saved" : `Save failed${error ? `: ${error}` : ""}`;
+  return (
+    <p className={cn("mb-2 text-xs", status === "error" ? "text-destructive" : "text-muted-foreground")}>
+      {label}
+    </p>
+  );
+}
+
 function InstagramStory({
   children,
   username,
@@ -1009,37 +1178,101 @@ function InstagramStory({
  */
 function InstagramStoryPost({
   item,
+  token,
   igHandle,
   canEdit,
   busy,
+  saveStatus,
+  saveError,
+  onAutosaveVisual,
+  onItemSaved,
+  onSaveStatusChange,
   onSaveVisual,
 }: {
   item: ContentItem;
+  token: string;
   igHandle: string | null;
   canEdit: boolean;
   busy: boolean;
+  saveStatus: AutosaveStatus;
+  saveError: string | null;
+  onAutosaveVisual: (markup: string | null, assets: VisualAssetInput[]) => Promise<ContentItem>;
+  onItemSaved: (item: ContentItem) => void;
+  onSaveStatusChange: (status: AutosaveStatus, message?: string | null) => void;
   onSaveVisual?: (markup: string | null, assets: VisualAssetInput[]) => void;
 }) {
   const [envelopes, setEnvelopes] = useState<Envelope[]>(() => parseEnvelopes(item.visualSpecMarkup));
   const [current, setCurrent] = useState(0);
   const canvasRef = useRef<DesignCanvasHandle>(null);
+  const envelopesRef = useRef(envelopes);
+  const idxRef = useRef(0);
+  const assetsRef = useRef(item.assets);
   const initialJson = useMemo(() => serializeEnvelopes(parseEnvelopes(item.visualSpecMarkup)), [item.visualSpecMarkup]);
-  const [dirty, setDirty] = useState(false);
+  const persistedJsonRef = useRef(initialJson);
+  const saveSeq = useRef(0);
+  const { markEdited, markSaveNeeded, markSavedIfLatest, pendingRevision, savedRevisionRef } =
+    useVisualAutosaveRevision();
 
   const total = envelopes.length;
   const idx = total === 0 ? 0 : Math.min(current, total - 1);
   const slide = envelopes[idx];
+  const fallbackAssetIndex = idx < item.assets.length ? idx : 0;
+  envelopesRef.current = envelopes;
+  idxRef.current = idx;
+  assetsRef.current = item.assets;
+  const hasPendingVisualChanges = pendingRevision > savedRevisionRef.current;
 
   const commitCurrent = useCallback((): Envelope[] => {
     const state = canvasRef.current?.getState();
-    if (!state) return envelopes;
-    const next = envelopes.map((e, i) =>
-      i === idx ? { ...e, markup: state.markup, slotGeometry: syncGeometry(e.slotGeometry, state.slotStyles) } : e,
+    const currentEnvelopes = envelopesRef.current;
+    if (!state) return currentEnvelopes;
+    const currentIdx = idxRef.current;
+    const next = currentEnvelopes.map((e, i) =>
+      i === currentIdx ? { ...e, markup: state.markup, slotGeometry: syncGeometry(e.slotGeometry, state.slotStyles) } : e,
     );
+    envelopesRef.current = next;
     setEnvelopes(next);
-    setDirty(serializeEnvelopes(next) !== initialJson);
+    markSaveNeeded(serializeEnvelopes(next) !== persistedJsonRef.current);
     return next;
-  }, [envelopes, idx, initialJson]);
+  }, [markSaveNeeded]);
+
+  useEffect(() => {
+    if (!canEdit || busy || pendingRevision <= savedRevisionRef.current) return;
+    const saveId = ++saveSeq.current;
+    const revisionToSave = pendingRevision;
+    onSaveStatusChange("saving");
+    const timer = window.setTimeout(() => {
+      const next = commitCurrent();
+      const markup = serializeEnvelopes(next);
+      const assets = assetsRef.current.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime }));
+      onAutosaveVisual(markup, assets)
+        .then((updated) => {
+          if (saveSeq.current !== saveId) return;
+          if (!markSavedIfLatest(revisionToSave)) return;
+          persistedJsonRef.current = markup;
+          onItemSaved(updated);
+          onSaveStatusChange("saved");
+        })
+        .catch((err) => {
+          if (saveSeq.current !== saveId) return;
+          onSaveStatusChange("error", errorMessage(err));
+        });
+    }, 900);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    pendingRevision,
+    savedRevisionRef,
+    canEdit,
+    busy,
+    commitCurrent,
+    markSavedIfLatest,
+    onAutosaveVisual,
+    onItemSaved,
+    onSaveStatusChange,
+  ]);
 
   const goTo = (target: number) => {
     commitCurrent();
@@ -1050,6 +1283,7 @@ function InstagramStoryPost({
     return (
       <div className="rounded-xl border border-dashed border-border bg-background p-10 text-center text-sm italic text-muted-foreground">
         No rendered design available for this piece.
+        <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
       </div>
     );
   }
@@ -1061,15 +1295,20 @@ function InstagramStoryPost({
     <div className="flex flex-col gap-3">
       <div className="relative w-fit">
         <InstagramStory username={igHandle ?? undefined} slideCount={total} currentIndex={idx}>
-          <DesignCanvas
-            key={item.id}
-            ref={canvasRef}
-            markup={slide.markup ?? ""}
-            width={width}
-            height={height}
-            canEdit={canEdit}
-            onDirty={() => setDirty(true)}
-          />
+          {(slide.markup ?? "").trim().length > 0 ? (
+            <DesignCanvas
+              key={item.id}
+              ref={canvasRef}
+              markup={slide.markup ?? ""}
+              width={width}
+              height={height}
+              canEdit={canEdit}
+              onDirty={markEdited}
+              fallbackImageUrl={slide.flattenedImageRef ?? null}
+            />
+          ) : (
+            <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
+          )}
         </InstagramStory>
         {total > 1 ? (
           <>
@@ -1095,11 +1334,12 @@ function InstagramStoryPost({
       {canEdit ? (
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">Click a text to select it, drag to move, double-click to edit.</p>
+          <AutosaveIndicator status={saveStatus} error={saveError} />
           {onSaveVisual ? (
             <Button
               size="sm"
               variant="secondary"
-              disabled={busy || !dirty}
+              disabled={busy || !hasPendingVisualChanges}
               onClick={() => {
                 const next = commitCurrent();
                 onSaveVisual(
@@ -1120,40 +1360,104 @@ function InstagramStoryPost({
 /** Instagram-faithful post: editable design (carousel) on the left, IG sidebar on the right. */
 function InstagramPost({
   item,
+  token,
   igHandle,
   caption,
   canEdit,
   busy,
+  saveStatus,
+  saveError,
+  onAutosaveVisual,
+  onItemSaved,
+  onSaveStatusChange,
   onSaveVisual,
 }: {
   item: ContentItem;
+  token: string;
   igHandle: string | null;
   caption: string;
   canEdit: boolean;
   busy: boolean;
+  saveStatus: AutosaveStatus;
+  saveError: string | null;
+  onAutosaveVisual: (markup: string | null, assets: VisualAssetInput[]) => Promise<ContentItem>;
+  onItemSaved: (item: ContentItem) => void;
+  onSaveStatusChange: (status: AutosaveStatus, message?: string | null) => void;
   onSaveVisual?: (markup: string | null, assets: VisualAssetInput[]) => void;
 }) {
   const [envelopes, setEnvelopes] = useState<Envelope[]>(() => parseEnvelopes(item.visualSpecMarkup));
   const [current, setCurrent] = useState(0);
   const canvasRef = useRef<DesignCanvasHandle>(null);
+  const envelopesRef = useRef(envelopes);
+  const idxRef = useRef(0);
+  const assetsRef = useRef(item.assets);
   const initialJson = useMemo(() => serializeEnvelopes(parseEnvelopes(item.visualSpecMarkup)), [item.visualSpecMarkup]);
-  const [dirty, setDirty] = useState(false);
+  const persistedJsonRef = useRef(initialJson);
+  const saveSeq = useRef(0);
+  const { markEdited, markSaveNeeded, markSavedIfLatest, pendingRevision, savedRevisionRef } =
+    useVisualAutosaveRevision();
 
   const total = envelopes.length;
   const idx = total === 0 ? 0 : Math.min(current, total - 1);
   const slide = envelopes[idx];
   const handle = igHandle ?? "your_account";
+  const fallbackAssetIndex = idx < item.assets.length ? idx : 0;
+  envelopesRef.current = envelopes;
+  idxRef.current = idx;
+  assetsRef.current = item.assets;
+  const hasPendingVisualChanges = pendingRevision > savedRevisionRef.current;
 
   const commitCurrent = useCallback((): Envelope[] => {
     const state = canvasRef.current?.getState();
-    if (!state) return envelopes;
-    const next = envelopes.map((e, i) =>
-      i === idx ? { ...e, markup: state.markup, slotGeometry: syncGeometry(e.slotGeometry, state.slotStyles) } : e,
+    const currentEnvelopes = envelopesRef.current;
+    if (!state) return currentEnvelopes;
+    const currentIdx = idxRef.current;
+    const next = currentEnvelopes.map((e, i) =>
+      i === currentIdx ? { ...e, markup: state.markup, slotGeometry: syncGeometry(e.slotGeometry, state.slotStyles) } : e,
     );
+    envelopesRef.current = next;
     setEnvelopes(next);
-    setDirty(serializeEnvelopes(next) !== initialJson);
+    markSaveNeeded(serializeEnvelopes(next) !== persistedJsonRef.current);
     return next;
-  }, [envelopes, idx, initialJson]);
+  }, [markSaveNeeded]);
+
+  useEffect(() => {
+    if (!canEdit || busy || pendingRevision <= savedRevisionRef.current) return;
+    const saveId = ++saveSeq.current;
+    const revisionToSave = pendingRevision;
+    onSaveStatusChange("saving");
+    const timer = window.setTimeout(() => {
+      const next = commitCurrent();
+      const markup = serializeEnvelopes(next);
+      const assets = assetsRef.current.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime }));
+      onAutosaveVisual(markup, assets)
+        .then((updated) => {
+          if (saveSeq.current !== saveId) return;
+          if (!markSavedIfLatest(revisionToSave)) return;
+          persistedJsonRef.current = markup;
+          onItemSaved(updated);
+          onSaveStatusChange("saved");
+        })
+        .catch((err) => {
+          if (saveSeq.current !== saveId) return;
+          onSaveStatusChange("error", errorMessage(err));
+        });
+    }, 900);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    pendingRevision,
+    savedRevisionRef,
+    canEdit,
+    busy,
+    commitCurrent,
+    markSavedIfLatest,
+    onAutosaveVisual,
+    onItemSaved,
+    onSaveStatusChange,
+  ]);
 
   const goTo = (target: number) => {
     commitCurrent();
@@ -1166,6 +1470,7 @@ function InstagramPost({
     ) : (
       <div className="rounded-xl border border-dashed border-border bg-background p-10 text-center text-sm italic text-muted-foreground">
         No rendered design available for this piece.
+        <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
       </div>
     );
   }
@@ -1181,15 +1486,20 @@ function InstagramPost({
         {/* Media (editable design) */}
         <div className="relative flex min-w-0 flex-1 items-start justify-center bg-black">
           <div className="relative w-full">
-            <DesignCanvas
-              key={item.id}
-              ref={canvasRef}
-              markup={slide?.markup ?? ""}
-              width={width}
-              height={height}
-              canEdit={canEdit}
-              onDirty={() => setDirty(true)}
-            />
+            {(slide?.markup ?? "").trim().length > 0 ? (
+              <DesignCanvas
+                key={item.id}
+                ref={canvasRef}
+                markup={slide?.markup ?? ""}
+                width={width}
+                height={height}
+                canEdit={canEdit}
+                onDirty={markEdited}
+                fallbackImageUrl={slide?.flattenedImageRef ?? null}
+              />
+            ) : (
+              <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
+            )}
             {total > 1 ? (
               <>
                 <button
@@ -1262,11 +1572,12 @@ function InstagramPost({
       {canEdit ? (
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">Click a text to select it, drag to move, double-click to edit.</p>
+          <AutosaveIndicator status={saveStatus} error={saveError} />
           {onSaveVisual ? (
             <Button
               size="sm"
               variant="secondary"
-              disabled={busy || !dirty}
+              disabled={busy || !hasPendingVisualChanges}
               onClick={() => {
                 const next = commitCurrent();
                 onSaveVisual(
@@ -1286,6 +1597,47 @@ function InstagramPost({
 
 interface DesignCanvasHandle {
   getState: () => { markup: string; slotStyles: SlotStyle[] };
+}
+
+function AssetFallbackImage({ item, token, assetIndex }: { item: ContentItem; token: string; assetIndex: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const asset = item.assets[assetIndex];
+
+  useEffect(() => {
+    if (!asset) return;
+
+    if (/^(https?:|data:|blob:|\/)/i.test(asset.storageUri)) {
+      setUrl(asset.storageUri);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    fetchContentItemAsset(item.id, assetIndex, token)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [asset, assetIndex, item.id, token]);
+
+  if (!asset || !url) return null;
+
+  return (
+    <img
+      src={url}
+      alt="Rendered design fallback"
+      className="mt-3 max-h-[70vh] max-w-full rounded-lg border border-border object-contain"
+    />
+  );
 }
 
 /** Picks the editable element under a click — any element except the layout wrappers / background. */
@@ -1325,11 +1677,20 @@ function ensurePositioned(el: HTMLElement) {
  */
 function sanitizeDesignMarkup(markup: string): string {
   if (typeof document === "undefined" || !markup) return markup;
-  const tpl = document.createElement("template");
-  tpl.innerHTML = markup;
-  tpl.content.querySelectorAll("style, link, meta, script, title, base").forEach((n) => n.remove());
-  const composition = tpl.content.querySelector(".composition");
-  return composition ? composition.outerHTML : tpl.innerHTML;
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(markup, "text/html");
+  doc.querySelectorAll("script, iframe, object, embed, link, meta, title, base").forEach((n) => n.remove());
+  doc.querySelectorAll<HTMLElement>("*").forEach((node) => {
+    [...node.attributes].forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      if (name.startsWith("on") || ((name === "href" || name === "src") && value.startsWith("javascript:"))) {
+        node.removeAttribute(attr.name);
+      }
+    });
+  });
+  const styles = [...doc.head.querySelectorAll("style")].map((style) => style.outerHTML).join("");
+  return `${styles}${doc.body.innerHTML}`;
 }
 
 /**
@@ -1338,10 +1699,12 @@ function sanitizeDesignMarkup(markup: string): string {
  */
 const DesignCanvas = forwardRef<
   DesignCanvasHandle,
-  { markup: string; width: number; height: number; canEdit: boolean; onDirty: () => void }
->(function DesignCanvas({ markup, width, height, canEdit, onDirty }, ref) {
+  { markup: string; width: number; height: number; canEdit: boolean; onDirty: () => void; fallbackImageUrl?: string | null }
+>(function DesignCanvas({ markup, width, height, canEdit, onDirty, fallbackImageUrl }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const designRef = useRef<HTMLDivElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const shadowRef = useRef<ShadowRoot | null>(null);
+  const designRef = useRef<HTMLDivElement | null>(null);
   const scaleRef = useRef(0);
   const [scale, setScale] = useState(0);
   const selectedRef = useRef<HTMLElement | null>(null);
@@ -1354,9 +1717,22 @@ const DesignCanvas = forwardRef<
 
   // Imperative innerHTML — React does not manage these children, so our DOM edits are never wiped.
   useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const shadow = shadowRef.current ?? host.attachShadow({ mode: "open" });
+    shadowRef.current = shadow;
+    shadow.innerHTML = `
+      <style>
+        :host { all: initial; display: block; contain: content; }
+        *, *::before, *::after { box-sizing: border-box; }
+        [data-cs-design-root] { position: relative; isolation: isolate; overflow: hidden; background: #fff; }
+        [data-slot] { min-width: 1px; min-height: 1em; overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.1; }
+        .composition { position: relative; contain: layout paint style; }
+      </style>
+      <div data-cs-design-root>${sanitizeDesignMarkup(markup)}</div>`;
+    designRef.current = shadow.querySelector<HTMLDivElement>("[data-cs-design-root]");
     const el = designRef.current;
     if (!el) return;
-    el.innerHTML = sanitizeDesignMarkup(markup);
     selectedRef.current = null;
     setSelRect(null);
   }, [markup]);
@@ -1405,12 +1781,14 @@ const DesignCanvas = forwardRef<
   );
 
   useEffect(() => {
-    const el = designRef.current;
-    if (!el) return;
+    const shadow = shadowRef.current;
+    if (!shadow) return;
 
     const onPointerDown = (e: PointerEvent) => {
       if (!canEdit) return;
-      const target = pickElement(e.target as Node, el);
+      const root = designRef.current;
+      if (!root) return;
+      const target = pickElement(e.target as Node, root);
       if (!target) return;
       if (target.isContentEditable) return; // editing text — let the caret work
       select(target);
@@ -1458,7 +1836,9 @@ const DesignCanvas = forwardRef<
     };
     const onDblClick = (e: MouseEvent) => {
       if (!canEdit) return;
-      const target = pickElement(e.target as Node, el);
+      const root = designRef.current;
+      if (!root) return;
+      const target = pickElement(e.target as Node, root);
       if (!target) return;
       target.contentEditable = "true";
       select(target);
@@ -1474,19 +1854,21 @@ const DesignCanvas = forwardRef<
         select(null);
       }
     };
+    const onShadowPointerDown: EventListener = (event) => onPointerDown(event as PointerEvent);
+    const onShadowDblClick: EventListener = (event) => onDblClick(event as MouseEvent);
 
-    el.addEventListener("pointerdown", onPointerDown);
+    shadow.addEventListener("pointerdown", onShadowPointerDown);
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
-    el.addEventListener("dblclick", onDblClick);
-    el.addEventListener("input", onInput);
+    shadow.addEventListener("dblclick", onShadowDblClick);
+    shadow.addEventListener("input", onInput);
     document.addEventListener("pointerdown", onDocPointerDown);
     return () => {
-      el.removeEventListener("pointerdown", onPointerDown);
+      shadow.removeEventListener("pointerdown", onShadowPointerDown);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
-      el.removeEventListener("dblclick", onDblClick);
-      el.removeEventListener("input", onInput);
+      shadow.removeEventListener("dblclick", onShadowDblClick);
+      shadow.removeEventListener("input", onInput);
       document.removeEventListener("pointerdown", onDocPointerDown);
     };
   }, [canEdit, width, height, onDirty, select, positionToolbar]);
@@ -1536,9 +1918,23 @@ const DesignCanvas = forwardRef<
       style={{ height: scale > 0 ? height * scale : undefined }}
     >
       <div
-        ref={designRef}
+        ref={hostRef}
         style={{ width, height, transform: `scale(${scale})`, transformOrigin: "top left" }}
       />
+      {fallbackImageUrl ? (
+        <img
+          src={fallbackImageUrl}
+          alt=""
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute inset-0 h-full w-full object-cover",
+            markup.trim().length === 0 ? "opacity-100" : "opacity-0",
+          )}
+          onError={(event) => {
+            event.currentTarget.style.opacity = "1";
+          }}
+        />
+      ) : null}
       {selRect ? (
         <>
         <div
