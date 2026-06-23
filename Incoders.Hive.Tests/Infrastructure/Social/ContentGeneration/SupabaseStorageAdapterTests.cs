@@ -106,7 +106,7 @@ public sealed class SupabaseStorageAdapterTests
             new StoredAssetContent([0xDE, 0xAD, 0xBE, 0xEF], "image/png"),
             CancellationToken.None);
 
-        var expectedPath = $"{OrgId}/{ClientId}/{AnalysisId}/flyer.png";
+        var expectedPath = $"{OrgId}/{ClientId}/{AnalysisId}/story.png";
         Assert.Equal(expectedPath, result.StoragePath);
         Assert.Equal("image/png", result.Mime);
         Assert.Equal(4L, result.SizeBytes);
@@ -184,7 +184,7 @@ public sealed class SupabaseStorageAdapterTests
         var handler = new FakeHttpMessageHandler(HttpStatusCode.OK, "image-bytes");
         var adapter = BuildAdapter(handler);
 
-        var result = await adapter.OpenAsync($"{OrgId}/{ClientId}/{AnalysisId}/flyer.png", CancellationToken.None);
+        var result = await adapter.OpenAsync($"{OrgId}/{ClientId}/{AnalysisId}/story.png", CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(HttpMethod.Get, handler.LastRequest!.Method);
@@ -208,7 +208,7 @@ public sealed class SupabaseStorageAdapterTests
         var handler = new FakeHttpMessageHandler(HttpStatusCode.Forbidden, "forbidden");
         var adapter = BuildAdapter(handler);
 
-        var result = await adapter.OpenAsync($"{OrgId}/{ClientId}/{AnalysisId}/flyer.png", CancellationToken.None);
+        var result = await adapter.OpenAsync($"{OrgId}/{ClientId}/{AnalysisId}/story.png", CancellationToken.None);
 
         Assert.True(result.IsFailure);
         Assert.Equal(ErrorType.Failure, result.Error.Type);
@@ -241,7 +241,7 @@ public sealed class SupabaseStorageAdapterTests
         var handler = new FakeHttpMessageHandler(HttpStatusCode.OK, "{}");
         var adapter = BuildAdapter(handler);
 
-        await adapter.DeleteAsync($"{OrgId}/{ClientId}/{AnalysisId}/flyer.png", CancellationToken.None);
+        await adapter.DeleteAsync($"{OrgId}/{ClientId}/{AnalysisId}/story.png", CancellationToken.None);
 
         Assert.Equal(HttpMethod.Delete, handler.LastRequest!.Method);
     }

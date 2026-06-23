@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 using Incoders.Hive.Infrastructure.Rendering;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -111,6 +112,44 @@ public static class InfrastructureContentGenerationExtensions
 
         // Register the PPTX export adapter (B3 WU-2 — provider-neutral port, OpenXML adapter).
         services.AddScoped<IPptxExportAdapter, PptxExportAdapter>();
+
+        // ── Background sourcing strategy family (WU-5 §5.5/5.6) ──────────────
+        // All four strategies are registered as IBackgroundSourcingStrategy so
+        // BackgroundStrategyResolver can build its policy→strategy map via IEnumerable<>.
+        // LegacyTierStrategy is also registered directly as the named legacy fallback
+        // that the resolver passes to its _legacyFallback parameter.
+        services.AddScoped<LegacyTierStrategy>();
+        services.AddScoped<IBackgroundSourcingStrategy>(sp => sp.GetRequiredService<LegacyTierStrategy>());
+        services.AddScoped<IBackgroundSourcingStrategy, ClientDefinedSetStrategy>();
+        services.AddScoped<IBackgroundSourcingStrategy, AiPaletteStrategy>();
+        services.AddScoped<IBackgroundSourcingStrategy, ClientAestheticStrategy>();
+
+        // Resolver: receives IEnumerable<IBackgroundSourcingStrategy> (all four above) +
+        // the legacy fallback singleton so null/Unset/unknown routes to legacy behavior.
+        services.AddScoped<IBackgroundStrategyResolver>(sp =>
+            new BackgroundStrategyResolver(
+                sp.GetRequiredService<IEnumerable<IBackgroundSourcingStrategy>>(),
+                sp.GetRequiredService<LegacyTierStrategy>()));
+
+        // CASE C aesthetic profile reader (CAG-CG-05 / WU-5 §5.11):
+        // Reads DetectedBackgroundImages, VoiceTone (from ai_analysis_json) and
+        // AverageSlidesPerCarousel (from server_derived_stats_json) of the most recent
+        // Analyzed ProfileAiAnalysis for a client.
+        // Replaces the narrow IClientAestheticDescriptorReader (descriptor-only) with the
+        // richer IClientAestheticProfileReader.
+        // IClientAestheticDescriptorReader registration is retained for backward compatibility
+        // with existing tests/callers until fully removed.
+        services.AddScoped<IClientAestheticDescriptorReader, EfClientAestheticDescriptorReader>();
+        services.AddScoped<IClientAestheticProfileReader, EfClientAestheticProfileReader>();
+
+        // EnsureFresh service (CAG-CG-01/02/03/04 / WU-3): fire-and-forget background refresh
+        // orchestrator; registers against the port so ContentGenerationJobProcessor can inject it.
+        services.AddScoped<IClientAestheticEnsureFreshService, ClientAestheticEnsureFreshService>();
+
+        // Phase 2 (CAG2-PA-02/03): durable post-media archiver + multimodal aesthetic extractor.
+        // Injected (optionally) into ProfileAnalyzerOrchestrator to enrich ClientAesthetic clients.
+        services.AddScoped<IClientPostMediaArchiver, SupabasePostMediaArchiver>();
+        services.AddScoped<IClientAestheticStyleExtractor, MultimodalAestheticStyleExtractor>();
 
         return services;
     }

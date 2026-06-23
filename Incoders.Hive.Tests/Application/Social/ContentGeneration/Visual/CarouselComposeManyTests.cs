@@ -47,7 +47,7 @@ public sealed class CarouselComposeManyTests
     }
 
     [Fact]
-    public async Task ComposeManyAsync_FlyerFormat_ReturnsSingleSpec()
+    public async Task ComposeManyAsync_StoryFormat_ReturnsSingleSpec()
     {
         // Single-asset formats return a 1-element list via the fallback path.
         var service = new VisualCompositionService();

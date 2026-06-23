@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
@@ -13,7 +14,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 /// <para>
 /// <see cref="IsActive"/> returns <c>false</c>. The processor checks this flag BEFORE calling
 /// <see cref="ComposeAsync"/> and, when it is <c>false</c>, bypasses the designer stage without
-/// recording any render failure. Flyer and carousel formats therefore render via the legacy path
+/// recording any render failure. Story and carousel formats therefore render via the legacy path
 /// exactly as they did before B1a inserted the designer slot.
 /// </para>
 ///
@@ -44,7 +45,8 @@ internal sealed class NoOpVisualDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ClientAestheticDesignContext? aesthetic = null)
     {
         // Should not be called: the processor checks IsActive first.
         // If reached, return a clear failure rather than silently corrupting state.

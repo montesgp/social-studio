@@ -63,6 +63,13 @@ public sealed class ProfileMetricCalculator : IProfileMetricCalculator
             ? (usablePosts.Average(p => (double)(p.LikesCount + p.CommentsCount)) / profile.FollowersCount) * 100.0
             : 0.0;
 
+        // ── CAG-PA-02: AverageSlidesPerCarousel ───────────────────────────────
+        // Mean of CarouselChildrenCount where non-null, over usable Carousel posts.
+        // Null excluded from both numerator and denominator.
+        // Returns null when no Carousel posts have a non-null count.
+        // Raw value stored; clamping to [3,10] applied ONLY in the prompt hint (design §6).
+        var averageSlidesPerCarousel = ComputeAverageSlidesPerCarousel(usablePosts);
+
         return Result.Success(new ProfileStats(
             EngagementRate: engagementRate,
             MedianViews: medianViews,
@@ -72,7 +79,8 @@ public sealed class ProfileMetricCalculator : IProfileMetricCalculator
             ContentTypeMix: contentTypeMix,
             PostingCadenceDays: cadence,
             OwnerPostCount: usablePosts.Count,
-            DegradedPostCount: degradedCount));
+            DegradedPostCount: degradedCount,
+            AverageSlidesPerCarousel: averageSlidesPerCarousel));
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -164,6 +172,29 @@ public sealed class ProfileMetricCalculator : IProfileMetricCalculator
                 StringComparer.OrdinalIgnoreCase);
 
         return groups;
+    }
+
+    /// <summary>
+    /// Computes the mean number of child slides per Carousel post from the <c>CarouselChildrenCount</c> field.
+    /// Only Carousel posts with a non-null <c>CarouselChildrenCount</c> contribute.
+    /// Null counts are excluded from both numerator and denominator (not treated as 0).
+    /// Returns null when no Carousel posts have a non-null count (CAG-PA-02).
+    /// Result is rounded to 1 decimal place. Clamping to [3,10] is applied ONLY in the prompt hint.
+    /// </summary>
+    private static double? ComputeAverageSlidesPerCarousel(IReadOnlyList<ProfilePost> posts)
+    {
+        var counts = posts
+            .Where(p => string.Equals(p.MediaType, "Carousel", StringComparison.OrdinalIgnoreCase)
+                        && p.CarouselChildrenCount.HasValue)
+            .Select(p => (double)p.CarouselChildrenCount!.Value)
+            .ToList();
+
+        if (counts.Count == 0)
+        {
+            return null;
+        }
+
+        return Math.Round(counts.Average(), 1, MidpointRounding.AwayFromZero);
     }
 
     /// <summary>

@@ -33,6 +33,12 @@ public interface IContentGenerationJobRepository
         Guid organizationId,
         Guid clientId,
         CancellationToken ct);
+
+    /// <summary>
+    /// Sets the job's regeneration objection (used when re-enqueuing an existing job to regenerate a
+    /// single format with a new objection). Default no-op so test fakes compile; EF adapter overrides.
+    /// </summary>
+    Task SetRegenerationObjectionAsync(Guid id, string? objection, CancellationToken ct) => Task.CompletedTask;
 }
 
 /// <summary>

@@ -148,6 +148,22 @@ public sealed class EfContentGenerationFormatAssetRepository : IContentGeneratio
         }
     }
 
+    public async Task DeleteByIdAsync(Guid assetId, CancellationToken ct)
+    {
+        var existing = await _db.ContentGenerationFormatAssets
+            .FirstOrDefaultAsync(x => x.Id == assetId, ct);
+
+        if (existing is not null)
+        {
+            _db.ContentGenerationFormatAssets.Remove(existing);
+            await _db.SaveChangesAsync(ct);
+        }
+    }
+
+    public Task<int> CountByFormatResultIdAsync(Guid formatResultId, CancellationToken ct) =>
+        _db.ContentGenerationFormatAssets
+            .CountAsync(x => x.FormatResultId == formatResultId, ct);
+
     private static ContentGenerationFormatAssetData Map(FormatAssetRow r) => new()
     {
         Id = r.Id,

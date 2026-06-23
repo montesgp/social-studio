@@ -15,7 +15,7 @@ flowchart LR
   end
 
   subgraph Gen["content-generation — IMMUTABLE (generate-once)"]
-    GP["GeneratedPackage<br/>+ durable per-format results<br/>(flyer/carousel PPTX, reel-script MD, caption, hook...)"]
+    GP["GeneratedPackage<br/>+ durable per-format results<br/>(story/carousel PPTX, reel-script MD, caption, hook...)"]
   end
 
   SA --> GP

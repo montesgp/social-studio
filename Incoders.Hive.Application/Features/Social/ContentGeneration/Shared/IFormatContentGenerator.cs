@@ -7,7 +7,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 /// </summary>
 public interface IFormatContentGenerator
 {
-    /// <summary>Unique key identifying this format (e.g. "carousel", "flyer").</summary>
+    /// <summary>Unique key identifying this format (e.g. "carousel", "story").</summary>
     string FormatKey { get; }
 
     /// <summary>Prompt version constant associated with this handler.</summary>

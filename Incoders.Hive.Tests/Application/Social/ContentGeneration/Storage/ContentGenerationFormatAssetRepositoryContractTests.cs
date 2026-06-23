@@ -18,7 +18,7 @@ public sealed class ContentGenerationFormatAssetRepositoryContractTests
             Id: Guid.NewGuid(),
             FormatResultId: Guid.NewGuid(),
             AssetIndex: 0,
-            StoragePath: "org/client/analysis/flyer.png",
+            StoragePath: "org/client/analysis/story.png",
             Filename: "story.png",
             MimeType: "image/png",
             SizeBytes: 2048,

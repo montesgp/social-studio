@@ -24,10 +24,11 @@ export type {
 
 /** All supported format keys — used when the user wants to generate all formats. */
 export const ALL_FORMAT_KEYS: ContentFormatKey[] = [
-  "carousel",
-  "story",
-  "feed-post",
   "reel-script",
+  "story-single",
+  "story-carousel",
+  "feed-single",
+  "feed-carousel",
   "content-idea",
   "cta-variation",
   "caption",
@@ -36,15 +37,55 @@ export const ALL_FORMAT_KEYS: ContentFormatKey[] = [
 
 /** Human-readable labels for each format key. */
 export const FORMAT_LABELS: Record<ContentFormatKey, string> = {
-  carousel: "Carousel",
-  story: "Story",
-  "feed-post": "Feed Post",
   "reel-script": "Reel Script",
+  "story-single": "Story",
+  "story-carousel": "Story · Carousel",
+  "feed-single": "Feed Single",
+  "feed-carousel": "Feed · Carousel",
   "content-idea": "Content Idea",
   "cta-variation": "CTA Variation",
   caption: "Caption",
   hook: "Hook",
 };
+
+// ── Format catalog types (ADR-6 / SCENARIO-12 / SCENARIO-13) ─────────────────
+
+/**
+ * Single entry from GET /api/social/content-generation/formats.
+ * Mirrors FormatCatalogEntryDto from the backend.
+ */
+export interface FormatCatalogEntry {
+  formatKey: string;
+  surface: string;
+  layout: string | null;
+  medium: string;
+  displayLabel: string;
+  isMultiAsset: boolean;
+  isAuxiliary: boolean;
+}
+
+/** Response from GET /api/social/content-generation/formats. */
+export interface FormatCatalogResponse {
+  entries: FormatCatalogEntry[];
+}
+
+/**
+ * GET /api/social/content-generation/formats
+ *
+ * Returns the server-side format catalog for driving the selection UI.
+ * Filters out auxiliary entries so only surface/layout-selectable formats are returned.
+ * The ContentFormatKey TS union remains the static-type fallback (spec R-B / design ADR-6).
+ */
+export async function listFormatCatalog(
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<FormatCatalogEntry[]> {
+  const response = await apiRequest<FormatCatalogResponse>(
+    "/api/social/content-generation/formats",
+    { method: "GET", signal: opts?.signal },
+    opts?.token
+  );
+  return response.entries;
+}
 
 // ── Raw backend response shape (before client-side transform) ─────────────────
 
@@ -339,6 +380,28 @@ export async function deleteFormatItem(
 ): Promise<void> {
   return apiRequest<void>(
     `/api/social/single-analyzer/${encodeURIComponent(analysisId)}/formats/${encodeURIComponent(formatKey)}?clientId=${encodeURIComponent(clientId)}`,
+    {
+      method: "DELETE",
+      signal: opts?.signal,
+    },
+    opts?.token
+  );
+}
+
+/**
+ * DELETE /api/social/single-analyzer/{analysisId}/formats/{formatKey}/assets/{index}?clientId=...
+ * Physically deletes a single asset (one file / carousel slide) from storage and removes its DB row.
+ * When the deletion empties the format, the format folder is removed too (cascade).
+ */
+export async function deleteAsset(
+  analysisId: string,
+  formatKey: string,
+  clientId: string,
+  index: number,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<void> {
+  return apiRequest<void>(
+    `/api/social/single-analyzer/${encodeURIComponent(analysisId)}/formats/${encodeURIComponent(formatKey)}/assets/${index}?clientId=${encodeURIComponent(clientId)}`,
     {
       method: "DELETE",
       signal: opts?.signal,

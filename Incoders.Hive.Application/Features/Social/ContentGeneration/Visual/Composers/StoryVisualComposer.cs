@@ -1,12 +1,12 @@
-using System.Text.RegularExpressions;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Composers;
 
 internal sealed class StoryVisualComposer : IFormatVisualComposer
 {
-    public string FormatKey => "story";
+    public string FormatKey => "story-single";
 
     public VisualCompositionSpec Compose(object generatedPayload, BrandSnapshot brand, InferenceAccumulator inferred)
     {
@@ -31,9 +31,7 @@ internal sealed class StoryVisualComposer : IFormatVisualComposer
             ? string.Join(" | ", payload.Callouts)
             : null);
 
-        var signatureText = FirstNotBlank(
-            payload?.SignatureText,
-            ExtractHandleFromNotes(brand.Brand?.Notes));
+        var signatureText = AttributionPolicy.ResolveSignature(brand, payload?.SignatureText);
         if (!string.IsNullOrWhiteSpace(signatureText))
         {
             copySlots["signature"] = signatureText;
@@ -63,20 +61,6 @@ internal sealed class StoryVisualComposer : IFormatVisualComposer
             CopySlots: copySlots,
             Dimensions: new CompositionDimensions(1080, 1920, 96));
     }
-
-    private static string? ExtractHandleFromNotes(string? notes)
-    {
-        if (string.IsNullOrWhiteSpace(notes))
-        {
-            return null;
-        }
-
-        var match = Regex.Match(notes, @"@\w[\w\.\-_]{1,60}");
-        return match.Success ? match.Value : null;
-    }
-
-    private static string? FirstNotBlank(params string?[] values) =>
-        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 
     private static void AddIfNotBlank(Dictionary<string, string> slots, string key, string? value)
     {

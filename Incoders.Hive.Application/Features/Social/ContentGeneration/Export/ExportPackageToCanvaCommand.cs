@@ -13,7 +13,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Export;
 
 /// <summary>
 /// Command to export the whole VISUAL package of a content-generation job to Canva as a single
-/// editable multi-page design (one "Send to Canva" for the package). The flyer and every carousel
+/// editable multi-page design (one "Send to Canva" for the package). The story and every carousel
 /// slide become editable pages; the design is titled after the client.
 ///
 /// <para>
@@ -102,7 +102,7 @@ public sealed class ExportPackageToCanvaCommandHandler
         }
 
         // 2. Aggregate the editable composition envelopes across all visual formats of the job,
-        //    flyer first then carousel slides. Each format may carry one (flyer) or many (carousel).
+        //    story first then carousel slides. Each format may carry one (story) or many (carousel).
         var formatResults = await _formatResultRepository.ListByJobAsync(command.JobId, cancellationToken);
 
         // 3. Check the ORG has a connected Canva account (org-level shared connection).

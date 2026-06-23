@@ -43,6 +43,25 @@ public sealed class UpdateSocialClientHandler
             return Result.Failure<SocialClientResponse>(renamed.Error);
         }
 
+        // WU-8 (BSP-08b): update policy when provided in the request.
+        // A null request.BackgroundSourcingPolicy means "leave the current policy unchanged",
+        // not "clear the policy". Use SetBackgroundSourcingPolicy(null, ...) explicitly to clear.
+        if (request.BackgroundSourcingPolicy.HasValue)
+        {
+            client.SetBackgroundSourcingPolicy(request.BackgroundSourcingPolicy, _clock.UtcNow);
+        }
+
+        // WU-7 (CAG-CS-02): update threshold when provided; null = leave current unchanged.
+        if (request.AestheticRefreshThresholdDays.HasValue)
+        {
+            var thresholdResult = client.SetAestheticRefreshThresholdDays(
+                request.AestheticRefreshThresholdDays, _clock.UtcNow);
+            if (thresholdResult.IsFailure)
+            {
+                return Result.Failure<SocialClientResponse>(thresholdResult.Error);
+            }
+        }
+
         _clients.Update(client);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 

@@ -52,9 +52,28 @@ public sealed class EfContentSetRepository : IContentSetRepository
             return;
         }
 
-        existing.Items.Clear();
-        MapToExisting(set, existing);
-        await _dbContext.SaveChangesAsync(ct);
+        Apply(set, existing);
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _dbContext.ChangeTracker.Clear();
+
+            existing = await _dbContext.ContentStudioSets
+                .Include(x => x.Items)
+                .FirstOrDefaultAsync(x => x.Id == set.Id.Value && x.OrganizationId == set.OrganizationId, ct);
+
+            if (existing is null)
+            {
+                return;
+            }
+
+            Apply(set, existing);
+            await _dbContext.SaveChangesAsync(ct);
+        }
     }
 
     public async Task<ReviewSummary> GetReviewSummaryAsync(Guid organizationId, ContentSetId setId, CancellationToken ct)
@@ -99,12 +118,60 @@ public sealed class EfContentSetRepository : IContentSetRepository
     private static ContentStudioSetData ToData(ContentSet set)
     {
         var d = new ContentStudioSetData { Id = set.Id.Value };
-        MapToExisting(set, d);
+        MapScalars(set, d);
         d.CreatedAtUtc = set.CreatedAtUtc;
+        d.Items = set.Members
+            .Select(m => new ContentStudioSetItemData
+            {
+                Id = Guid.NewGuid(),
+                SetId = set.Id.Value,
+                ItemId = m.ItemId.Value,
+                SortOrder = m.SortOrder,
+            })
+            .ToList();
         return d;
     }
 
-    private static void MapToExisting(ContentSet set, ContentStudioSetData d)
+    private void Apply(ContentSet set, ContentStudioSetData existing)
+    {
+        MapScalars(set, existing);
+
+        // Reconcile members in place (additive/idempotent): keep the rows that are still members,
+        // remove the ones dropped, add the genuinely new ones. The previous Clear()+reinsert deleted
+        // every set_item and re-inserted all of them on each open; two concurrent materialize calls
+        // (e.g. React StrictMode double-invoke in dev) then raced — the second call's DELETE of rows
+        // the first already removed affected 0 rows and threw DbUpdateConcurrencyException.
+        var desired = set.Members.ToDictionary(m => m.ItemId.Value, m => m.SortOrder);
+
+        foreach (var row in existing.Items.Where(i => !desired.ContainsKey(i.ItemId)).ToList())
+        {
+            _dbContext.ContentStudioSetItems.Remove(row);
+            existing.Items.Remove(row);
+        }
+
+        foreach (var (itemId, sortOrder) in desired)
+        {
+            var row = existing.Items.FirstOrDefault(i => i.ItemId == itemId);
+            if (row is null)
+            {
+                row = new ContentStudioSetItemData
+                {
+                    Id = Guid.NewGuid(),
+                    SetId = set.Id.Value,
+                    ItemId = itemId,
+                    SortOrder = sortOrder,
+                };
+                existing.Items.Add(row);
+                _dbContext.ContentStudioSetItems.Add(row);
+            }
+            else
+            {
+                row.SortOrder = sortOrder;
+            }
+        }
+    }
+
+    private static void MapScalars(ContentSet set, ContentStudioSetData d)
     {
         d.OrganizationId = set.OrganizationId;
         d.ClientId = set.ClientId;
@@ -116,14 +183,5 @@ public sealed class EfContentSetRepository : IContentSetRepository
         d.OriginYear = set.Origin.Period?.Year;
         d.OriginMonth = set.Origin.Period?.Month;
         d.UpdatedAtUtc = set.UpdatedAtUtc;
-        d.Items = set.Members
-            .Select(m => new ContentStudioSetItemData
-            {
-                Id = Guid.NewGuid(),
-                SetId = set.Id.Value,
-                ItemId = m.ItemId.Value,
-                SortOrder = m.SortOrder,
-            })
-            .ToList();
     }
 }

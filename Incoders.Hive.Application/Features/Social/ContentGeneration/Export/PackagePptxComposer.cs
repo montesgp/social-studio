@@ -2,6 +2,7 @@ using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.ContentFormats;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Export;
 
@@ -12,7 +13,20 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Export;
 /// </summary>
 internal static class PackagePptxComposer
 {
-    private static readonly string[] VisualFormatOrder = ["story", "feed-post", "carousel"];
+    /// <summary>
+    /// Ordered list of visual format keys for PPTX export.
+    /// Derived from <see cref="FormatCatalog"/> in catalog declaration order. Legacy single keys
+    /// ("story", "feed-post") and legacy "carousel" are appended so historical packages remain
+    /// exportable through the same editable PPTX path.
+    /// </summary>
+    private static readonly IReadOnlyList<string> VisualFormatOrder =
+        FormatCatalog.All()
+            .Where(d => d.IsVisual)
+            .Select(d => d.FormatKey)
+            .Append("story")
+            .Append("feed-post")
+            .Append("carousel") // legacy alias for historical export ordering
+            .ToList();
 
     public static async Task<Result<byte[]>> BuildAsync(
         IReadOnlyList<ContentGenerationFormatResult> formatResults,
@@ -46,7 +60,7 @@ internal static class PackagePptxComposer
         {
             if (byFormat.TryGetValue(formatKey, out var result))
             {
-                envelopes.AddRange(CompositionSpecJson.ParseList(result.CompositionSpecJson));
+                envelopes.AddRange(CompositionSpecJson.ParseActiveList(result.CompositionSpecJson));
             }
         }
 

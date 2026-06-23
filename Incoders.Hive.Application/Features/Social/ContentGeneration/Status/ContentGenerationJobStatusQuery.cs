@@ -22,7 +22,7 @@ public sealed record ContentGenerationJobStatusResponse(
     string Status,
     IReadOnlyDictionary<string, string> PerFormatStatus,
     string? ManifestJson,
-    // Human/technical failure reason (e.g. "render_failed[flyer: guardrail-failed:
+    // Human/technical failure reason (e.g. "render_failed[story: guardrail-failed:
     // visual-guardrail.off-palette: …]") so the UI can show actionable guidance and route to
     // support instead of nudging a blind, token-burning retry. Optional/last so existing
     // positional constructions keep compiling.

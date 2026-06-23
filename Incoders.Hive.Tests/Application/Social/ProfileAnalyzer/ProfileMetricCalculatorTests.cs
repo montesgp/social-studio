@@ -280,6 +280,76 @@ public sealed class ProfileMetricCalculatorTests
         Assert.Equal(3.0, result.Value.PostingCadenceDays, precision: 3);
     }
 
+    // ── CAG-PA-02: AverageSlidesPerCarousel computation ──────────────────────
+
+    [Fact]
+    public void Compute_AverageSlidesPerCarousel_MeanOfNonNullChildCounts()
+    {
+        // Two carousel posts with childrenCount 4 and 6 → mean = 5.0, rounded to 1 d.p.
+        var posts = new[]
+        {
+            MakePost("p1", "Carousel", ownerId: "12345", carouselChildrenCount: 4),
+            MakePost("p2", "Carousel", ownerId: "12345", carouselChildrenCount: 6),
+            MakePost("p3", "Image", ownerId: "12345"),
+        };
+
+        var result = _calculator.Compute(posts, DefaultProfile);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(5.0, result.Value.AverageSlidesPerCarousel);
+    }
+
+    [Fact]
+    public void Compute_AverageSlidesPerCarousel_NullCountsExcludedFromBothNumeratorAndDenominator()
+    {
+        // Three carousels: only two have childrenCount set → null excluded from denominator
+        var posts = new[]
+        {
+            MakePost("p1", "Carousel", ownerId: "12345", carouselChildrenCount: 3),
+            MakePost("p2", "Carousel", ownerId: "12345", carouselChildrenCount: null),  // excluded
+            MakePost("p3", "Carousel", ownerId: "12345", carouselChildrenCount: 7),
+        };
+
+        var result = _calculator.Compute(posts, DefaultProfile);
+
+        Assert.True(result.IsSuccess);
+        // mean(3, 7) = 5.0 (not mean(3, 0, 7))
+        Assert.Equal(5.0, result.Value.AverageSlidesPerCarousel);
+    }
+
+    [Fact]
+    public void Compute_AverageSlidesPerCarousel_AllNullOrNoCarousels_ReturnsNull()
+    {
+        // No carousel posts → null
+        var posts = new[]
+        {
+            MakePost("p1", "Image", ownerId: "12345"),
+            MakePost("p2", "Video", ownerId: "12345", videoViewCount: 1000),
+        };
+
+        var result = _calculator.Compute(posts, DefaultProfile);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value.AverageSlidesPerCarousel);
+    }
+
+    [Fact]
+    public void Compute_AverageSlidesPerCarousel_RoundedToOneDecimalPlace()
+    {
+        // 3 + 4 + 5 = 12, mean = 4.0 exactly → 4.0
+        // Use non-integer result: 3 + 4 = 7, mean = 3.5 → 3.5
+        var posts = new[]
+        {
+            MakePost("p1", "Carousel", ownerId: "12345", carouselChildrenCount: 3),
+            MakePost("p2", "Carousel", ownerId: "12345", carouselChildrenCount: 4),
+        };
+
+        var result = _calculator.Compute(posts, DefaultProfile);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3.5, result.Value.AverageSlidesPerCarousel);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static ProfilePost MakePost(
@@ -290,7 +360,8 @@ public sealed class ProfileMetricCalculatorTests
         bool isDegraded = false,
         long likesCount = 50,
         long commentsCount = 5,
-        DateTimeOffset? timestamp = null) =>
+        DateTimeOffset? timestamp = null,
+        int? carouselChildrenCount = null) =>
         new(
             PostId: postId,
             MediaType: mediaType,
@@ -302,5 +373,6 @@ public sealed class ProfileMetricCalculatorTests
             OwnerUsername: "testbrand",
             IsPaidPartnership: false,
             IsDegraded: isDegraded,
-            Hashtags: []);
+            Hashtags: [],
+            CarouselChildrenCount: carouselChildrenCount);
 }

@@ -1,0 +1,77 @@
+change: content-image-generation
+status: tasks
+completed_at: null
+adr: null
+
+artifacts:
+  proposal: openspec/changes/content-image-generation/proposal.md
+  design: openspec/changes/content-image-generation/design.md
+  tasks: openspec/changes/content-image-generation/tasks.md
+  diagram: null
+  specs:
+    - openspec/changes/content-image-generation/specs/image-generation/spec.md
+    - openspec/changes/content-image-generation/specs/content-generation/spec-delta.md
+    - openspec/changes/content-image-generation/specs/background-sourcing-policy/spec-delta.md
+    - openspec/changes/content-image-generation/specs/integrations/spec-delta.md
+  merged_specs: []
+
+scope:
+  phase: 1
+  name: "Provider-agnostic, workflow-configured AI raster background generation for ClientAesthetic creative slides, composited as editable-text slides with CSS-designer fallback"
+  roadmap:
+    - phase: 2
+      name: "Extractor auto-tagging of creative slides per client"
+      status: deferred
+      notes: >
+        v1 ships a configurable creative-slide set on ClientAestheticProfile (default first+last
+        or first 2); the data model is forward-compatible so an extractor can later tag which/how
+        many slides are creative from the client's real feed pattern.
+    - phase: 3
+      name: "Additional MediaGeneration provider adapters + image-to-image conditioning"
+      status: deferred
+      notes: >
+        The gateway/port seam supports any provider/model; only the OpenAI v1 adapter is built now.
+        Image-to-image (passing the client's real creatives as init images) is design-compatible but
+        not built; v1 may reserve a reference-image slot (OQ-7).
+
+decisions:
+  - "Provider seam is workflow-configurable per org via WorkflowConfigurationCatalog generate-image step (MediaGeneration); NOT hardcoded to one provider."
+  - "OpenAI (dall-e-3 / gpt-image-1) seeded as the FIRST MediaGeneration adapter behind an Infrastructure port; any provider/model allowed."
+  - "Image generation needs a SEPARATE byte-returning port (IImageGenerationGateway + IImageModelClient); IAiCompletionGateway returns JSON, not bytes."
+  - "Two-step flow: org TEXT route writes the per-slide image prompt from ClientAestheticProfile; org IMAGE route renders pixels."
+  - "Generated images stored in Supabase Storage and referenced by URL/path in the envelope; NOT data-URI (avoids ~300-400KB/slide bloat)."
+  - "Generated background injected as BackgroundSelection.ForcedDefault(url, 'ai-generated-background') reusing existing per-slide compositing; text stays EDITABLE in the studio (near-zero studio change)."
+  - "Flat color+text slides keep the existing CSS designer; per-slide creative-vs-flat routing."
+  - "Creative-vs-flat v1 = configurable creative-slide set on ClientAestheticProfile (default first+last or first 2), extractor-ready."
+  - "Resilience (non-negotiable): prompt-writer or image-gen failure logs + falls back to the CSS designer background; NEVER fails the format/job; image-gen never on the completion critical path."
+
+non_goals:
+  - "Auto-detection of which/how many slides are creative per client (extractor) — deferred; data model forward-compatible."
+  - "Second image provider adapter beyond OpenAI — seam supports any; only OpenAI v1 built."
+  - "Image-to-image / reference-image conditioning (init images) — design-compatible, not built."
+  - "Story/FeedPost creative image backgrounds — v1 targets ClientAesthetic carousel creative slides only."
+
+open_questions:
+  - "OQ-1 Exact v1 creative-slide selection default (first+last / first 2 / N-from-average) and how configured per client."
+  - "OQ-2 Per-job image-gen cap / cost guardrail (max slides, org budget, target resolution)."
+  - "OQ-3 Regenerate vs reuse generated background on studio re-generation (default lean = reuse)."
+  - "OQ-4 Sync-parallel inline generation vs deferred/async backfill; impact on completion + resilience."
+  - "OQ-5 Retire IImageGenerationClient/NullImageGenerationClient vs evolve its signature into IImageModelClient."
+  - "OQ-6 Reuse generate-content text step for the image-prompt write vs a dedicated image-prompt sub-step."
+  - "OQ-7 Reserve a reference-image (init-image) slot in v1 port/prompt shape for the deferred image-conditioning follow-up."
+
+risks:
+  - "Image-gen latency/cost added to the job path — bound creative slides, never block completion, CSS fallback."
+  - "Provider abstraction leaks (OpenAI types into Application) — strict bytes-only ports, adapter in Infrastructure."
+  - "Prompt-writer off-style/empty prompt — derive from ClientAestheticProfile; weak signal falls back to CSS."
+  - "Regenerate-vs-reuse semantics on studio re-generation undecided (OQ-3)."
+  - "Superseding/retiring the never-called IImageGenerationClient port (signature lacks OrganizationId)."
+
+validation:
+  gates: PENDING
+  detail: "Proposal phase only — no implementation; gates run at apply/verify."
+
+delivery:
+  strategy: ask-on-risk
+  target_branch: dev
+  branch: feat/content-format-taxonomy

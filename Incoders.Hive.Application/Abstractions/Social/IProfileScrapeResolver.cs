@@ -33,7 +33,9 @@ public sealed record ProfileScrapeRequest(
     string ProfileUrlOrHandle,
     string PlatformKey,
     string CapabilityKey,
-    IReadOnlyList<string>? PreferredActorIds = null);
+    IReadOnlyList<string>? PreferredActorIds = null,
+    // Per-client number of most-recent posts to fetch (null => provider/system default of 12).
+    int? MaxPosts = null);
 
 /// <summary>
 /// Output contract from <see cref="IProfileScrapeResolver"/>.

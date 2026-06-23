@@ -172,11 +172,11 @@ Fix the write site so the **success** persist path serializes this envelope inst
 
 | Source | OpenXML target | Mapping |
 |--------|----------------|---------|
-| One rendered asset | One `SlidePart` | Carousel → N slides (one per `slide_{n}.png`); flyer → 1 slide |
+| One rendered asset | One `SlidePart` | Carousel → N slides (one per `slide_{n}.png`); story → 1 slide |
 | Slide size | `SlideSize` (EMU) | From `canvas {w,h}`; px→EMU via `914400 / dpi` (default 96 → 9525 EMU/px) |
 | `[data-slot]` element | Editable text box (`Shape` + `TextBody`) | Text = inner text; `x,y,w,h` = persisted geometry → EMU; `fontFamily`, `fontSizePx`, `color`, `textAlign` → run properties |
 | `[data-layer="background"]` | Single flattened image layer (full-bleed `Picture`) | Background-only PNG captured by re-rendering with `[data-layer="content"]` hidden, persisted at render time as `backgroundImageRef`; embedded as `ImagePart` behind the text boxes |
-| Per-format canvas dimensions | Slide dimensions | Flyer 1080×1920; carousel slide 1080×1080 (read from `canvas`, not hard-coded — source of truth is the persisted envelope) |
+| Per-format canvas dimensions | Slide dimensions | Story 1080×1920; carousel slide 1080×1080 (read from `canvas`, not hard-coded — source of truth is the persisted envelope) |
 
 - Text boxes are **editable** (real `TextBody` runs, not rasterized) — that is the #4 acceptance criterion.
 - The background is intentionally a **flattened image** (decorative CSS/gradient cannot round-trip to OpenXML shapes); the editable surface is the text, matching the user expectation "refine wording, swap copy."

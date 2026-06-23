@@ -11,7 +11,34 @@ import { ClientBrandManualSection } from "@/components/social/clients/client-bra
 import { ClientStrategySection } from "@/components/social/clients/client-strategy-section";
 import { ClientContentPlanSection } from "@/components/social/clients/client-content-plan-section";
 import type { ClientFormFieldErrors } from "@/components/social/clients/use-client-form";
-import type { ClientCompetitorAccount, ClientOwnAccount, ClientReferentAccount } from "@/lib/api/types";
+import type { BackgroundSourcingPolicy, ClientCompetitorAccount, ClientOwnAccount, ClientReferentAccount } from "@/lib/api/types";
+
+const BACKGROUND_SOURCING_POLICY_OPTIONS: Array<{
+  value: BackgroundSourcingPolicy;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: null,
+    label: "Legacy (3-tier rotation)",
+    description: "Use the background tier system defined in the content plan.",
+  },
+  {
+    value: "ClientDefinedSet",
+    label: "Client-defined set",
+    description: "Rotate through the client's own background templates.",
+  },
+  {
+    value: "AiPalette",
+    label: "AI palette",
+    description: "Let the AI derive backgrounds from the brand color palette.",
+  },
+  {
+    value: "ClientAesthetic",
+    label: "Client aesthetic",
+    description: "Source backgrounds from detected client visual style descriptors.",
+  },
+];
 
 interface ClientFormPanelProps {
   mode: "create" | "edit";
@@ -19,6 +46,8 @@ interface ClientFormPanelProps {
   name: string;
   description: string;
   sectorOrNiche: string | null;
+  backgroundSourcingPolicy: BackgroundSourcingPolicy;
+  aestheticRefreshThresholdDays: number | null;
   fieldErrors: ClientFormFieldErrors;
   referentAccounts: ClientReferentAccount[];
   referentAccountsLoading: boolean;
@@ -30,6 +59,8 @@ interface ClientFormPanelProps {
   onNameChange: (value: string) => void;
   onDescriptionChange: (value: string) => void;
   onSectorOrNicheChange: (value: string | null) => void;
+  onBackgroundSourcingPolicyChange: (value: BackgroundSourcingPolicy) => void;
+  onAestheticRefreshThresholdDaysChange: (value: number | null) => void;
   onReferentAccountsChange: (value: ClientReferentAccount[]) => void;
   onCompetitorAccountsChange: (value: ClientCompetitorAccount[]) => void;
   onOwnAccountsChange: (value: ClientOwnAccount[]) => void;
@@ -44,6 +75,8 @@ export function ClientFormPanel({
   name,
   description,
   sectorOrNiche,
+  backgroundSourcingPolicy,
+  aestheticRefreshThresholdDays,
   fieldErrors,
   referentAccounts,
   referentAccountsLoading,
@@ -55,6 +88,8 @@ export function ClientFormPanel({
   onNameChange,
   onDescriptionChange,
   onSectorOrNicheChange,
+  onBackgroundSourcingPolicyChange,
+  onAestheticRefreshThresholdDaysChange,
   onReferentAccountsChange,
   onCompetitorAccountsChange,
   onOwnAccountsChange,
@@ -125,6 +160,57 @@ export function ClientFormPanel({
             {fieldErrors.sectorOrNiche}
           </p>
         ) : null}
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="panel-background-sourcing-policy" className="text-sm font-medium">
+          Background sourcing policy{" "}
+          <span className="text-muted-foreground text-xs">(optional)</span>
+        </label>
+        <select
+          id="panel-background-sourcing-policy"
+          value={backgroundSourcingPolicy ?? ""}
+          onChange={(e) => {
+            const raw = e.target.value;
+            onBackgroundSourcingPolicyChange(
+              (raw === "" ? null : raw) as BackgroundSourcingPolicy,
+            );
+          }}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {BACKGROUND_SOURCING_POLICY_OPTIONS.map((opt) => (
+            <option key={opt.value ?? "__unset"} value={opt.value ?? ""}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          {BACKGROUND_SOURCING_POLICY_OPTIONS.find(
+            (opt) => opt.value === backgroundSourcingPolicy,
+          )?.description ?? ""}
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="panel-aesthetic-refresh-threshold" className="text-sm font-medium">
+          Aesthetic refresh threshold (days){" "}
+          <span className="text-muted-foreground text-xs">(optional)</span>
+        </label>
+        <Input
+          id="panel-aesthetic-refresh-threshold"
+          type="number"
+          min={1}
+          max={365}
+          value={aestheticRefreshThresholdDays ?? ""}
+          onChange={(e) => {
+            const raw = e.target.value;
+            onAestheticRefreshThresholdDaysChange(raw === "" ? null : Number(raw));
+          }}
+          placeholder="Leave empty for default (30 days)"
+        />
+        <p className="text-xs text-muted-foreground">
+          How many days before the AI aesthetic profile is refreshed for this client. Leave empty to use the system default of 30 days.
+        </p>
       </div>
     </div>
   );

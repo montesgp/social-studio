@@ -1,0 +1,145 @@
+using System.Text.Json;
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Infrastructure.Identity;
+using Microsoft.EntityFrameworkCore;
+
+namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
+
+/// <summary>
+/// Infrastructure adapter for <see cref="IClientAestheticProfileReader"/>.
+/// Reads the full aesthetic profile from the most recent completed <c>ProfileAiAnalysis</c>
+/// for the given <c>(orgId, clientId)</c> pair.
+///
+/// <para>
+/// Fields sourced:
+/// <list type="bullet">
+/// <item><c>DetectedBackgroundImages</c> from <c>ai_analysis_json</c> (PA-SEAM-01).</item>
+/// <item><c>VoiceTone</c> from <c>ai_analysis_json</c>.</item>
+/// <item><c>AverageSlidesPerCarousel</c> from <c>server_derived_stats_json</c> (CAG-PA-02).</item>
+/// <item><c>AnalyzedAtUtc</c> from <c>CompletedAtUtc</c>.</item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// No Apify call is made — this is a pure read over already-persisted analysis data
+/// stored in <c>social.profile_analyses</c> (PA-SEAM-01, PA-SEAM-03).
+/// </para>
+/// Refs: design §3.2 (OQ-6); CAG-CG-05; CAG-PA-04, CAG-PA-05; tasks 5.8.
+/// </summary>
+public sealed class EfClientAestheticProfileReader : IClientAestheticProfileReader
+{
+    private static readonly JsonSerializerOptions JsonOpts =
+        new(JsonSerializerDefaults.Web);
+
+    private readonly AppIdentityDbContext _db;
+
+    public EfClientAestheticProfileReader(AppIdentityDbContext db)
+    {
+        _db = db;
+    }
+
+    /// <inheritdoc />
+    public async Task<ClientAestheticProfile?> GetProfileAsync(
+        Guid orgId,
+        Guid clientId,
+        CancellationToken ct)
+    {
+        // Select the most recently completed (Analyzed) analysis for this client.
+        // In-progress, Failed, or other statuses are excluded (PA-SEAM-01d).
+        var row = await _db.ProfileAnalyses
+            .AsNoTracking()
+            .Where(x =>
+                x.OrganizationId == orgId &&
+                x.ClientId == clientId &&
+                x.Status == "Analyzed")
+            .OrderByDescending(x => x.CompletedAtUtc)
+            .Select(x => new
+            {
+                x.AiAnalysisJson,
+                x.ServerDerivedStatsJson,
+                x.AestheticProfileJson,
+                x.CompletedAtUtc
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (row is null)
+        {
+            return null;
+        }
+
+        var (descriptors, voiceTone) = DeserializeAiAnalysis(row.AiAnalysisJson);
+        var avgSlides = DeserializeAverageSlides(row.ServerDerivedStatsJson);
+
+        // Phase 2 (CAG2-PA-04): surface the enriched multimodal payload when present. Absent or
+        // malformed JSON leaves the enriched fields null — Phase 1 behavior is preserved exactly.
+        var (palette, styleDescriptors, motifs, captionVoice, referenceImages) =
+            AestheticProfilePersistence.Read(row.AestheticProfileJson);
+
+        return new ClientAestheticProfile(
+            BackgroundDescriptors: descriptors,
+            VoiceTone: voiceTone,
+            AverageSlidesPerCarousel: avgSlides,
+            AnalyzedAtUtc: row.CompletedAtUtc,
+            Palette: palette,
+            StyleDescriptors: styleDescriptors,
+            Motifs: motifs,
+            CaptionVoice: captionVoice,
+            ReferenceImages: referenceImages);
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────
+
+    private static (IReadOnlyList<string> Descriptors, string? VoiceTone) DeserializeAiAnalysis(
+        string? json)
+    {
+        if (json is null)
+        {
+            return ([], null);
+        }
+
+        try
+        {
+            var dto = JsonSerializer.Deserialize<AiAnalysisProjection>(json, JsonOpts);
+            return (dto?.DetectedBackgroundImages ?? [], dto?.VoiceTone);
+        }
+        catch
+        {
+            // Malformed JSON — degrade gracefully; callers fall back to Creative.
+            return ([], null);
+        }
+    }
+
+    private static double? DeserializeAverageSlides(string? json)
+    {
+        if (json is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var dto = JsonSerializer.Deserialize<StatsProjection>(json, JsonOpts);
+            return dto?.AverageSlidesPerCarousel;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Minimal projection of the AI analysis JSON.
+    /// Tolerant of missing keys (all properties nullable/optional).
+    /// </summary>
+    private sealed record AiAnalysisProjection(
+        IReadOnlyList<string>? DetectedBackgroundImages = null,
+        string? VoiceTone = null);
+
+    /// <summary>
+    /// Minimal projection of the server-derived stats JSON.
+    /// Tolerant of missing keys.
+    /// </summary>
+    private sealed record StatsProjection(
+        double? AverageSlidesPerCarousel = null);
+}

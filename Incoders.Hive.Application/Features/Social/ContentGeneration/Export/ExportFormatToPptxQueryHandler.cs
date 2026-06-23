@@ -83,7 +83,7 @@ public sealed class ExportFormatToPptxQueryHandler
 
         // 4. Parse the persisted envelope(s): one per slide for carousel, one for single formats.
         //    Accepts both the legacy single-object shape and the multi-slide array shape.
-        var envelopes = CompositionSpecJson.ParseList(formatResult.CompositionSpecJson);
+        var envelopes = CompositionSpecJson.ParseActiveList(formatResult.CompositionSpecJson);
         if (envelopes.Count == 0)
         {
             return Result.Failure<ExportFormatToPptxResponse>(

@@ -25,6 +25,15 @@ namespace Incoders.Hive.Domain.Social.ProfileAnalysis;
 /// <param name="IsDegraded">True when the Apify actor marked this post as degraded
 ///     (<c>_degraded == true</c>). Degraded posts MUST be excluded from metric computations.</param>
 /// <param name="Hashtags">Hashtags extracted from the post caption.</param>
+/// <param name="CarouselChildrenCount">Number of child media items in a Carousel post, as reported
+///     by the Apify actor (childrenCount field). Null when absent or for non-carousel posts.
+///     Used to compute AverageSlidesPerCarousel in server-derived stats (CAG-PA-01).</param>
+/// <param name="ImageUrls">Transient image URLs captured from the actor (the post cover via
+///     <c>displayUrl</c>, plus carousel children via <c>displayResources</c>). Phase 2 (CAG2-PA-01).
+///     Null/empty when the configured actor does not return media. These are short-lived provider
+///     URLs — they are downloaded and re-hosted durably (<see cref="ProfilePostImageRef"/>) before use.</param>
+/// <param name="Caption">The post caption text, when the actor returns it. Phase 2 (CAG2-PA-01).
+///     Null when absent. Feeds caption-derived voice/style inference.</param>
 public sealed record ProfilePost(
     string PostId,
     string MediaType,
@@ -36,7 +45,10 @@ public sealed record ProfilePost(
     string OwnerUsername,
     bool IsPaidPartnership,
     bool IsDegraded,
-    IReadOnlyList<string> Hashtags)
+    IReadOnlyList<string> Hashtags,
+    int? CarouselChildrenCount = null,
+    IReadOnlyList<string>? ImageUrls = null,
+    string? Caption = null)
 {
     /// <summary>
     /// Returns <c>true</c> when this post was authored by the account being analysed.

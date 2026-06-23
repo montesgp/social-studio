@@ -423,7 +423,8 @@ file sealed class StubMarkupDesigner(string markup) : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null)
     {
         var output = new VisualDesignOutput(
             Markup: markup,
@@ -476,7 +477,7 @@ file sealed class HtmlCompositionService(
     }
 
     public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
-        string fmtKey, object payload, BrandSnapshot brand, CancellationToken ct)
+        string fmtKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
     {
         return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>([BuildSpec(fmtKey)]);
     }
@@ -486,7 +487,7 @@ file sealed class HtmlCompositionService(
     private VisualCompositionSpec BuildSpec(string fmtKey) =>
         new VisualCompositionSpec(
             FormatKey: fmtKey,
-            LayoutType: "story-flyer",
+            LayoutType: "story-story",
             Palette: new CompositionPalette("#111", "#222", "#333", "#FFF", "#EEE"),
             Typography: new CompositionTypography("Inter", 24, "Inter", 14),
             AssetSlots: new Dictionary<string, AssetSlotSpec>(),

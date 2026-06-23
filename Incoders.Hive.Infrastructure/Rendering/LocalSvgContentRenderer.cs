@@ -13,7 +13,7 @@ namespace Incoders.Hive.Infrastructure.Rendering;
 /// using SkiaSharp primitives directly — no external SVG library required.
 /// <para>
 /// Text-only formats (hook, caption, cta-variation, content-idea, reel-script) produce a
-/// styled "text card" PNG. Visual formats (carousel, story, feed-post) produce a branded background with
+/// styled "text card" PNG. Visual formats (carousel, story, story-single, feed-post, feed-single) produce a branded background with
 /// copy slots painted as text.
 /// </para>
 /// <para>
@@ -78,15 +78,19 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
 
     private byte[] RenderToPng(VisualCompositionSpec spec)
     {
-        if (string.Equals(spec.FormatKey, "story", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(spec.FormatKey, "feed-post", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(spec.FormatKey, "flyer", StringComparison.OrdinalIgnoreCase))
+        if (IsSingleVisualFormat(spec.FormatKey))
         {
-            return RenderFlyerToPng(spec);
+            return RenderVisualToPng(spec);
         }
 
         return RenderTextCardToPng(spec);
     }
+
+    private static bool IsSingleVisualFormat(string formatKey) =>
+        string.Equals(formatKey, "story", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(formatKey, "story-single", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(formatKey, "feed-post", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(formatKey, "feed-single", StringComparison.OrdinalIgnoreCase);
 
     private static byte[] RenderTextCardToPng(VisualCompositionSpec spec)
     {
@@ -168,7 +172,7 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         return data.ToArray();
     }
 
-    private byte[] RenderFlyerToPng(VisualCompositionSpec spec)
+    private byte[] RenderVisualToPng(VisualCompositionSpec spec)
     {
         int width = spec.Dimensions.Width;
         int height = spec.Dimensions.Height;
@@ -177,8 +181,8 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         using var surface = SKSurface.Create(imageInfo);
         var canvas = surface.Canvas;
 
-        DrawFlyerBackground(canvas, spec, width, height);
-        DrawFlyerCopy(canvas, spec, width, height);
+        DrawVisualBackground(canvas, spec, width, height);
+        DrawVisualCopy(canvas, spec, width, height);
 
         canvas.Flush();
 
@@ -187,7 +191,7 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         return data.ToArray();
     }
 
-    private void DrawFlyerBackground(SKCanvas canvas, VisualCompositionSpec spec, int width, int height)
+    private void DrawVisualBackground(SKCanvas canvas, VisualCompositionSpec spec, int width, int height)
     {
         var backgroundSlot = spec.AssetSlots.TryGetValue("background", out var slot) ? slot : null;
         using var backgroundBitmap = TryLoadLocalBitmap(backgroundSlot?.ImageUrl);
@@ -197,7 +201,7 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         }
         else
         {
-            DrawGeneratedFlyerBackground(canvas, spec, width, height);
+            DrawGeneratedVisualBackground(canvas, spec, width, height);
         }
 
         var primary = ParseColor(spec.Palette.Primary, new SKColor(31, 41, 55));
@@ -209,7 +213,7 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         canvas.DrawRect(0, 0, width, height, overlayPaint);
     }
 
-    private static void DrawGeneratedFlyerBackground(SKCanvas canvas, VisualCompositionSpec spec, int width, int height)
+    private static void DrawGeneratedVisualBackground(SKCanvas canvas, VisualCompositionSpec spec, int width, int height)
     {
         var primary = ParseColor(spec.Palette.Primary, new SKColor(31, 41, 55));
         var secondary = ParseColor(spec.Palette.Secondary, new SKColor(55, 65, 81));
@@ -260,7 +264,7 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
 
     }
 
-    private void DrawFlyerCopy(SKCanvas canvas, VisualCompositionSpec spec, int width, int height)
+    private void DrawVisualCopy(SKCanvas canvas, VisualCompositionSpec spec, int width, int height)
     {
         float margin = 84f;
         float panelTop = height * 0.33f;
@@ -287,9 +291,9 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
             6,
             accentPaint);
 
-        DrawFlyerLogo(canvas, spec, margin, 106f);
+        DrawVisualLogo(canvas, spec, margin, 106f);
 
-        string headline = GetCopy(spec, "headline", "Flyer Headline");
+        string headline = GetCopy(spec, "headline", "Visual Headline");
         string? subtitle = GetCopy(spec, "subtitle");
         string? body = GetCopy(spec, "body");
         string? callouts = GetCopy(spec, "callouts");
@@ -362,7 +366,7 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
 
         canvas.RestoreToCount(saved);
 
-        DrawFlyerCta(canvas, cta, ctaFont, spec, contentX, panelRect.Bottom - 116, contentMaxWidth);
+        DrawVisualCta(canvas, cta, ctaFont, spec, contentX, panelRect.Bottom - 116, contentMaxWidth);
 
         if (!string.IsNullOrWhiteSpace(signature))
         {
@@ -375,7 +379,7 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         }
     }
 
-    private void DrawFlyerLogo(SKCanvas canvas, VisualCompositionSpec spec, float x, float y)
+    private void DrawVisualLogo(SKCanvas canvas, VisualCompositionSpec spec, float x, float y)
     {
         if (!spec.AssetSlots.TryGetValue("logo", out var logoSlot))
         {
@@ -402,7 +406,7 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         canvas.DrawBitmap(logoBitmap, destination, paint);
     }
 
-    private static void DrawFlyerCta(
+    private static void DrawVisualCta(
         SKCanvas canvas,
         string cta,
         SKFont ctaFont,

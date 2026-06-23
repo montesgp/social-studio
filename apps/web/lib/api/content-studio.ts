@@ -199,6 +199,32 @@ export function editItemVisual(
   );
 }
 
+export async function fetchContentItemAsset(
+  itemId: string,
+  assetIndex: number,
+  token?: string,
+): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  if (typeof window !== "undefined") {
+    const orgId = window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+    if (orgId) {
+      headers["X-Tenant-Id"] = orgId;
+    }
+  }
+
+  const response = await fetch(
+    `/hive-api${base}/items/${encodeURIComponent(itemId)}/assets/${assetIndex}`,
+    { headers, cache: "no-store" },
+  );
+  if (!response.ok) {
+    throw { message: `Asset preview failed (HTTP ${response.status}).` };
+  }
+  return response.blob();
+}
+
 export function spawnVariant(itemId: string, token?: string): Promise<ContentItem> {
   return apiRequest<ContentItem>(`${base}/items/${itemId}/variant`, { method: "POST" }, token);
 }

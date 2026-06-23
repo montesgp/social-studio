@@ -89,17 +89,26 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
             .ToListAsync(cancellationToken);
 
         // Map to domain snapshots
+        // WU-6 §6.5: load BackgroundSourcingPolicy from the client row.
+        // The raw short? is cast to the domain enum; null == Unset == legacy path.
         ClientProfileSnapshot? clientSnapshot = clientRow is null
             ? null
             : new ClientProfileSnapshot(
                 Name: clientRow.Name,
                 Description: clientRow.Description,
-                SectorOrNiche: clientRow.SectorOrNiche);
+                SectorOrNiche: clientRow.SectorOrNiche,
+                BackgroundSourcingPolicy: clientRow.BackgroundSourcingPolicy.HasValue
+                    ? (Domain.Social.Clients.BackgroundSourcingPolicy)clientRow.BackgroundSourcingPolicy.Value
+                    : null);
 
         BrandManualSnapshot? brandSnapshot = brandRow is null
             ? null
             : new BrandManualSnapshot(
-                ColorPalette: brandRow.ColorPalette.Select(c => c.Hex).ToArray(),
+                ColorPalette: brandRow.ColorPalette
+                    .Select(c => new WeightedColor(c.Hex, c.Role, c.Rank))
+                    .OrderBy(wc => wc.Role.HasValue ? (int)wc.Role.Value : int.MaxValue)
+                    .ThenBy(wc => wc.Rank)
+                    .ToArray(),
                 Logos: brandRow.Logos.Select(l => l.Url).ToArray(),
                 BackgroundTemplates: brandRow.BackgroundTemplates
                     .Select(background => new BrandBackgroundTemplateSnapshot(

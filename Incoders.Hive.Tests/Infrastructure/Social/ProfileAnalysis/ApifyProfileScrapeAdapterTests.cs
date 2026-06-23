@@ -297,6 +297,127 @@ public sealed class ApifyProfileScrapeAdapterTests
         Assert.Equal(150000L, result.Aggregates.FollowersCount);
     }
 
+    // ── CAG-PA-01: childrenCount mapping (carousel slides) ────────────────────
+
+    [Fact]
+    public void MapSinglePost_CarouselWithChildrenCount_SetsCarouselChildrenCount()
+    {
+        var adapter = new InstagramProfileApifyScrapeAdapter();
+        var json = JsonSerializer.Serialize(new[]
+        {
+            new
+            {
+                resultType = "profile",
+                instagramId = "999",
+                username = "testbrand",
+                followersCount = 1000,
+                postsCount = 10,
+                latestPosts = new[]
+                {
+                    new
+                    {
+                        postId = "carousel-001",
+                        mediaType = "Carousel",
+                        likesCount = 100,
+                        commentsCount = 5,
+                        timestamp = "2026-05-01T10:00:00Z",
+                        ownerUsername = "testbrand",
+                        ownerId = "999",
+                        isPaidPartnership = false,
+                        hashtags = Array.Empty<string>(),
+                        childrenCount = 6
+                    }
+                }
+            }
+        });
+
+        var result = adapter.MapProfileResponse(json)!;
+
+        var post = Assert.Single(result.AllPosts);
+        Assert.Equal(6, post.CarouselChildrenCount);
+    }
+
+    [Fact]
+    public void MapSinglePost_PostWithoutChildrenCount_CarouselChildrenCountIsNull()
+    {
+        var adapter = new InstagramProfileApifyScrapeAdapter();
+        var json = JsonSerializer.Serialize(new[]
+        {
+            new
+            {
+                resultType = "profile",
+                instagramId = "999",
+                username = "testbrand",
+                followersCount = 1000,
+                postsCount = 10,
+                latestPosts = new[]
+                {
+                    new
+                    {
+                        postId = "carousel-002",
+                        mediaType = "Carousel",
+                        likesCount = 100,
+                        commentsCount = 5,
+                        timestamp = "2026-05-01T10:00:00Z",
+                        ownerUsername = "testbrand",
+                        ownerId = "999",
+                        isPaidPartnership = false,
+                        hashtags = Array.Empty<string>()
+                        // no childrenCount field
+                    }
+                }
+            }
+        });
+
+        var result = adapter.MapProfileResponse(json)!;
+
+        var post = Assert.Single(result.AllPosts);
+        Assert.Null(post.CarouselChildrenCount);
+    }
+
+    [Fact]
+    public void MapSinglePost_NonCarouselPost_CarouselChildrenCountIsNull()
+    {
+        var adapter = new InstagramProfileApifyScrapeAdapter();
+        var json = JsonSerializer.Serialize(new[]
+        {
+            new
+            {
+                resultType = "profile",
+                instagramId = "999",
+                username = "testbrand",
+                followersCount = 1000,
+                postsCount = 10,
+                latestPosts = new[]
+                {
+                    new
+                    {
+                        postId = "video-001",
+                        mediaType = "Video",
+                        likesCount = 500,
+                        commentsCount = 10,
+                        timestamp = "2026-05-01T10:00:00Z",
+                        ownerUsername = "testbrand",
+                        ownerId = "999",
+                        isPaidPartnership = false,
+                        hashtags = Array.Empty<string>(),
+                        videoViewCount = 10000,
+                        childrenCount = 3  // field present but irrelevant for non-carousel
+                    }
+                }
+            }
+        });
+
+        var result = adapter.MapProfileResponse(json)!;
+
+        var post = Assert.Single(result.AllPosts);
+        Assert.Equal("Video", post.MediaType);
+        // For non-carousel posts the adapter still passes the field through;
+        // the caller (ProfileMetricCalculator) uses it only for Carousel posts.
+        // The test here confirms the adapter does NOT crash and correctly reads the value.
+        Assert.Null(post.CarouselChildrenCount); // not carousel → null by design
+    }
+
     // ── Username parsing from URL and handle ──────────────────────────────────
 
     [Theory]

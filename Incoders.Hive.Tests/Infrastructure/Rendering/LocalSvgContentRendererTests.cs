@@ -222,10 +222,10 @@ public sealed class LocalSvgContentRendererTests
     }
 
     [Fact]
-    public async Task RenderAsync_FlyerSpec_MatchesStoryDimensions()
+    public async Task RenderAsync_StorySpec_MatchesStoryDimensions()
     {
         var renderer = new LocalSvgContentRenderer();
-        var spec = BuildFlyerSpec();
+        var spec = BuildStorySpec();
 
         var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
 
@@ -237,10 +237,10 @@ public sealed class LocalSvgContentRendererTests
     }
 
     [Fact]
-    public async Task RenderAsync_FlyerSpecWithoutTemplate_ProducesNonWhiteBackground()
+    public async Task RenderAsync_StorySpecWithoutTemplate_ProducesNonWhiteBackground()
     {
         var renderer = new LocalSvgContentRenderer();
-        var spec = BuildFlyerSpec();
+        var spec = BuildStorySpec();
 
         var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
 
@@ -252,7 +252,7 @@ public sealed class LocalSvgContentRendererTests
     }
 
     [Fact]
-    public async Task RenderAsync_FlyerSpecWithLocalBackgroundTemplate_UsesTemplateImage()
+    public async Task RenderAsync_StorySpecWithLocalBackgroundTemplate_UsesTemplateImage()
     {
         var root = Path.Combine(Path.GetTempPath(), "incoders-hive-renderer-tests", Guid.NewGuid().ToString("N"));
         var templateDirectory = Path.Combine(root, "org", "client");
@@ -269,7 +269,7 @@ public sealed class LocalSvgContentRendererTests
                     PublicBasePath = "/storage/client-assets"
                 }),
                 new TestHostEnvironment());
-            var spec = BuildFlyerSpec(backgroundUrl: "/storage/client-assets/org/client/story.png");
+            var spec = BuildStorySpec(backgroundUrl: "/storage/client-assets/org/client/story.png");
 
             var result = await renderer.RenderAsync(spec, new RenderOptions(), CancellationToken.None);
 
@@ -349,10 +349,10 @@ public sealed class LocalSvgContentRendererTests
             Dimensions: new CompositionDimensions(1080, 1080, 96))
         with { OutputKind = CompositionOutputKind.Markdown, TextBody = textBody };
 
-    private static VisualCompositionSpec BuildFlyerSpec(string? backgroundUrl = null) =>
+    private static VisualCompositionSpec BuildStorySpec(string? backgroundUrl = null) =>
         new VisualCompositionSpec(
             FormatKey: "story",
-            LayoutType: "story-flyer",
+            LayoutType: "story-story",
             Palette: new CompositionPalette("#111827", "#374151", "#2563EB", "#111827", "#F8FAFC"),
             Typography: new CompositionTypography("Arial", 28, "Arial", 16),
             AssetSlots: new Dictionary<string, AssetSlotSpec>
@@ -362,7 +362,7 @@ public sealed class LocalSvgContentRendererTests
             },
             CopySlots: new Dictionary<string, string>
             {
-                ["headline"] = "A specific idea turned into a story flyer",
+                ["headline"] = "A specific idea turned into a story story",
                 ["subtitle"] = "Use the selected analysis insight",
                 ["body"] = "This copy should be visible in the exported package.",
                 ["callouts"] = "Client objective | Brand manual | Monthly KPI",

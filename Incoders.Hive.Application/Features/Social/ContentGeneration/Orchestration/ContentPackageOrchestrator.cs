@@ -85,7 +85,10 @@ public sealed class ContentPackageOrchestrator : IContentGenerationOrchestrator
             CorrelationId: request.CorrelationId,
             AiProviderKey: selectedAi.Value.ProviderKey,
             AiModel: selectedAi.Value.Model,
-            RegenerationObjection: request.RegenerationObjection);
+            RegenerationObjection: request.RegenerationObjection,
+            // WU-4 (CAG-CG-07): thread aesthetic profile into the generation context so
+            // each format generator can emit advisory guidance when a profile is present.
+            AestheticProfile: request.AestheticProfile);
 
         foreach (var formatKey in request.RequestedFormats)
         {

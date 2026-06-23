@@ -23,7 +23,12 @@ public sealed record OrchestratorRequest(
     SingleAnalyzerAnalysis Analysis,
     IReadOnlyList<string> RequestedFormats,
     Guid CorrelationId,
-    string? RegenerationObjection = null);
+    string? RegenerationObjection = null,
+    /// <summary>
+    /// WU-4 (CAG-CG-07): aesthetic profile for CASE C (ClientAesthetic) jobs.
+    /// Null for all other policies — generators degrade gracefully (ConcisionConstraint only).
+    /// </summary>
+    ClientAestheticProfile? AestheticProfile = null);
 
 /// <summary>
 /// Result from the content package orchestrator.

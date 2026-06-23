@@ -84,7 +84,7 @@ public sealed record BrandSnapshot(
 
         // Provide a default empty brand if none was supplied so consumers don't see nulls
         var effectiveBrand = brand ?? new BrandManualSnapshot(
-            ColorPalette: Array.Empty<string>(),
+            ColorPalette: Array.Empty<WeightedColor>(),
             Logos: Array.Empty<string>(),
             BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
             Typography: Array.Empty<string>(),

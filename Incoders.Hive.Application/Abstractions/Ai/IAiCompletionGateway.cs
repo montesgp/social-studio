@@ -29,7 +29,20 @@ public sealed record AiCompletionRequest(
     // Optional JSON Schema string describing the EXACT structure the model must return.
     // Used by providers that support structured output (Claude tool use, OpenAI json_schema).
     // When null, the provider falls back to a permissive schema and relies on the prompt.
-    string? OutputJsonSchema = null);
+    string? OutputJsonSchema = null,
+    // Phase 2 (CAG2): optional vision input. When present, multimodal providers (Claude) attach
+    // these as image blocks alongside the text prompt so the model can SEE the reference creatives.
+    // Providers without vision support ignore them and run text-only (graceful degrade).
+    IReadOnlyList<AiImageInput>? Images = null);
+
+/// <summary>
+/// A single image attached to a multimodal completion. Phase 2 (CAG2). Prefer <see cref="Base64Data"/>
+/// (durable, downscaled thumbnail bytes) over <see cref="Url"/>; a provider uses whichever is present.
+/// </summary>
+public sealed record AiImageInput(
+    string MediaType,
+    string? Base64Data,
+    string? Url = null);
 
 public sealed record AiCompletionResponse(
     string Output,
@@ -45,7 +58,9 @@ public sealed record AiJsonCompletionRequest(
     string PromptVersionKey,
     string InputJson,
     string? PreferredProviderKey,
-    string? PreferredModel);
+    string? PreferredModel,
+    // Phase 2 (CAG2): optional vision input forwarded to multimodal providers (see AiCompletionRequest.Images).
+    IReadOnlyList<AiImageInput>? Images = null);
 
 public sealed record AiJsonCompletionResponse<TResponse>(
     TResponse Payload,

@@ -32,18 +32,6 @@ export interface Organization {
   updatedAtUtc: string;
 }
 
-export interface SocialClient {
-  id: string;
-  organizationId: string;
-  organizationName?: string | null;
-  name: string;
-  description: string | null;
-  sectorOrNiche?: string | null;
-  isActive: boolean;
-  createdAtUtc: string;
-  updatedAtUtc: string;
-}
-
 export type ContentWorkflowSearchCriterion = "niche" | "references" | "viral" | "competitors" | "own";
 export type ContentWorkflowStrategyMode = "mixed" | "educational" | "informative" | "entertainment";
 export type ContentWorkflowNetworkSource = "tiktok" | "instagram" | "youtube";
@@ -535,10 +523,28 @@ export interface PagedClientOwnAccounts {
   totalCount: number;
 }
 
+export type BackgroundSourcingPolicy = "ClientDefinedSet" | "AiPalette" | "ClientAesthetic" | null;
+
 export interface ColorEntry {
   name: string;
   hex: string;
   role: string | null;
+  rank?: number;
+}
+
+export interface SocialClient {
+  id: string;
+  organizationId: string;
+  organizationName?: string | null;
+  name: string;
+  description: string | null;
+  sectorOrNiche?: string | null;
+  backgroundSourcingPolicy?: BackgroundSourcingPolicy;
+  /** Per-client aesthetic refresh staleness threshold in days. Null = system default (30 days). */
+  aestheticRefreshThresholdDays?: number | null;
+  isActive: boolean;
+  createdAtUtc: string;
+  updatedAtUtc: string;
 }
 
 export interface LogoEntry {
@@ -837,16 +843,17 @@ export interface UpsertContentPlanPayload {
 // ── Content Generation types (single-analyzer package pipeline) ──────────────
 
 export type ContentFormatKey =
-  | "carousel"
-  | "story"
-  | "feed-post"
+  | "story-single"
+  | "story-carousel"
+  | "feed-single"
+  | "feed-carousel"
   | "reel-script"
   | "content-idea"
   | "cta-variation"
   | "caption"
   | "hook";
 
-export type PackageManifestFormatKey = ContentFormatKey | "script" | "editable-package";
+export type PackageManifestFormatKey = ContentFormatKey | "story" | "feed-post" | "carousel" | "script" | "editable-package";
 
 export interface GeneratePackageRequest {
   clientId?: string | null;

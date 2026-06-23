@@ -23,20 +23,20 @@ public sealed class MaterializeRunCommandHandlerTests
 
         var jobId = Guid.NewGuid();
         var packageId = Guid.NewGuid();
-        var flyerResultId = Guid.NewGuid();
+        var storyResultId = Guid.NewGuid();
         var captionResultId = Guid.NewGuid();
         var failedResultId = Guid.NewGuid();
 
         var formatResults = new FakeFormatResultRepo(new[]
         {
-            FormatResult(flyerResultId, jobId, "story", "Succeeded", outputJson: null, compositionSpec: "<spec/>", errorCode: null),
+            FormatResult(storyResultId, jobId, "story", "Succeeded", outputJson: null, compositionSpec: "<spec/>", errorCode: null),
             FormatResult(captionResultId, jobId, "caption", "Succeeded", outputJson: "{\"caption\":\"hi\"}", compositionSpec: null, errorCode: null),
             FormatResult(failedResultId, jobId, "carousel", "Failed", outputJson: null, compositionSpec: null, errorCode: "content-gen.failed"),
         });
 
         var assets = new FakeFormatAssetRepo(new[]
         {
-            new FormatAssetRow(Guid.NewGuid(), flyerResultId, 0, "storage://flyer.pptx", "story.pptx",
+            new FormatAssetRow(Guid.NewGuid(), storyResultId, 0, "storage://story.pptx", "story.pptx",
                 "application/vnd.openxmlformats-officedocument.presentationml.presentation", 10, "hash", Now, Now),
         });
 
@@ -58,12 +58,12 @@ public sealed class MaterializeRunCommandHandlerTests
         Assert.All(persisted, i => Assert.Equal(jobId, i.Origin.SourceRunId));
         Assert.All(persisted, i => Assert.Equal(packageId, i.Origin.SourcePackageId));
 
-        var flyer = persisted.Single(i => i.Origin.FormatKey == "story");
-        Assert.Equal(flyerResultId, flyer.Origin.FormatResultId);
-        Assert.Equal(ContentMedium.Visual, flyer.Kind.Medium);
-        Assert.Equal("<spec/>", flyer.Draft.VisualSpecMarkup);
-        Assert.Single(flyer.Draft.Assets);
-        Assert.Equal("storage://flyer.pptx", flyer.Draft.Assets[0].StorageUri);
+        var story = persisted.Single(i => i.Origin.FormatKey == "story");
+        Assert.Equal(storyResultId, story.Origin.FormatResultId);
+        Assert.Equal(ContentMedium.Visual, story.Kind.Medium);
+        Assert.Equal("<spec/>", story.Draft.VisualSpecMarkup);
+        Assert.Single(story.Draft.Assets);
+        Assert.Equal("storage://story.pptx", story.Draft.Assets[0].StorageUri);
 
         var caption = persisted.Single(i => i.Origin.FormatKey == "caption");
         Assert.Equal(ContentMedium.Text, caption.Kind.Medium);

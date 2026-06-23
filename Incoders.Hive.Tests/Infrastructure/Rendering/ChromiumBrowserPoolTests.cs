@@ -58,7 +58,7 @@ public sealed class ChromiumBrowserPoolTests
     /// <summary>
     /// Regression: <see cref="ChromiumBrowserPool.AcquirePageAsync"/> must lazily initialize the
     /// pool on first use. The pool is a singleton with no startup hook, so before this fix the
-    /// first render threw "ChromiumBrowserPool must be initialized before use" and flyers/carousels
+    /// first render threw "ChromiumBrowserPool must be initialized before use" and storys/carousels
     /// never rendered (the failure was masked earlier by the designer ProviderCallContext bug).
     /// </summary>
     [Fact]

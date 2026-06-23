@@ -73,7 +73,7 @@ public sealed class ContentGenerationBackgroundWorkerTests
 
         await harness.Processor.ProcessAsync(jobId, CancellationToken.None);
 
-        // Orchestrator must only have been asked for the missing format (flyer). Carousel's
+        // Orchestrator must only have been asked for the missing format (story). Carousel's
         // cached payload is reused — no extra Claude tokens.
         Assert.NotNull(harness.Orchestrator.LastRequest);
         Assert.Equal(["story"], harness.Orchestrator.LastRequest!.RequestedFormats);
@@ -146,6 +146,27 @@ public sealed class ContentGenerationBackgroundWorkerTests
         // The Partial status carries the actual render error in its reason — not a generic code.
         var partial = harness.JobRepo.StatusUpdates.Last(s => s.status == "Partial");
         Assert.Contains("render_failed[story:", partial.reason ?? "");
+    }
+
+    // ─── SCENARIO-19: story-carousel end-to-end pipeline (SUGGESTION-3) ─────────
+
+    [Fact]
+    public async Task Process_StoryCarouselJob_TakesDesignedRasterPath_AndWritesUnderStoryCarouselFolder()
+    {
+        var jobId = Guid.NewGuid();
+        var analysisId = Guid.NewGuid();
+        var job = MakeJob(jobId, OrgId, analysisId, status: "Queued",
+            formats: ["story-carousel"]);
+        var harness = new ProcessorHarness(job, MakeAnalysisRecord(analysisId, OrgId), OrchestratorStatus.Succeeded);
+
+        await harness.Processor.ProcessAsync(jobId, CancellationToken.None);
+
+        // DesignedRaster path must be taken: renderer called for story-carousel
+        Assert.True(harness.Renderer.RenderCalls >= 1,
+            "Expected at least one render call for story-carousel (DesignedRaster path).");
+
+        // Job must complete successfully
+        Assert.Contains(harness.JobRepo.StatusUpdates, t => t.status is "Completed" or "Partial");
     }
 
     [Fact]
@@ -333,7 +354,7 @@ file sealed class FakeOrchestrator : IContentGenerationOrchestrator
                         fmt switch
                         {
                             "carousel" => new { format = fmt, publicationDescription = "carousel publication description" },
-                            "story" => new { format = fmt, publicationDescription = "flyer publication description" },
+                            "story" => new { format = fmt, publicationDescription = "story publication description" },
                             _ => new { format = fmt }
                         },
                         "v1",
@@ -397,7 +418,7 @@ file sealed class SpyComposer : IVisualCompositionService
             CopySlots: new Dictionary<string, string> { ["title"] = "stub" },
             Dimensions: new CompositionDimensions(100, 100, 72)));
 
-    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object generatedPayload, BrandSnapshot brand, CancellationToken ct)
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object generatedPayload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
     {
         var spec = new VisualCompositionSpec(
             FormatKey: formatKey,

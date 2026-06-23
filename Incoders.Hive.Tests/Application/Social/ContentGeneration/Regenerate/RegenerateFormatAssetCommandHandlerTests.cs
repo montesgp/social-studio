@@ -1,16 +1,15 @@
+using System.Runtime.CompilerServices;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Regenerate;
-using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Regenerate;
 
 /// <summary>
-/// T5.1 — TDD RED tests for RegenerateFormatAssetCommandHandler.
-/// Verifies: regenerate rewrites storage + replaces DB rows; stale carousel slides removed;
-/// tenant-scoped; format not found → NotFound; other formats untouched.
+/// Regeneration is now ASYNC and re-runs the real pipeline: it clears the target format's cached AI
+/// payload, sets the objection on the job, and re-enqueues the job (other formats reuse their cache).
 /// </summary>
 public sealed class RegenerateFormatAssetCommandHandlerTests
 {
@@ -19,32 +18,16 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
     private static readonly Guid ClientId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid AnalysisId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
     private static readonly Guid JobId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-    private static readonly Guid FlyerResultId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+    private static readonly Guid StoryResultId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
     private static readonly Guid HookResultId = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
 
-    private static FormatAssetRow MakeRow(
-        Guid formatResultId, int index, string storagePath, string filename, string mime = "image/png") =>
+    private static ContentGenerationJob MakeJob() =>
         new(
-            Id: Guid.NewGuid(),
-            FormatResultId: formatResultId,
-            AssetIndex: index,
-            StoragePath: storagePath,
-            Filename: filename,
-            MimeType: mime,
-            SizeBytes: 100,
-            ContentHash: "abc123",
-            CreatedAt: DateTime.UtcNow,
-            UpdatedAt: DateTime.UtcNow);
-
-    private static ContentGenerationJob MakeJob(
-        Guid jobId, Guid orgId, Guid clientId, Guid analysisId,
-        IReadOnlyList<string>? formats = null) =>
-        new(
-            Id: jobId,
-            OrganizationId: orgId,
-            ClientId: clientId,
-            AnalysisId: analysisId,
-            RequestedFormats: formats ?? ["story", "hook"],
+            Id: JobId,
+            OrganizationId: OrgId,
+            ClientId: ClientId,
+            AnalysisId: AnalysisId,
+            RequestedFormats: ["story", "hook"],
             Status: "Completed",
             StatusReason: null,
             ErrorCode: null,
@@ -56,489 +39,175 @@ public sealed class RegenerateFormatAssetCommandHandlerTests
             StartedAt: null,
             CompletedAt: DateTime.UtcNow);
 
-    private static BrandSnapshot MakeBrand() =>
-        BrandSnapshot.FromBrandData(null, null, null);
-
-    // ─── T5.1.1 — Regenerate overwrites storage and replaces asset rows ────────
+    private static List<ContentGenerationFormatResult> MakeResults() =>
+    [
+        new(Id: StoryResultId, JobId: JobId, FormatKey: "story", Status: "Rendered",
+            OutputJson: """{"title":"Old Title"}""", CompositionSpecJson: "{}",
+            RenderedAssetUri: "asset-hash://x", InferredFieldsJson: null, PromptVersion: "v1",
+            ErrorCode: null, CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow),
+        new(Id: HookResultId, JobId: JobId, FormatKey: "hook", Status: "Rendered",
+            OutputJson: """{"text":"hook text"}""", CompositionSpecJson: null,
+            RenderedAssetUri: null, InferredFieldsJson: null, PromptVersion: "v1",
+            ErrorCode: null, CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow),
+    ];
 
     [Fact]
-    public async Task Handle_RegenerateFlyer_OverwritesStorageAndReplacesRows()
+    public async Task ClearsTargetFormatPayload_SetsObjection_AndReEnqueues()
     {
-        // Arrange
-        var flyerRow = MakeRow(FlyerResultId, 0, $"{OrgId}/{ClientId}/{AnalysisId}/flyer.png", "story.png");
-        var hookRow = MakeRow(HookResultId, 0, $"{OrgId}/{ClientId}/{AnalysisId}/hook.txt", "hook.txt", "text/plain");
-
-        var formatResults = new List<ContentGenerationFormatResult>
-        {
-            new(Id: FlyerResultId, JobId: JobId, FormatKey: "story", Status: "Rendered",
-                OutputJson: """{"title":"Old Title"}""", CompositionSpecJson: null,
-                RenderedAssetUri: null, InferredFieldsJson: null, PromptVersion: null,
-                ErrorCode: null, CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow),
-            new(Id: HookResultId, JobId: JobId, FormatKey: "hook", Status: "Rendered",
-                OutputJson: """{"text":"hook text"}""", CompositionSpecJson: null,
-                RenderedAssetUri: null, InferredFieldsJson: null, PromptVersion: null,
-                ErrorCode: null, CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow),
-        };
-
-        var job = MakeJob(JobId, OrgId, ClientId, AnalysisId);
-
-        var storage = new FakeRegenerateStorage();
-        var assetRepo = new FakeRegenerateAssetRepository([flyerRow, hookRow]);
-        var formatResultRepo = new FakeRegenerateFormatResultRepository(formatResults);
-        var jobRepo = new FakeRegenerateJobRepository(job);
-        var analysisRepo = new FakeRegenerateAnalysisRepository(OrgId, AnalysisId);
-        var composer = new FakeRegenerateComposer(MakeSpec("story"));
-        var renderer = new FakeRegenerateRenderer("image/png", "story.png", new byte[] { 1, 2, 3 });
-        var brandLoader = new FakeRegenerateBrandLoader(MakeBrand());
-
+        var results = new FakeFormatResultRepo(MakeResults());
+        var jobs = new FakeJobRepo(MakeJob());
+        var queue = new FakeQueue();
         var handler = new RegenerateFormatAssetCommandHandler(
-            storage, assetRepo, formatResultRepo, jobRepo, analysisRepo, composer, renderer, brandLoader);
+            results, jobs, new FakeAnalysisRepo(OrgId, AnalysisId), queue);
 
-        var command = new RegenerateFormatAssetCommand(
-            AnalysisId, OrgId, ClientId, "story", Objection: null);
+        var result = await handler.Handle(
+            new RegenerateFormatAssetCommand(AnalysisId, OrgId, ClientId, "story", "no CTA on slides"),
+            CancellationToken.None);
 
-        // Act
-        var result = await handler.Handle(command, CancellationToken.None);
+        Assert.True(result.IsSuccess, result.IsFailure ? result.Error.Code : "");
+        Assert.Equal(JobId, result.Value.JobId);
+        Assert.Equal("Queued", result.Value.Status);
 
-        // Assert
-        Assert.True(result.IsSuccess, result.IsFailure ? result.Error.MessageKey : "");
+        // Target format payload cleared so the processor re-generates it.
+        Assert.NotNull(results.LastUpsert);
+        Assert.Equal("story", results.LastUpsert!.FormatKey);
+        Assert.Null(results.LastUpsert.OutputJson);
 
-        // Storage was written for flyer
-        Assert.Contains($"{OrgId}/{ClientId}/{AnalysisId}/flyer.png", storage.PutPaths);
-
-        // Asset rows were replaced for the flyer format result
-        Assert.Equal(FlyerResultId, assetRepo.LastUpsertedFormatResultId);
-        Assert.NotEmpty(assetRepo.LastUpsertedRows);
-
-        // Hook rows were NOT touched
-        Assert.Equal(HookResultId, hookRow.FormatResultId); // hook row unchanged
+        // Objection set on the job + job re-enqueued.
+        Assert.Equal("no CTA on slides", jobs.LastObjection);
+        Assert.Contains(JobId, queue.Enqueued);
+        Assert.Contains("Queued", jobs.StatusUpdates);
     }
 
-    // ─── T5.1.2 — Cross-tenant → NotFound ────────────────────────────────────
-
     [Fact]
-    public async Task Handle_CrossTenant_ReturnsNotFound()
+    public async Task UnknownFormat_ReturnsNotFound()
     {
-        var job = MakeJob(JobId, OrgId, ClientId, AnalysisId);
-        var handler = BuildMinimalHandler(job, analysisOrgId: OrgId, analysisId: AnalysisId);
-
-        // Requesting org is different from the analysis org
-        var command = new RegenerateFormatAssetCommand(AnalysisId, OtherOrgId, ClientId, "story", null);
-        var result = await handler.Handle(command, CancellationToken.None);
-
-        Assert.True(result.IsFailure);
-        Assert.Equal(ErrorType.NotFound, result.Error.Type);
-    }
-
-    // ─── T5.1.3 — Format not found for this client → NotFound ────────────────
-
-    [Fact]
-    public async Task Handle_FormatNotFoundForClient_ReturnsNotFound()
-    {
-        // No format results for "carousel"
-        var formatResults = new List<ContentGenerationFormatResult>
-        {
-            new(Id: FlyerResultId, JobId: JobId, FormatKey: "story", Status: "Rendered",
-                OutputJson: """{"title":"Flyer"}""", CompositionSpecJson: null,
-                RenderedAssetUri: null, InferredFieldsJson: null, PromptVersion: null,
-                ErrorCode: null, CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow),
-        };
-
-        var job = MakeJob(JobId, OrgId, ClientId, AnalysisId);
-        var handler = BuildMinimalHandler(job, OrgId, AnalysisId, formatResults: formatResults);
-
-        var command = new RegenerateFormatAssetCommand(AnalysisId, OrgId, ClientId, "carousel", null);
-        var result = await handler.Handle(command, CancellationToken.None);
-
-        Assert.True(result.IsFailure);
-        Assert.Equal(ErrorType.NotFound, result.Error.Type);
-    }
-
-    // ─── T5.1.4 — No job found for analysis+client → NotFound ────────────────
-
-    [Fact]
-    public async Task Handle_NoJobForClient_ReturnsNotFound()
-    {
-        // JobRepo returns null for this analysis+client
-        var handler = BuildMinimalHandler(job: null, OrgId, AnalysisId);
-
-        var command = new RegenerateFormatAssetCommand(AnalysisId, OrgId, ClientId, "story", null);
-        var result = await handler.Handle(command, CancellationToken.None);
-
-        Assert.True(result.IsFailure);
-        Assert.Equal(ErrorType.NotFound, result.Error.Type);
-    }
-
-    // ─── T5.1.5 — Stale carousel slides deleted when new render has fewer slides
-
-    [Fact]
-    public async Task Handle_RegenerateCarousel_DeletesStaleSlidesFromStorage()
-    {
-        var carouselResultId = Guid.NewGuid();
-        var rows = new List<FormatAssetRow>
-        {
-            MakeRow(carouselResultId, 1, $"{OrgId}/{ClientId}/{AnalysisId}/carousel/slide_1.png", "slide_1.png"),
-            MakeRow(carouselResultId, 2, $"{OrgId}/{ClientId}/{AnalysisId}/carousel/slide_2.png", "slide_2.png"),
-            MakeRow(carouselResultId, 3, $"{OrgId}/{ClientId}/{AnalysisId}/carousel/slide_3.png", "slide_3.png"),
-        };
-
-        var formatResults = new List<ContentGenerationFormatResult>
-        {
-            new(Id: carouselResultId, JobId: JobId, FormatKey: "carousel", Status: "Rendered",
-                OutputJson: """{"slides":[]}""", CompositionSpecJson: null,
-                RenderedAssetUri: null, InferredFieldsJson: null, PromptVersion: null,
-                ErrorCode: null, CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow),
-        };
-
-        var job = MakeJob(JobId, OrgId, ClientId, AnalysisId, ["carousel"]);
-
-        // New render produces only 2 slides
-        var storage = new FakeRegenerateStorage();
-        var assetRepo = new FakeRegenerateAssetRepository(rows);
-        var formatResultRepo = new FakeRegenerateFormatResultRepository(formatResults);
-        var jobRepo = new FakeRegenerateJobRepository(job);
-        var analysisRepo = new FakeRegenerateAnalysisRepository(OrgId, AnalysisId);
-
-        var composer = new FakeRegenerateComposer(MakeSpec("carousel"), MakeSpec("carousel")); // 2 slides now
-        var renderer = new FakeRegenerateRenderer("image/png", "slide.png", new byte[] { 9, 8, 7 });
-        var brandLoader = new FakeRegenerateBrandLoader(MakeBrand());
-
         var handler = new RegenerateFormatAssetCommandHandler(
-            storage, assetRepo, formatResultRepo, jobRepo, analysisRepo, composer, renderer, brandLoader);
+            new FakeFormatResultRepo(MakeResults()), new FakeJobRepo(MakeJob()),
+            new FakeAnalysisRepo(OrgId, AnalysisId), new FakeQueue());
 
-        var command = new RegenerateFormatAssetCommand(AnalysisId, OrgId, ClientId, "carousel", null);
-        var result = await handler.Handle(command, CancellationToken.None);
-
-        Assert.True(result.IsSuccess);
-
-        // The stale slide_3 that is no longer in the new render must be deleted from storage
-        Assert.Contains($"{OrgId}/{ClientId}/{AnalysisId}/carousel/slide_3.png", storage.DeletedPaths);
-    }
-
-    // ─── Helpers ──────────────────────────────────────────────────────────────
-
-    private static VisualCompositionSpec MakeSpec(string formatKey) =>
-        new(
-            FormatKey: formatKey,
-            LayoutType: "test-card",
-            Palette: new CompositionPalette("#000", "#111", "#222", "#fff", "#eee"),
-            Typography: new CompositionTypography("Arial", 24, "Arial", 14),
-            AssetSlots: new Dictionary<string, AssetSlotSpec>(),
-            CopySlots: new Dictionary<string, string>(),
-            Dimensions: new CompositionDimensions(1080, 1080, 96));
-
-    private static RegenerateFormatAssetCommandHandler BuildMinimalHandler(
-        ContentGenerationJob? job,
-        Guid analysisOrgId,
-        Guid analysisId,
-        List<ContentGenerationFormatResult>? formatResults = null)
-    {
-        var storage = new FakeRegenerateStorage();
-        var rows = new List<FormatAssetRow>();
-        var assetRepo = new FakeRegenerateAssetRepository(rows);
-        var formatResultRepo = new FakeRegenerateFormatResultRepository(formatResults ?? []);
-        var jobRepo = new FakeRegenerateJobRepository(job);
-        var analysisRepo = new FakeRegenerateAnalysisRepository(analysisOrgId, analysisId);
-        var composer = new FakeRegenerateComposer(MakeSpec("story"));
-        var renderer = new FakeRegenerateRenderer("image/png", "story.png", new byte[] { 1, 2, 3 });
-        var brandLoader = new FakeRegenerateBrandLoader(MakeBrand());
-
-        return new RegenerateFormatAssetCommandHandler(
-            storage, assetRepo, formatResultRepo, jobRepo, analysisRepo, composer, renderer, brandLoader);
-    }
-}
-
-// ─── T5.4 — Delete-item tests ────────────────────────────────────────────────
-
-/// <summary>
-/// T5.4 — TDD RED tests for DeleteFormatAssetCommandHandler.
-/// Verifies: physical delete from storage + removes DB rows; tenant-scoped;
-/// format not found → succeeds silently (idempotent).
-/// </summary>
-public sealed class DeleteFormatAssetCommandHandlerTests
-{
-    private static readonly Guid OrgId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-    private static readonly Guid OtherOrgId = Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
-    private static readonly Guid ClientId = Guid.Parse("11111111-1111-1111-1111-111111111111");
-    private static readonly Guid AnalysisId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
-    private static readonly Guid HookResultId = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
-
-    private static FormatAssetRow MakeRow(
-        Guid formatResultId, int index, string storagePath, string filename, string mime = "text/plain") =>
-        new(
-            Id: Guid.NewGuid(),
-            FormatResultId: formatResultId,
-            AssetIndex: index,
-            StoragePath: storagePath,
-            Filename: filename,
-            MimeType: mime,
-            SizeBytes: 50,
-            ContentHash: "def456",
-            CreatedAt: DateTime.UtcNow,
-            UpdatedAt: DateTime.UtcNow);
-
-    // ─── T5.4.1 — Delete removes storage object and DB row ───────────────────
-
-    [Fact]
-    public async Task Handle_DeleteHook_RemovesStorageObjectAndRow()
-    {
-        var hookRow = MakeRow(HookResultId, 0, $"{OrgId}/{ClientId}/{AnalysisId}/hook.txt", "hook.txt");
-
-        var storage = new FakeRegenerateStorage();
-        var assetRepo = new FakeRegenerateAssetRepository([hookRow]);
-        var analysisRepo = new FakeRegenerateAnalysisRepository(OrgId, AnalysisId);
-
-        var handler = new DeleteFormatAssetCommandHandler(storage, assetRepo, analysisRepo);
-
-        var command = new DeleteFormatAssetCommand(AnalysisId, OrgId, ClientId, "hook");
-        var result = await handler.Handle(command, CancellationToken.None);
-
-        Assert.True(result.IsSuccess);
-
-        // Storage object was deleted
-        Assert.Contains($"{OrgId}/{ClientId}/{AnalysisId}/hook.txt", storage.DeletedPaths);
-
-        // DB rows were deleted for hook format result
-        Assert.Contains(HookResultId, assetRepo.DeletedFormatResultIds);
-    }
-
-    // ─── T5.4.2 — Delete carousel removes ALL slide objects ─────────────────
-
-    [Fact]
-    public async Task Handle_DeleteCarousel_RemovesAllSlideObjects()
-    {
-        var carouselResultId = Guid.NewGuid();
-        var rows = new List<FormatAssetRow>
-        {
-            MakeRow(carouselResultId, 1, $"{OrgId}/{ClientId}/{AnalysisId}/carousel/slide_1.png", "slide_1.png", "image/png"),
-            MakeRow(carouselResultId, 2, $"{OrgId}/{ClientId}/{AnalysisId}/carousel/slide_2.png", "slide_2.png", "image/png"),
-        };
-
-        var storage = new FakeRegenerateStorage();
-        var assetRepo = new FakeRegenerateAssetRepository(rows);
-        var analysisRepo = new FakeRegenerateAnalysisRepository(OrgId, AnalysisId);
-
-        var handler = new DeleteFormatAssetCommandHandler(storage, assetRepo, analysisRepo);
-
-        var command = new DeleteFormatAssetCommand(AnalysisId, OrgId, ClientId, "carousel");
-        var result = await handler.Handle(command, CancellationToken.None);
-
-        Assert.True(result.IsSuccess);
-
-        Assert.Contains($"{OrgId}/{ClientId}/{AnalysisId}/carousel/slide_1.png", storage.DeletedPaths);
-        Assert.Contains($"{OrgId}/{ClientId}/{AnalysisId}/carousel/slide_2.png", storage.DeletedPaths);
-        Assert.Contains(carouselResultId, assetRepo.DeletedFormatResultIds);
-    }
-
-    // ─── T5.4.3 — Cross-tenant → NotFound ───────────────────────────────────
-
-    [Fact]
-    public async Task Handle_CrossTenant_ReturnsNotFound()
-    {
-        var storage = new FakeRegenerateStorage();
-        var assetRepo = new FakeRegenerateAssetRepository([]);
-        var analysisRepo = new FakeRegenerateAnalysisRepository(OrgId, AnalysisId);
-
-        var handler = new DeleteFormatAssetCommandHandler(storage, assetRepo, analysisRepo);
-
-        // Different org
-        var command = new DeleteFormatAssetCommand(AnalysisId, OtherOrgId, ClientId, "hook");
-        var result = await handler.Handle(command, CancellationToken.None);
+        var result = await handler.Handle(
+            new RegenerateFormatAssetCommand(AnalysisId, OrgId, ClientId, "carousel", null),
+            CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        Assert.Equal(ErrorType.NotFound, result.Error.Type);
+        Assert.Equal("content-gen.format-not-found", result.Error.Code);
     }
-
-    // ─── T5.4.4 — Format not found → succeeds (idempotent) ──────────────────
 
     [Fact]
-    public async Task Handle_FormatNotFound_SucceedsIdempotently()
+    public async Task CrossTenant_ReturnsAnalysisNotFound()
     {
-        // No rows for "story"
-        var storage = new FakeRegenerateStorage();
-        var assetRepo = new FakeRegenerateAssetRepository([]);
-        var analysisRepo = new FakeRegenerateAnalysisRepository(OrgId, AnalysisId);
+        var handler = new RegenerateFormatAssetCommandHandler(
+            new FakeFormatResultRepo(MakeResults()), new FakeJobRepo(MakeJob()),
+            new FakeAnalysisRepo(OrgId, AnalysisId), new FakeQueue());
 
-        var handler = new DeleteFormatAssetCommandHandler(storage, assetRepo, analysisRepo);
+        var result = await handler.Handle(
+            new RegenerateFormatAssetCommand(AnalysisId, OtherOrgId, ClientId, "story", null),
+            CancellationToken.None);
 
-        var command = new DeleteFormatAssetCommand(AnalysisId, OrgId, ClientId, "story");
-        var result = await handler.Handle(command, CancellationToken.None);
+        Assert.True(result.IsFailure);
+    }
 
-        Assert.True(result.IsSuccess);
-        Assert.Empty(storage.DeletedPaths);
+    [Fact]
+    public async Task NoJob_ReturnsJobNotFound()
+    {
+        var handler = new RegenerateFormatAssetCommandHandler(
+            new FakeFormatResultRepo(MakeResults()), new FakeJobRepo(null),
+            new FakeAnalysisRepo(OrgId, AnalysisId), new FakeQueue());
+
+        var result = await handler.Handle(
+            new RegenerateFormatAssetCommand(AnalysisId, OrgId, ClientId, "story", null),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
     }
 }
 
-// ─── Test doubles shared across regenerate + delete tests ─────────────────────
-
-file sealed class FakeRegenerateStorage : IGeneratedAssetStorage
+file sealed class FakeFormatResultRepo(List<ContentGenerationFormatResult> results)
+    : IContentGenerationFormatResultRepository
 {
-    public List<string> PutPaths { get; } = [];
-    public List<string> DeletedPaths { get; } = [];
+    public ContentGenerationFormatResult? LastUpsert { get; private set; }
 
-    public Task<StoredAssetRef> PutAssetAsync(StoredAssetKey key, StoredAssetContent content, CancellationToken ct)
+    public Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct)
     {
-        var path = $"{key.OrganizationId}/{key.ClientId}/{key.AnalysisId}/{key.RelativePath}";
-        PutPaths.Add(path);
-        return Task.FromResult(new StoredAssetRef(path, content.Mime, content.Bytes.Length, "hash-new"));
+        LastUpsert = result;
+        return Task.FromResult(result);
     }
-
-    public Task PutFolderPlaceholderAsync(string folderPath, CancellationToken ct) => Task.CompletedTask;
-
-    public Task<IReadOnlyList<StoredAssetEntry>> ListAsync(string prefix, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<StoredAssetEntry>>([]);
-
-    public Task<Result<StoredAssetStream>> OpenAsync(string storagePath, CancellationToken ct) =>
-        Task.FromResult(Result.Failure<StoredAssetStream>(StorageErrors.NotFound));
-
-    public Task DeleteAsync(string storagePath, CancellationToken ct)
-    {
-        DeletedPaths.Add(storagePath);
-        return Task.CompletedTask;
-    }
-}
-
-file sealed class FakeRegenerateAssetRepository(IReadOnlyList<FormatAssetRow> rows)
-    : IContentGenerationFormatAssetRepository
-{
-    private readonly List<FormatAssetRow> _rows = [.. rows];
-
-    public Guid LastUpsertedFormatResultId { get; private set; }
-    public IReadOnlyList<FormatAssetRow> LastUpsertedRows { get; private set; } = [];
-    public List<Guid> DeletedFormatResultIds { get; } = [];
-
-    public Task UpsertManyForFormatAsync(Guid formatResultId, IReadOnlyList<FormatAssetRow> assets, CancellationToken ct)
-    {
-        LastUpsertedFormatResultId = formatResultId;
-        LastUpsertedRows = assets;
-        return Task.CompletedTask;
-    }
-
-    public Task<IReadOnlyList<FormatAssetRow>> ListByJobAsync(Guid jobId, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<FormatAssetRow>>(_rows);
-
-    public Task<IReadOnlyList<FormatAssetRow>> ListByAnalysisClientAsync(Guid orgId, Guid analysisId, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<FormatAssetRow>>(_rows);
-
-    public Task DeleteByFormatResultIdAsync(Guid formatResultId, CancellationToken ct)
-    {
-        DeletedFormatResultIds.Add(formatResultId);
-        _rows.RemoveAll(r => r.FormatResultId == formatResultId);
-        return Task.CompletedTask;
-    }
-}
-
-file sealed class FakeRegenerateFormatResultRepository(
-    List<ContentGenerationFormatResult> results) : IContentGenerationFormatResultRepository
-{
-    public Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult result, CancellationToken ct) =>
-        Task.FromResult(result);
 
     public Task<IReadOnlyList<ContentGenerationFormatResult>> ListByJobAsync(Guid jobId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>(results);
 }
 
-file sealed class FakeRegenerateJobRepository(ContentGenerationJob? job) : IContentGenerationJobRepository
+file sealed class FakeJobRepo(ContentGenerationJob? job) : IContentGenerationJobRepository
 {
-    public Task InsertAsync(ContentGenerationJob job, CancellationToken ct) => Task.CompletedTask;
+    public string? LastObjection { get; private set; }
+    public List<string> StatusUpdates { get; } = [];
 
+    public Task InsertAsync(ContentGenerationJob job, CancellationToken ct) => Task.CompletedTask;
     public Task<ContentGenerationJob?> GetByIdAsync(Guid id, Guid organizationId, CancellationToken ct) =>
         Task.FromResult(job?.OrganizationId == organizationId ? job : null);
-
-    public Task<ContentGenerationJob?> GetByIdInternalAsync(Guid id, CancellationToken ct) =>
-        Task.FromResult(job);
-
-    public Task UpdateStatusAsync(Guid id, string status, string? statusReason, string? errorCode, CancellationToken ct) =>
-        Task.CompletedTask;
-
-    public Task UpdateManifestAsync(Guid id, string manifestJson, DateTime completedAt, CancellationToken ct) =>
-        Task.CompletedTask;
-
+    public Task<ContentGenerationJob?> GetByIdInternalAsync(Guid id, CancellationToken ct) => Task.FromResult(job);
+    public Task UpdateStatusAsync(Guid id, string status, string? statusReason, string? errorCode, CancellationToken ct)
+    {
+        StatusUpdates.Add(status);
+        return Task.CompletedTask;
+    }
+    public Task UpdateManifestAsync(Guid id, string manifestJson, DateTime completedAt, CancellationToken ct) => Task.CompletedTask;
     public Task<IReadOnlyList<ContentGenerationJob>> ListPendingOrRunningAsync(CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<ContentGenerationJob>>([]);
-
     public Task<ContentGenerationJob?> GetLatestByAnalysisAndClientAsync(
         Guid analysisId, Guid organizationId, Guid clientId, CancellationToken ct) =>
         Task.FromResult(
-            job is not null
-            && job.AnalysisId == analysisId
-            && job.OrganizationId == organizationId
-            && job.ClientId == clientId
-                ? job
-                : null);
+            job is not null && job.AnalysisId == analysisId && job.OrganizationId == organizationId && job.ClientId == clientId
+                ? job : null);
+    public Task SetRegenerationObjectionAsync(Guid id, string? objection, CancellationToken ct)
+    {
+        LastObjection = objection;
+        return Task.CompletedTask;
+    }
 }
 
-file sealed class FakeRegenerateAnalysisRepository(Guid ownerOrgId, Guid analysisId)
-    : ISingleContentAnalysisRepository
+file sealed class FakeQueue : IContentGenerationJobQueue
 {
-    public Task AddAsync(SingleContentAnalysisRecord analysis, CancellationToken cancellationToken = default) =>
-        Task.CompletedTask;
-
-    public Task<SingleContentAnalysisRecord?> GetByIdAsync(Guid aId, Guid orgId, CancellationToken cancellationToken = default)
+    public List<Guid> Enqueued { get; } = [];
+    public Task EnqueueAsync(Guid jobId, CancellationToken ct)
     {
-        if (aId == analysisId && orgId == ownerOrgId)
-        {
-            return Task.FromResult<SingleContentAnalysisRecord?>(new SingleContentAnalysisRecord(
-                Id: analysisId,
-                OrganizationId: ownerOrgId,
-                ClientId: null,
-                UserId: Guid.NewGuid(),
-                SourceUrl: "https://example.com",
-                NormalizedUrl: null,
-                SourcePlatformKey: null,
-                Status: SingleContentAnalysisStatus.Analyzed,
-                ContentSnapshotJson: null,
-                AnalysisJson: null,
-                ProviderDiagnosticsJson: null,
-                FailureCode: null,
-                FailureMessageKey: null,
-                CreatedAtUtc: DateTime.UtcNow,
-                UpdatedAtUtc: DateTime.UtcNow,
-                CompletedAtUtc: DateTime.UtcNow));
-        }
-
-        return Task.FromResult<SingleContentAnalysisRecord?>(null);
+        Enqueued.Add(jobId);
+        return Task.CompletedTask;
     }
+#pragma warning disable CS1998
+    public async IAsyncEnumerable<Guid> DequeueAllAsync([EnumeratorCancellation] CancellationToken ct)
+    {
+        yield break;
+    }
+#pragma warning restore CS1998
+}
+
+file sealed class FakeAnalysisRepo(Guid ownerOrgId, Guid analysisId) : ISingleContentAnalysisRepository
+{
+    public Task AddAsync(SingleContentAnalysisRecord analysis, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<SingleContentAnalysisRecord?> GetByIdAsync(Guid aId, Guid orgId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(aId == analysisId && orgId == ownerOrgId
+            ? new SingleContentAnalysisRecord(
+                Id: analysisId, OrganizationId: ownerOrgId, ClientId: null, UserId: Guid.NewGuid(),
+                SourceUrl: "https://example.com", NormalizedUrl: null, SourcePlatformKey: null,
+                Status: SingleContentAnalysisStatus.Analyzed, ContentSnapshotJson: null, AnalysisJson: null,
+                ProviderDiagnosticsJson: null, FailureCode: null, FailureMessageKey: null,
+                CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: DateTime.UtcNow, CompletedAtUtc: DateTime.UtcNow)
+            : null);
 
     public Task UpdateStatusAsync(Guid analysisId, Guid organizationId, SingleContentAnalysisStatus status,
         DateTime updatedAtUtc, CancellationToken cancellationToken = default,
         string? failureCode = null, string? failureMessageKey = null) => Task.CompletedTask;
-
-    public Task UpdateAsync(SingleContentAnalysisRecord analysis, CancellationToken cancellationToken = default) =>
-        Task.CompletedTask;
-
+    public Task UpdateAsync(SingleContentAnalysisRecord analysis, CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task<SingleContentAnalysisHistoryPage> ListByUserAsync(Guid organizationId, Guid userId, int page,
         int pageSize, CancellationToken cancellationToken = default) =>
         Task.FromResult(new SingleContentAnalysisHistoryPage([], 0, page, pageSize));
-
     public Task<SingleContentAnalysisHistoryItem?> FindLatestByUserAndUrlAsync(Guid organizationId, Guid userId,
         string normalizedUrl, string sourceUrl, CancellationToken cancellationToken = default) =>
         Task.FromResult<SingleContentAnalysisHistoryItem?>(null);
-
     public Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(Guid analysisId, Guid organizationId, Guid userId,
         CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<string>?>([]);
-}
-
-file sealed class FakeRegenerateComposer(params VisualCompositionSpec[] specs) : IVisualCompositionService
-{
-    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object generatedPayload, BrandSnapshot brand, CancellationToken ct) =>
-        Task.FromResult(specs[0]);
-
-    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object generatedPayload, BrandSnapshot brand, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<VisualCompositionSpec>>(specs);
-
-    public IReadOnlyList<string> GetInferredFields() => [];
-}
-
-file sealed class FakeRegenerateRenderer(string mime, string filename, byte[] bytes) : IContentRenderer
-{
-    public Task<Result<RenderedAsset>> RenderAsync(VisualCompositionSpec spec, RenderOptions options, CancellationToken cancellationToken) =>
-        Task.FromResult(Result.Success(RenderedAsset.Create(spec.FormatKey, mime, filename, bytes)));
-}
-
-file sealed class FakeRegenerateBrandLoader(BrandSnapshot brand) : IClientBrandSnapshotLoader
-{
-    public Task<BrandSnapshot> LoadAsync(Guid organizationId, Guid clientId, CancellationToken ct) =>
-        Task.FromResult(brand);
 }

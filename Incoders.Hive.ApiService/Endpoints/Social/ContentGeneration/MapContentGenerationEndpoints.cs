@@ -4,6 +4,7 @@ using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Assemble;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Catalog;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Download;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Export;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
@@ -46,8 +47,8 @@ public static class ContentGenerationEndpointsExtensions
 
         analyzerGroup.MapPost("/{analysisId:guid}/formats/{formatKey}/regenerate", ContentGenerationEndpointFacade.RegenerateFormatAsync)
             .WithName("RegenerateFormatAsset")
-            .WithSummary("Re-render a single format and overwrite the stored asset(s) for the given client")
-            .Produces<RegenerateFormatResponse>(StatusCodes.Status200OK)
+            .WithSummary("Regenerate a single format (re-runs the AI pipeline with the objection + aesthetic); async — poll job status")
+            .Produces<RegenerateFormatResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         analyzerGroup.MapGet("/{analysisId:guid}/formats/{formatKey}/download-pptx", ContentGenerationEndpointFacade.DownloadFormatAsPptxAsync)
@@ -69,7 +70,7 @@ public static class ContentGenerationEndpointsExtensions
 
         analyzerGroup.MapPost("/{analysisId:guid}/package/export-to-canva", ContentGenerationEndpointFacade.ExportPackageToCanvaAsync)
             .WithName("ExportPackageToCanva")
-            .WithSummary("Export the whole visual package (flyer + carousel slides) of a job to Canva as one editable multi-page design. Returns the Canva edit URL.")
+            .WithSummary("Export the whole visual package (story + carousel slides) of a job to Canva as one editable multi-page design. Returns the Canva edit URL.")
             .Produces<ExportFormatToCanvaResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -82,11 +83,27 @@ public static class ContentGenerationEndpointsExtensions
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        analyzerGroup.MapDelete("/{analysisId:guid}/formats/{formatKey}/assets/{index:int}", ContentGenerationEndpointFacade.DeleteAssetAsync)
+            .WithName("DeleteFormatSingleAsset")
+            .WithSummary("Physically delete one asset (a single file / carousel slide) from storage and remove its DB row; removes the format folder when it becomes empty")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         analyzerGroup.MapGet("/{analysisId:guid}/packages", ContentGenerationEndpointFacade.ListPackagesAsync)
             .WithName("ListAnalysisPackages")
             .WithSummary("Returns the per-client package tree (formats + assets) for the given analysis, sourced from DB")
             .Produces<AnalysisPackagesApiResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // Format catalog (no analysis/job scope — org auth only, read-only)
+        var catalogGroup = app.MapGroup("/api/social/content-generation")
+            .WithTags("Content Generation")
+            .RequireAuthorization();
+
+        catalogGroup.MapGet("/formats", ContentGenerationEndpointFacade.ListFormatCatalogAsync)
+            .WithName("ListFormatCatalog")
+            .WithSummary("Returns the content format catalog entries for format selection UI (ADR-6 / SCENARIO-12).")
+            .Produces<ListFormatCatalogResponse>(StatusCodes.Status200OK);
 
         // Job status and download (shared group)
         var jobsGroup = app.MapGroup("/api/social/content-generation-jobs")
@@ -133,11 +150,11 @@ public sealed record RegenerateFormatRequest(
     Guid ClientId,
     string? Objection);
 
-/// <summary>One regenerated asset entry returned by the regenerate endpoint.</summary>
-public sealed record RegenerateFormatAssetItem(string StoragePath, string Filename, string Mime, long SizeBytes);
-
-/// <summary>Response body for the regenerate-format endpoint.</summary>
-public sealed record RegenerateFormatResponse(string FormatKey, IReadOnlyList<RegenerateFormatAssetItem> Assets);
+/// <summary>
+/// Response body for the regenerate-format endpoint. Regeneration is ASYNC (re-runs the pipeline):
+/// the caller polls the job status (same flow as a normal generation) to observe completion.
+/// </summary>
+public sealed record RegenerateFormatResponse(Guid JobId, string FormatKey, string Status);
 
 // ─── List Packages API response types ─────────────────────────────────────────
 
@@ -180,6 +197,25 @@ public static class ContentGenerationEndpointFacade
 {
     private static readonly Error OrganizationRequired =
         Error.Validation("tenant.required", "An organization context is required for this operation.");
+
+    /// <summary>
+    /// GET /api/social/content-generation/formats
+    ///
+    /// Returns all catalog entries projected to <see cref="FormatCatalogEntryDto"/> so the FE
+    /// can drive format selection from the server rather than a hand-maintained TS union.
+    /// Satisfies ADR-6 / REQ-09 / SCENARIO-12.
+    /// </summary>
+    public static async Task<IResult> ListFormatCatalogAsync(
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { })
+            return OrganizationRequired.ToProblem();
+
+        var result = await sender.Send(new ListFormatCatalogQuery(), cancellationToken);
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
 
     public static async Task<IResult> GeneratePackageAsync(
         Guid analysisId,
@@ -279,10 +315,9 @@ public static class ContentGenerationEndpointFacade
             cancellationToken);
 
         return result.Match(response =>
-            (IResult)TypedResults.Ok(new RegenerateFormatResponse(
-                response.FormatKey,
-                response.Assets.Select(a => new RegenerateFormatAssetItem(
-                    a.StoragePath, a.Filename, a.Mime, a.SizeBytes)).ToList())));
+            (IResult)TypedResults.Accepted(
+                (string?)null,
+                new RegenerateFormatResponse(response.JobId, response.FormatKey, response.Status)));
     }
 
     public static async Task<IResult> DeleteFormatAsync(
@@ -302,6 +337,30 @@ public static class ContentGenerationEndpointFacade
                 OrganizationId: tenantId.Value,
                 ClientId: clientId,
                 FormatKey: formatKey),
+            cancellationToken);
+
+        return result.Match(() => (IResult)TypedResults.NoContent());
+    }
+
+    public static async Task<IResult> DeleteAssetAsync(
+        Guid analysisId,
+        string formatKey,
+        int index,
+        Guid clientId,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+            return OrganizationRequired.ToProblem();
+
+        var result = await sender.Send(
+            new DeleteAssetCommand(
+                AnalysisId: analysisId,
+                OrganizationId: tenantId.Value,
+                ClientId: clientId,
+                FormatKey: formatKey,
+                AssetIndex: index),
             cancellationToken);
 
         return result.Match(() => (IResult)TypedResults.NoContent());
@@ -447,7 +506,7 @@ public static class ContentGenerationEndpointFacade
     /// <summary>
     /// POST /{analysisId}/package/export-to-canva
     ///
-    /// Exports the whole VISUAL package of a job (flyer + carousel slides) as one editable
+    /// Exports the whole VISUAL package of a job (story + carousel slides) as one editable
     /// multi-page Canva design, titled after the client. Same auth/error contract as the
     /// per-format export: 409 for not-connected/reconnect, 502 for Canva API failures.
     /// </summary>

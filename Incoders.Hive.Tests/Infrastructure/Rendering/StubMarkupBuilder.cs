@@ -19,7 +19,7 @@ public static class StubMarkupBuilder
     /// Story envelope: 1080×1920, 96 dpi, two data-slot elements (headline + cta),
     /// a data-layer="background" element, and a synthetic inline-PNG backgroundImageRef.
     /// </summary>
-    public static CompositionSpecEnvelope BuildFlyerEnvelope() =>
+    public static CompositionSpecEnvelope BuildStoryEnvelope() =>
         BuildEnvelope(width: 1080, height: 1920, dpi: 96);
 
     /// <summary>
@@ -31,7 +31,7 @@ public static class StubMarkupBuilder
     /// <summary>
     /// Envelope with null <c>BackgroundImageRef</c> — for fallback / no-background tests.
     /// </summary>
-    public static CompositionSpecEnvelope BuildFlyerEnvelopeNoBackground() =>
+    public static CompositionSpecEnvelope BuildStoryEnvelopeNoBackground() =>
         BuildEnvelope(width: 1080, height: 1920, dpi: 96, includeBackground: false);
 
     private static CompositionSpecEnvelope BuildEnvelope(

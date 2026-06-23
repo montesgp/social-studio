@@ -12,7 +12,7 @@ public sealed class ClientBrandManualTests
     private static readonly Guid ValidOrgId = Guid.NewGuid();
 
     private static readonly IReadOnlyList<ColorEntry> ValidPalette =
-        new[] { ColorEntry.Create("Primary", "#FF0000", "primary").Value };
+        new[] { ColorEntry.Create("Primary", "#FF0000", ColorRole.Primary, 0).Value };
 
     // --- Create: happy path ---
 
@@ -169,7 +169,7 @@ public sealed class ClientBrandManualTests
     [Fact]
     public void ColorEntry_Create_InvalidHex_ReturnsValidationError()
     {
-        var result = ColorEntry.Create("Blue", "#ZZZZZZ", null);
+        var result = ColorEntry.Create("Blue", "#ZZZZZZ", null, 0);
         Assert.True(result.IsFailure);
         Assert.Equal("social.client_brand_manuals.validation", result.Error.Code);
     }
@@ -177,7 +177,7 @@ public sealed class ClientBrandManualTests
     [Fact]
     public void ColorEntry_Create_ValidThreeCharHex_Succeeds()
     {
-        var result = ColorEntry.Create("Red", "#F00", null);
+        var result = ColorEntry.Create("Red", "#F00", null, 0);
         Assert.True(result.IsSuccess);
         Assert.Equal("#F00", result.Value.Hex);
     }
@@ -185,7 +185,7 @@ public sealed class ClientBrandManualTests
     [Fact]
     public void ColorEntry_Create_ValidSixCharHex_Succeeds()
     {
-        var result = ColorEntry.Create("Blue", "#0055FF", null);
+        var result = ColorEntry.Create("Blue", "#0055FF", null, 0);
         Assert.True(result.IsSuccess);
         Assert.Equal("#0055FF", result.Value.Hex);
     }
@@ -193,7 +193,7 @@ public sealed class ClientBrandManualTests
     [Fact]
     public void ColorEntry_Create_ValidEightCharHex_Succeeds()
     {
-        var result = ColorEntry.Create("Transparent Blue", "#0055FF80", null);
+        var result = ColorEntry.Create("Transparent Blue", "#0055FF80", null, 0);
         Assert.True(result.IsSuccess);
         Assert.Equal("#0055FF80", result.Value.Hex);
     }
@@ -201,7 +201,7 @@ public sealed class ClientBrandManualTests
     [Fact]
     public void ColorEntry_Create_NameTooLong_ReturnsValidationError()
     {
-        var result = ColorEntry.Create(new string('A', 51), "#FF0000", null);
+        var result = ColorEntry.Create(new string('A', 51), "#FF0000", null, 0);
         Assert.True(result.IsFailure);
         Assert.Equal("social.client_brand_manuals.validation", result.Error.Code);
     }
@@ -283,7 +283,7 @@ public sealed class ClientBrandManualTests
     public void Update_WithValidInputs_ReplacesAllFieldsAndBumpsUpdatedAt()
     {
         var manual = CreateValid().Value;
-        var newPalette = new[] { ColorEntry.Create("Green", "#00FF00", null).Value };
+        var newPalette = new[] { ColorEntry.Create("Green", "#00FF00", null, 0).Value };
 
         var result = manual.Update(
             "New Title", newPalette, null, null, null,

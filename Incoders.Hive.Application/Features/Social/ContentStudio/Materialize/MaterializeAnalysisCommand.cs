@@ -120,12 +120,39 @@ public sealed class MaterializeAnalysisCommandHandler
             return Result.Success(ContentSetResponse.FromDomain(set, summary));
         }
 
-        // Incremental: add items for any newly generated formats not already in the set, preserving
-        // existing (possibly already-edited) items.
+        // Incremental: add items for newly generated formats, and REFRESH pristine items whose source
+        // format was regenerated (newer result). Edited/reviewed items are protected by the aggregate.
         var existingItems = await _items.ListBySetAsync(request.OrganizationId, existing.Id, ct);
         var existingFormatKeys = existingItems
             .Select(i => i.Kind.FormatKey)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // First item per format key (sets hold one item per format on the single-analyzer surface).
+        var itemByFormat = existingItems
+            .GroupBy(i => i.Kind.FormatKey, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        // Refresh in place: a regenerated result has a newer UpdatedAt than the item's last snapshot.
+        var refreshed = new List<ContentItem>();
+        foreach (var result in latestByFormat)
+        {
+            if (!itemByFormat.TryGetValue(result.FormatKey, out var item)
+                || result.UpdatedAt <= item.UpdatedAtUtc)
+            {
+                continue;
+            }
+
+            var (_, draft, origin) = await BuildDraftAsync(request, result, assetsByResult, ct);
+            if (item.RefreshFromSource(origin, draft, now))
+            {
+                refreshed.Add(item);
+            }
+        }
+
+        foreach (var item in refreshed)
+        {
+            await _items.UpdateAsync(item, ct);
+        }
 
         var toAdd = latestByFormat
             .Where(r => !existingFormatKeys.Contains(r.FormatKey))
@@ -166,6 +193,28 @@ public sealed class MaterializeAnalysisCommandHandler
         DateTime now,
         CancellationToken ct)
     {
+        var (medium, draft, origin) = await BuildDraftAsync(request, result, assetsByResult, ct);
+
+        return ContentItem.Materialize(
+            ContentItemId.New(),
+            request.OrganizationId,
+            request.ClientId,
+            origin,
+            new ContentKind(result.FormatKey, medium),
+            draft,
+            now);
+    }
+
+    /// <summary>
+    /// Builds the draft payload and soft source reference for a format result. Shared by initial
+    /// materialization and the regeneration refresh path, so both derive identical drafts.
+    /// </summary>
+    private async Task<(ContentMedium Medium, ContentDraft Draft, ContentOrigin Origin)> BuildDraftAsync(
+        MaterializeAnalysisCommand request,
+        ContentGenerationFormatResult result,
+        Dictionary<Guid, List<FormatAssetRow>> assetsByResult,
+        CancellationToken ct)
+    {
         var medium = ContentFormatCatalog.MediumFor(result.FormatKey);
         var assets = assetsByResult.TryGetValue(result.Id, out var rows)
             ? rows.Select(r => new ContentAssetRef("rendered", r.StoragePath, r.MimeType)).ToList()
@@ -182,14 +231,7 @@ public sealed class MaterializeAnalysisCommandHandler
         var origin = new ContentOrigin(
             GeneratorKind.SingleAnalyzer, result.JobId, package?.Id, result.Id, result.FormatKey);
 
-        return ContentItem.Materialize(
-            ContentItemId.New(),
-            request.OrganizationId,
-            request.ClientId,
-            origin,
-            new ContentKind(result.FormatKey, medium),
-            draft,
-            now);
+        return (medium, draft, origin);
     }
 
     /// <summary>

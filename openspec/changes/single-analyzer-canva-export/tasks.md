@@ -105,7 +105,7 @@ feat(content-gen): WU-1 — persist markup+geometry in composition_spec_json (D1
 **RED tests to write first:**
 - [x] `PptxExportAdapterTests.cs` (new, `Incoders.Hive.Tests/Infrastructure/Rendering/`):
   - `BuildAsync_SingleAsset_ProducesOneSlidePart` — uses `StubMarkupBuilder.BuildStubMarkupWithGeometry()` helper + synthetic geometry; asserts one `SlidePart`.
-  - `BuildAsync_SlideSize_MatchesCanvasInEmu` — asserts `SlideSize` EMU values derived from `canvas {w,h,dpi=96}` (1080×1920 flyer: 10287000×18288000 EMU; 1080×1080 carousel: 10287000×10287000 EMU). Note: correct value is 1080×9525=10287000, not 10286400.
+  - `BuildAsync_SlideSize_MatchesCanvasInEmu` — asserts `SlideSize` EMU values derived from `canvas {w,h,dpi=96}` (1080×1920 story: 10287000×18288000 EMU; 1080×1080 carousel: 10287000×10287000 EMU). Note: correct value is 1080×9525=10287000, not 10286400.
   - `BuildAsync_DataSlot_ProducesEditableTextBox` — asserts each `data-slot` produces a `Shape` with `TextBody`; text = inner text; not rasterized.
   - `BuildAsync_TextBox_CoordinatesMatchGeometryInEmu` — asserts `sp:spPr/a:xfrm` offset and extents match persisted geometry converted at 9525 EMU/px.
   - `BuildAsync_TextBox_FontAndColorMatchGeometry` — asserts run properties (`fontFamily`, `fontSizePx`, `color`) flow through.
@@ -170,7 +170,7 @@ feat(content-gen): WU-2 — IPptxExportAdapter port + OpenXML PptxExportAdapter 
   - `Incoders.Hive.ApiService/Endpoints/Social/ContentGeneration/MapContentGenerationEndpoints.cs`
   - Returns `File(bytes, "application/vnd.openxmlformats-…", "{formatKey}.pptx")` on success; maps `not-exportable` → 409 (Conflict). Note: HTTP 422 not in existing error type enum; Conflict is the closest handled error.
 - [x] Add `downloadFormatAsPptx(analysisId, formatKey, jobId)` function to `apps/web/lib/api/content-generation.ts`.
-- [x] Add "Download PPTX" button to `apps/web/components/social/single-analyzer-client.tsx` in the format card actions area; calls `downloadFormatAsPptxFile` and triggers browser download (visual formats only: carousel/flyer).
+- [x] Add "Download PPTX" button to `apps/web/components/social/single-analyzer-client.tsx` in the format card actions area; calls `downloadFormatAsPptxFile` and triggers browser download (visual formats only: carousel/story).
 
 **Files / layers touched:**
 - `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToPptxQuery.cs` (new)

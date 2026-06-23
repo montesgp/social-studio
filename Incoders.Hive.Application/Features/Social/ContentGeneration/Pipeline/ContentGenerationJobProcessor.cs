@@ -9,6 +9,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.ContentFormats;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 using Microsoft.Extensions.Logging;
@@ -58,11 +59,23 @@ public sealed class ContentGenerationJobProcessor
     private readonly ILogger<ContentGenerationJobProcessor> _logger;
 
     /// <summary>
-    /// Designed-raster formats: story, feed-post, and carousel slides.
+    /// Designed-raster formats: all visual (image/video) catalog deliverables.
+    /// Derived from <see cref="FormatCatalog"/> so new catalog rows are picked up automatically.
     /// Text formats (hook, caption, cta-variation, reel-script, content-idea) bypass the designer.
+    /// Note: the legacy "carousel" alias is NOT included — only canonical keys appear here.
+    /// Legacy "carousel" rows are handled at assemble time via ResolveForAssembly (ADR-3.6).
     /// </summary>
     private static readonly HashSet<string> DesignedRasterFormats =
-        new(StringComparer.OrdinalIgnoreCase) { "story", "feed-post", "carousel" };
+        FormatCatalog.All()
+            .Where(d => d.IsVisual)
+            .Select(d => d.FormatKey)
+            .Concat(["story", "feed-post"])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private readonly IBackgroundStrategyResolver? _backgroundStrategyResolver;
+    private readonly IClientAestheticDescriptorReader? _aestheticDescriptorReader;
+    private readonly IClientAestheticProfileReader? _aestheticProfileReader;
+    private readonly IClientAestheticEnsureFreshService? _aestheticEnsureFreshService;
 
     public ContentGenerationJobProcessor(
         IContentGenerationJobRepository jobs,
@@ -80,7 +93,22 @@ public sealed class ContentGenerationJobProcessor
         IVisualDesigner? designer = null,
         IVisualGuardrailValidator? guardrails = null,
         ProviderCallContext? providerCallContext = null,
-        ILogger<ContentGenerationJobProcessor>? logger = null)
+        ILogger<ContentGenerationJobProcessor>? logger = null,
+        // WU-4: injected optionally so existing unit tests and DI registrations compile without change.
+        // When null, the processor falls back to the legacy per-slide BackgroundSelector.Select path
+        // (UNSET / no-policy behavior identical to pre-WU-4). Full wiring is task 5.6.
+        IBackgroundStrategyResolver? backgroundStrategyResolver = null,
+        // WU-5 (legacy): CASE C aesthetic descriptor reader — retained for back-compat while
+        // IClientAestheticProfileReader rolls out. Null = no descriptors (degrades to Creative).
+        IClientAestheticDescriptorReader? aestheticDescriptorReader = null,
+        // WU-2: widened CASE C profile reader (replaces IClientAestheticDescriptorReader).
+        // When non-null, this reader takes precedence over aestheticDescriptorReader.
+        // Injected optionally so all existing unit tests compile without change.
+        IClientAestheticProfileReader? aestheticProfileReader = null,
+        // WU-4 (CAG-CG-04): non-blocking ensure-fresh service for CASE C jobs.
+        // Injected optionally so existing call sites and unit tests compile without change.
+        // When null, the ensure-fresh step is skipped (no staleness check, no enqueue).
+        IClientAestheticEnsureFreshService? aestheticEnsureFreshService = null)
     {
         _jobs = jobs;
         _analyses = analyses;
@@ -98,11 +126,15 @@ public sealed class ContentGenerationJobProcessor
         _guardrails = guardrails;
         // The designer makes an AI call from the render loop — OUTSIDE the orchestrator's
         // provider-call scope. Without an ambient ProviderCallContext the instrumentation
-        // decorator throws "ProviderCallContext.Current is null", failing every flyer/carousel.
+        // decorator throws "ProviderCallContext.Current is null", failing every story/carousel.
         // In production DI injects the scoped instance the decorator reads; the fallback only
         // keeps unit construction simple.
         _providerCallContext = providerCallContext ?? new ProviderCallContext();
         _logger = logger ?? NullLogger<ContentGenerationJobProcessor>.Instance;
+        _backgroundStrategyResolver = backgroundStrategyResolver;
+        _aestheticDescriptorReader = aestheticDescriptorReader;
+        _aestheticProfileReader = aestheticProfileReader;
+        _aestheticEnsureFreshService = aestheticEnsureFreshService;
     }
 
     public async Task ProcessAsync(Guid jobId, CancellationToken ct)
@@ -193,6 +225,83 @@ public sealed class ContentGenerationJobProcessor
                 formatsReusedFromCache.Count, job.Id, string.Join(", ", formatsReusedFromCache));
         }
 
+        // WU-4 (CAG-CG-04, CAG-CG-06, CAG-CG-07): pre-loop — resolve aesthetic profile BEFORE the
+        // orchestrator call so it can be threaded into OrchestratorRequest → GenerationContext → generators.
+        // Requires the brand snapshot to read backgroundPolicy. The brand loader is idempotent; the
+        // orchestrator will call it again internally (cached in DI scope — no extra I/O on the hot path).
+        //
+        // ORDERING (design §5.1):
+        //   1. Load brand to determine policy.
+        //   2. If policy == ClientAesthetic: call EnsureFreshAsync (fire-and-forget, any exception swallowed).
+        //   3. Read profile (best-available data post-refresh enqueue).
+        //   4. Pass AestheticProfile into OrchestratorRequest below.
+        // All other policies → aestheticProfile stays null; generators emit ConcisionConstraint only.
+        IReadOnlyList<string> aestheticDescriptors = [];
+        ClientAestheticProfile? aestheticProfile = null;
+        var preLoopBrand = await _brandLoader.LoadAsync(job.OrganizationId, effectiveClientId.Value, ct);
+        var preLoopPolicy = preLoopBrand.Client?.BackgroundSourcingPolicy;
+
+        if (preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
+            && effectiveClientId.HasValue)
+        {
+            // Step 1: ensure-fresh — fire-and-forget; failure MUST NOT fail the job (CAG-CG-04).
+            if (_aestheticEnsureFreshService is not null)
+            {
+                try
+                {
+                    var ensureFreshOutcome = await _aestheticEnsureFreshService.EnsureFreshAsync(
+                        job.OrganizationId,
+                        effectiveClientId.Value,
+                        ct);
+                    _logger.LogDebug(
+                        "ContentGeneration: EnsureFreshAsync for client {ClientId} (job {JobId}) → {Outcome}.",
+                        effectiveClientId.Value, job.Id, ensureFreshOutcome);
+                }
+                catch (Exception ex)
+                {
+                    // CAG-CG-04: isolation contract — exception swallowed + logged; generation continues.
+                    _logger.LogWarning(ex,
+                        "ContentGeneration: EnsureFreshAsync failed for client {ClientId} (job {JobId}). " +
+                        "Generation continues with best-available aesthetic data.",
+                        effectiveClientId.Value, job.Id);
+                }
+            }
+
+            // Step 2: read profile (IClientAestheticProfileReader WU-2 takes precedence over legacy reader).
+            if (_aestheticProfileReader is not null)
+            {
+                aestheticProfile = await _aestheticProfileReader.GetProfileAsync(
+                    job.OrganizationId,
+                    effectiveClientId.Value,
+                    ct);
+                aestheticDescriptors = aestheticProfile?.BackgroundDescriptors ?? [];
+            }
+            else if (_aestheticDescriptorReader is not null)
+            {
+                aestheticDescriptors = await _aestheticDescriptorReader.GetDescriptorsAsync(
+                    job.OrganizationId,
+                    effectiveClientId.Value,
+                    ct);
+            }
+        }
+
+        // WU-9 (CAG2-CG-01): for a ClientAesthetic job with an aesthetic profile, build the
+        // creatives-first design context once and thread it into every designer call below. Reference
+        // images / palette / descriptors come from the enriched profile (empty until the analyzer
+        // enrichment lands — the designer degrades gracefully). The variation seed is the job id so a
+        // package varies within the client's coherent style (CAG2-CG-03).
+        ClientAestheticDesignContext? aestheticDesignContext = null;
+        if (preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
+            && aestheticProfile is not null)
+        {
+            aestheticDesignContext = new ClientAestheticDesignContext(
+                ReferenceImages: aestheticProfile.ReferenceImages ?? [],
+                Palette: aestheticProfile.Palette,
+                StyleDescriptors: aestheticProfile.StyleDescriptors ?? [],
+                Motifs: aestheticProfile.Motifs ?? [],
+                VariationSeed: job.Id.ToString());
+        }
+
         // 3. Run the orchestrator only on formats that need fresh AI work.
         IReadOnlyDictionary<string, FormatGenerationResult<object>> freshResults =
             new Dictionary<string, FormatGenerationResult<object>>();
@@ -207,7 +316,10 @@ public sealed class ContentGenerationJobProcessor
                     Analysis: analysis,
                     RequestedFormats: formatsNeedingAi,
                     CorrelationId: job.CorrelationId,
-                    RegenerationObjection: job.RegenerationObjection),
+                    RegenerationObjection: job.RegenerationObjection,
+                    // WU-4 (CAG-CG-07): thread profile so orchestrator → GenerationContext → generators
+                    // can emit advisory aesthetic guidance (additive to ConcisionConstraint).
+                    AestheticProfile: aestheticProfile),
                 ct);
             freshResults = orchResult.PerFormatResults;
             brand = orchResult.Brand;
@@ -231,6 +343,15 @@ public sealed class ContentGenerationJobProcessor
         var renderFailures = new List<string>();
         var aiFailures = new List<string>();
 
+        // WU-4: resolve background strategy ONCE per job (before the format loop).
+        // policy = null/Unset → legacy 3-tier behavior (backward-compatible default).
+        // When no resolver is registered, falls back entirely to the legacy BackgroundSelector path.
+        var backgroundPolicy = brand.Client?.BackgroundSourcingPolicy;
+        var backgroundStrategy = _backgroundStrategyResolver?.Resolve(backgroundPolicy);
+        var backgroundSeedToken = job.Id != Guid.Empty
+            ? job.Id.ToString()
+            : DateTime.UtcNow.ToString("yyyy-MM-dd");
+
         foreach (var formatKey in job.RequestedFormats)
         {
             var step = ResolveFormatPayload(formatKey, freshResults, existingByFormat);
@@ -249,10 +370,31 @@ public sealed class ContentGenerationJobProcessor
                 inferred.Add(f);
             }
 
+            // WU-7: advisory concision check — log-only, never rejects or retries (CG-CON-03).
+            // Runs after payload is confirmed; pipeline continues regardless of violations.
+            CheckConcisionAdvisory(job.Id, formatKey, step.Payload);
+
             try
             {
+                // WU-4 C4: compute ONE background plan per format BEFORE the slide loop.
+                // This eliminates per-slide BackgroundSelector.Select calls and ensures all
+                // slides of one carousel share the same coherent background decision.
+                CarouselBackgroundPlan? backgroundPlan = null;
+                if (backgroundStrategy is not null)
+                {
+                    var slideCount = TryGetSlideCount(step.Payload, formatKey);
+                    backgroundPlan = backgroundStrategy.Plan(new BackgroundPlanRequest(
+                        brand.Brand!,
+                        formatKey,
+                        slideCount,
+                        backgroundSeedToken,
+                        ClientAestheticDescriptors: aestheticDescriptors));
+                }
+
                 // Fan-out: carousel returns N specs, single-asset formats return 1 spec.
-                var specs = await _composer.ComposeManyAsync(formatKey, step.Payload, brand, ct);
+                // The plan (when available) is threaded into the composer so asset slot URLs
+                // reflect the same per-slide background decision enforced below (CG-COH-02).
+                var specs = await _composer.ComposeManyAsync(formatKey, step.Payload, brand, ct, backgroundPlan);
                 foreach (var f in _composer.GetInferredFields())
                 {
                     inferred.Add(f);
@@ -265,7 +407,7 @@ public sealed class ContentGenerationJobProcessor
 
                 // WU-1 (B3 D1+D3): one editable composition envelope (validated markup + canvas +
                 // per-slot geometry + background data-URI) is captured PER successfully rendered
-                // slide and persisted in composition_spec_json. Single-asset formats (flyer) yield
+                // slide and persisted in composition_spec_json. Single-asset formats (story) yield
                 // one; carousel yields one per slide so every slide stays editable on export.
                 var capturedEnvelopes = new List<CompositionSpecEnvelope>();
 
@@ -285,7 +427,7 @@ public sealed class ContentGenerationJobProcessor
                     IReadOnlyList<SlotGeometryEntry> capturedGeometry = [];
                     string? capturedBackgroundDataUri = null;
 
-                    // Designer + guardrail stage for designed-raster formats (flyer, carousel).
+                    // Designer + guardrail stage for designed-raster formats (story, carousel).
                     // Text/markdown formats bypass entirely (spec.OutputKind != Raster means they
                     // are already text/markdown — the designer only applies to raster specs from
                     // designed formats).
@@ -301,11 +443,21 @@ public sealed class ContentGenerationJobProcessor
                         && DesignedRasterFormats.Contains(formatKey)
                         && spec.OutputKind == CompositionOutputKind.Raster)
                     {
-                        // Tier-aware background selection.
-                        var backgroundTemplates = brand.Brand?.BackgroundTemplates
-                            ?? Array.Empty<BrandBackgroundTemplateSnapshot>();
-                        var selection = Domain.Social.ContentGeneration.BackgroundSelector.Select(
-                            backgroundTemplates, formatKey);
+                        // WU-4 C4: use the pre-computed plan for this slide rather than calling
+                        // BackgroundSelector.Select independently per slide. When no resolver is
+                        // registered (legacy path), fall back to the 3-tier selector directly.
+                        BackgroundSelection selection;
+                        if (backgroundPlan is not null)
+                        {
+                            selection = backgroundPlan.ForSlide(specIndex + 1);
+                        }
+                        else
+                        {
+                            var backgroundTemplates = brand.Brand?.BackgroundTemplates
+                                ?? Array.Empty<BrandBackgroundTemplateSnapshot>();
+                            selection = Domain.Social.ContentGeneration.BackgroundSelector.Select(
+                                backgroundTemplates, formatKey);
+                        }
 
                         // Design stage. OrganizationId is threaded per-job so the designer's AI
                         // provider call resolves credentials for the correct tenant.
@@ -314,45 +466,52 @@ public sealed class ContentGenerationJobProcessor
                         // usage-ledger event and throws if it is null. The content generators open
                         // their own scope inside the orchestrator; the designer runs here, in the
                         // render loop, so the scope must be opened explicitly.
-                        Result<VisualDesignOutput> designed;
-                        using (_providerCallContext.Begin(
-                            job.OrganizationId,
-                            effectiveClientId,
-                            workflowKey: "content-generation",
-                            pipelineStepKey: $"designer:{formatKey}",
-                            promptVersion: "visual-designer/v1",
-                            correlationId: job.CorrelationId))
-                        {
-                            designed = await _designer.ComposeAsync(
-                                job.OrganizationId, spec, brand.Brand!, selection, ct);
-                        }
-
-                        // Resilience contract: content generation MUST produce the asset regardless
-                        // of which provider/model the org configured. The copy slots are already
-                        // generated, so a designer error OR a guardrail rejection is ADVISORY here —
-                        // we log it and fall back to a deterministic, brand-bound composition rather
-                        // than failing the format. (AI-art quality is a separate concern from "the
-                        // flow must complete for any model/agent".)
+                        //
+                        // For ClientAesthetic jobs the client's REAL reference creatives are passed to the
+                        // designer as VISION input (see AiVisualDesigner), so it CREATES NEW art in the
+                        // client's visual line. We never composite the client's finished slides verbatim as
+                        // backgrounds — that copies their posts (text-over-text) instead of emulating style.
                         string? aiMarkup = null;
-                        if (designed.IsSuccess)
                         {
-                            var guarded = _guardrails.Validate(designed.Value, brand.Brand!, spec);
-                            if (guarded.IsSuccess)
+                            Result<VisualDesignOutput> designed;
+                            using (_providerCallContext.Begin(
+                                job.OrganizationId,
+                                effectiveClientId,
+                                workflowKey: "content-generation",
+                                pipelineStepKey: $"designer:{formatKey}",
+                                promptVersion: "visual-designer/v1",
+                                correlationId: job.CorrelationId))
                             {
-                                aiMarkup = guarded.Value.Markup;
+                                designed = await _designer.ComposeAsync(
+                                    job.OrganizationId, spec, brand.Brand!, selection, ct, aestheticDesignContext);
+                            }
+
+                            // Resilience contract: content generation MUST produce the asset regardless
+                            // of which provider/model the org configured. The copy slots are already
+                            // generated, so a designer error OR a guardrail rejection is ADVISORY here —
+                            // we log it and fall back to a deterministic, brand-bound composition rather
+                            // than failing the format. (AI-art quality is a separate concern from "the
+                            // flow must complete for any model/agent".)
+                            if (designed.IsSuccess)
+                            {
+                                var guarded = _guardrails.Validate(designed.Value, brand.Brand!, spec);
+                                if (guarded.IsSuccess)
+                                {
+                                    aiMarkup = guarded.Value.Markup;
+                                }
+                                else
+                                {
+                                    _logger.LogWarning(
+                                        "ContentGeneration: guardrail rejected AI design for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}. Falling back to a deterministic brand-bound composition.",
+                                        formatKey, specIndex, job.Id, $"{guarded.Error.Code}: {guarded.Error.MessageKey}");
+                                }
                             }
                             else
                             {
                                 _logger.LogWarning(
-                                    "ContentGeneration: guardrail rejected AI design for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}. Falling back to a deterministic brand-bound composition.",
-                                    formatKey, specIndex, job.Id, $"{guarded.Error.Code}: {guarded.Error.MessageKey}");
+                                    "ContentGeneration: AI designer failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}. Falling back to a deterministic brand-bound composition.",
+                                    formatKey, specIndex, job.Id, $"{designed.Error.Code}: {designed.Error.MessageKey}");
                             }
-                        }
-                        else
-                        {
-                            _logger.LogWarning(
-                                "ContentGeneration: AI designer failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}. Falling back to a deterministic brand-bound composition.",
-                                formatKey, specIndex, job.Id, $"{designed.Error.Code}: {designed.Error.MessageKey}");
                         }
 
                         // Resolve the final markup. Priority:
@@ -361,12 +520,12 @@ public sealed class ContentGenerationJobProcessor
                         //   2. AI markup that passed guardrails → use the design.
                         //   3. Otherwise → deterministic brand-bound composition built from the copy
                         //      slots (Creative gradient). This is the resilience backstop that
-                        //      guarantees the flyer/carousel is produced for ANY model.
+                        //      guarantees the story/carousel is produced for ANY model.
                         var enforcedBackground = ResolveEnforcedBackground(selection);
                         string validatedMarkup;
                         if (enforcedBackground is not null)
                         {
-                            validatedMarkup = BuildTemplateBackedMarkup(spec, enforcedBackground);
+                            validatedMarkup = BuildTemplateBackedMarkup(spec, enforcedBackground, aestheticDesignContext);
                         }
                         else if (aiMarkup is not null)
                         {
@@ -374,7 +533,7 @@ public sealed class ContentGenerationJobProcessor
                         }
                         else
                         {
-                            validatedMarkup = BuildTemplateBackedMarkup(spec, background: null);
+                            validatedMarkup = BuildTemplateBackedMarkup(spec, background: null, aestheticDesignContext);
                         }
 
                         // Promote spec to Html kind with validated/enforced markup.
@@ -431,12 +590,15 @@ public sealed class ContentGenerationJobProcessor
                     }
 
                     // Determine the relative path for storage.
-                    // Carousel: carousel/slide_{N}.png (1-based index)
-                    // Single-asset: just the filename (e.g. flyer.png, reel-script.txt)
+                    // Multi-asset (carousel family): {storageFolder}/slide_{N}.png (1-based index).
+                    // Resolved via FormatCatalog.ResolveForAssembly so legacy "carousel" keys
+                    // continue to write under carousel/ while new keys use their own folder.
+                    // Single-asset: just the filename (e.g. story-single.png, reel-script.txt).
                     string relativePath;
-                    if (string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase) && specs.Count > 1)
+                    var formatDef = FormatCatalog.ResolveForAssembly(formatKey);
+                    if (formatDef?.IsMultiAsset == true && specs.Count > 1)
                     {
-                        relativePath = $"carousel/slide_{specIndex + 1}.png";
+                        relativePath = $"{formatDef.StorageFolder}/slide_{specIndex + 1}.png";
                     }
                     else
                     {
@@ -546,22 +708,24 @@ public sealed class ContentGenerationJobProcessor
                             ct);
                     }
 
-                    // Create carousel folder placeholder.
+                    // Create carousel-family folder placeholder.
+                    // Applies to any multi-asset format (story-carousel, feed-carousel, legacy carousel).
+                    var folderDef = FormatCatalog.ResolveForAssembly(formatKey);
                     if (_assetStorage is not null
-                        && string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase)
+                        && folderDef?.IsMultiAsset == true
                         && specs.Count > 1)
                     {
                         try
                         {
-                            var folderPath = $"{job.OrganizationId}/{effectiveClientId}/{job.AnalysisId}/carousel";
+                            var folderPath = $"{job.OrganizationId}/{effectiveClientId}/{job.AnalysisId}/{folderDef.StorageFolder}";
                             await _assetStorage.PutFolderPlaceholderAsync(folderPath, ct);
                         }
                         catch (GeneratedAssetStorageException ex)
                         {
                             // Folder placeholder failure is non-fatal — log and continue.
                             _logger.LogWarning(ex,
-                                "ContentGeneration: carousel folder placeholder PUT failed (job {JobId}). Continuing.",
-                                job.Id);
+                                "ContentGeneration: carousel folder placeholder PUT failed for '{FormatKey}' (job {JobId}). Continuing.",
+                                formatKey, job.Id);
                         }
                     }
                 }
@@ -714,7 +878,9 @@ public sealed class ContentGenerationJobProcessor
                 _ => ReadPublicationDescription(payload)
             };
         }
-        else if (string.Equals(formatKey, "story", StringComparison.OrdinalIgnoreCase)
+        else if (string.Equals(formatKey, "story-single", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(formatKey, "feed-single", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(formatKey, "story", StringComparison.OrdinalIgnoreCase)
                  || string.Equals(formatKey, "feed-post", StringComparison.OrdinalIgnoreCase))
         {
             description = payload switch
@@ -925,6 +1091,43 @@ public sealed class ContentGenerationJobProcessor
             UpdatedAt: now), ct);
     }
 
+    /// <summary>
+    /// WU-4: infers the slide count from a format payload without deserializing the full content.
+    /// For carousel payloads (CarouselContent or anonymous with "slides" property) returns the
+    /// actual count; for everything else returns 1 (single-asset default).
+    /// Used to build the <see cref="BackgroundPlanRequest"/> before calling <see cref="IBackgroundSourcingStrategy.Plan"/>.
+    /// </summary>
+    private static int TryGetSlideCount(object? payload, string formatKey)
+    {
+        if (payload is CarouselContent carousel)
+        {
+            return carousel.Slides.Count;
+        }
+
+        if (payload is JsonElement element
+            && element.TryGetProperty("slides", out var slidesEl)
+            && slidesEl.ValueKind == JsonValueKind.Array)
+        {
+            return slidesEl.GetArrayLength();
+        }
+
+        return 1;
+    }
+
+    /// <summary>
+    /// Resolves an enforced background template from the per-slide <paramref name="selection"/>.
+    ///
+    /// WU-4 C6: with the coherence refactor, CASE A puts a single-entry
+    /// <c>References([rotated])</c> per slide into the plan. First-entry-wins here correctly
+    /// enforces that slide's rotated template (not a shared <c>Entries[0]</c> from a larger set),
+    /// because the rotation was already done by <see cref="ClientDefinedSetStrategy"/> when
+    /// building the plan. The method therefore needs no change — the per-slide plan input
+    /// carries exactly the right entry.
+    ///
+    /// <c>ClientAesthetic</c> (CASE C) → null: the designer generates freely within the
+    /// aesthetic guidance; there is no URL to enforce. AI markup or fallback gradient is used.
+    /// <c>Creative</c> (CASE B) → null: fully AI-generated; no template enforcement.
+    /// </summary>
     private static EnforcedBackgroundTemplate? ResolveEnforcedBackground(BackgroundSelection selection)
     {
         if (selection is BackgroundSelection.ForcedDefault forcedDefault)
@@ -937,6 +1140,10 @@ public sealed class ContentGenerationJobProcessor
 
         if (selection is BackgroundSelection.References references)
         {
+            // First-entry-wins: enforces the first entry with a non-empty URL.
+            // WU-4: CASE A plan emits References([rotatedSingle]) per slide — the rotated entry
+            // IS Entries[0] for that slide's single-entry list, so this correctly enforces
+            // the rotated template for each slide without any index change.
             var first = references.Entries.FirstOrDefault(entry => !string.IsNullOrWhiteSpace(entry.Url));
             if (first is not null)
             {
@@ -947,12 +1154,16 @@ public sealed class ContentGenerationJobProcessor
             }
         }
 
+        // Creative, ClientAesthetic, empty References → no template to enforce.
+        // For ClientAesthetic: the AI designs freely within aesthetic guidance — return null
+        // so the AI markup path is taken (or the gradient fallback if no AI markup).
         return null;
     }
 
     private static string BuildTemplateBackedMarkup(
         VisualCompositionSpec spec,
-        EnforcedBackgroundTemplate? background)
+        EnforcedBackgroundTemplate? background,
+        ClientAestheticDesignContext? aesthetic = null)
     {
         var isCarousel = string.Equals(spec.FormatKey, "carousel", StringComparison.OrdinalIgnoreCase);
         var width = spec.Dimensions.Width;
@@ -999,8 +1210,21 @@ public sealed class ContentGenerationJobProcessor
         }
         else
         {
-            var c1 = CssColor(spec.Palette.Primary, "#0B1220");
-            var c2 = CssColor(spec.Palette.Secondary, "#000000");
+            // CAG2-CG-02 (no-grey): for a ClientAesthetic job with a feed-derived palette, derive the
+            // resilience-fallback gradient from the CLIENT's colours rather than the dark default —
+            // so even the total-designer-failure backstop reflects the client, not generic greys.
+            string c1, c2;
+            if (aesthetic is { HasPalette: true } && aesthetic.Palette!.Count > 0)
+            {
+                var entries = aesthetic.Palette!;
+                c1 = CssColor(entries[0].Hex, "#0B1220");
+                c2 = CssColor(entries[entries.Count > 1 ? 1 : 0].Hex, "#000000");
+            }
+            else
+            {
+                c1 = CssColor(spec.Palette.Primary, "#0B1220");
+                c2 = CssColor(spec.Palette.Secondary, "#000000");
+            }
             backgroundLayerInner = $"""
                 <div style="position:absolute;inset:0;background:linear-gradient(160deg,{c1} 0%,{c2} 100%);"></div>
                 <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0.20) 0%,rgba(0,0,0,0.45) 100%);"></div>
@@ -1226,6 +1450,63 @@ public sealed class ContentGenerationJobProcessor
             aiFailures,
             renderFailures,
         }, JsonOptions);
+
+    /// <summary>
+    /// WU-7: Advisory concision check (CG-CON-03).
+    /// Inspects text slots in the generated payload and emits a structured LogWarning for any
+    /// slot that exceeds its advisory soft limit. Never throws, never changes the result path.
+    /// Soft limits (chars): headline/title ~80, body/subtitle ~160, CTA ~40, slide-title ~50, slide-body ~160.
+    /// </summary>
+    private void CheckConcisionAdvisory(Guid jobId, string formatKey, object? payload)
+    {
+        if (payload is null) return;
+
+        // Re-serialize and inspect known payload shapes via JSON to avoid hard content-type
+        // references in the processor (advisory-only, so approximation is fine).
+        try
+        {
+            var json = JsonSerializer.Serialize(payload, JsonOptions);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            void WarnIfOver(string slotName, JsonElement element, int advisoryBound)
+            {
+                if (element.ValueKind != JsonValueKind.String) return;
+                var text = element.GetString() ?? string.Empty;
+                if (text.Length > advisoryBound)
+                {
+                    _logger.LogWarning(
+                        "ContentGeneration: concision advisory — job {JobId} format {FormatKey} slot {SlotName} " +
+                        "exceeds soft limit ({AdvisoryBound} chars); actual length {ActualLength}. Pipeline continues.",
+                        jobId, formatKey, slotName, advisoryBound, text.Length);
+                }
+            }
+
+            // Single formats: title, subtitle, body, ctaText
+            if (root.TryGetProperty("title", out var title))         WarnIfOver("title",    title,    80);
+            if (root.TryGetProperty("subtitle", out var subtitle))   WarnIfOver("subtitle", subtitle, 160);
+            if (root.TryGetProperty("body", out var body))           WarnIfOver("body",     body,     160);
+            if (root.TryGetProperty("ctaText", out var cta))         WarnIfOver("ctaText",  cta,       40);
+
+            // Carousel: coverTitle + per-slide title/body
+            if (root.TryGetProperty("coverTitle", out var coverTitle)) WarnIfOver("coverTitle", coverTitle, 80);
+            if (root.TryGetProperty("slides", out var slides) && slides.ValueKind == JsonValueKind.Array)
+            {
+                var slideIdx = 0;
+                foreach (var slide in slides.EnumerateArray())
+                {
+                    slideIdx++;
+                    if (slide.TryGetProperty("title", out var sTitle)) WarnIfOver($"slides[{slideIdx}].title", sTitle, 50);
+                    if (slide.TryGetProperty("body", out var sBody))   WarnIfOver($"slides[{slideIdx}].body",  sBody,  160);
+                }
+            }
+        }
+        catch
+        {
+            // Concision check is best-effort; swallow any serialization/parsing exceptions
+            // to ensure the advisory path can never disrupt the production pipeline.
+        }
+    }
 
     /// <summary>Resolved AI payload + the metadata we need to persist or render it.</summary>
     private sealed record FormatStep(

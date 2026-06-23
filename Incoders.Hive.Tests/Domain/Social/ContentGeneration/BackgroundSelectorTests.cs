@@ -21,7 +21,7 @@ public sealed class BackgroundSelectorTests
         var templates = new[]
         {
             new BrandBackgroundTemplateSnapshot(
-                "flyer-bg", "https://cdn.example.com/flyer-bg.png", null,
+                "story-bg", "https://cdn.example.com/story-bg.png", null,
                 BackgroundTier.ForcedDefault, "story", true)
         };
 
@@ -30,8 +30,8 @@ public sealed class BackgroundSelectorTests
 
         // THEN result is BackgroundSelection.ForcedDefault carrying that Url
         var forced = Assert.IsType<BackgroundSelection.ForcedDefault>(result);
-        Assert.Equal("https://cdn.example.com/flyer-bg.png", forced.Url);
-        Assert.Equal("flyer-bg", forced.Name);
+        Assert.Equal("https://cdn.example.com/story-bg.png", forced.Url);
+        Assert.Equal("story-bg", forced.Name);
     }
 
     // -----------------------------------------------------------------------
@@ -107,7 +107,7 @@ public sealed class BackgroundSelectorTests
         // WHEN SelectBackgroundTemplate("story") called
         var result = BackgroundSelector.Select(templates, "story");
 
-        // THEN result is NOT ForcedDefault; carousel default is not used for flyer
+        // THEN result is NOT ForcedDefault; carousel default is not used for story
         Assert.IsNotType<BackgroundSelection.ForcedDefault>(result);
     }
 }

@@ -25,10 +25,16 @@ internal static class CompositionDefaults
     internal static readonly CompositionDimensions StandardDimensions = new(1080, 1080, 96);
 
     /// <summary>
-    /// Carousel slides use the modern 4:5 feed ratio (1080×1350) — more screen real-estate in the
-    /// Instagram feed than the legacy 1:1 square. Flyers/stories stay 9:16; text cards stay square.
+    /// Feed carousel slides use the modern 4:5 feed ratio (1080×1350) — more screen real-estate in the
+    /// Instagram feed than the legacy 1:1 square. Stories use 9:16; text cards stay square.
     /// </summary>
     internal static readonly CompositionDimensions CarouselDimensions = new(1080, 1350, 96);
+
+    /// <summary>
+    /// Story canvas — full-screen 9:16 (1080×1920). Single stories and story-carousel slides both use
+    /// this so the editable design fills the story frame instead of leaving dead space.
+    /// </summary>
+    internal static readonly CompositionDimensions StoryDimensions = new(1080, 1920, 96);
 
     /// <summary>
     /// Resolves a brand palette or returns defaults and marks ColorPalette as inferred.
@@ -36,8 +42,8 @@ internal static class CompositionDefaults
     internal static CompositionPalette ResolvePalette(BrandSnapshot brand, InferenceAccumulator inferred)
     {
         var colors = brand.Brand?.ColorPalette
-            .Where(color => !string.IsNullOrWhiteSpace(color))
-            .Select(color => color.Trim())
+            .Where(wc => !string.IsNullOrWhiteSpace(wc.Hex))
+            .Select(wc => wc.Hex.Trim())
             .ToArray() ?? [];
 
         var hasPalette = colors.Length > 0;

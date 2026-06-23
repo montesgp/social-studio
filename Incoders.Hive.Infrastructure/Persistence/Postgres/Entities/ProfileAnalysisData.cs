@@ -57,6 +57,14 @@ public sealed class ProfileAnalysisData
     /// </summary>
     public string? ProviderDiagnosticsJson { get; set; }
 
+    /// <summary>
+    /// Phase 2 (CAG2-PA-04): enriched aesthetic profile serialised as JSON — the multi-signal
+    /// output of the optional multimodal extraction step (palette, style descriptors, motifs,
+    /// caption voice, durable reference-image refs). Null when no aesthetic extraction ran.
+    /// Stored as jsonb. Additive — does not affect existing analyses.
+    /// </summary>
+    public string? AestheticProfileJson { get; set; }
+
     /// <summary>Failure reason code; populated when Status = "Failed".</summary>
     public string? FailureCode { get; set; }
 

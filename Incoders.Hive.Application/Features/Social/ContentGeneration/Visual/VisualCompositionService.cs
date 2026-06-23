@@ -16,6 +16,17 @@ public sealed class VisualCompositionService : IVisualCompositionService
     private readonly IReadOnlyDictionary<string, IFormatVisualComposer> _composers;
     private InferenceAccumulator _lastInferred = new();
 
+    /// <summary>
+    /// Parameterless constructor that builds a hardcoded composer list.
+    /// </summary>
+    /// <remarks>
+    /// DEPRECATED — use the DI constructor <see cref="VisualCompositionService(IEnumerable{IFormatVisualComposer})"/>.
+    /// This ctor predates the FormatCatalog and does NOT include catalog-derived surface-scoped
+    /// carousel composers (story-carousel, feed-carousel). Production code goes through DI;
+    /// tests that need a no-DI instance must supply the full composer set explicitly
+    /// (including both <c>SurfaceScopedCarouselVisualComposer</c> instances).
+    /// </remarks>
+    [Obsolete("Use the DI constructor; the hardcoded composer list does not include catalog-derived surface-scoped composers.", error: false)]
     public VisualCompositionService()
     {
         var composers = new IFormatVisualComposer[]
@@ -47,7 +58,7 @@ public sealed class VisualCompositionService : IVisualCompositionService
     {
         _lastInferred = new InferenceAccumulator();
 
-        if (!_composers.TryGetValue(formatKey, out var composer))
+        if (!_composers.TryGetValue(NormalizeComposerKey(formatKey), out var composer))
         {
             throw new InvalidOperationException($"No visual composer registered for format key '{formatKey}'.");
         }
@@ -60,13 +71,21 @@ public sealed class VisualCompositionService : IVisualCompositionService
         string formatKey,
         object generatedPayload,
         BrandSnapshot brand,
-        CancellationToken ct)
+        CancellationToken ct,
+        CarouselBackgroundPlan? plan = null)
     {
         _lastInferred = new InferenceAccumulator();
 
-        if (!_composers.TryGetValue(formatKey, out var composer))
+        if (!_composers.TryGetValue(NormalizeComposerKey(formatKey), out var composer))
         {
             throw new InvalidOperationException($"No visual composer registered for format key '{formatKey}'.");
+        }
+
+        // WU-4: When a pre-computed plan is available, thread it into plan-aware composers.
+        // CarouselVisualComposer and SurfaceScopedCarouselVisualComposer implement IBackgroundPlanAwareComposer.
+        if (plan is not null && composer is IBackgroundPlanAwareComposer planAware)
+        {
+            return Task.FromResult(planAware.ComposeMany(generatedPayload, brand, _lastInferred, plan));
         }
 
         // If the composer supports multi-asset composition, use it.
@@ -81,4 +100,12 @@ public sealed class VisualCompositionService : IVisualCompositionService
     }
 
     public IReadOnlyList<string> GetInferredFields() => _lastInferred.Fields;
+
+    private static string NormalizeComposerKey(string formatKey) =>
+        formatKey switch
+        {
+            "story" => "story-single",
+            "feed-post" => "feed-single",
+            _ => formatKey,
+        };
 }

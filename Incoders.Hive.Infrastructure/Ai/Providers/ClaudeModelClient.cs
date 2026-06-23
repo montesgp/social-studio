@@ -80,13 +80,21 @@ public sealed class ClaudeModelClient : IAiModelClient
             ? new { type = "object", additionalProperties = true }
             : JsonSerializer.Deserialize<JsonElement>(request.OutputJsonSchema);
 
+        // Phase 2 (CAG2): when vision input is present, the user message content becomes an array of
+        // blocks (image blocks first, then the text prompt) so Claude SEES the reference creatives.
+        // Without images it stays a plain string — identical to the pre-change request shape.
+        // Ref: https://docs.claude.com/en/docs/build-with-claude/vision
+        object userContent = (request.Images is { Count: > 0 })
+            ? BuildMultimodalContent(request.Images, request.Input)
+            : request.Input;
+
         var body = JsonSerializer.Serialize(new
         {
             model,
             max_tokens = 8192,
             messages = new object[]
             {
-                new { role = "user", content = request.Input }
+                new { role = "user", content = userContent }
             },
             tools = new object[]
             {
@@ -179,6 +187,39 @@ public sealed class ClaudeModelClient : IAiModelClient
         // Tool Use response shape: content[].type === "tool_use", content[].input is the JSON
         // object. The mapper extracts and serializes it as the Output string for the gateway.
         return ProviderHttpResponseMapper.MapAiSuccess(payload, "claude", model);
+    }
+
+    /// <summary>
+    /// Builds Anthropic's multimodal user-message content array: one image block per supplied image
+    /// (base64 source preferred; URL source as fallback), followed by the text prompt. Images with
+    /// neither base64 nor URL are skipped. Ref: Anthropic Messages API vision content blocks.
+    /// </summary>
+    private static object[] BuildMultimodalContent(IReadOnlyList<AiImageInput> images, string text)
+    {
+        var blocks = new List<object>(images.Count + 1);
+
+        foreach (var image in images)
+        {
+            if (!string.IsNullOrWhiteSpace(image.Base64Data))
+            {
+                blocks.Add(new
+                {
+                    type = "image",
+                    source = new { type = "base64", media_type = image.MediaType, data = image.Base64Data },
+                });
+            }
+            else if (!string.IsNullOrWhiteSpace(image.Url))
+            {
+                blocks.Add(new
+                {
+                    type = "image",
+                    source = new { type = "url", url = image.Url },
+                });
+            }
+        }
+
+        blocks.Add(new { type = "text", text });
+        return blocks.ToArray();
     }
 
     private static Error MapClaudeStatus(int statusCode) =>

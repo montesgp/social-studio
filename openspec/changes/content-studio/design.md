@@ -71,7 +71,7 @@ public sealed record ContentOrigin(
     Guid SourceRunId,              // the generation job/run id (analysis id for Single Analyzer)
     Guid? SourcePackageId,         // GeneratedPackage id when applicable
     Guid FormatResultId,           // the durable per-format result this item derives from
-    string FormatKey);             // "flyer" | "carousel" | "reel-script" | "caption" | "hook" | ...
+    string FormatKey);             // "story" | "carousel" | "reel-script" | "caption" | "hook" | ...
 ```
 - The **only** link from Content Studio to a generator. No `SingleAnalyzer`/`ContentGeneration` type is referenced. Adding Magic Generator = a new `GeneratorKind` value + a materializer input mapping; the aggregate is unchanged.
 

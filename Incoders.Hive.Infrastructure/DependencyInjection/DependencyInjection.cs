@@ -168,6 +168,7 @@ public static class DependencyInjection
         services.AddScoped<IContentGenerationFailurePolicy, EfContentGenerationFailurePolicy>();
         services.AddScoped<IGeneratedPackageRepository, EfGeneratedPackageRepository>();
         services.AddScoped<IContentGenerationFormatAssetRepository, EfContentGenerationFormatAssetRepository>();
+        services.AddScoped<ILegacyPackageReconstructor, EfLegacyPackageReconstructor>();
         // Per-platform Apify scrape adapters (ISocialPlatformScrapeAdapter)
         services.AddScoped<ISocialPlatformScrapeAdapter, TikTokApifyScrapeAdapter>();
         services.AddScoped<ISocialPlatformScrapeAdapter, InstagramApifyScrapeAdapter>();
@@ -278,7 +279,7 @@ public static class DependencyInjection
         // B1b: registers the configured IContentRenderer (Chromium + pooled browser, or Skia) and the
         // real AiVisualDesigner (IVisualDesigner, IsActive=true) — REPLACING the Application-layer
         // NoOpVisualDesigner and any default LocalSvgContentRenderer. This is what makes the
-        // flyer/carousel designer pipeline genuinely ACTIVE in production.
+        // story/carousel designer pipeline genuinely ACTIVE in production.
         services.AddB1bRenderingAndDesigner(configuration);
 
         // Null adapters for future providers (v1 not supported)

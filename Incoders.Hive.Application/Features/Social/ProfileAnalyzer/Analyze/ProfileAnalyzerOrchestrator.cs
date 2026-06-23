@@ -5,6 +5,8 @@ using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
@@ -40,6 +42,12 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
     private readonly IWorkflowConfigurationResolver? _workflowResolver;
     private readonly ILogger<ProfileAnalyzerOrchestrator> _logger;
     private readonly ProviderCallContext? _providerCallContext;
+    // Phase 2 (CAG2-PA-02/03): optional aesthetic-enrichment adapters. Null = enrichment skipped
+    // (so existing DI registrations and unit tests compile and behave unchanged).
+    private readonly IClientPostMediaArchiver? _postMediaArchiver;
+    private readonly IClientAestheticStyleExtractor? _aestheticExtractor;
+    // Optional: resolves the per-client MaxPostsToAnalyze override for the scrape (null => default 12).
+    private readonly ISocialClientRepository? _clientRepository;
 
     public ProfileAnalyzerOrchestrator(
         IProfileAnalysisRepository repository,
@@ -50,7 +58,10 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         IAiCompletionGateway aiGateway,
         ILogger<ProfileAnalyzerOrchestrator>? logger = null,
         ProviderCallContext? providerCallContext = null,
-        IWorkflowConfigurationResolver? workflowResolver = null)
+        IWorkflowConfigurationResolver? workflowResolver = null,
+        IClientPostMediaArchiver? postMediaArchiver = null,
+        IClientAestheticStyleExtractor? aestheticExtractor = null,
+        ISocialClientRepository? clientRepository = null)
     {
         _repository = repository;
         _unitOfWork = unitOfWork;
@@ -61,7 +72,20 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         _workflowResolver = workflowResolver;
         _logger = logger ?? NullLogger<ProfileAnalyzerOrchestrator>.Instance;
         _providerCallContext = providerCallContext;
+        _postMediaArchiver = postMediaArchiver;
+        _aestheticExtractor = aestheticExtractor;
+        _clientRepository = clientRepository;
     }
+
+    private const int MaxAestheticPosts = 24;
+    // Total images downloaded + sent to the vision model (payload/latency bound). Sampled depth-first
+    // (whole carousels) so the model sees how the client combines slides within a post.
+    private const int MaxAestheticImages = 28;
+    // Max images taken per post — enough to capture a full carousel (cover + slides) so the
+    // creative-vs-flat-template mix within a post is visible to the model.
+    private const int MaxImagesPerPost = 7;
+    // Hard wall-clock budget for the whole enrichment so it can never hang the analysis worker.
+    private const int EnrichmentBudgetSeconds = 240;
 
     public async Task RunQueuedAsync(
         Guid analysisId,
@@ -126,6 +150,15 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
 
         // ── Stage 2: Scrape ────────────────────────────────────────────────────
         var configuredActorIds = await ResolveConfiguredActorIdsAsync(orgId, cancellationToken);
+        // Per-client posts-to-analyze override (null => provider/system default of 12).
+        int? maxPosts = null;
+        if (_clientRepository is not null && analysis.ClientId is { } scrapeClientId)
+        {
+            var scrapeClient = await _clientRepository.GetByIdAsync(
+                new Domain.Social.Clients.ClientId(scrapeClientId), orgId, cancellationToken);
+            maxPosts = scrapeClient?.EffectivePostsToAnalyze;
+        }
+
         var scrapeResult = await _scrapeResolver.ResolveAsync(
             new ProfileScrapeRequest(
                 orgId,
@@ -134,7 +167,8 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
                 analysis.ProfileUrlOrHandle,
                 "instagram",
                 "profile",
-                configuredActorIds),
+                configuredActorIds,
+                MaxPosts: maxPosts),
             cancellationToken);
 
         if (scrapeResult.IsFailure)
@@ -647,6 +681,10 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
             diagnosticsJson: JsonSerializer.Serialize(finalDiagnostics, JsonOptions));
         await PersistAsync(analysis, cancellationToken);
 
+        // Phase 2 (CAG2-PA-02/03): best-effort aesthetic enrichment AFTER the analysis is durably
+        // Analyzed. Never fails or rolls back the completed analysis.
+        await TryEnrichClientAestheticAsync(analysis, ownerPosts, cancellationToken);
+
         _logger.LogInformation(
             "WorkflowCompleted OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} AnalysisId={AnalysisId} ActorId={ActorId} AiProviderKey={AiProviderKey} AiModel={AiModel} AiPriority={AiPriority} AiFallbackUsed={AiFallbackUsed}",
             orgId,
@@ -682,6 +720,150 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
     {
         await _repository.UpdateAsync(analysis, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Phase 2 (CAG2-PA-02/03/04): best-effort ClientAesthetic enrichment. Runs only when the
+    /// enrichment adapters are wired, the analysis is a client own-account analysis, AND the org has
+    /// configured the OPTIONAL <c>extract-aesthetic</c> (multimodal) route — so orgs that don't use
+    /// ClientAesthetic pay nothing (no image download, no vision call). Captures the client's real
+    /// post images durably, distils a multi-signal aesthetic via the multimodal extractor, and
+    /// persists it on the analysis. NEVER fails or rolls back the already-Analyzed record.
+    /// </summary>
+    private async Task TryEnrichClientAestheticAsync(
+        ProfileAnalysis analysis,
+        IReadOnlyList<ProfilePost> ownerPosts,
+        CancellationToken cancellationToken)
+    {
+        if (_postMediaArchiver is null || _aestheticExtractor is null || _workflowResolver is null)
+        {
+            _logger.LogInformation(
+                "Profile Analyzer: aesthetic enrichment skipped (adapters not wired) analysisId={AnalysisId} orgId={OrgId}.",
+                analysis.Id, analysis.OrganizationId);
+            return;
+        }
+
+        if (analysis.ClientId is not { } clientId || analysis.OwnAccountId is null)
+        {
+            return;
+        }
+
+        // Hard time budget so a slow/stalled provider CDN download or vision call can NEVER hang the
+        // analysis worker. The analysis is already persisted as Analyzed; enrichment is best-effort.
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(EnrichmentBudgetSeconds));
+        var ct = budget.Token;
+
+        try
+        {
+            _logger.LogInformation(
+                "Profile Analyzer: aesthetic enrichment START analysisId={AnalysisId} orgId={OrgId} ownerPosts={PostCount}.",
+                analysis.Id, analysis.OrganizationId, ownerPosts.Count);
+
+            // Gate the paid archive + vision steps on the optional aesthetic route being configured.
+            var route = await _workflowResolver.ResolveStepAsync(
+                new WorkflowStepResolutionRequest(
+                    analysis.OrganizationId,
+                    "single-analyzer",
+                    "profile-analysis",
+                    "extract-aesthetic",
+                    "ai-aesthetic",
+                    null),
+                ct);
+
+            if (route.IsFailure || !route.Value.Any(c => c.IsEnabled))
+            {
+                _logger.LogInformation(
+                    "Profile Analyzer: aesthetic enrichment skipped — no configured extract-aesthetic route. analysisId={AnalysisId} orgId={OrgId}.",
+                    analysis.Id, analysis.OrganizationId);
+                return;
+            }
+
+            var postsWithImages = ownerPosts
+                .Where(p => p.ImageUrls is { Count: > 0 })
+                .Take(MaxAestheticPosts)
+                .ToList();
+            if (postsWithImages.Count == 0)
+            {
+                _logger.LogInformation(
+                    "Profile Analyzer: aesthetic enrichment skipped — no posts with image URLs (actor returned no media). analysisId={AnalysisId} orgId={OrgId}.",
+                    analysis.Id, analysis.OrganizationId);
+                return;
+            }
+
+            // DEPTH-FIRST sampling: capture the WHOLE carousel of each post (up to MaxImagesPerPost) so
+            // the model SEES how the client combines slides WITHIN a post (e.g. 2 creative images +
+            // 2-3 flat colour/template slides) — that within-post mix IS the style signal. Take complete
+            // posts in order until the total budget is reached (so a few full carousels are seen intact).
+            var referenceImages = new List<ProfilePostImageRef>();
+            var postsSampled = 0;
+            foreach (var post in postsWithImages)
+            {
+                if (referenceImages.Count >= MaxAestheticImages)
+                {
+                    break;
+                }
+
+                var remaining = MaxAestheticImages - referenceImages.Count;
+                var urls = post.ImageUrls!.Take(Math.Min(MaxImagesPerPost, remaining)).ToList();
+                var archived = await _postMediaArchiver.ArchiveAsync(
+                    analysis.OrganizationId, clientId, analysis.Id, post.PostId, urls, ct);
+                referenceImages.AddRange(archived);
+                postsSampled++;
+            }
+
+            _logger.LogInformation(
+                "Profile Analyzer: aesthetic enrichment archived {ArchivedCount} image(s) across {PostCount} full post(s). analysisId={AnalysisId} orgId={OrgId}.",
+                referenceImages.Count, postsSampled, analysis.Id, analysis.OrganizationId);
+
+            if (referenceImages.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Profile Analyzer: aesthetic enrichment skipped — 0 images archived (provider downloads failed). analysisId={AnalysisId} orgId={OrgId}.",
+                    analysis.Id, analysis.OrganizationId);
+                return;
+            }
+
+            // Cap the reference set sent to the vision model to bound payload/latency.
+            var visionRefs = referenceImages.Take(MaxAestheticImages).ToList();
+
+            var captions = postsWithImages
+                .Where(p => !string.IsNullOrWhiteSpace(p.Caption))
+                .Select(p => p.Caption!)
+                .ToList();
+
+            // The extractor makes a provider (vision) call through the instrumented AI gateway, which
+            // requires an active ProviderCallContext — open one around the call (mirrors the AI-analysis
+            // and visual-designer paths). Without it the decorator throws "ProviderCallContext.Current is null".
+            AestheticExtraction extraction;
+            using (_providerCallContext?.Begin(
+                       analysis.OrganizationId,
+                       analysis.ClientId,
+                       workflowKey: "profile-analyzer",
+                       pipelineStepKey: "extract-aesthetic",
+                       promptVersion: "aesthetic-extractor/v1",
+                       analysis.Id))
+            {
+                extraction = await _aestheticExtractor.ExtractAsync(
+                    analysis.OrganizationId, visionRefs, captions, ct);
+            }
+
+            var json = AestheticProfilePersistence.Serialize(extraction, visionRefs);
+            // Persist with the OUTER token so a near-expiry budget doesn't drop a completed result.
+            await _repository.SetAestheticProfileJsonAsync(
+                analysis.Id, analysis.OrganizationId, json, cancellationToken);
+
+            _logger.LogInformation(
+                "Profile Analyzer: aesthetic enrichment persisted analysisId={AnalysisId} organizationId={OrgId} images={ImageCount} paletteCount={PaletteCount} descriptors={DescriptorCount}.",
+                analysis.Id, analysis.OrganizationId, visionRefs.Count, extraction.Palette.Count, extraction.StyleDescriptors.Count);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            // Best-effort: aesthetic enrichment must NEVER fail or roll back the completed analysis.
+            _logger.LogWarning(ex,
+                "Profile Analyzer: aesthetic enrichment failed (non-fatal) analysisId={AnalysisId} organizationId={OrgId}.",
+                analysis.Id, analysis.OrganizationId);
+        }
     }
 
     private async Task PersistFailureWithDiagnosticsAsync(

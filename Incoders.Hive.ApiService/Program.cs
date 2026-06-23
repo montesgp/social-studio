@@ -80,6 +80,10 @@ builder.Services.AddHostedService<ProfileAnalysisBackgroundWorker>();
 // Consumes queued content-generation jobs (async multi-step orchestration pipeline).
 builder.Services.AddHostedService<ContentGenerationBackgroundWorker>();
 
+// One-time, idempotent reconstruction of legacy packages to the current format taxonomy
+// (story → story-single, feed-post → feed-single, carousel → feed-carousel). No-op once canonical.
+builder.Services.AddHostedService<LegacyPackageReconstructionStartupJob>();
+
 var app = builder.Build();
 
 var clientAssetStorageOptions = app.Services.GetRequiredService<IOptions<ClientAssetStorageOptions>>().Value;

@@ -10,7 +10,13 @@ public sealed record SocialClientResponse(
     string? SectorOrNiche,
     bool IsActive,
     DateTime CreatedAtUtc,
-    DateTime UpdatedAtUtc)
+    DateTime UpdatedAtUtc,
+    // WU-8 (BSP-08a): expose the client's background sourcing policy in the API response.
+    // Null = Unset = legacy 3-tier behavior (unchanged from pre-WU-8 behavior for existing clients).
+    BackgroundSourcingPolicy? BackgroundSourcingPolicy = null,
+    // WU-7 (CAG-CS-02): expose per-client aesthetic refresh threshold.
+    // Null = use system default (30 days).
+    int? AestheticRefreshThresholdDays = null)
 {
     public static SocialClientResponse FromDomain(Client client) =>
         new(
@@ -21,5 +27,7 @@ public sealed record SocialClientResponse(
             client.SectorOrNiche,
             client.IsActive,
             client.CreatedAtUtc,
-            client.UpdatedAtUtc);
+            client.UpdatedAtUtc,
+            client.BackgroundSourcingPolicy,
+            client.AestheticRefreshThresholdDays);
 }

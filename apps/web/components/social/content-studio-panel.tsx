@@ -39,6 +39,7 @@ import {
   duplicateItem,
   editItemText,
   editItemVisual,
+  fetchContentItemAsset,
   getContentSet,
   linkItemToPlan,
   listContentItems,
@@ -95,9 +96,12 @@ interface SlotGeometry {
 interface Envelope {
   markup: string;
   canvas?: { width?: number; height?: number };
+  flattenedImageRef?: string | null;
   slotGeometry?: SlotGeometry[];
   [key: string]: unknown;
 }
+
+type AutosaveStatus = "idle" | "saving" | "saved" | "error";
 
 interface SlotStyle {
   slot: string;
@@ -118,7 +122,9 @@ function parseEnvelopes(visualSpecMarkup: string | null): Envelope[] {
     const list = Array.isArray(parsed) ? parsed : [parsed];
     return list.filter((e): e is Envelope => Boolean(e) && typeof (e as Envelope).markup === "string");
   } catch {
-    return [];
+    return /<([a-z][\w:-]*)(\s|>)/i.test(visualSpecMarkup)
+      ? [{ markup: visualSpecMarkup, canvas: { width: 1080, height: 1080 } }]
+      : [];
   }
 }
 
@@ -154,6 +160,47 @@ function errorMessage(err: unknown): string {
   return "Something went wrong.";
 }
 
+function useVisualAutosaveRevision() {
+  const latestRevisionRef = useRef(0);
+  const savedRevisionRef = useRef(0);
+  const [pendingRevision, setPendingRevision] = useState(0);
+
+  const markEdited = useCallback(() => {
+    const nextRevision = latestRevisionRef.current + 1;
+    latestRevisionRef.current = nextRevision;
+    setPendingRevision(nextRevision);
+  }, []);
+
+  const markSaveNeeded = useCallback((hasUnsavedChanges: boolean) => {
+    if (!hasUnsavedChanges || latestRevisionRef.current !== savedRevisionRef.current) return;
+
+    const nextRevision = latestRevisionRef.current + 1;
+    latestRevisionRef.current = nextRevision;
+    setPendingRevision(nextRevision);
+  }, []);
+
+  const markSavedIfLatest = useCallback((revision: number) => {
+    if (latestRevisionRef.current !== revision) return false;
+
+    savedRevisionRef.current = revision;
+    setPendingRevision(revision);
+    return true;
+  }, []);
+
+  return { markEdited, markSaveNeeded, markSavedIfLatest, pendingRevision, savedRevisionRef };
+}
+
+/** Tracks the viewport height so the editable canvas can be sized to fit the screen, not just the column width. */
+function useViewportHeight() {
+  const [height, setHeight] = useState(() => (typeof window === "undefined" ? 0 : window.innerHeight));
+  useEffect(() => {
+    const onResize = () => setHeight(window.innerHeight);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return height;
+}
+
 export function ContentStudioPanel({ analysisId, clientId, token, onClose }: ContentStudioPanelProps) {
   const [set, setSet] = useState<ContentSet | null>(null);
   const [items, setItems] = useState<ContentItem[]>([]);
@@ -162,6 +209,8 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [igHandle, setIgHandle] = useState<string | null>(null);
+  const [saveStatusByItemId, setSaveStatusByItemId] = useState<Record<string, AutosaveStatus>>({});
+  const [saveErrorByItemId, setSaveErrorByItemId] = useState<Record<string, string | null>>({});
 
   const [draftText, setDraftText] = useState("");
   const [rejecting, setRejecting] = useState(false);
@@ -178,28 +227,37 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
     };
   }, []);
 
+  // Materialize once per (analysis, client). materialize is a POST that creates/updates the studio
+  // set; React StrictMode double-invokes effects in dev, so two runs would otherwise fire two
+  // concurrent POSTs that race on the server. We de-dupe via this ref and DO NOT cancel on cleanup —
+  // the second StrictMode run is skipped here, and the result is applied only while this key is still
+  // the active one (so a fast client switch can't write stale data, and the lone request's result is
+  // never discarded — discarding it left the studio stuck loading).
+  const materializeKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!analysisId || !clientId) return;
-    let cancelled = false;
-    (async () => {
+    const key = `${analysisId}:${clientId}`;
+    if (materializeKeyRef.current === key) return;
+    materializeKeyRef.current = key;
+    void (async () => {
       setLoading(true);
       setError(null);
       try {
         const materialized = await materializeAnalysis(analysisId, clientId, token);
         const list = await listContentItems(materialized.id, undefined, token);
-        if (cancelled) return;
+        if (materializeKeyRef.current !== key) return;
         setSet(materialized);
         setItems(list);
         setSelectedId((prev) => prev ?? list[0]?.id ?? null);
       } catch (err) {
-        if (!cancelled) setError(errorMessage(err));
+        if (materializeKeyRef.current === key) {
+          setError(errorMessage(err));
+          materializeKeyRef.current = null; // allow a retry on the next deps change
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (materializeKeyRef.current === key) setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [analysisId, clientId, token]);
 
   useEffect(() => {
@@ -257,6 +315,15 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
     [refresh],
   );
 
+  const patchItem = useCallback((updated: ContentItem) => {
+    setItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+  }, []);
+
+  const setItemSaveStatus = useCallback((itemId: string, status: AutosaveStatus, message: string | null = null) => {
+    setSaveStatusByItemId((prev) => (prev[itemId] === status ? prev : { ...prev, [itemId]: status }));
+    setSaveErrorByItemId((prev) => (prev[itemId] === message ? prev : { ...prev, [itemId]: message }));
+  }, []);
+
   const toggleBulk = useCallback((id: string) => {
     setBulkSelected((prev) => {
       const next = new Set(prev);
@@ -291,6 +358,30 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
       setBusy(false);
     }
   }, [set, token]);
+
+  const autosaveSelectedText = useCallback(
+    (text: string) => {
+      if (!selectedId) return Promise.reject(new Error("No content item selected."));
+      return editItemText(selectedId, text, token);
+    },
+    [selectedId, token],
+  );
+
+  const autosaveSelectedVisual = useCallback(
+    (markup: string | null, assets: VisualAssetInput[]) => {
+      if (!selectedId) return Promise.reject(new Error("No content item selected."));
+      return editItemVisual(selectedId, markup, assets, token);
+    },
+    [selectedId, token],
+  );
+
+  const handleSelectedSaveStatusChange = useCallback(
+    (status: AutosaveStatus, message: string | null = null) => {
+      if (!selectedId) return;
+      setItemSaveStatus(selectedId, status, message);
+    },
+    [selectedId, setItemSaveStatus],
+  );
 
   return (
     <AnimatePresence>
@@ -389,8 +480,11 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
                 <ItemDetail
                   key={selected.id}
                   item={selected}
+                  token={token}
                   igHandle={igHandle}
                   busy={busy}
+                  saveStatus={saveStatusByItemId[selected.id] ?? "idle"}
+                  saveError={saveErrorByItemId[selected.id] ?? null}
                   draftText={draftText}
                   onDraftChange={setDraftText}
                   rejecting={rejecting}
@@ -402,6 +496,10 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
                     setRejectReason("");
                   }}
                   onSaveText={() => runAction(() => editItemText(selected.id, draftText, token), selected.id)}
+                  onAutosaveText={autosaveSelectedText}
+                  onAutosaveVisual={autosaveSelectedVisual}
+                  onItemSaved={patchItem}
+                  onSaveStatusChange={handleSelectedSaveStatusChange}
                   onApprove={() => runAction(() => approveItem(selected.id, token), selected.id)}
                   onConfirmReject={() =>
                     runAction(async () => {
@@ -557,8 +655,11 @@ function ItemList({
 
 interface ItemDetailProps {
   item: ContentItem;
+  token: string;
   igHandle: string | null;
   busy: boolean;
+  saveStatus: AutosaveStatus;
+  saveError: string | null;
   draftText: string;
   onDraftChange: (value: string) => void;
   rejecting: boolean;
@@ -567,6 +668,10 @@ interface ItemDetailProps {
   onStartReject: () => void;
   onCancelReject: () => void;
   onSaveText: () => void;
+  onAutosaveText: (text: string) => Promise<ContentItem>;
+  onAutosaveVisual: (markup: string | null, assets: VisualAssetInput[]) => Promise<ContentItem>;
+  onItemSaved: (item: ContentItem) => void;
+  onSaveStatusChange: (status: AutosaveStatus, message?: string | null) => void;
   onApprove: () => void;
   onConfirmReject: () => void;
   onDiscard: () => void;
@@ -619,28 +724,40 @@ function ItemDetail(props: ItemDetailProps) {
         />
       ) : (
         <>
-          {item.formatKey === "story" ? (
+          {item.targetPlacement === "story" ? (
             <InstagramStoryPost
-              key={`${item.id}:${item.updatedAtUtc}`}
+              key={item.id}
               item={item}
+              token={props.token}
               igHandle={props.igHandle}
               canEdit={canEdit && isVisual}
               busy={busy}
+              saveStatus={props.saveStatus}
+              saveError={props.saveError}
+              onAutosaveVisual={props.onAutosaveVisual}
+              onItemSaved={props.onItemSaved}
+              onSaveStatusChange={props.onSaveStatusChange}
               onSaveVisual={isVisual ? props.onSaveVisual : undefined}
             />
           ) : (
             <InstagramPost
-              key={`${item.id}:${item.updatedAtUtc}`}
+              key={item.id}
               item={item}
+              token={props.token}
               igHandle={props.igHandle}
               caption={draftText}
               canEdit={canEdit && isVisual}
               busy={busy}
+              saveStatus={props.saveStatus}
+              saveError={props.saveError}
+              onAutosaveVisual={props.onAutosaveVisual}
+              onItemSaved={props.onItemSaved}
+              onSaveStatusChange={props.onSaveStatusChange}
               onSaveVisual={isVisual ? props.onSaveVisual : undefined}
             />
           )}
 
-          {item.formatKey !== "story" ? (
+          {item.targetPlacement !== "story" ? (
             <div className="flex flex-col gap-2">
               <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Caption / post copy</label>
               <textarea
@@ -652,6 +769,16 @@ function ItemDetail(props: ItemDetailProps) {
                 placeholder="No caption."
               />
               <div>
+                <CaptionAutosave
+                  item={item}
+                  value={draftText}
+                  canEdit={canEdit}
+                  busy={busy}
+                  onAutosaveText={props.onAutosaveText}
+                  onItemSaved={props.onItemSaved}
+                  onSaveStatusChange={props.onSaveStatusChange}
+                />
+                <AutosaveIndicator status={props.saveStatus} error={props.saveError} />
                 <Button
                   size="sm"
                   variant="secondary"
@@ -954,15 +1081,94 @@ function EditableScript({
   );
 }
 
-function InstagramStory({ children, username }: { children: ReactNode; username?: string }) {
+function CaptionAutosave({
+  item,
+  value,
+  canEdit,
+  busy,
+  onAutosaveText,
+  onItemSaved,
+  onSaveStatusChange,
+}: {
+  item: ContentItem;
+  value: string;
+  canEdit: boolean;
+  busy: boolean;
+  onAutosaveText: (text: string) => Promise<ContentItem>;
+  onItemSaved: (item: ContentItem) => void;
+  onSaveStatusChange: (status: AutosaveStatus, message?: string | null) => void;
+}) {
+  const seq = useRef(0);
+  const persistedRef = useRef(item.text ?? "");
+
+  useEffect(() => {
+    persistedRef.current = item.text ?? "";
+  }, [item.id, item.text]);
+
+  useEffect(() => {
+    if (!canEdit || busy || value === persistedRef.current) return;
+    const saveId = ++seq.current;
+    onSaveStatusChange("saving");
+    const timer = window.setTimeout(() => {
+      onAutosaveText(value)
+        .then((updated) => {
+          if (seq.current !== saveId) return;
+          persistedRef.current = updated.text ?? "";
+          onItemSaved(updated);
+          onSaveStatusChange("saved");
+        })
+        .catch((err) => {
+          if (seq.current !== saveId) return;
+          onSaveStatusChange("error", errorMessage(err));
+        });
+    }, 700);
+
+    return () => {
+      seq.current++;
+      window.clearTimeout(timer);
+    };
+  }, [value, canEdit, busy, onAutosaveText, onItemSaved, onSaveStatusChange]);
+
+  return null;
+}
+
+function AutosaveIndicator({ status, error }: { status: AutosaveStatus; error: string | null }) {
+  if (status === "idle") return null;
+  const label =
+    status === "saving" ? "Saving…" : status === "saved" ? "Saved" : `Save failed${error ? `: ${error}` : ""}`;
+  return (
+    <p className={cn("mb-2 text-xs", status === "error" ? "text-destructive" : "text-muted-foreground")}>
+      {label}
+    </p>
+  );
+}
+
+function InstagramStory({
+  children,
+  username,
+  slideCount = 1,
+  currentIndex = 0,
+}: {
+  children: ReactNode;
+  username?: string;
+  slideCount?: number;
+  currentIndex?: number;
+}) {
+  const segments = Math.max(1, slideCount);
   return (
     <div className="relative overflow-hidden rounded-2xl bg-black" style={{ width: 377, height: 670 }}>
       <div className="absolute inset-0">{children}</div>
       <div className="absolute inset-x-0 top-0 z-10 p-3">
         <div className="flex gap-1 mb-2">
-          <div className="flex-1 h-0.5 rounded-full bg-white/80" />
-          <div className="flex-1 h-0.5 rounded-full bg-white/40" />
-          <div className="flex-1 h-0.5 rounded-full bg-white/40" />
+          {Array.from({ length: segments }).map((_, i) => (
+            <div
+              key={i}
+              className={cn(
+                "flex-1 h-0.5 rounded-full",
+                i < currentIndex ? "bg-white/80" : i === currentIndex ? "bg-white" : "bg-white/40",
+              )}
+            />
+          ))}
         </div>
         <div className="flex items-center gap-2">
           <div className="h-8 w-8 rounded-full bg-white/20 border-2 border-white/60" />
@@ -975,40 +1181,120 @@ function InstagramStory({ children, username }: { children: ReactNode; username?
   );
 }
 
-/** Story viewer: editable design fills the 9:16 frame, story chrome overlaid, no engagement sidebar. */
+/**
+ * Story viewer: editable design fills the 9:16 frame, story chrome overlaid, no engagement sidebar.
+ * Supports carousel (multi-slide) stories — navigation moves between slides while keeping the story
+ * chrome (top progress bars reflect slide count + position), unlike a feed carousel which shows the
+ * Instagram engagement sidebar.
+ */
 function InstagramStoryPost({
   item,
+  token,
   igHandle,
   canEdit,
   busy,
+  saveStatus,
+  saveError,
+  onAutosaveVisual,
+  onItemSaved,
+  onSaveStatusChange,
   onSaveVisual,
 }: {
   item: ContentItem;
+  token: string;
   igHandle: string | null;
   canEdit: boolean;
   busy: boolean;
+  saveStatus: AutosaveStatus;
+  saveError: string | null;
+  onAutosaveVisual: (markup: string | null, assets: VisualAssetInput[]) => Promise<ContentItem>;
+  onItemSaved: (item: ContentItem) => void;
+  onSaveStatusChange: (status: AutosaveStatus, message?: string | null) => void;
   onSaveVisual?: (markup: string | null, assets: VisualAssetInput[]) => void;
 }) {
   const [envelopes, setEnvelopes] = useState<Envelope[]>(() => parseEnvelopes(item.visualSpecMarkup));
+  const [current, setCurrent] = useState(0);
   const canvasRef = useRef<DesignCanvasHandle>(null);
+  const envelopesRef = useRef(envelopes);
+  const idxRef = useRef(0);
+  const assetsRef = useRef(item.assets);
   const initialJson = useMemo(() => serializeEnvelopes(parseEnvelopes(item.visualSpecMarkup)), [item.visualSpecMarkup]);
-  const [dirty, setDirty] = useState(false);
+  const persistedJsonRef = useRef(initialJson);
+  const saveSeq = useRef(0);
+  const { markEdited, markSaveNeeded, markSavedIfLatest, pendingRevision, savedRevisionRef } =
+    useVisualAutosaveRevision();
 
-  const slide = envelopes[0];
+  const total = envelopes.length;
+  const idx = total === 0 ? 0 : Math.min(current, total - 1);
+  const slide = envelopes[idx];
+  const fallbackAssetIndex = idx < item.assets.length ? idx : 0;
+  envelopesRef.current = envelopes;
+  idxRef.current = idx;
+  assetsRef.current = item.assets;
+  const hasPendingVisualChanges = pendingRevision > savedRevisionRef.current;
 
   const commitCurrent = useCallback((): Envelope[] => {
     const state = canvasRef.current?.getState();
-    if (!state) return envelopes;
-    const next = [{ ...envelopes[0], markup: state.markup, slotGeometry: syncGeometry(envelopes[0].slotGeometry, state.slotStyles) }];
+    const currentEnvelopes = envelopesRef.current;
+    if (!state) return currentEnvelopes;
+    const currentIdx = idxRef.current;
+    const next = currentEnvelopes.map((e, i) =>
+      i === currentIdx ? { ...e, markup: state.markup, slotGeometry: syncGeometry(e.slotGeometry, state.slotStyles) } : e,
+    );
+    envelopesRef.current = next;
     setEnvelopes(next);
-    setDirty(serializeEnvelopes(next) !== initialJson);
+    markSaveNeeded(serializeEnvelopes(next) !== persistedJsonRef.current);
     return next;
-  }, [envelopes, initialJson]);
+  }, [markSaveNeeded]);
+
+  useEffect(() => {
+    if (!canEdit || busy || pendingRevision <= savedRevisionRef.current) return;
+    const saveId = ++saveSeq.current;
+    const revisionToSave = pendingRevision;
+    onSaveStatusChange("saving");
+    const timer = window.setTimeout(() => {
+      const next = commitCurrent();
+      const markup = serializeEnvelopes(next);
+      const assets = assetsRef.current.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime }));
+      onAutosaveVisual(markup, assets)
+        .then((updated) => {
+          if (saveSeq.current !== saveId) return;
+          if (!markSavedIfLatest(revisionToSave)) return;
+          persistedJsonRef.current = markup;
+          onItemSaved(updated);
+          onSaveStatusChange("saved");
+        })
+        .catch((err) => {
+          if (saveSeq.current !== saveId) return;
+          onSaveStatusChange("error", errorMessage(err));
+        });
+    }, 900);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    pendingRevision,
+    savedRevisionRef,
+    canEdit,
+    busy,
+    commitCurrent,
+    markSavedIfLatest,
+    onAutosaveVisual,
+    onItemSaved,
+    onSaveStatusChange,
+  ]);
+
+  const goTo = (target: number) => {
+    commitCurrent();
+    setCurrent(((target % total) + total) % total);
+  };
 
   if (!slide) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-background p-10 text-center text-sm italic text-muted-foreground">
         No rendered design available for this piece.
+        <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
       </div>
     );
   }
@@ -1018,25 +1304,53 @@ function InstagramStoryPost({
 
   return (
     <div className="flex flex-col gap-3">
-      <InstagramStory username={igHandle ?? undefined}>
-        <DesignCanvas
-          key={item.id}
-          ref={canvasRef}
-          markup={slide.markup ?? ""}
-          width={width}
-          height={height}
-          canEdit={canEdit}
-          onDirty={() => setDirty(true)}
-        />
-      </InstagramStory>
+      <div className="relative w-fit">
+        <InstagramStory username={igHandle ?? undefined} slideCount={total} currentIndex={idx}>
+          {(slide.markup ?? "").trim().length > 0 ? (
+            <DesignCanvas
+              key={item.id}
+              ref={canvasRef}
+              markup={slide.markup ?? ""}
+              width={width}
+              height={height}
+              canEdit={canEdit}
+              onDirty={markEdited}
+              fallbackImageUrl={slide.flattenedImageRef ?? null}
+            />
+          ) : (
+            <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
+          )}
+        </InstagramStory>
+        {total > 1 ? (
+          <>
+            <button
+              type="button"
+              aria-label="Previous slide"
+              onClick={() => goTo(idx - 1)}
+              className="absolute left-2 top-1/2 z-20 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white/80 text-lg text-black shadow hover:bg-white"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              aria-label="Next slide"
+              onClick={() => goTo(idx + 1)}
+              className="absolute right-2 top-1/2 z-20 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white/80 text-lg text-black shadow hover:bg-white"
+            >
+              ›
+            </button>
+          </>
+        ) : null}
+      </div>
       {canEdit ? (
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">Click a text to select it, drag to move, double-click to edit.</p>
+          <AutosaveIndicator status={saveStatus} error={saveError} />
           {onSaveVisual ? (
             <Button
               size="sm"
               variant="secondary"
-              disabled={busy || !dirty}
+              disabled={busy || !hasPendingVisualChanges}
               onClick={() => {
                 const next = commitCurrent();
                 onSaveVisual(
@@ -1057,40 +1371,108 @@ function InstagramStoryPost({
 /** Instagram-faithful post: editable design (carousel) on the left, IG sidebar on the right. */
 function InstagramPost({
   item,
+  token,
   igHandle,
   caption,
   canEdit,
   busy,
+  saveStatus,
+  saveError,
+  onAutosaveVisual,
+  onItemSaved,
+  onSaveStatusChange,
   onSaveVisual,
 }: {
   item: ContentItem;
+  token: string;
   igHandle: string | null;
   caption: string;
   canEdit: boolean;
   busy: boolean;
+  saveStatus: AutosaveStatus;
+  saveError: string | null;
+  onAutosaveVisual: (markup: string | null, assets: VisualAssetInput[]) => Promise<ContentItem>;
+  onItemSaved: (item: ContentItem) => void;
+  onSaveStatusChange: (status: AutosaveStatus, message?: string | null) => void;
   onSaveVisual?: (markup: string | null, assets: VisualAssetInput[]) => void;
 }) {
   const [envelopes, setEnvelopes] = useState<Envelope[]>(() => parseEnvelopes(item.visualSpecMarkup));
   const [current, setCurrent] = useState(0);
   const canvasRef = useRef<DesignCanvasHandle>(null);
+  const envelopesRef = useRef(envelopes);
+  const idxRef = useRef(0);
+  const assetsRef = useRef(item.assets);
   const initialJson = useMemo(() => serializeEnvelopes(parseEnvelopes(item.visualSpecMarkup)), [item.visualSpecMarkup]);
-  const [dirty, setDirty] = useState(false);
+  const persistedJsonRef = useRef(initialJson);
+  const saveSeq = useRef(0);
+  const { markEdited, markSaveNeeded, markSavedIfLatest, pendingRevision, savedRevisionRef } =
+    useVisualAutosaveRevision();
 
+  const viewportHeight = useViewportHeight();
+  // Budget ~68% of the viewport for the editable media so the tall 4:5 portrait is large enough to edit
+  // comfortably while leaving room for the slide strip and the caption editor below.
+  const feedMaxHeight = viewportHeight > 0 ? Math.round(viewportHeight * 0.68) : undefined;
   const total = envelopes.length;
   const idx = total === 0 ? 0 : Math.min(current, total - 1);
   const slide = envelopes[idx];
   const handle = igHandle ?? "your_account";
+  const fallbackAssetIndex = idx < item.assets.length ? idx : 0;
+  envelopesRef.current = envelopes;
+  idxRef.current = idx;
+  assetsRef.current = item.assets;
+  const hasPendingVisualChanges = pendingRevision > savedRevisionRef.current;
 
   const commitCurrent = useCallback((): Envelope[] => {
     const state = canvasRef.current?.getState();
-    if (!state) return envelopes;
-    const next = envelopes.map((e, i) =>
-      i === idx ? { ...e, markup: state.markup, slotGeometry: syncGeometry(e.slotGeometry, state.slotStyles) } : e,
+    const currentEnvelopes = envelopesRef.current;
+    if (!state) return currentEnvelopes;
+    const currentIdx = idxRef.current;
+    const next = currentEnvelopes.map((e, i) =>
+      i === currentIdx ? { ...e, markup: state.markup, slotGeometry: syncGeometry(e.slotGeometry, state.slotStyles) } : e,
     );
+    envelopesRef.current = next;
     setEnvelopes(next);
-    setDirty(serializeEnvelopes(next) !== initialJson);
+    markSaveNeeded(serializeEnvelopes(next) !== persistedJsonRef.current);
     return next;
-  }, [envelopes, idx, initialJson]);
+  }, [markSaveNeeded]);
+
+  useEffect(() => {
+    if (!canEdit || busy || pendingRevision <= savedRevisionRef.current) return;
+    const saveId = ++saveSeq.current;
+    const revisionToSave = pendingRevision;
+    onSaveStatusChange("saving");
+    const timer = window.setTimeout(() => {
+      const next = commitCurrent();
+      const markup = serializeEnvelopes(next);
+      const assets = assetsRef.current.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime }));
+      onAutosaveVisual(markup, assets)
+        .then((updated) => {
+          if (saveSeq.current !== saveId) return;
+          if (!markSavedIfLatest(revisionToSave)) return;
+          persistedJsonRef.current = markup;
+          onItemSaved(updated);
+          onSaveStatusChange("saved");
+        })
+        .catch((err) => {
+          if (saveSeq.current !== saveId) return;
+          onSaveStatusChange("error", errorMessage(err));
+        });
+    }, 900);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    pendingRevision,
+    savedRevisionRef,
+    canEdit,
+    busy,
+    commitCurrent,
+    markSavedIfLatest,
+    onAutosaveVisual,
+    onItemSaved,
+    onSaveStatusChange,
+  ]);
 
   const goTo = (target: number) => {
     commitCurrent();
@@ -1103,6 +1485,7 @@ function InstagramPost({
     ) : (
       <div className="rounded-xl border border-dashed border-border bg-background p-10 text-center text-sm italic text-muted-foreground">
         No rendered design available for this piece.
+        <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
       </div>
     );
   }
@@ -1112,19 +1495,27 @@ function InstagramPost({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm md:flex md:items-stretch">
+      {/* Instagram-web post: a large editable portrait + the engagement sidebar. The media is sized to
+          the viewport height (see feedMaxHeight) so it is big enough to edit without forcing a scroll. */}
+      <div className="mx-auto w-full max-w-[1040px] overflow-hidden rounded-xl border border-border bg-background shadow-sm md:flex md:items-stretch">
         {/* Media (editable design) */}
         <div className="relative flex min-w-0 flex-1 items-start justify-center bg-black">
           <div className="relative w-full">
-            <DesignCanvas
-              key={`${item.id}:${idx}`}
-              ref={canvasRef}
-              markup={slide?.markup ?? ""}
-              width={width}
-              height={height}
-              canEdit={canEdit}
-              onDirty={() => setDirty(true)}
-            />
+            {(slide?.markup ?? "").trim().length > 0 ? (
+              <DesignCanvas
+                key={item.id}
+                ref={canvasRef}
+                markup={slide?.markup ?? ""}
+                width={width}
+                height={height}
+                canEdit={canEdit}
+                onDirty={markEdited}
+                fallbackImageUrl={slide?.flattenedImageRef ?? null}
+                maxHeight={feedMaxHeight}
+              />
+            ) : (
+              <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
+            )}
             {total > 1 ? (
               <>
                 <button
@@ -1143,17 +1534,6 @@ function InstagramPost({
                 >
                   ›
                 </button>
-                <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1.5">
-                  {envelopes.map((_, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      aria-label={`Slide ${i + 1}`}
-                      onClick={() => goTo(i)}
-                      className={cn("h-1.5 rounded-full transition-all", i === idx ? "w-4 bg-white" : "w-1.5 bg-white/50")}
-                    />
-                  ))}
-                </div>
               </>
             ) : null}
           </div>
@@ -1194,14 +1574,17 @@ function InstagramPost({
         </div>
       </div>
 
+      {total > 1 ? <SlideThumbnails envelopes={envelopes} idx={idx} onSelect={goTo} /> : null}
+
       {canEdit ? (
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">Click a text to select it, drag to move, double-click to edit.</p>
+          <AutosaveIndicator status={saveStatus} error={saveError} />
           {onSaveVisual ? (
             <Button
               size="sm"
               variant="secondary"
-              disabled={busy || !dirty}
+              disabled={busy || !hasPendingVisualChanges}
               onClick={() => {
                 const next = commitCurrent();
                 onSaveVisual(
@@ -1219,22 +1602,174 @@ function InstagramPost({
   );
 }
 
+/**
+ * Carousel filmstrip: a clickable preview of every slide so the user can see what is coming next and
+ * jump straight to any slide — like the slide rail in Canva. The active slide is highlighted.
+ */
+function SlideThumbnails({
+  envelopes,
+  idx,
+  onSelect,
+}: {
+  envelopes: Envelope[];
+  idx: number;
+  onSelect: (target: number) => void;
+}) {
+  return (
+    <div className="mx-auto flex w-full max-w-[1040px] items-center gap-2 overflow-x-auto pb-1">
+      {envelopes.map((envelope, i) => {
+        const slideWidth = envelope.canvas?.width ?? 1080;
+        const slideHeight = envelope.canvas?.height ?? 1350;
+        return (
+          <button
+            key={i}
+            type="button"
+            aria-label={`Go to slide ${i + 1}`}
+            aria-current={i === idx}
+            onClick={() => onSelect(i)}
+            className={cn(
+              "relative shrink-0 overflow-hidden rounded-md border-2 transition-colors",
+              i === idx ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/50",
+            )}
+            style={{ width: 76, height: Math.round((76 * slideHeight) / slideWidth) }}
+          >
+            <SlideThumbnail
+              markup={envelope.markup ?? ""}
+              fallbackImageUrl={envelope.flattenedImageRef ?? null}
+              width={slideWidth}
+              height={slideHeight}
+            />
+            <span className="absolute bottom-0.5 left-0.5 rounded bg-black/55 px-1 text-[10px] font-medium leading-tight text-white">
+              {i + 1}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A non-interactive, scaled-down render of a single slide's markup, used inside the carousel filmstrip. */
+function SlideThumbnail({
+  markup,
+  fallbackImageUrl,
+  width,
+  height,
+}: {
+  markup: string;
+  fallbackImageUrl: string | null;
+  width: number;
+  height: number;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const shadowRef = useRef<ShadowRoot | null>(null);
+  const [scale, setScale] = useState(0);
+  const hasMarkup = markup.trim().length > 0;
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !hasMarkup) return;
+    const shadow = shadowRef.current ?? host.attachShadow({ mode: "open" });
+    shadowRef.current = shadow;
+    shadow.innerHTML = `
+      <style>
+        :host { all: initial; display: block; }
+        *, *::before, *::after { box-sizing: border-box; }
+        [data-cs-thumb-root] { position: relative; overflow: hidden; background: #fff; }
+        .composition { position: relative; }
+      </style>
+      <div data-cs-thumb-root>${sanitizeDesignMarkup(markup)}</div>`;
+  }, [markup, hasMarkup]);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const update = () => setScale(el.clientWidth / width);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [width]);
+
+  return (
+    <div ref={boxRef} className="relative h-full w-full overflow-hidden bg-white">
+      {hasMarkup ? (
+        <div
+          ref={hostRef}
+          style={{ width, height, transform: `scale(${scale})`, transformOrigin: "top left" }}
+        />
+      ) : fallbackImageUrl ? (
+        <img src={fallbackImageUrl} alt="" aria-hidden="true" className="h-full w-full object-cover" />
+      ) : null}
+    </div>
+  );
+}
+
 interface DesignCanvasHandle {
   getState: () => { markup: string; slotStyles: SlotStyle[] };
 }
 
-/** Picks the editable element under a click — any element except the layout wrappers / background. */
+function AssetFallbackImage({ item, token, assetIndex }: { item: ContentItem; token: string; assetIndex: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const asset = item.assets[assetIndex];
+
+  useEffect(() => {
+    if (!asset) return;
+
+    if (/^(https?:|data:|blob:|\/)/i.test(asset.storageUri)) {
+      setUrl(asset.storageUri);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    fetchContentItemAsset(item.id, assetIndex, token)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [asset, assetIndex, item.id, token]);
+
+  if (!asset || !url) return null;
+
+  return (
+    <img
+      src={url}
+      alt="Rendered design fallback"
+      className="mt-3 max-h-[70vh] max-w-full rounded-lg border border-border object-contain"
+    />
+  );
+}
+
+/** The full-bleed art layer (`data-layer="background"`): selectable to recolor its fill, but never dragged. */
+function isBackgroundLayer(el: HTMLElement): boolean {
+  return el.getAttribute("data-layer") === "background" || el.classList.contains("layer-background");
+}
+
+/** The text-only wrapper (`data-layer="content"`): a pure layout wrapper, never directly selectable. */
+function isContentLayer(el: HTMLElement): boolean {
+  return el.getAttribute("data-layer") === "content" || el.classList.contains("layer-content");
+}
+
+/**
+ * Picks the editable element under a click. Text slots and decorative shapes are draggable/editable;
+ * the background layer is selectable too — so its base fill can be recolored — but the pointer handler
+ * never lets it move or resize. Only the structural wrappers (composition root, content layer) are inert.
+ */
 function pickElement(node: Node, root: HTMLElement): HTMLElement | null {
   const el = node instanceof HTMLElement ? node : (node.parentElement as HTMLElement | null);
   if (!el || !root.contains(el) || el === root) return null;
-  if (
-    el.hasAttribute("data-layer") ||
-    el.classList.contains("composition") ||
-    el.classList.contains("layer-content") ||
-    el.classList.contains("layer-background")
-  ) {
-    return null;
-  }
+  if (el.classList.contains("composition") || isContentLayer(el)) return null;
   return el;
 }
 
@@ -1251,18 +1786,57 @@ function ensurePositioned(el: HTMLElement) {
 }
 
 /**
+ * Strips document-wrapper drift from designer markup before it is injected inline.
+ * Weaker models sometimes wrap the composition in a full HTML document
+ * (<html><head><style>…</head><body>…). A <style>/<link> injected via innerHTML applies to the WHOLE
+ * page — silently changing the studio navbar/item fonts and button styles. The server renderer paints
+ * from the spec slots and ignores these tags, so removing them keeps the preview faithful to the
+ * actual rendered asset. When a `.composition` subtree is present we keep just that fragment.
+ */
+function sanitizeDesignMarkup(markup: string): string {
+  if (typeof document === "undefined" || !markup) return markup;
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(markup, "text/html");
+  doc.querySelectorAll("script, iframe, object, embed, link, meta, title, base").forEach((n) => n.remove());
+  doc.querySelectorAll<HTMLElement>("*").forEach((node) => {
+    [...node.attributes].forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      if (name.startsWith("on") || ((name === "href" || name === "src") && value.startsWith("javascript:"))) {
+        node.removeAttribute(attr.name);
+      }
+    });
+  });
+  const styles = [...doc.head.querySelectorAll("style")].map((style) => style.outerHTML).join("");
+  return `${styles}${doc.body.innerHTML}`;
+}
+
+/**
  * Renders the design markup inline (imperatively, so React never wipes edits) and turns its
  * [data-slot] elements into selectable, draggable, editable text boxes with a floating toolbar.
  */
 const DesignCanvas = forwardRef<
   DesignCanvasHandle,
-  { markup: string; width: number; height: number; canEdit: boolean; onDirty: () => void }
->(function DesignCanvas({ markup, width, height, canEdit, onDirty }, ref) {
+  {
+    markup: string;
+    width: number;
+    height: number;
+    canEdit: boolean;
+    onDirty: () => void;
+    fallbackImageUrl?: string | null;
+    /** Caps the rendered height (px) so a tall portrait fits the screen instead of forcing a long scroll. */
+    maxHeight?: number;
+  }
+>(function DesignCanvas({ markup, width, height, canEdit, onDirty, fallbackImageUrl, maxHeight }, ref) {
+  const measureRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const designRef = useRef<HTMLDivElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const shadowRef = useRef<ShadowRoot | null>(null);
+  const designRef = useRef<HTMLDivElement | null>(null);
   const scaleRef = useRef(0);
   const [scale, setScale] = useState(0);
   const selectedRef = useRef<HTMLElement | null>(null);
+  const [selIsBackground, setSelIsBackground] = useState(false);
   const [selRect, setSelRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const dragRef = useRef<
     | { mode: "move"; el: HTMLElement; sx: number; sy: number; left: number; top: number; moved: boolean }
@@ -1272,18 +1846,34 @@ const DesignCanvas = forwardRef<
 
   // Imperative innerHTML — React does not manage these children, so our DOM edits are never wiped.
   useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const shadow = shadowRef.current ?? host.attachShadow({ mode: "open" });
+    shadowRef.current = shadow;
+    shadow.innerHTML = `
+      <style>
+        :host { all: initial; display: block; contain: content; }
+        *, *::before, *::after { box-sizing: border-box; }
+        [data-cs-design-root] { position: relative; isolation: isolate; overflow: hidden; background: #fff; }
+        [data-slot] { min-width: 1px; min-height: 1em; overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.1; }
+        .composition { position: relative; contain: layout paint style; }
+      </style>
+      <div data-cs-design-root>${sanitizeDesignMarkup(markup)}</div>`;
+    designRef.current = shadow.querySelector<HTMLDivElement>("[data-cs-design-root]");
     const el = designRef.current;
     if (!el) return;
-    el.innerHTML = markup;
     selectedRef.current = null;
     setSelRect(null);
   }, [markup]);
 
   useEffect(() => {
-    const el = containerRef.current;
+    const el = measureRef.current;
     if (!el) return;
     const update = () => {
-      const sc = el.clientWidth / width;
+      // Scale to the available column width, then clamp by the height budget so the 4:5/9:16 portrait
+      // stays inside the viewport. The aspect ratio is preserved either way — only the scale changes.
+      let sc = el.clientWidth / width;
+      if (maxHeight && maxHeight > 0 && height * sc > maxHeight) sc = maxHeight / height;
       scaleRef.current = sc;
       setScale(sc);
     };
@@ -1291,7 +1881,7 @@ const DesignCanvas = forwardRef<
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [width]);
+  }, [width, height, maxHeight]);
 
   const positionToolbar = useCallback((target: HTMLElement | null) => {
     const cont = containerRef.current;
@@ -1315,23 +1905,31 @@ const DesignCanvas = forwardRef<
       if (target) {
         target.style.outline = "2px solid #6366f1";
         target.style.outlineOffset = "1px";
-        target.style.cursor = "move";
+        target.style.cursor = isBackgroundLayer(target) ? "default" : "move";
       }
+      setSelIsBackground(target ? isBackgroundLayer(target) : false);
       positionToolbar(target);
     },
     [positionToolbar],
   );
 
   useEffect(() => {
-    const el = designRef.current;
-    if (!el) return;
+    const shadow = shadowRef.current;
+    if (!shadow) return;
 
     const onPointerDown = (e: PointerEvent) => {
       if (!canEdit) return;
-      const target = pickElement(e.target as Node, el);
+      const root = designRef.current;
+      if (!root) return;
+      const target = pickElement(e.target as Node, root);
       if (!target) return;
       if (target.isContentEditable) return; // editing text — let the caret work
       select(target);
+      if (isBackgroundLayer(target)) {
+        // Background is selectable (recolor its fill via the toolbar) but must never move or resize.
+        e.preventDefault();
+        return;
+      }
       ensurePositioned(target);
       dragRef.current = {
         mode: "move",
@@ -1376,8 +1974,10 @@ const DesignCanvas = forwardRef<
     };
     const onDblClick = (e: MouseEvent) => {
       if (!canEdit) return;
-      const target = pickElement(e.target as Node, el);
-      if (!target) return;
+      const root = designRef.current;
+      if (!root) return;
+      const target = pickElement(e.target as Node, root);
+      if (!target || isBackgroundLayer(target)) return; // background has no text to edit in place
       target.contentEditable = "true";
       select(target);
       target.focus();
@@ -1392,19 +1992,21 @@ const DesignCanvas = forwardRef<
         select(null);
       }
     };
+    const onShadowPointerDown: EventListener = (event) => onPointerDown(event as PointerEvent);
+    const onShadowDblClick: EventListener = (event) => onDblClick(event as MouseEvent);
 
-    el.addEventListener("pointerdown", onPointerDown);
+    shadow.addEventListener("pointerdown", onShadowPointerDown);
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
-    el.addEventListener("dblclick", onDblClick);
-    el.addEventListener("input", onInput);
+    shadow.addEventListener("dblclick", onShadowDblClick);
+    shadow.addEventListener("input", onInput);
     document.addEventListener("pointerdown", onDocPointerDown);
     return () => {
-      el.removeEventListener("pointerdown", onPointerDown);
+      shadow.removeEventListener("pointerdown", onShadowPointerDown);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
-      el.removeEventListener("dblclick", onDblClick);
-      el.removeEventListener("input", onInput);
+      shadow.removeEventListener("dblclick", onShadowDblClick);
+      shadow.removeEventListener("input", onInput);
       document.removeEventListener("pointerdown", onDocPointerDown);
     };
   }, [canEdit, width, height, onDirty, select, positionToolbar]);
@@ -1447,18 +2049,34 @@ const DesignCanvas = forwardRef<
   };
 
   return (
+    <div ref={measureRef} className="w-full">
     <div
       data-cs-canvas
       ref={containerRef}
-      className="relative w-full overflow-hidden bg-white"
-      style={{ height: scale > 0 ? height * scale : undefined }}
+      className="relative mx-auto overflow-hidden bg-white"
+      style={{ width: scale > 0 ? width * scale : "100%", height: scale > 0 ? height * scale : undefined }}
     >
       <div
-        ref={designRef}
+        ref={hostRef}
         style={{ width, height, transform: `scale(${scale})`, transformOrigin: "top left" }}
       />
+      {fallbackImageUrl ? (
+        <img
+          src={fallbackImageUrl}
+          alt=""
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute inset-0 h-full w-full object-cover",
+            markup.trim().length === 0 ? "opacity-100" : "opacity-0",
+          )}
+          onError={(event) => {
+            event.currentTarget.style.opacity = "1";
+          }}
+        />
+      ) : null}
       {selRect ? (
         <>
+        {!selIsBackground ? (
         <div
           data-cs-handle
           onPointerDown={(e) => {
@@ -1480,6 +2098,7 @@ const DesignCanvas = forwardRef<
           className="absolute z-20 h-3.5 w-3.5 cursor-nwse-resize rounded-sm border-2 border-white bg-indigo-500 shadow"
           style={{ top: selRect.top + selRect.height - 7, left: selRect.left + selRect.width - 7 }}
         />
+        ) : null}
         <div
           data-cs-toolbar
           className="absolute z-10 flex items-center gap-0.5 rounded-md border border-border bg-background p-1 shadow-lg"
@@ -1553,13 +2172,26 @@ const DesignCanvas = forwardRef<
           </ToolbarButton>
           <input
             type="color"
-            aria-label="Text color"
-            onChange={(e) => apply((el) => { el.style.color = e.target.value; })}
+            aria-label="Color"
+            title="Color (text, or fill for decorative shapes/lines)"
+            onChange={(e) =>
+              apply((el) => {
+                const value = e.target.value;
+                // Text elements recolor their glyphs; decorative shapes/lines (no text content)
+                // recolor their fill, so a divider/line bar can actually change color.
+                if ((el.textContent ?? "").trim().length > 0) {
+                  el.style.color = value;
+                } else {
+                  el.style.backgroundColor = value;
+                }
+              })
+            }
             className="h-6 w-6 cursor-pointer rounded border border-border bg-transparent p-0"
           />
         </div>
         </>
       ) : null}
+    </div>
     </div>
   );
 });

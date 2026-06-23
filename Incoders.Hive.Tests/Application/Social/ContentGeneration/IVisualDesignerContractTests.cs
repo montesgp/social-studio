@@ -1,5 +1,6 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration;
@@ -63,7 +64,7 @@ public sealed class IVisualDesignerContractTests
 
         var spec = new VisualCompositionSpec(
             FormatKey: "story",
-            LayoutType: "story-flyer",
+            LayoutType: "story-story",
             Palette: new CompositionPalette("#FFFFFF", "#000000", "#0055FF", "#333333", "#F9FAFB"),
             Typography: new CompositionTypography("Inter", 32, "Roboto", 16),
             AssetSlots: new Dictionary<string, AssetSlotSpec>(),
@@ -71,7 +72,7 @@ public sealed class IVisualDesignerContractTests
             Dimensions: new CompositionDimensions(1080, 1920, 96));
 
         var brand = new BrandManualSnapshot(
-            ColorPalette: new[] { "#FFFFFF", "#000000", "#0055FF" },
+            ColorPalette: new[] { new WeightedColor("#FFFFFF", null, 0), new WeightedColor("#000000", null, 1), new WeightedColor("#0055FF", null, 2) },
             Logos: Array.Empty<string>(),
             BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
             Typography: new[] { "Inter", "Roboto" },
@@ -107,7 +108,8 @@ file sealed class StubVisualDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null)
     {
         var output = new VisualDesignOutput(
             Markup: BuildStubMarkup(),

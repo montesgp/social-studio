@@ -73,7 +73,7 @@ public sealed class ClientBrandManualForcedDefaultTests
     public void ClientBrandManual_ForcedDefaults_DifferentFormats_Succeed()
     {
         // GIVEN ForcedDefault for FormatKey="story" AND ForcedDefault for FormatKey="carousel"
-        var flyerEntry = BackgroundEntry.Create("bg-flyer", "https://cdn.example.com/bg-flyer.png", null,
+        var storyEntry = BackgroundEntry.Create("bg-story", "https://cdn.example.com/bg-story.png", null,
             BackgroundTier.ForcedDefault, "story", true).Value;
         var carouselEntry = BackgroundEntry.Create("bg-carousel", "https://cdn.example.com/bg-carousel.png", null,
             BackgroundTier.ForcedDefault, "carousel", true).Value;
@@ -83,7 +83,7 @@ public sealed class ClientBrandManualForcedDefaultTests
             ClientBrandManualId.New(), ValidClientId, ValidOrgId,
             "My Manual",
             null, null,
-            new[] { flyerEntry, carouselEntry },
+            new[] { storyEntry, carouselEntry },
             null,
             null, null, Now);
 

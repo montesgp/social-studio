@@ -17,7 +17,7 @@ namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Pipeline;
 /// <summary>
 /// B1a TDD pipeline tests for designer + guardrail integration.
 /// Tasks: 5.1 (guardrail-fail skips renderer), 5.2 (Tier-1 forced default reaches designer).
-/// Tasks: B1a-fix (no-op/inactive designer must not fail flyer/carousel — passthrough to legacy renderer).
+/// Tasks: B1a-fix (no-op/inactive designer must not fail story/carousel — passthrough to legacy renderer).
 /// Spec: BG-03 (Tier-1 returned without generation), VD-02/04 (renderer not called on failure).
 /// </summary>
 public sealed class ContentGenerationJobProcessorVisualTests
@@ -37,7 +37,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
     {
         // GIVEN a designer whose markup the guardrail rejects (e.g. a weak model's off-schema
         // output). The pipeline MUST NOT fail the format — it falls back to a deterministic
-        // brand-bound composition so the flyer is still produced.
+        // brand-bound composition so the story is still produced.
         var rendererSpy = new CapturingGeometryRenderer();
         var guardrailsFailing = new FailingGuardrailValidator();
         var designer = new SucceedingDesigner();
@@ -55,7 +55,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
         // THEN the renderer IS called with deterministic fallback markup (a valid composition),
         // NOT the AI markup the guardrail rejected.
         Assert.True(rendererSpy.WasCalled,
-            "Renderer MUST be called — the flyer falls back to a deterministic composition instead of failing.");
+            "Renderer MUST be called — the story falls back to a deterministic composition instead of failing.");
         Assert.NotNull(rendererSpy.ReceivedMarkup);
         Assert.Contains("class=\"composition\"", rendererSpy.ReceivedMarkup);
         Assert.Contains("linear-gradient", rendererSpy.ReceivedMarkup);
@@ -94,7 +94,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
     public async Task Pipeline_Tier1ForcedDefault_OverridesDesignerBackgroundLayerBeforeRender()
     {
         // GIVEN the AI designer returns a generic black background, but the client brand manual
-        // defines a forced default flyer template
+        // defines a forced default story template
         var rendererSpy = new CapturingGeometryRenderer();
 
         var processor = BuildProcessor(
@@ -112,7 +112,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
         // not whatever free-form background the AI invented.
         Assert.True(rendererSpy.WasCalled);
         Assert.NotNull(rendererSpy.ReceivedMarkup);
-        Assert.Contains("https://cdn.example.com/forced-flyer-bg.png", rendererSpy.ReceivedMarkup);
+        Assert.Contains("https://cdn.example.com/forced-story-bg.png", rendererSpy.ReceivedMarkup);
         Assert.Contains("data-background-source=\"brand-manual-forced-default\"", rendererSpy.ReceivedMarkup);
         Assert.DoesNotContain("class=\"layer-background\"", rendererSpy.ReceivedMarkup);
     }
@@ -142,16 +142,16 @@ public sealed class ContentGenerationJobProcessorVisualTests
     }
 
     // -----------------------------------------------------------------------
-    // B1a-fix [RED]: no-op (IsActive=false) designer MUST NOT fail flyer/carousel
+    // B1a-fix [RED]: no-op (IsActive=false) designer MUST NOT fail story/carousel
     // -----------------------------------------------------------------------
 
     /// <summary>
     /// B1a passthrough fix: when the registered IVisualDesigner is inactive (IsActive=false),
     /// the processor MUST skip the designer+guardrail stage and fall through to legacy rendering.
-    /// The flyer format MUST succeed — renderer IS called, no render failure is recorded.
+    /// The story format MUST succeed — renderer IS called, no render failure is recorded.
     /// </summary>
     [Fact]
-    public async Task Pipeline_InactiveDesigner_Flyer_RendererCalledAndSucceeds()
+    public async Task Pipeline_InactiveDesigner_Story_RendererCalledAndSucceeds()
     {
         // GIVEN an inactive (no-op/B1a) designer and a normal renderer
         var rendererSpy = new SpyRenderer();
@@ -169,7 +169,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
 
         // THEN renderer IS called (designer stage was skipped — legacy path taken)
         Assert.True(rendererSpy.WasCalled,
-            "Renderer MUST be called for flyer when the designer is inactive (IsActive=false). " +
+            "Renderer MUST be called for story when the designer is inactive (IsActive=false). " +
             "B1a passthrough: the no-op designer must not cause a render failure.");
     }
 
@@ -200,7 +200,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
 
     /// <summary>
     /// Resilience: an ACTIVE designer returning a genuine failure (provider error, non-compliant
-    /// model) MUST still produce the flyer via the deterministic brand-bound fallback. A model or
+    /// model) MUST still produce the story via the deterministic brand-bound fallback. A model or
     /// provider failure must not break content generation — the flow completes for any agent.
     /// </summary>
     [Fact]
@@ -260,7 +260,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
     /// <summary>
     /// Production bug: AiVisualDesigner.ComposeAsync ran from the render loop with NO ambient
     /// ProviderCallContext, so the instrumentation decorator threw "ProviderCallContext.Current is
-    /// null" and EVERY flyer/carousel failed. The processor MUST open a Begin() scope around the
+    /// null" and EVERY story/carousel failed. The processor MUST open a Begin() scope around the
     /// designer call (mirroring how the content generators scope their own provider calls).
     /// </summary>
     [Fact]
@@ -282,11 +282,11 @@ public sealed class ContentGenerationJobProcessorVisualTests
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
         // THEN the designer observed a non-null ProviderCallContext.Current at call time
-        Assert.True(designer.WasCalled, "Designer must be invoked for an active flyer designer.");
+        Assert.True(designer.WasCalled, "Designer must be invoked for an active story designer.");
         Assert.True(
             designer.ContextWasActive,
             "ProviderCallContext.Current MUST be non-null while the designer's AI call runs — " +
-            "otherwise the instrumentation decorator throws and every flyer/carousel fails.");
+            "otherwise the instrumentation decorator throws and every story/carousel fails.");
     }
 
     // -----------------------------------------------------------------------
@@ -296,13 +296,13 @@ public sealed class ContentGenerationJobProcessorVisualTests
     private static BrandSnapshot BuildBrandWithForcedDefault() =>
         BrandSnapshot.FromBrandData(
             new BrandManualSnapshot(
-                ColorPalette: new[] { "#FFFFFF", "#000000" },
+                ColorPalette: new[] { new WeightedColor("#FFFFFF", null, 0), new WeightedColor("#000000", null, 1) },
                 Logos: Array.Empty<string>(),
                 BackgroundTemplates:
                 [
                     new BrandBackgroundTemplateSnapshot(
-                        "forced-flyer-bg",
-                        "https://cdn.example.com/forced-flyer-bg.png",
+                        "forced-story-bg",
+                        "https://cdn.example.com/forced-story-bg.png",
                         null,
                         BackgroundTier.ForcedDefault,
                         "story",
@@ -316,7 +316,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
     private static BrandSnapshot BuildBrandWithLegacyBackground() =>
         BrandSnapshot.FromBrandData(
             new BrandManualSnapshot(
-                ColorPalette: new[] { "#FFFFFF", "#000000" },
+                ColorPalette: new[] { new WeightedColor("#FFFFFF", null, 0), new WeightedColor("#000000", null, 1) },
                 Logos: Array.Empty<string>(),
                 BackgroundTemplates:
                 [
@@ -479,7 +479,8 @@ file sealed class SpyDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null)
     {
         ReceivedSelection = backgroundSelection;
         var output = new VisualDesignOutput(
@@ -510,7 +511,8 @@ file sealed class ContextCapturingDesigner(ProviderCallContext context) : IVisua
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null)
     {
         WasCalled = true;
         ContextWasActive = context.Current is not null;
@@ -532,7 +534,8 @@ file sealed class SucceedingDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null)
     {
         var output = new VisualDesignOutput(
             Markup: """<div class="composition" data-format="story" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""",
@@ -564,7 +567,8 @@ file sealed class NoOpDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null) =>
         Task.FromResult(Result.Success(new VisualDesignOutput(
             Markup: string.Empty,
             PromptVersionKey: "visual-designer/v1",
@@ -592,7 +596,8 @@ file sealed class InactiveNoOpDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null) =>
         // Should never be called when IsActive=false — but returns failure just in case.
         Task.FromResult(
             Result.Failure<VisualDesignOutput>(
@@ -613,7 +618,8 @@ file sealed class ActiveFailingDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null) =>
         Task.FromResult(
             Result.Failure<VisualDesignOutput>(
                 Error.Failure("visual-designer.real-failure", "Genuine designer failure — renderer must not be called.")));
@@ -630,13 +636,13 @@ file sealed class ForcedDefaultBrandLoader : IClientBrandSnapshotLoader
     public Task<BrandSnapshot> LoadAsync(Guid orgId, Guid clientId, CancellationToken ct = default)
     {
         var brand = new BrandManualSnapshot(
-            ColorPalette: new[] { "#FFFFFF", "#000000" },
+            ColorPalette: new[] { new WeightedColor("#FFFFFF", null, 0), new WeightedColor("#000000", null, 1) },
             Logos: Array.Empty<string>(),
             BackgroundTemplates:
             [
                 new BrandBackgroundTemplateSnapshot(
-                    "forced-flyer-bg",
-                    "https://cdn.example.com/forced-flyer-bg.png",
+                    "forced-story-bg",
+                    "https://cdn.example.com/forced-story-bg.png",
                     null,
                     BackgroundTier.ForcedDefault,
                     "story",
@@ -654,7 +660,7 @@ file sealed class LegacyBackgroundBrandLoader : IClientBrandSnapshotLoader
     public Task<BrandSnapshot> LoadAsync(Guid orgId, Guid clientId, CancellationToken ct = default)
     {
         var brand = new BrandManualSnapshot(
-            ColorPalette: new[] { "#FFFFFF", "#000000" },
+            ColorPalette: new[] { new WeightedColor("#FFFFFF", null, 0), new WeightedColor("#000000", null, 1) },
             Logos: Array.Empty<string>(),
             BackgroundTemplates:
             [
@@ -686,21 +692,21 @@ file sealed class RasterCompositionService(string designedFormat) : IVisualCompo
         return Task.FromResult(spec);
     }
 
-    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct)
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
     {
         return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>([BuildSpec(formatKey)]);
     }
 
     private VisualCompositionSpec BuildSpec(string formatKey)
     {
-        // Designed formats (flyer, carousel) get Raster kind so the pipeline routes them through the designer.
+        // Designed formats (story, carousel) get Raster kind so the pipeline routes them through the designer.
         var outputKind = string.Equals(formatKey, designedFormat, StringComparison.OrdinalIgnoreCase)
             ? CompositionOutputKind.Raster
             : CompositionOutputKind.Text;
 
         return new VisualCompositionSpec(
             FormatKey: formatKey,
-            LayoutType: "story-flyer",
+            LayoutType: "story-story",
             Palette: DefaultPalette,
             Typography: DefaultTypo,
             AssetSlots: new Dictionary<string, AssetSlotSpec>(),

@@ -65,6 +65,12 @@ public static class ContentStudioEndpointsExtensions
             .Produces<ContentPreviewProjection>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapGet("/items/{itemId:guid}/assets/{assetIndex:int}", AssetAsync)
+            .WithName("GetContentStudioItemAsset")
+            .WithSummary("Streams a rendered asset referenced by a Content Studio item")
+            .Produces(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapPut("/items/{itemId:guid}/text", EditTextAsync)
             .WithName("EditContentStudioItemText")
             .Produces<ContentItemResponse>(StatusCodes.Status200OK)
@@ -214,6 +220,24 @@ public static class ContentStudioEndpointsExtensions
 
         var result = await sender.Send(new GetContentPreviewQuery(org.Value, itemId), ct);
         return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
+    private static async Task<IResult> AssetAsync(
+        Guid itemId, int assetIndex, ICurrentTenant tenant, ISender sender, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } org)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var result = await sender.Send(new GetContentItemAssetQuery(org.Value, itemId, assetIndex), ct);
+        return result.Match(r => (IResult)TypedResults.Stream(
+            r.Content,
+            r.Mime,
+            fileDownloadName: null,
+            lastModified: null,
+            entityTag: null,
+            enableRangeProcessing: false));
     }
 
     private static async Task<IResult> EditTextAsync(

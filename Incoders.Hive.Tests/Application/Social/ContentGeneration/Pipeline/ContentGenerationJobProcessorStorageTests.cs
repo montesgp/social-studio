@@ -94,7 +94,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
     }
 
     [Fact]
-    public async Task ProcessAsync_FlyerFormat_PersistsOneAssetRow()
+    public async Task ProcessAsync_StoryFormat_PersistsOneAssetRow()
     {
         var assetStorage = new SpyAssetStorage();
         var assetRepo = new SpyAssetRepository();
@@ -173,8 +173,8 @@ public sealed class ContentGenerationJobProcessorStorageTests
 
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
-        var flyerPut = Assert.Single(assetStorage.Puts, p => p.Key.RelativePath == "story.txt");
-        Assert.Equal(requestedClientId, flyerPut.Key.ClientId);
+        var storyPut = Assert.Single(assetStorage.Puts, p => p.Key.RelativePath == "story.txt");
+        Assert.Equal(requestedClientId, storyPut.Key.ClientId);
     }
 
     // -----------------------------------------------------------------------
@@ -196,7 +196,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
     }
 
     // -----------------------------------------------------------------------
-    // T3.12.3 — Partial success: flyer fails, reel-script succeeds
+    // T3.12.3 — Partial success: story fails, reel-script succeeds
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -214,7 +214,7 @@ public sealed class ContentGenerationJobProcessorStorageTests
 
         // reel-script should have an asset row
         var reelScriptUpsert = assetRepo.UpsertCalls.FirstOrDefault();
-        // Since flyer fails, at least the reel-script upsert should exist
+        // Since story fails, at least the reel-script upsert should exist
         // (we validate that UpsertCalls has entries; specific format assertions need format result IDs)
         // The key assertion: job did not fail wholesale — some upserts happened
         Assert.NotNull(reelScriptUpsert);
@@ -550,7 +550,7 @@ file sealed class FakeCompositionService : IVisualCompositionService
         return Task.FromResult(spec);
     }
 
-    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct)
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
     {
         // For carousel with CarouselContent payload, fan out per slide.
         if (string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase)

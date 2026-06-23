@@ -83,6 +83,22 @@ public static class WorkflowConfigurationCatalog
                             AllowedProviderKeys: [],
                             SupportsModelSelection: true,
                             SupportsActorSelection: false,
+                            ActorVariantKey: null),
+                        new(
+                            "extract-aesthetic",
+                            "Learn the client's visual aesthetic with AI",
+                            "ai-aesthetic",
+                            "AI aesthetic extraction",
+                            "OPTIONAL. Choose a MULTIMODAL AI provider/model that learns the client's visual " +
+                            "style (palette, mood, composition, motifs, voice) from their recent posts so " +
+                            "ClientAesthetic generation can emulate it. Leave unconfigured to skip aesthetic " +
+                            "extraction (generation falls back to text-descriptor guidance).",
+                            RequiresNetwork: false,
+                            SupportedNetworkKeys: [],
+                            AllowedProviderCategories: [IntegrationProviderCategory.AiModel],
+                            AllowedProviderKeys: [],
+                            SupportsModelSelection: true,
+                            SupportsActorSelection: false,
                             ActorVariantKey: null)
                     ])
             ])

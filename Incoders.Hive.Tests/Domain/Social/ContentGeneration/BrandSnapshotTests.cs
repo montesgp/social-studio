@@ -1,3 +1,4 @@
+using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Tests.Domain.Social.ContentGeneration;
@@ -66,7 +67,7 @@ public sealed class BrandSnapshotTests
     public void PartialBrandSnapshot_MissingColorPalette_ColorPaletteIsInferred()
     {
         var brandData = new BrandManualSnapshot(
-            ColorPalette: Array.Empty<string>(),   // empty = missing
+            ColorPalette: Array.Empty<WeightedColor>(),   // empty = missing
             Logos: Array.Empty<string>(),
             BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
             Typography: Array.Empty<string>(),
@@ -83,7 +84,7 @@ public sealed class BrandSnapshotTests
     public void PartialBrandSnapshot_WithVoiceOnly_OnlyNonVoiceFieldsAreInferred()
     {
         var brandData = new BrandManualSnapshot(
-            ColorPalette: Array.Empty<string>(),
+            ColorPalette: Array.Empty<WeightedColor>(),
             Logos: Array.Empty<string>(),
             BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
             Typography: Array.Empty<string>(),
@@ -126,7 +127,7 @@ public sealed class BrandSnapshotTests
     private static BrandSnapshot BuildFullSnapshot()
     {
         var brand = new BrandManualSnapshot(
-            ColorPalette: new[] { "#FF0000", "#00FF00" },
+            ColorPalette: new[] { new WeightedColor("#FF0000", ColorRole.Primary, 0), new WeightedColor("#00FF00", ColorRole.Secondary, 1) },
             Logos: new[] { "https://cdn.example.com/logo.png" },
             BackgroundTemplates:
             [

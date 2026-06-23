@@ -40,6 +40,54 @@ public interface IProfileAnalysisRepository
         Guid analysisId,
         Guid organizationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the MAX <c>CompletedAtUtc</c> of all <c>Analyzed</c> analyses for the given client,
+    /// or <c>null</c> when no completed analysis exists.
+    /// Used by <c>ClientAestheticEnsureFreshService</c> to determine whether the cached aesthetic
+    /// data is still within the effective staleness threshold (CAG-PA-04).
+    /// </summary>
+    Task<DateTime?> GetLatestAnalyzedCompletedAtAsync(
+        Guid orgId,
+        Guid clientId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns <c>true</c> when at least one analysis for the given client is in a non-terminal
+    /// state (i.e. <c>Status NOT IN ("Analyzed", "Failed")</c> — Requested, Scraping,
+    /// ProfileScraped, or Analyzing). Used as the in-flight debounce probe (OQ-8, CAG-PA-05):
+    /// if an analysis is already in flight, a new refresh MUST NOT be enqueued.
+    /// </summary>
+    Task<bool> HasNonTerminalAnalysisForClientAsync(
+        Guid orgId,
+        Guid clientId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns <c>true</c> when the most-recent <c>Analyzed</c> analysis for the client carries a
+    /// captured aesthetic payload (<c>aesthetic_profile_json</c> not null). Used so ClientAesthetic
+    /// freshness requires real aesthetic data, not just a recent timestamp (CAG2). Default <c>true</c>
+    /// keeps existing fakes/behavior unchanged; the EF adapter returns the real value.
+    /// </summary>
+    Task<bool> LatestAnalyzedHasAestheticAsync(
+        Guid orgId,
+        Guid clientId,
+        CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+    /// <summary>
+    /// Phase 2 (CAG2-PA-04): persists the enriched aesthetic profile JSON onto an existing analysis
+    /// (the optional <c>aesthetic_profile_json</c> column). Self-contained write (commits on its own)
+    /// — invoked as a best-effort enrichment step after the analysis is already Analyzed. No-op when
+    /// the analysis is not found.
+    /// <para>
+    /// Default no-op so existing test fakes compile unchanged; the real EF adapter overrides it.
+    /// </para>
+    /// </summary>
+    Task SetAestheticProfileJsonAsync(
+        Guid analysisId,
+        Guid organizationId,
+        string aestheticProfileJson,
+        CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
 /// <summary>A single row in the profile-analysis history list.</summary>

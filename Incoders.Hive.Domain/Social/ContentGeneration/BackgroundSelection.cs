@@ -30,4 +30,12 @@ public abstract record BackgroundSelection
     /// The designer generates a brand-bound background freely.
     /// </summary>
     public sealed record Creative : BackgroundSelection;
+
+    /// <summary>
+    /// CASE C: aesthetic guidance from profile-analysis text descriptors.
+    /// The AI designer generates a background freely within the client's known aesthetic style.
+    /// Never hard-enforced (no URL); the designer uses the descriptors as creative context.
+    /// Empty descriptors indicate no analysis data is available — callers SHOULD degrade to Creative.
+    /// </summary>
+    public sealed record ClientAesthetic(IReadOnlyList<string> Descriptors) : BackgroundSelection;
 }

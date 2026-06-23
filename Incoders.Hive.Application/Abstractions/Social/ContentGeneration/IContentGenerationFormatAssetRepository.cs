@@ -43,6 +43,21 @@ public interface IContentGenerationFormatAssetRepository
     /// Used by delete-item (INC-5): storage objects must be deleted separately before calling this.
     /// </summary>
     Task DeleteByFormatResultIdAsync(Guid formatResultId, CancellationToken ct);
+
+    /// <summary>
+    /// Physically removes a single asset row by its id (one slide / one file).
+    /// Storage object must be deleted separately before calling this.
+    /// Default no-op keeps lightweight test doubles compiling.
+    /// </summary>
+    Task DeleteByIdAsync(Guid assetId, CancellationToken ct) => Task.CompletedTask;
+
+    /// <summary>
+    /// Returns the number of asset rows still attached to a format result.
+    /// Used to decide whether a format result (folder) is now empty and should be removed.
+    /// Default returns 0 for test doubles.
+    /// </summary>
+    Task<int> CountByFormatResultIdAsync(Guid formatResultId, CancellationToken ct) =>
+        Task.FromResult(0);
 }
 
 /// <summary>

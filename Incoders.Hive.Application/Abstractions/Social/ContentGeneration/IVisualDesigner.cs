@@ -1,3 +1,4 @@
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
@@ -48,10 +49,18 @@ public interface IVisualDesigner
     /// provider request so credentials resolve for the correct tenant. It is intentionally a method
     /// parameter, NOT a constructor dependency, because it is unavailable at composition-root startup.
     /// </param>
+    /// <param name="aesthetic">
+    /// Phase 2 (CAG2-CG-01): optional creatives-first aesthetic context for ClientAesthetic jobs —
+    /// the client's real reference creatives (primary signal), optional palette, style descriptors,
+    /// motifs, and a variation seed. <c>null</c> means pre-change behavior (brand-manual-driven).
+    /// When the palette is empty the designer derives colour from the creatives and MUST NOT
+    /// fabricate a default palette.
+    /// </param>
     Task<Result<VisualDesignOutput>> ComposeAsync(
         Guid organizationId,
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        ClientAestheticDesignContext? aesthetic = null);
 }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Shared;
@@ -154,5 +155,70 @@ public sealed class GenerationPromptContextTests
 
         Assert.True(doc.TryGetProperty("monthlyObjective", out var mo));
         Assert.Equal("Grow 20%", mo.GetProperty("objectives").GetString());
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 1.14 — assert colorPalette emits {hex, role, rank} projection
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void FromBrand_ColorPalette_EmitsHexRoleRankProjection()
+    {
+        // GIVEN a brand with a WeightedColor palette
+        var snapshot = BrandSnapshot.FromBrandData(
+            new BrandManualSnapshot(
+                ColorPalette: new[]
+                {
+                    new WeightedColor("#EE1122", ColorRole.Primary,   0),
+                    new WeightedColor("#002244", ColorRole.Secondary, 1),
+                },
+                Logos: Array.Empty<string>(),
+                BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
+                Typography: new[] { "Inter" },
+                VoiceAndTone: null,
+                Notes: null),
+            null, null);
+
+        var doc = Serialize(snapshot);
+
+        // THEN brandManual.colorPalette is an array with {hex, role, rank} entries
+        Assert.True(doc.TryGetProperty("brandManual", out var bm));
+        Assert.True(bm.TryGetProperty("colorPalette", out var palette));
+        Assert.Equal(JsonValueKind.Array, palette.ValueKind);
+        Assert.Equal(2, palette.GetArrayLength());
+
+        var first = palette[0];
+        Assert.Equal("#EE1122", first.GetProperty("hex").GetString());
+        Assert.Equal("Primary", first.GetProperty("role").GetString());
+        Assert.Equal(0, first.GetProperty("rank").GetInt32());
+
+        var second = palette[1];
+        Assert.Equal("#002244", second.GetProperty("hex").GetString());
+        Assert.Equal("Secondary", second.GetProperty("role").GetString());
+        Assert.Equal(1, second.GetProperty("rank").GetInt32());
+    }
+
+    [Fact]
+    public void FromBrand_ColorPalette_NullRole_SerializesAsNull()
+    {
+        // GIVEN a WeightedColor with no role assigned
+        var snapshot = BrandSnapshot.FromBrandData(
+            new BrandManualSnapshot(
+                ColorPalette: new[] { new WeightedColor("#FFFFFF", null, 0) },
+                Logos: Array.Empty<string>(),
+                BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
+                Typography: Array.Empty<string>(),
+                VoiceAndTone: null,
+                Notes: null),
+            null, null);
+
+        var doc = Serialize(snapshot);
+
+        Assert.True(doc.TryGetProperty("brandManual", out var bm));
+        Assert.True(bm.TryGetProperty("colorPalette", out var palette));
+        var first = palette[0];
+        Assert.Equal("#FFFFFF", first.GetProperty("hex").GetString());
+        Assert.Equal(JsonValueKind.Null, first.GetProperty("role").ValueKind);
+        Assert.Equal(0, first.GetProperty("rank").GetInt32());
     }
 }

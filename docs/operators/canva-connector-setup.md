@@ -118,7 +118,7 @@ Response: `application/vnd.openxmlformats-officedocument.presentationml.presenta
 | `data-slot` text elements (headline, subtitle, CTA, etc.) | Editable text boxes — fully selectable and editable in PowerPoint or Keynote |
 | `data-layer="background"` decorative element | Flattened raster image layer behind text boxes |
 
-Slide dimensions match the source format canvas (portrait for flyers, square for carousels — not the PowerPoint default widescreen size).
+Slide dimensions match the source format canvas (portrait for storys, square for carousels — not the PowerPoint default widescreen size).
 
 ### Error responses
 

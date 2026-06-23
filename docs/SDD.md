@@ -108,7 +108,58 @@ Use Next.js App Router. Build a workflow dashboard around client selection, cont
 
 ---
 
-## 11. Social Module — Profile Analysis (Mundo 2)
+## 11. Content Generation — Format Taxonomy (change: content-format-taxonomy)
+
+> Added by `content-format-taxonomy`. Commits: a2f82fa (domain), b1133f0 (backend), 7edda4b (frontend), plus S5 extensibility proof + doc sync.
+
+The content generation pipeline uses a **three-axis taxonomy** (`Surface × Layout × Medium`) backed by a single immutable `FormatCatalog` in the Domain layer. Every downstream consumer (API whitelist, job processor, visual composer, PPTX exporter, frontend picker) derives from the catalog instead of maintaining hand-edited literal lists.
+
+### Axis Types (`Domain/Social/ContentFormats/`)
+
+| Type | Values | Notes |
+|---|---|---|
+| `Surface` | Script, Story, Feed | Top-level content intent |
+| `Layout` | Single, Carousel | Null for Script (no layout axis) |
+| `Medium` | Image, Video, Text | Video representable in v1; no video generator ships yet |
+
+### v1 Curated Catalog (5 deliverable entries + 4 auxiliaries)
+
+| FormatKey | Surface | Layout | Medium | Channel | IsMultiAsset | StorageFolder |
+|---|---|---|---|---|---|---|
+| reel-script | Script | — | Text | instagram/reel | false | script |
+| story-single | Story | Single | Image | instagram/story | false | story-single |
+| story-carousel | Story | Carousel | Image | instagram/story | true | story-carousel |
+| feed-single | Feed | Single | Image | instagram/feed | false | feed-single |
+| feed-carousel | Feed | Carousel | Image | instagram/feed | true | feed-carousel |
+
+Auxiliaries (content-idea, cta-variation, caption, hook): Medium.Text, not shown in the UI picker, included in the API whitelist.
+
+### Key Design Decisions
+
+| Decision | Choice |
+|---|---|
+| Catalog placement | `FormatCatalog` static class in Domain; Application delegates to it via `ContentFormatCatalog` |
+| Alias strategy | `"carousel"` (legacy stored key) is a READ-ONLY alias resolved only via `ResolveForAssembly`; API writes reject it |
+| API whitelist | `KnownFormatKeys` derived from `FormatCatalog.KnownKeys()` — no hand-maintained list |
+| Storage paths | `def.StorageFolder` drives all paths; new keys write to canonical prefixes (story-single/, story-carousel/, feed-single/, feed-carousel/) |
+| Frontend picker | 3 root buttons (Script / Story / Feed) + Single↔Carousel toggle (Story+Feed only) |
+| Catalog endpoint | `GET /api/social/content-generation/formats` returns `FormatCatalogEntryDto` list |
+| No migration | Format taxonomy is C#-only; `format_key` column remains varchar; legacy rows unchanged |
+| Extensibility | Adding a video variant requires one `FormatDefinition` row + generator/composer wiring; axis types and derive-normalize layer are untouched |
+
+### Backward Compatibility
+
+Legacy `format_key = 'carousel'` rows (written before this change) continue to assemble correctly: `NormalizePackageFormatKey` routes them through `ResolveForAssembly("carousel")` to the multi-asset writer branch, producing output under `{client}/carousel/` unchanged.
+
+New generations always use canonical keys (`story-single`, `story-carousel`, `feed-single`, `feed-carousel`) and write to non-colliding prefixes. Legacy `story` and `feed-post` write requests are normalized to `story-single` and `feed-single` for compatibility, but the UI emits only canonical keys. Legacy stored `story`, `feed-post`, and `carousel` rows remain read-compatible; `carousel` remains an assemble-path alias only, not a valid write key.
+
+### Attribution guardrail
+
+Generation prompts treat source-origin identity as inspiration/metadata only. Visual composition resolves final signature text from deterministic target client/brand fields first and rejects referent/competitor/source signatures.
+
+---
+
+## 12. Social Module — Profile Analysis (Mundo 2)
 
 > Added by `single-analyzer-profile-analysis`. ADR: [`docs/architecture/adr/0003-profile-analysis-model.md`](architecture/adr/0003-profile-analysis-model.md).
 

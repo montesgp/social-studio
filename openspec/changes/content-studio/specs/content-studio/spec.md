@@ -23,6 +23,14 @@ This spec covers **Phase 1** (foundation + Single Analyzer integration). Visual/
 
 ## Requirements
 
+### Requirement: CS-RENDER-01 — Isolated Visual Markup Rendering
+
+The Content Studio surface MUST render visual drafts in an isolated DOM boundary (Shadow DOM or iframe `srcDoc`) that preserves required local CSS from `visualSpecMarkup` without leaking CSS to the host app. The renderer MUST remove or neutralize scripts, inline event handlers, and `javascript:` URLs where feasible. If markup is empty or cannot produce a usable preview, the surface MUST fall back to rendered image assets from `ContentItem.assets`.
+
+### Requirement: CS-SAVE-01 — Debounced Local Autosave
+
+The Content Studio surface MUST autosave caption and visual edits with debounce, show a small Saving/Saved/Error state, and update the edited item locally without refreshing the whole set. Autosave MUST tolerate out-of-order or stale responses so older saves do not overwrite newer local edits, and editing/dragging MUST NOT remount the editor.
+
 ### Requirement: CS-01 — ContentItem Is the Atomic Reviewable Aggregate
 
 The system MUST represent a single reviewable/editable content piece as a `ContentItem` aggregate in `Domain/Social/ContentStudio/`, keyed by its own `ContentItemId` and scoped by `OrganizationId` and `ClientId`. A `ContentItem` MUST carry a `ContentOrigin`, a `ContentKind`, an editable `ContentDraft`, a `ReviewState`, and an `EditTrace`. The aggregate MUST be pure domain (no EF / provider / ASP.NET types) and MUST be constructed through a validated `Result<ContentItem>` factory.
@@ -104,7 +112,7 @@ The system MUST provide a materializer that, given a completed generation run (`
 
 #### Scenario: First materialization creates a set of items
 
-- GIVEN a completed Single Analyzer run that produced `flyer`, `carousel`, and `reel-script`
+- GIVEN a completed Single Analyzer run that produced `story`, `carousel`, and `reel-script`
 - WHEN the run is materialized
 - THEN a `ContentSet` of kind `GenerationRun` is created for that run
 - AND it contains exactly one `ContentItem` per produced format, each in state `Draft`

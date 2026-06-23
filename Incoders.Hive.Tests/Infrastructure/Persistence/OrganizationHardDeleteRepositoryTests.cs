@@ -178,9 +178,9 @@ public sealed class OrganizationHardDeleteRepositoryTests
             PackageRow(Guid.NewGuid(), orgOnlyJobId, "file:///org-package.zip"),
             PackageRow(Guid.NewGuid(), otherJobId, "file:///other-package.zip"));
         db.ContentGenerationFormatAssets.AddRange(
-            AssetRow(Guid.NewGuid(), formatResultId, $"{organizationId}/{clientId}/analysis/flyer.png"),
+            AssetRow(Guid.NewGuid(), formatResultId, $"{organizationId}/{clientId}/analysis/story.png"),
             AssetRow(Guid.NewGuid(), orgOnlyFormatResultId, $"{organizationId}/orphan/generated.png"),
-            AssetRow(Guid.NewGuid(), otherFormatResultId, $"{otherOrganizationId}/{otherClientId}/analysis/flyer.png"));
+            AssetRow(Guid.NewGuid(), otherFormatResultId, $"{otherOrganizationId}/{otherClientId}/analysis/story.png"));
         await db.SaveChangesAsync();
 
         var result = await repository.HardDeleteAsync(organizationId, CancellationToken.None);
@@ -195,7 +195,7 @@ public sealed class OrganizationHardDeleteRepositoryTests
             ["file:///client-package.zip", "file:///org-package.zip"],
             result.GeneratedPackageStorageUris.Order(StringComparer.Ordinal).ToArray());
         Assert.Equal(
-            [$"{organizationId}/{clientId}/analysis/flyer.png", $"{organizationId}/orphan/generated.png"],
+            [$"{organizationId}/{clientId}/analysis/story.png", $"{organizationId}/orphan/generated.png"],
             result.GeneratedAssetStoragePaths.Order(StringComparer.Ordinal).ToArray());
 
         Assert.False(await db.Tenants.AnyAsync(x => x.Id == organizationId));
@@ -238,8 +238,8 @@ public sealed class OrganizationHardDeleteRepositoryTests
         Assert.False(await db.GeneratedPackages.AnyAsync(x => x.StorageUri == "file:///client-package.zip"));
         Assert.False(await db.GeneratedPackages.AnyAsync(x => x.StorageUri == "file:///org-package.zip"));
         Assert.True(await db.GeneratedPackages.AnyAsync(x => x.StorageUri == "file:///other-package.zip"));
-        Assert.False(await db.ContentGenerationFormatAssets.AnyAsync(x => x.StoragePath == $"{organizationId}/{clientId}/analysis/flyer.png"));
-        Assert.True(await db.ContentGenerationFormatAssets.AnyAsync(x => x.StoragePath == $"{otherOrganizationId}/{otherClientId}/analysis/flyer.png"));
+        Assert.False(await db.ContentGenerationFormatAssets.AnyAsync(x => x.StoragePath == $"{organizationId}/{clientId}/analysis/story.png"));
+        Assert.True(await db.ContentGenerationFormatAssets.AnyAsync(x => x.StoragePath == $"{otherOrganizationId}/{otherClientId}/analysis/story.png"));
     }
 
     [Fact]

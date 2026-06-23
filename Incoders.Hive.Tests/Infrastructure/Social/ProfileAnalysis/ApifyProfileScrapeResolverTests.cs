@@ -553,6 +553,29 @@ public sealed class ApifyProfileScrapeResolverTests
         Assert.Equal("testbrand", result.Value.Profile.Username);
     }
 
+    // ── CAG-PA-01: get-leads actor sends the default maxPostsPerProfile (12) when no per-client override ──
+    // The earlier design §2.3 hardcoded 18; that was replaced by a per-client MaxPostsToAnalyze whose
+    // system default is 12 (see InstagramProfileApifyScrapeAdapter.BuildProfileActorInput). A request
+    // without a MaxPosts override must therefore emit the default 12, not the legacy 18.
+
+    [Fact]
+    public async Task ResolveAsync_GetLeadsActor_SendsDefaultMaxPostsPerProfile()
+    {
+        var capturingHandler = new CapturingBodyHandler(GoldenFixture);
+
+        var resolver = new ApifyProfileScrapeResolver(
+            MakeCredential(),
+            new StaticHttpClientFactory(capturingHandler));
+
+        await resolver.ResolveAsync(
+            MakeRequest(Guid.NewGuid(), Guid.NewGuid()),
+            CancellationToken.None);
+
+        Assert.NotNull(capturingHandler.CapturedBody);
+        Assert.Contains("\"maxPostsPerProfile\":12", capturingHandler.CapturedBody);
+        Assert.DoesNotContain("\"maxPostsPerProfile\":18", capturingHandler.CapturedBody);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private sealed class ProgrammableHandler : HttpMessageHandler

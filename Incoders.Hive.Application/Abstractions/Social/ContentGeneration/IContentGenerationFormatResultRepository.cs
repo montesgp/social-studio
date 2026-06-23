@@ -28,6 +28,21 @@ public interface IContentGenerationFormatResultRepository
         Guid clientId,
         CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>([]);
+
+    /// <summary>
+    /// Physically removes a format result row (and its asset children via FK cascade).
+    /// Used when the last asset of a format has been deleted, so the empty folder disappears.
+    /// Default no-op keeps lightweight test doubles compiling.
+    /// </summary>
+    Task DeleteByIdAsync(Guid formatResultId, CancellationToken ct) => Task.CompletedTask;
+
+    /// <summary>
+    /// Replaces the composition spec JSON for a format result. Used to tombstone a deleted
+    /// carousel slide in the spec without renumbering the remaining slides.
+    /// Default no-op keeps lightweight test doubles compiling.
+    /// </summary>
+    Task UpdateCompositionSpecAsync(Guid formatResultId, string? compositionSpecJson, CancellationToken ct) =>
+        Task.CompletedTask;
 }
 
 /// <summary>

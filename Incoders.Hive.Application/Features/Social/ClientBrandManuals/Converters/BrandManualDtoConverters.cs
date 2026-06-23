@@ -15,7 +15,7 @@ internal static class BrandManualDtoConverters
         var list = new List<ColorEntry>(dtos.Count);
         foreach (var dto in dtos)
         {
-            var r = ColorEntry.Create(dto.Name, dto.Hex, dto.Role);
+            var r = ColorEntry.Create(dto.Name, dto.Hex, dto.Role, dto.Rank);
             if (r.IsFailure) return Result.Failure<List<ColorEntry>>(r.Error);
             list.Add(r.Value);
         }
