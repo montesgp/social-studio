@@ -251,6 +251,29 @@ public sealed class ContentItem : Entity<ContentItemId>
         return Result.Success();
     }
 
+    /// <summary>
+    /// Re-hydrates the draft (and refreshes the soft source reference) from a freshly REGENERATED
+    /// format result — but ONLY while the item is still pristine (<see cref="ReviewState.Draft"/>,
+    /// never opened for review or edited). Once a reviewer has touched the item, regeneration must not
+    /// clobber that editorial work, so this is a guarded no-op. The source result itself is never written back.
+    /// </summary>
+    /// <returns><c>true</c> if the draft was refreshed; <c>false</c> if the item was protected (not pristine).</returns>
+    public bool RefreshFromSource(ContentOrigin origin, ContentDraft draft, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(origin);
+        ArgumentNullException.ThrowIfNull(draft);
+
+        if (State != ReviewState.Draft)
+        {
+            return false;
+        }
+
+        Origin = origin;
+        Draft = draft;
+        UpdatedAtUtc = nowUtc;
+        return true;
+    }
+
     /// <summary>Associates the item with a content-plan calendar slot (soft refs; audit metadata, not a transition).</summary>
     public Result LinkToPlan(PlanContext planContext, DateTime nowUtc)
     {

@@ -3,6 +3,7 @@ using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 
@@ -37,7 +38,8 @@ public sealed class CarouselGeneratorTests
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
         Assert.NotNull(result.Payload);
         Assert.Equal(carousel.CoverTitle, result.Payload.CoverTitle);
-        Assert.Equal("carousel.v2", result.PromptVersion);
+        // Latest: client-directive precedence (particular→general).
+        Assert.Equal("carousel.v6", result.PromptVersion);
         Assert.Empty(result.InferredFields);
     }
 
@@ -53,7 +55,7 @@ public sealed class CarouselGeneratorTests
         // Brand snapshot with no color palette → ColorPalette IsInferred=true
         var brand = BrandSnapshot.FromBrandData(
             brand: new BrandManualSnapshot(
-                ColorPalette: Array.Empty<string>(),  // empty → inferred
+                ColorPalette: Array.Empty<WeightedColor>(),  // empty → inferred
                 Logos: ["logo.png"],
                 BackgroundTemplates:
                 [
@@ -84,7 +86,7 @@ public sealed class CarouselGeneratorTests
         var gateway = new SucceedingGateway<CarouselContent>(carousel);
         var brand = BrandSnapshot.FromBrandData(
             brand: new BrandManualSnapshot(
-                ColorPalette: ["#123456", "#654321"],
+                ColorPalette: [new WeightedColor("#123456", ColorRole.Primary, 0), new WeightedColor("#654321", ColorRole.Secondary, 1)],
                 Logos: ["https://cdn.example.com/logo.png"],
                 BackgroundTemplates:
                 [
@@ -134,6 +136,34 @@ public sealed class CarouselGeneratorTests
         Assert.Contains("@competitor", prompt);
         Assert.Contains("Educational Series", prompt);
         Assert.Contains("publicationDescription", prompt);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_PromptIncludesClientDirectivePrecedenceAndBrandNotes()
+    {
+        var carousel = BuildValidCarousel();
+        var gateway = new SucceedingGateway<CarouselContent>(carousel);
+        var brand = BrandSnapshot.FromBrandData(
+            brand: new BrandManualSnapshot(
+                ColorPalette: [new WeightedColor("#123456", ColorRole.Primary, 0)],
+                Logos: [],
+                BackgroundTemplates: [],
+                Typography: ["Inter"],
+                VoiceAndTone: "direct",
+                Notes: "Never sign the generated slides with the account handle."),
+            strategy: null,
+            monthlyObjective: null);
+        var providerCallContext = BeginContext(OrgId, ClientId, CorrelationId);
+        var generator = new CarouselGenerator(gateway, providerCallContext);
+
+        await generator.GenerateAsync(BuildContext(brand), CancellationToken.None);
+
+        Assert.NotNull(gateway.LastRequest);
+        var prompt = gateway.LastRequest!.InputJson;
+        // The authoritative client-directive clause is present so the agent treats notes as overrides.
+        Assert.Contains("CLIENT DIRECTIVES", prompt);
+        // The brand-manual note (an explicit prohibition) is threaded into the prompt verbatim.
+        Assert.Contains("Never sign the generated slides with the account handle.", prompt);
     }
 
     [Fact]
@@ -244,7 +274,7 @@ public sealed class CarouselGeneratorTests
         Analysis: BuildAnalysis(),
         BrandSnapshot: brand ?? BrandSnapshot.FromBrandData(
             brand: new BrandManualSnapshot(
-                ColorPalette: ["#FFF", "#000"],
+                ColorPalette: [new WeightedColor("#FFF", ColorRole.Primary, 0), new WeightedColor("#000", ColorRole.Neutral, 1)],
                 Logos: ["logo.png"],
                 BackgroundTemplates:
                 [
@@ -292,7 +322,7 @@ public sealed class CarouselGeneratorTests
     private static ProviderCallContext BeginContext(Guid orgId, Guid? clientId, Guid correlationId)
     {
         var ctx = new ProviderCallContext();
-        ctx.Begin(orgId, clientId, "content-generation", "format:carousel", "carousel.v2", correlationId);
+        ctx.Begin(orgId, clientId, "content-generation", "format:carousel", "carousel.v3", correlationId);
         return ctx;
     }
 

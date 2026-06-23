@@ -1,3 +1,5 @@
+using Incoders.Hive.Domain.Social.Clients;
+
 namespace Incoders.Hive.Domain.Social.ContentGeneration;
 
 /// <summary>
@@ -6,4 +8,7 @@ namespace Incoders.Hive.Domain.Social.ContentGeneration;
 public sealed record ClientProfileSnapshot(
     string Name,
     string? Description,
-    string? SectorOrNiche);
+    string? SectorOrNiche,
+    // WU-4: policy snapshot enables the processor to resolve the background strategy once per job.
+    // Null = Unset = legacy 3-tier behavior (backward-compatible default).
+    BackgroundSourcingPolicy? BackgroundSourcingPolicy = null);

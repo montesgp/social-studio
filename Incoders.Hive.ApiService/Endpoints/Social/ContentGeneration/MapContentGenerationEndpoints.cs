@@ -47,8 +47,8 @@ public static class ContentGenerationEndpointsExtensions
 
         analyzerGroup.MapPost("/{analysisId:guid}/formats/{formatKey}/regenerate", ContentGenerationEndpointFacade.RegenerateFormatAsync)
             .WithName("RegenerateFormatAsset")
-            .WithSummary("Re-render a single format and overwrite the stored asset(s) for the given client")
-            .Produces<RegenerateFormatResponse>(StatusCodes.Status200OK)
+            .WithSummary("Regenerate a single format (re-runs the AI pipeline with the objection + aesthetic); async — poll job status")
+            .Produces<RegenerateFormatResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         analyzerGroup.MapGet("/{analysisId:guid}/formats/{formatKey}/download-pptx", ContentGenerationEndpointFacade.DownloadFormatAsPptxAsync)
@@ -150,11 +150,11 @@ public sealed record RegenerateFormatRequest(
     Guid ClientId,
     string? Objection);
 
-/// <summary>One regenerated asset entry returned by the regenerate endpoint.</summary>
-public sealed record RegenerateFormatAssetItem(string StoragePath, string Filename, string Mime, long SizeBytes);
-
-/// <summary>Response body for the regenerate-format endpoint.</summary>
-public sealed record RegenerateFormatResponse(string FormatKey, IReadOnlyList<RegenerateFormatAssetItem> Assets);
+/// <summary>
+/// Response body for the regenerate-format endpoint. Regeneration is ASYNC (re-runs the pipeline):
+/// the caller polls the job status (same flow as a normal generation) to observe completion.
+/// </summary>
+public sealed record RegenerateFormatResponse(Guid JobId, string FormatKey, string Status);
 
 // ─── List Packages API response types ─────────────────────────────────────────
 
@@ -315,10 +315,9 @@ public static class ContentGenerationEndpointFacade
             cancellationToken);
 
         return result.Match(response =>
-            (IResult)TypedResults.Ok(new RegenerateFormatResponse(
-                response.FormatKey,
-                response.Assets.Select(a => new RegenerateFormatAssetItem(
-                    a.StoragePath, a.Filename, a.Mime, a.SizeBytes)).ToList())));
+            (IResult)TypedResults.Accepted(
+                (string?)null,
+                new RegenerateFormatResponse(response.JobId, response.FormatKey, response.Status)));
     }
 
     public static async Task<IResult> DeleteFormatAsync(

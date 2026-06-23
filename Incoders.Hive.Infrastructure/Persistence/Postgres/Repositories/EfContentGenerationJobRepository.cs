@@ -60,6 +60,16 @@ public sealed class EfContentGenerationJobRepository : IContentGenerationJobRepo
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task SetRegenerationObjectionAsync(Guid id, string? objection, CancellationToken ct)
+    {
+        var entity = await _db.ContentGenerationJobs.FindAsync(new object[] { id }, ct);
+        if (entity is null) return;
+
+        entity.RegenerationObjection = objection;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task UpdateManifestAsync(Guid id, string manifestJson, DateTime completedAt, CancellationToken ct)
     {
         var entity = await _db.ContentGenerationJobs.FindAsync(new object[] { id }, ct);

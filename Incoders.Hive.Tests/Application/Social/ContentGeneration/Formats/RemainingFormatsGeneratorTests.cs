@@ -8,6 +8,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Hook;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.ReelScript;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 
@@ -295,7 +296,7 @@ public sealed class RemainingFormatsGeneratorTests
         Analysis: BuildAnalysis(),
         BrandSnapshot: BrandSnapshot.FromBrandData(
             new BrandManualSnapshot(
-                ["#FFF"],
+                [new WeightedColor("#FFF", null, 0)],
                 ["logo.png"],
                 [],
                 ["Roboto"],

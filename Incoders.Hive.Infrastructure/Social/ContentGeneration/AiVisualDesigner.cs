@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Domain.Social.ContentGeneration;
@@ -39,15 +40,26 @@ public sealed class AiVisualDesigner : IVisualDesigner
 
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
+    // Cap reference images sent to the designer per call (style reference, not many — bounds cost).
+    private const int MaxDesignerReferenceImages = 4;
+
     private readonly IAiCompletionGateway _gateway;
     private readonly IWorkflowConfigurationResolver _workflowResolver;
+    // Phase 2 (CAG2-CG-01): optional storage to load the client's durable reference images and send
+    // them to the designer as VISION input, so it CREATES NEW backgrounds in the client's style
+    // (we do NOT reuse the exact images). Null = no vision (text-first guidance only).
+    private readonly IGeneratedAssetStorage? _assetStorage;
 
-    public AiVisualDesigner(IAiCompletionGateway gateway, IWorkflowConfigurationResolver workflowResolver)
+    public AiVisualDesigner(
+        IAiCompletionGateway gateway,
+        IWorkflowConfigurationResolver workflowResolver,
+        IGeneratedAssetStorage? assetStorage = null)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(workflowResolver);
         _gateway = gateway;
         _workflowResolver = workflowResolver;
+        _assetStorage = assetStorage;
     }
 
     /// <inheritdoc />
@@ -60,9 +72,10 @@ public sealed class AiVisualDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ClientAestheticDesignContext? aesthetic = null)
     {
-        var inputJson = BuildInputJson(contentPayload, brandSnapshot, backgroundSelection);
+        var inputJson = BuildInputJson(contentPayload, brandSnapshot, backgroundSelection, aesthetic);
 
         // Resolve the ORGANIZATION's configured AI from the workflow "generate-content" stage
         // (priority-ordered; priority-1 is the default). Same single agent the package orchestrator
@@ -90,6 +103,10 @@ public sealed class AiVisualDesigner : IVisualDesigner
             return Result.Failure<VisualDesignOutput>(IntegrationErrors.AiRouteNotConfigured);
         }
 
+        // Load the client's reference creatives as VISION input (CAG2-CG-01). The model SEES them and
+        // creates NEW backgrounds in that visual line — it does NOT copy them. Best-effort + bounded.
+        var visionImages = await LoadReferenceImagesAsync(aesthetic, cancellationToken);
+
         var request = new AiJsonCompletionRequest(
             OrganizationId: organizationId,
             AnalysisId: null,
@@ -97,7 +114,8 @@ public sealed class AiVisualDesigner : IVisualDesigner
             PromptVersionKey: PromptVersion,
             InputJson: inputJson,
             PreferredProviderKey: aiRoute.ProviderKey,
-            PreferredModel: aiRoute.ModelId);
+            PreferredModel: aiRoute.ModelId,
+            Images: visionImages);
 
         var gatewayResult = await _gateway.CompleteJsonAsync<AiVisualDesignResponse>(request, cancellationToken);
 
@@ -132,7 +150,8 @@ public sealed class AiVisualDesigner : IVisualDesigner
     private static string BuildInputJson(
         VisualCompositionSpec spec,
         BrandManualSnapshot brand,
-        BackgroundSelection selection)
+        BackgroundSelection selection,
+        ClientAestheticDesignContext? aesthetic = null)
     {
         var backgroundGuidance = selection switch
         {
@@ -175,23 +194,140 @@ public sealed class AiVisualDesigner : IVisualDesigner
                 Description: "Generate a brand-appropriate background freely.")
         };
 
+        // Palette resolution (CAG2-CG-01/02, CAG2-BSP-02): for a ClientAesthetic job, the feed-derived
+        // palette leads; if the client has no marked palette we fall back to the brand palette only when
+        // one exists, and otherwise pass an EMPTY palette so the designer derives colour from the real
+        // creatives. We NEVER fabricate a default palette to fill the gap.
+        var brandPalette = brand.ColorPalette
+            .Select(wc => new WeightedPaletteEntryDto(wc.Hex, wc.Role?.ToString(), wc.Rank))
+            .ToArray();
+        var palette = (aesthetic is { HasPalette: true })
+            ? aesthetic.Palette!
+                .Select(p => new WeightedPaletteEntryDto(p.Hex, p.Role, p.Rank))
+                .ToArray()
+            : brandPalette;
+
         var input = new DesignerInputDto(
             FormatKey: spec.FormatKey,
             LayoutType: spec.LayoutType,
             Canvas: new CanvasDto(spec.Dimensions.Width, spec.Dimensions.Height),
-            BrandPalette: brand.ColorPalette.ToArray(),
+            BrandPalette: palette,
             AllowedFonts: brand.Typography.ToArray(),
             CopySlots: spec.CopySlots.ToDictionary(kv => kv.Key, kv => kv.Value),
             Background: backgroundGuidance,
-            SystemPrompt: BuildSystemPrompt(brand));
+            Aesthetic: BuildAestheticGuidance(aesthetic),
+            SystemPrompt: BuildSystemPrompt(brand, aesthetic));
 
         return JsonSerializer.Serialize(input, JsonOpts);
     }
 
-    private static string BuildSystemPrompt(BrandManualSnapshot brand)
+    /// <summary>
+    /// Loads up to <see cref="MaxDesignerReferenceImages"/> of the client's durable reference images
+    /// from storage and returns them as vision inputs (base64). Returns null when no storage, no
+    /// aesthetic context, or no references. Per-image best-effort: a failed read is skipped.
+    /// </summary>
+    private async Task<IReadOnlyList<AiImageInput>?> LoadReferenceImagesAsync(
+        ClientAestheticDesignContext? aesthetic,
+        CancellationToken cancellationToken)
     {
-        var palette = string.Join(", ", brand.ColorPalette);
+        if (_assetStorage is null || aesthetic is null || aesthetic.ReferenceImages.Count == 0)
+        {
+            return null;
+        }
+
+        var images = new List<AiImageInput>();
+        foreach (var reference in aesthetic.ReferenceImages.Take(MaxDesignerReferenceImages))
+        {
+            try
+            {
+                var opened = await _assetStorage.OpenAsync(reference.StoragePath, cancellationToken);
+                if (opened.IsFailure)
+                {
+                    continue;
+                }
+
+                using var stream = opened.Value;
+                using var buffer = new MemoryStream();
+                await stream.Content.CopyToAsync(buffer, cancellationToken);
+                images.Add(new AiImageInput(stream.Mime, Convert.ToBase64String(buffer.ToArray())));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                // Best-effort: a missing/failed reference image must not fail the design.
+            }
+        }
+
+        return images.Count > 0 ? images : null;
+    }
+
+    /// <summary>
+    /// Builds the creatives-first aesthetic guidance block for a ClientAesthetic job (CAG2-CG-01).
+    /// Returns null for non-ClientAesthetic jobs so the DTO field is omitted entirely.
+    /// Reference images are passed as durable storage paths (text-first). True multimodal vision
+    /// input (image bytes/blocks) is a FOLLOW-UP gated on the AI gateway gaining image support.
+    /// </summary>
+    private static AestheticGuidanceDto? BuildAestheticGuidance(ClientAestheticDesignContext? aesthetic)
+    {
+        if (aesthetic is null)
+        {
+            return null;
+        }
+
+        return new AestheticGuidanceDto(
+            ReferenceImagePaths: aesthetic.ReferenceImages.Select(r => r.StoragePath).ToArray(),
+            StyleDescriptors: aesthetic.StyleDescriptors.ToArray(),
+            Motifs: aesthetic.Motifs.ToArray(),
+            HasMarkedPalette: aesthetic.HasPalette,
+            VariationSeed: aesthetic.VariationSeed);
+    }
+
+    private static string BuildSystemPrompt(BrandManualSnapshot brand, ClientAestheticDesignContext? aesthetic = null)
+    {
+        // Build a prevalence-ordered palette description so the AI understands role weighting.
+        // Primary dominates, Secondary supports, Accent is used sparingly, Neutral for backgrounds/text.
+        var paletteEntries = brand.ColorPalette.Select(wc =>
+            wc.Role.HasValue ? $"{wc.Role.Value} {wc.Hex}" : wc.Hex);
+        var palette = string.Join(", ", paletteEntries);
         var fonts = string.Join(", ", brand.Typography);
+
+        // Specific-over-general: the brand-manual notes are AUTHORITATIVE editorial directives. They can
+        // require, place, or PROHIBIT a signature/handle or CTA, and override the defaults below.
+        var notes = brand.Notes?.Trim();
+        var directivesBlock = string.IsNullOrWhiteSpace(notes)
+            ? string.Empty
+            : "\n\nCLIENT DIRECTIVES (AUTHORITATIVE — honor literally; they OVERRIDE the rules below, including\n" +
+              "any instruction to add, place, or PROHIBIT a signature/handle or call-to-action):\n" + notes;
+
+        // CAG2-CG-01/02/03: ClientAesthetic — emulate the client's own visual language from their real
+        // creatives. Lead with the client's style; treat palette as OPTIONAL; never invent a palette;
+        // vary compositions within the client's coherent style.
+        var aestheticBlock = string.Empty;
+        if (aesthetic is not null)
+        {
+            var descriptors = aesthetic.StyleDescriptors.Count > 0
+                ? string.Join("; ", aesthetic.StyleDescriptors)
+                : "(infer from the reference creatives)";
+            var motifs = aesthetic.Motifs.Count > 0 ? string.Join("; ", aesthetic.Motifs) : "(none specified)";
+            var paletteDirective = aesthetic.HasPalette
+                ? "Honour the role-ordered palette above as the client's colours."
+                : "This client has NO marked colour palette — DERIVE colour directly from the client's " +
+                  "reference creatives. DO NOT invent or impose a default/brand palette.";
+
+            aestheticBlock =
+                "\n\nCLIENT-AESTHETIC MODE (highest priority — make it look like the CLIENT made it):\n" +
+                "A1. The goal is content INDISTINGUISHABLE from what this client already publishes. Emulate\n" +
+                "    their visual language — composition, treatment, spacing, mood — not a generic template.\n" +
+                $"A2. Client style descriptors: {descriptors}.\n" +
+                $"A3. Recurring motifs to honour: {motifs}.\n" +
+                $"A4. COLOUR: {paletteDirective}\n" +
+                $"A5. VARIETY WITHIN COHERENCE: vary this composition (seed: {aesthetic.VariationSeed}) so a\n" +
+                "    multi-asset package does not repeat one identical layout, while staying on the client's style.\n" +
+                "A6. The ATTACHED images are the client's REAL recent posts. STUDY them and CREATE NEW\n" +
+                "    backgrounds in the SAME visual line (palette, texture, composition, mood). DO NOT copy or\n" +
+                "    reproduce them verbatim — produce fresh art that looks like the same author made it.\n" +
+                "A7. Like this client, MIX background treatments across the package: some compositions over\n" +
+                "    rich image-like/creative backgrounds, others over solid/color backgrounds — never all identical.";
+        }
 
         return
             "You are a SENIOR ART DIRECTOR designing premium social-media graphics (Instagram stories\n" +
@@ -208,6 +344,10 @@ public sealed class AiVisualDesigner : IVisualDesigner
             "   The exporter rasterizes the background layer and rebuilds the content text as EDITABLE\n" +
             "   boxes, so ALL decoration MUST live in background and ALL text MUST live in content slots,\n" +
             "   otherwise it is lost on export.\n" +
+            "   NO INVENTED TEXT: the content layer must contain ONLY the provided copy slots. Do NOT add\n" +
+            "   any extra headline, signature, @handle, username, or watermark — not even one you see in the\n" +
+            "   attached reference images. Add a signature/handle ONLY when the client directives explicitly\n" +
+            "   require it; then place it as a content slot (data-slot=\"signature\") with the directed text.\n" +
             "4. Allowed tags ONLY: div, h1, h2, h3, h4, p, span, img, ul, ol, li, br, strong, em, b, i, u, small.\n" +
             "5. Emit well-formed XHTML: self-close void elements (<img ... />, <br />), quote every\n" +
             "   attribute, escape literal & as &amp;, and use numeric entities (&#160;) - never named\n" +
@@ -219,18 +359,23 @@ public sealed class AiVisualDesigner : IVisualDesigner
             "7. SPACE: let it breathe. Generous edge margins (>= 6-8% of width). Never crowd the edges;\n" +
             "   empty space is a deliberate design choice, not a gap to fill.\n" +
             "8. COMPOSITION: use the WHOLE canvas with intent - strong alignment to an invisible grid,\n" +
-            "   anchor CTA and signature toward the bottom, lead the eye top to bottom. Confident,\n" +
-            "   purposeful placement (a bold off-center layout is welcome when it serves the hierarchy).\n" +
+            "   anchor any CTA/signature that EXISTS in the copy slots toward the bottom, lead the eye top to\n" +
+            "   bottom. Confident, purposeful placement (a bold off-center layout is welcome when it serves\n" +
+            "   the hierarchy). Do not add a CTA or signature that is not in the copy slots or client directives.\n" +
             "9. DEPTH & MODERNITY: build the background in layers - gradients, one or two soft geometric\n" +
             "   shapes/blobs, an accent bar or shape behind the headline, a subtle shadow or glow, optional\n" +
             "   duotone or grain. Rounded corners. Tasteful and restrained - premium editorial, not clip-art.\n" +
-            $"10. COLOR: high contrast for legibility. Use the brand palette boldly and pick ONE accent for\n" +
-            $"    emphasis. Neutrals (white/black/grays) are fine for text and background. Brand palette: {palette}\n" +
+            $"10. COLOR: high contrast for legibility. The brand palette is ROLE-ORDERED by prevalence:\n" +
+            $"    Primary = most dominant (use for hero backgrounds and key elements),\n" +
+            $"    Secondary = supporting (complement the primary), Accent = sparingly (highlights only),\n" +
+            $"    Neutral = backgrounds and text fields. Palette (rank-ordered): {palette}\n" +
             $"11. TYPOGRAPHY: prefer the brand fonts ({fonts}); a clean system fallback is acceptable. Drive\n" +
             "    hierarchy with WEIGHT (heavy/black headline, lighter body). Uppercase + letter-spacing for\n" +
             "    small labels/kickers when it fits the design.\n" +
             "12. RESTRAINT: 2-3 colors, 2-3 type sizes, one accent. When in doubt, remove. Clean beats busy.\n" +
-            "13. Inject brand colors as CSS vars (--brand-primary, --brand-secondary, --brand-accent) and use them.";
+            "13. Inject brand colors as CSS vars (--brand-primary, --brand-secondary, --brand-accent) and use them." +
+            aestheticBlock +
+            directivesBlock;
     }
 
     // -----------------------------------------------------------------------
@@ -241,11 +386,21 @@ public sealed class AiVisualDesigner : IVisualDesigner
         string FormatKey,
         string LayoutType,
         CanvasDto Canvas,
-        string[] BrandPalette,
+        WeightedPaletteEntryDto[] BrandPalette,
         string[] AllowedFonts,
         Dictionary<string, string> CopySlots,
         BackgroundGuidanceDto Background,
+        AestheticGuidanceDto? Aesthetic,
         string SystemPrompt);
+
+    private sealed record AestheticGuidanceDto(
+        string[] ReferenceImagePaths,
+        string[] StyleDescriptors,
+        string[] Motifs,
+        bool HasMarkedPalette,
+        string VariationSeed);
+
+    private sealed record WeightedPaletteEntryDto(string Hex, string? Role, int Rank);
 
     private sealed record CanvasDto(int Width, int Height);
 

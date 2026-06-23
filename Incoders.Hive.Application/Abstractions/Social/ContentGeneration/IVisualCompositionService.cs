@@ -26,11 +26,18 @@ public interface IVisualCompositionService
     /// Multi-asset formats (e.g. carousel) return N specs — one per slide/asset.
     /// Single-asset formats return a 1-element list.
     /// </summary>
+    /// <param name="plan">
+    /// Optional pre-computed background plan (WU-4 coherence refactor).
+    /// When provided, carousel composers read <c>plan.ForSlide(i)</c> for each slide's
+    /// background instead of calling <c>BackgroundSelector.Select</c> independently.
+    /// Null = legacy fallback (backward-compatible; each composer decides its own selection).
+    /// </param>
     Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
         string formatKey,
         object generatedPayload,
         BrandSnapshot brand,
-        CancellationToken ct);
+        CancellationToken ct,
+        CarouselBackgroundPlan? plan = null);
 
     /// <summary>
     /// Returns the brand fields that were inferred (not explicitly supplied) during the last <see cref="ComposeAsync"/> call.

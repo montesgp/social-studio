@@ -91,6 +91,8 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
     name,
     description,
     sectorOrNiche,
+    backgroundSourcingPolicy,
+    aestheticRefreshThresholdDays,
     fieldErrors,
     referentAccounts,
     referentAccountsLoading,
@@ -102,6 +104,8 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
     setName,
     setDescription,
     setSectorOrNiche,
+    setBackgroundSourcingPolicy,
+    setAestheticRefreshThresholdDays,
     setReferentAccounts,
     setCompetitorAccounts,
     setOwnAccounts,
@@ -351,6 +355,8 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
                   name={name}
                   description={description}
                   sectorOrNiche={sectorOrNiche}
+                  backgroundSourcingPolicy={backgroundSourcingPolicy}
+                  aestheticRefreshThresholdDays={aestheticRefreshThresholdDays}
                   fieldErrors={fieldErrors}
                   referentAccounts={referentAccounts}
                   referentAccountsLoading={referentAccountsLoading}
@@ -362,6 +368,8 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
                   onNameChange={setName}
                   onDescriptionChange={setDescription}
                   onSectorOrNicheChange={setSectorOrNiche}
+                  onBackgroundSourcingPolicyChange={setBackgroundSourcingPolicy}
+                  onAestheticRefreshThresholdDaysChange={setAestheticRefreshThresholdDays}
                   onReferentAccountsChange={setReferentAccounts}
                   onCompetitorAccountsChange={setCompetitorAccounts}
                   onOwnAccountsChange={setOwnAccounts}

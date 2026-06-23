@@ -1897,6 +1897,10 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("AestheticProfileJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("aesthetic_profile_json");
+
                     b.Property<string>("AiAnalysisJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("ai_analysis_json");
@@ -2131,6 +2135,14 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<short?>("AestheticRefreshThresholdDays")
+                        .HasColumnType("smallint")
+                        .HasColumnName("aesthetic_refresh_threshold_days");
+
+                    b.Property<short?>("BackgroundSourcingPolicy")
+                        .HasColumnType("smallint")
+                        .HasColumnName("background_sourcing_policy");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
@@ -2143,6 +2155,10 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
+
+                    b.Property<short?>("MaxPostsToAnalyze")
+                        .HasColumnType("smallint")
+                        .HasColumnName("max_posts_to_analyze");
 
                     b.Property<string>("Name")
                         .IsRequired()

@@ -418,7 +418,7 @@ file sealed class SpyComposer : IVisualCompositionService
             CopySlots: new Dictionary<string, string> { ["title"] = "stub" },
             Dimensions: new CompositionDimensions(100, 100, 72)));
 
-    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object generatedPayload, BrandSnapshot brand, CancellationToken ct)
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object generatedPayload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
     {
         var spec = new VisualCompositionSpec(
             FormatKey: formatKey,

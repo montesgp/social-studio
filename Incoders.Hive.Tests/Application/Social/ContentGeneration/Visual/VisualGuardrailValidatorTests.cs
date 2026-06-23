@@ -1,6 +1,7 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Domain.Social.ContentGeneration;
+using Incoders.Hive.Domain.Social.ClientBrandManuals;
 
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Visual;
 
@@ -14,10 +15,17 @@ public sealed class VisualGuardrailValidatorTests
     private static readonly IVisualGuardrailValidator Validator = new VisualGuardrailValidator();
 
     private static BrandManualSnapshot BuildBrand(
-        string[]? palette = null,
+        WeightedColor[]? palette = null,
         string[]? typography = null) =>
         new(
-            ColorPalette: palette ?? new[] { "#FFFFFF", "#000000", "#0055FF", "#333333", "#F9FAFB" },
+            ColorPalette: palette ?? new[]
+            {
+                new WeightedColor("#FFFFFF", null, 0),
+                new WeightedColor("#000000", null, 1),
+                new WeightedColor("#0055FF", null, 2),
+                new WeightedColor("#333333", null, 3),
+                new WeightedColor("#F9FAFB", null, 4),
+            },
             Logos: Array.Empty<string>(),
             BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
             Typography: typography ?? new[] { "Inter", "Roboto" },

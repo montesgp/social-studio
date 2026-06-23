@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
@@ -44,7 +45,8 @@ internal sealed class NoOpVisualDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ClientAestheticDesignContext? aesthetic = null)
     {
         // Should not be called: the processor checks IsActive first.
         // If reached, return a clear failure rather than silently corrupting state.

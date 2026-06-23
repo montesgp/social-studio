@@ -296,7 +296,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
     private static BrandSnapshot BuildBrandWithForcedDefault() =>
         BrandSnapshot.FromBrandData(
             new BrandManualSnapshot(
-                ColorPalette: new[] { "#FFFFFF", "#000000" },
+                ColorPalette: new[] { new WeightedColor("#FFFFFF", null, 0), new WeightedColor("#000000", null, 1) },
                 Logos: Array.Empty<string>(),
                 BackgroundTemplates:
                 [
@@ -316,7 +316,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
     private static BrandSnapshot BuildBrandWithLegacyBackground() =>
         BrandSnapshot.FromBrandData(
             new BrandManualSnapshot(
-                ColorPalette: new[] { "#FFFFFF", "#000000" },
+                ColorPalette: new[] { new WeightedColor("#FFFFFF", null, 0), new WeightedColor("#000000", null, 1) },
                 Logos: Array.Empty<string>(),
                 BackgroundTemplates:
                 [
@@ -479,7 +479,8 @@ file sealed class SpyDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null)
     {
         ReceivedSelection = backgroundSelection;
         var output = new VisualDesignOutput(
@@ -510,7 +511,8 @@ file sealed class ContextCapturingDesigner(ProviderCallContext context) : IVisua
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null)
     {
         WasCalled = true;
         ContextWasActive = context.Current is not null;
@@ -532,7 +534,8 @@ file sealed class SucceedingDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null)
     {
         var output = new VisualDesignOutput(
             Markup: """<div class="composition" data-format="story" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""",
@@ -564,7 +567,8 @@ file sealed class NoOpDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null) =>
         Task.FromResult(Result.Success(new VisualDesignOutput(
             Markup: string.Empty,
             PromptVersionKey: "visual-designer/v1",
@@ -592,7 +596,8 @@ file sealed class InactiveNoOpDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null) =>
         // Should never be called when IsActive=false — but returns failure just in case.
         Task.FromResult(
             Result.Failure<VisualDesignOutput>(
@@ -613,7 +618,8 @@ file sealed class ActiveFailingDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null) =>
         Task.FromResult(
             Result.Failure<VisualDesignOutput>(
                 Error.Failure("visual-designer.real-failure", "Genuine designer failure — renderer must not be called.")));
@@ -630,7 +636,7 @@ file sealed class ForcedDefaultBrandLoader : IClientBrandSnapshotLoader
     public Task<BrandSnapshot> LoadAsync(Guid orgId, Guid clientId, CancellationToken ct = default)
     {
         var brand = new BrandManualSnapshot(
-            ColorPalette: new[] { "#FFFFFF", "#000000" },
+            ColorPalette: new[] { new WeightedColor("#FFFFFF", null, 0), new WeightedColor("#000000", null, 1) },
             Logos: Array.Empty<string>(),
             BackgroundTemplates:
             [
@@ -654,7 +660,7 @@ file sealed class LegacyBackgroundBrandLoader : IClientBrandSnapshotLoader
     public Task<BrandSnapshot> LoadAsync(Guid orgId, Guid clientId, CancellationToken ct = default)
     {
         var brand = new BrandManualSnapshot(
-            ColorPalette: new[] { "#FFFFFF", "#000000" },
+            ColorPalette: new[] { new WeightedColor("#FFFFFF", null, 0), new WeightedColor("#000000", null, 1) },
             Logos: Array.Empty<string>(),
             BackgroundTemplates:
             [
@@ -686,7 +692,7 @@ file sealed class RasterCompositionService(string designedFormat) : IVisualCompo
         return Task.FromResult(spec);
     }
 
-    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct)
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
     {
         return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>([BuildSpec(formatKey)]);
     }

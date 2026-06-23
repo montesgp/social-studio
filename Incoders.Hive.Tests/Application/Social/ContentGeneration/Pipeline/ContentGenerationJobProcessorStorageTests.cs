@@ -550,7 +550,7 @@ file sealed class FakeCompositionService : IVisualCompositionService
         return Task.FromResult(spec);
     }
 
-    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct)
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
     {
         // For carousel with CarouselContent payload, fan out per slide.
         if (string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase)

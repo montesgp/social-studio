@@ -14,6 +14,9 @@ namespace Incoders.Hive.Domain.Social.ProfileAnalysis;
 /// <param name="PostingCadenceDays">Average days between consecutive owner posts.</param>
 /// <param name="OwnerPostCount">Count of non-degraded owner posts used for computations.</param>
 /// <param name="DegradedPostCount">Count of owner posts excluded because _degraded == true.</param>
+/// <param name="AverageSlidesPerCarousel">Mean number of child slides per Carousel post, rounded
+///     to 1 decimal place. Null when no Carousel posts have a non-null CarouselChildrenCount.
+///     Stored as the raw computed value; the prompt hint clamps it to 3–10 (CAG-PA-02, design §6).</param>
 public sealed record ProfileStats(
     double EngagementRate,
     double? MedianViews,
@@ -23,7 +26,8 @@ public sealed record ProfileStats(
     IReadOnlyDictionary<string, double> ContentTypeMix,
     double PostingCadenceDays,
     int OwnerPostCount,
-    int DegradedPostCount);
+    int DegradedPostCount,
+    double? AverageSlidesPerCarousel = null);
 
 /// <summary>
 /// Average metric value for a specific weekday bucket.

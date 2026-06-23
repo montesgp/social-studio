@@ -1,7 +1,9 @@
 using Incoders.Hive.Domain.Social.ContentStudio;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
+using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Incoders.Hive.Tests.Infrastructure.Persistence;
 
@@ -143,6 +145,34 @@ public sealed class ContentStudioEntityMappingTests
     }
 
     [Fact]
+    public async Task ContentSet_UpdateAsync_RetriesOnceOnConcurrencyAndPersistsNewMember()
+    {
+        var interceptor = new ThrowOnceContentSetConcurrencyInterceptor();
+        await using var db = CreateDbContext(interceptor);
+        var repo = new EfContentSetRepository(db);
+
+        var runId = Guid.NewGuid();
+        var setId = ContentSetId.New();
+        var firstItemId = ContentItemId.New();
+        var secondItemId = ContentItemId.New();
+        var set = ContentSet.CreateForRun(setId, Org, Client, SetOrigin.ForRun(GeneratorKind.SingleAnalyzer, runId), Now).Value;
+        set.AddMember(firstItemId, 0);
+        await repo.AddAsync(set, CancellationToken.None);
+        db.ChangeTracker.Clear();
+
+        set.AddMember(secondItemId, 1);
+        interceptor.Arm();
+
+        await repo.UpdateAsync(set, CancellationToken.None);
+
+        var read = await repo.GetByIdAsync(Org, setId, CancellationToken.None);
+        Assert.NotNull(read);
+        Assert.Equal(1, interceptor.ThrowCount);
+        Assert.Equal(2, read!.Members.Count);
+        Assert.Contains(read.Members, member => member.ItemId == secondItemId && member.SortOrder == 1);
+    }
+
+    [Fact]
     public async Task UpdateAsync_PersistsLifecycleAndDraftChanges()
     {
         await using var db = CreateDbContext();
@@ -161,14 +191,139 @@ public sealed class ContentStudioEntityMappingTests
         Assert.Equal(ReviewState.Edited, read.State);
     }
 
+    // -----------------------------------------------------------------------
+    // WU-6 §6.7 — SocialClientData.background_sourcing_policy nullable column round-trip
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task SocialClient_BackgroundSourcingPolicy_RoundTrips_NullAndValue()
+    {
+        // Arrange: client with an explicit policy and one without (NULL == legacy)
+        await using var db = CreateDbContext();
+
+        var clientWithPolicy = new Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = Org,
+            Name = "Policy Client",
+            IsActive = true,
+            BackgroundSourcingPolicy = 1, // ClientDefinedSet
+            CreatedAtUtc = Now,
+            UpdatedAtUtc = Now,
+        };
+        var clientWithoutPolicy = new Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = Org,
+            Name = "Legacy Client",
+            IsActive = true,
+            BackgroundSourcingPolicy = null,
+            CreatedAtUtc = Now,
+            UpdatedAtUtc = Now,
+        };
+
+        db.SocialClients.AddRange(clientWithPolicy, clientWithoutPolicy);
+        await db.SaveChangesAsync();
+
+        // Act
+        var readWithPolicy = await db.SocialClients.AsNoTracking()
+            .FirstAsync(x => x.Id == clientWithPolicy.Id);
+        var readWithoutPolicy = await db.SocialClients.AsNoTracking()
+            .FirstAsync(x => x.Id == clientWithoutPolicy.Id);
+
+        // Assert
+        Assert.Equal((short)1, readWithPolicy.BackgroundSourcingPolicy);
+        Assert.Null(readWithoutPolicy.BackgroundSourcingPolicy);
+    }
+
+    // -----------------------------------------------------------------------
+    // CAG-CS-01 — SocialClientData.aesthetic_refresh_threshold_days nullable column round-trip
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task SocialClient_AestheticRefreshThresholdDays_RoundTrips_NullAndValue()
+    {
+        await using var db = CreateDbContext();
+
+        var clientWithThreshold = new Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = Org,
+            Name = "Threshold Client",
+            IsActive = true,
+            AestheticRefreshThresholdDays = 14,
+            CreatedAtUtc = Now,
+            UpdatedAtUtc = Now,
+        };
+        var clientWithoutThreshold = new Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = Org,
+            Name = "Default Threshold Client",
+            IsActive = true,
+            AestheticRefreshThresholdDays = null,
+            CreatedAtUtc = Now,
+            UpdatedAtUtc = Now,
+        };
+
+        db.SocialClients.AddRange(clientWithThreshold, clientWithoutThreshold);
+        await db.SaveChangesAsync();
+
+        var readWith = await db.SocialClients.AsNoTracking()
+            .FirstAsync(x => x.Id == clientWithThreshold.Id);
+        var readWithout = await db.SocialClients.AsNoTracking()
+            .FirstAsync(x => x.Id == clientWithoutThreshold.Id);
+
+        Assert.Equal((short)14, readWith.AestheticRefreshThresholdDays);
+        Assert.Null(readWithout.AestheticRefreshThresholdDays);
+    }
+
     private static ContentOrigin NewOrigin(Guid? runId = null) =>
         new(GeneratorKind.SingleAnalyzer, runId ?? Guid.NewGuid(), null, Guid.NewGuid(), "caption");
 
-    private static AppIdentityDbContext CreateDbContext()
+    private static AppIdentityDbContext CreateDbContext(params IInterceptor[] interceptors)
     {
-        var options = new DbContextOptionsBuilder<AppIdentityDbContext>()
-            .UseInMemoryDatabase($"content-studio-{Guid.NewGuid():N}")
-            .Options;
+        var builder = new DbContextOptionsBuilder<AppIdentityDbContext>()
+            .UseInMemoryDatabase($"content-studio-{Guid.NewGuid():N}");
+
+        if (interceptors.Length > 0)
+        {
+            builder.AddInterceptors(interceptors);
+        }
+
+        var options = builder.Options;
         return new AppIdentityDbContext(options);
+    }
+
+    private sealed class ThrowOnceContentSetConcurrencyInterceptor : SaveChangesInterceptor
+    {
+        private bool _armed;
+
+        public int ThrowCount { get; private set; }
+
+        public void Arm()
+        {
+            _armed = true;
+        }
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (_armed && eventData.Context is not null && HasContentSetChanges(eventData.Context))
+            {
+                _armed = false;
+                ThrowCount++;
+                throw new DbUpdateConcurrencyException("Injected content set concurrency conflict.");
+            }
+
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
+
+        private static bool HasContentSetChanges(DbContext context) =>
+            context.ChangeTracker.Entries().Any(entry =>
+                entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted
+                && entry.Entity is ContentStudioSetData or ContentStudioSetItemData);
     }
 }

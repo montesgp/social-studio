@@ -167,7 +167,14 @@ public sealed class AiVisualDesignerTests
 
     private static BrandManualSnapshot BuildBrand() =>
         new BrandManualSnapshot(
-            ColorPalette: new[] { "#111111", "#222222", "#3B82F6", "#FFFFFF", "#F9FAFB" },
+            ColorPalette: new[]
+            {
+                new WeightedColor("#111111", ColorRole.Primary,   0),
+                new WeightedColor("#222222", ColorRole.Secondary, 1),
+                new WeightedColor("#3B82F6", ColorRole.Accent,    2),
+                new WeightedColor("#FFFFFF", ColorRole.Neutral,   3),
+                new WeightedColor("#F9FAFB", null,                4),
+            },
             Logos: Array.Empty<string>(),
             BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
             Typography: new[] { "Inter" },

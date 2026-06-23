@@ -1,0 +1,230 @@
+# Image Generation Specification
+
+<!-- Change: content-image-generation -->
+<!-- New capability — no prior spec exists; this is a full spec. -->
+
+## Purpose
+
+Define the observable requirements for the provider-agnostic, workflow-configured
+AI text-to-image generation port introduced by this change. This capability covers:
+
+- The byte-returning image gateway and its ports.
+- Usage-ledger instrumentation mirroring the text-AI gateway.
+- Two-step prompt-then-render flow.
+- Durable storage of generated images in Supabase Storage.
+- The non-negotiable resilience contract (image-gen is never on the completion critical path).
+
+---
+
+## PRD Traceability
+
+| Requirement ID | Proposal Section / Anchor |
+|---|---|
+| IMG-01 | Proposal §Scope — IImageGenerationGateway + IImageModelClient ports, bytes-only contract |
+| IMG-02 | Proposal §Scope — Usage-ledger instrumentation (ProviderCallContext decorator) |
+| IMG-03 | Proposal §Scope — Two-step: text route writes image prompt; image route renders pixels |
+| IMG-04 | Proposal §Scope — Durable Supabase Storage; URL/path reference, never data-URI |
+| IMG-05 | Proposal §Scope — Resilience: failure → CSS fallback; NEVER fails the job |
+| IMG-06 | Proposal §Scope — Provider-agnostic routing via IWorkflowConfigurationResolver |
+| IMG-07 | Proposal §Affected Areas — IImageGenerationClient/NullImageGenerationClient superseded |
+| IMG-08 | Proposal §Scope — Architecture gate: no provider types in Domain/Application |
+
+---
+
+## Requirements
+
+### Requirement: IMG-01 — Image Gateway Returns Bytes; Contract Is Provider-Agnostic
+
+The system MUST expose an `IImageGenerationGateway` port (Application layer) whose method
+returns image bytes. The port contract MUST be expressed in terms of primitives and
+Application-layer value objects only — no provider SDK types MAY appear in Domain or
+Application. The gateway routes to an `IImageModelClient` adapter resolved by provider key.
+
+#### Scenario: Gateway returns bytes without provider types in the call site (IMG-01-a)
+
+- GIVEN an org with an IMAGE route configured (provider + model)
+- WHEN a caller invokes `IImageGenerationGateway` with a prompt, org id, and generation parameters
+- THEN the method returns raw image bytes (e.g., `byte[]` or equivalent)
+- AND no OpenAI, Stability AI, or other provider SDK type is present in the gateway interface or its parameters
+
+#### Scenario: Provider adapter resolved by provider key at runtime (IMG-01-b)
+
+- GIVEN two registered `IImageModelClient` adapters for distinct provider keys
+- WHEN the gateway is invoked with org id that resolves to provider key A
+- THEN adapter A handles the call
+- AND adapter B is never invoked
+
+---
+
+### Requirement: IMG-02 — Usage Ledger Instrumented via ProviderCallContext Decorator
+
+Every call through `IImageGenerationGateway` MUST be instrumented by a usage-ledger
+decorator that records the `OrganizationId`, provider key, model id, and outcome
+(success/failure) in the usage ledger. The decorator MUST mirror the pattern already
+used by the text-AI completion gateway.
+
+#### Scenario: Successful image call recorded in usage ledger (IMG-02-a)
+
+- GIVEN a configured IMAGE route and a successful pixel render
+- WHEN the gateway completes the call
+- THEN a usage-ledger entry is persisted with the org id, provider key, model id, and success outcome
+
+#### Scenario: Failed image call also recorded (IMG-02-b)
+
+- GIVEN a configured IMAGE route and a provider error (e.g., timeout)
+- WHEN the gateway call fails
+- THEN a usage-ledger entry is persisted with the failure outcome before the error is propagated to the caller
+- AND the failure outcome does not prevent the entry from being written
+
+---
+
+### Requirement: IMG-03 — Two-Step Prompt-Then-Render Flow
+
+For each creative slide, the system MUST execute two distinct, sequenced steps:
+
+1. **Prompt step**: the org's TEXT route (existing `generate-content` text step or a
+   dedicated image-prompt sub-step, as decided in design) produces a per-slide image
+   prompt derived from `ClientAestheticProfile` (style descriptors, motifs, palette,
+   reference context).
+2. **Render step**: the org's IMAGE route sends the image prompt to an image-capable
+   provider and receives raster bytes.
+
+The prompt step output MUST be observable (loggable) independently of the render step.
+No provider is hardcoded for either step.
+
+#### Scenario: Text route produces image prompt; image route renders pixels (IMG-03-a)
+
+- GIVEN a `ClientAesthetic` carousel job and an org with a TEXT route and an IMAGE route configured
+- WHEN the two-step flow executes for a creative slide
+- THEN step 1 produces a text image prompt using the org's TEXT route and `ClientAestheticProfile` signals
+- AND step 2 sends that prompt to the org's IMAGE route and receives raster bytes
+- AND no provider is referenced by name in the orchestration logic (Application layer)
+
+#### Scenario: Empty or weak image prompt from step 1 triggers CSS fallback (IMG-03-b)
+
+- GIVEN the TEXT route returns an empty or unusable image prompt
+- WHEN step 2 would execute
+- THEN the image render step is skipped
+- AND the CSS designer background is used for that slide
+- AND the event is logged with the job id, slide index, and reason ("empty prompt")
+- AND the job continues and completes normally
+
+---
+
+### Requirement: IMG-04 — Generated Images Stored in Supabase Storage; Referenced by URL
+
+Generated image bytes MUST be persisted to Supabase Storage (reusing the existing
+generated-asset pattern) immediately after render. The composition envelope MUST reference
+the image by a durable URL or storage path — NEVER as a data-URI or inline base-64.
+
+#### Scenario: Generated image persisted before being used in composition (IMG-04-a)
+
+- GIVEN a successful image render returning bytes
+- WHEN the bytes are wired into the composition
+- THEN the bytes are first uploaded to Supabase Storage
+- AND the composition envelope carries the resulting durable URL/path as the background reference
+- AND no base-64 or data-URI representation of the image appears in `composition_spec_json`
+
+#### Scenario: Storage upload failure triggers CSS fallback (IMG-04-b)
+
+- GIVEN a successful image render but a Supabase Storage upload failure
+- WHEN the upload fails
+- THEN the CSS designer background is used for that slide
+- AND the failure is logged with the job id, slide index, and error detail
+- AND the job continues and completes normally
+
+---
+
+### Requirement: IMG-05 — Image Generation Is Never on the Completion Critical Path
+
+Any failure in the image-generation pipeline (prompt write, pixel render, or storage
+upload) MUST be caught and handled. The format/job MUST complete normally with a CSS
+designer background for the affected slide(s). A failure in image-gen MUST NOT propagate
+an unhandled exception to the job runner or mark the job as failed.
+
+#### Scenario: Image provider hard error — job still completes with CSS fallback (IMG-05-a)
+
+- GIVEN a `ClientAesthetic` carousel job with one creative slide configured
+- AND the IMAGE route provider returns a 5xx error
+- WHEN image generation is attempted for the creative slide
+- THEN the error is caught and logged
+- AND the CSS designer background is used for that slide instead
+- AND the remaining slides are generated normally
+- AND the job completes with status success (not failed)
+
+#### Scenario: Image provider timeout — same fallback behavior (IMG-05-b)
+
+- GIVEN the IMAGE route provider times out for a creative slide
+- WHEN image generation times out
+- THEN the timeout is caught and logged
+- AND the CSS designer background is used for that slide
+- AND the job completes normally
+
+---
+
+### Requirement: IMG-06 — Provider Routing via IWorkflowConfigurationResolver; No Config = CSS Only
+
+The IMAGE generation step MUST be resolved per org through the existing
+`IWorkflowConfigurationResolver` using the `generate-image` step key (or equivalent
+`MediaGeneration` step). If the org has no IMAGE route configured, the image-gen flow
+MUST NOT be entered; the CSS designer background is used for ALL slides (creative and flat
+alike) without logging an error — absence of config is a valid, expected state.
+
+#### Scenario: No IMAGE route configured — CSS designer used silently for all slides (IMG-06-a)
+
+- GIVEN a `ClientAesthetic` carousel job
+- AND the org has no `generate-image` / IMAGE route configured
+- WHEN the creative-slide background is resolved
+- THEN the CSS designer background is used
+- AND no warning or error is logged for the unconfigured route
+- AND the job completes normally
+
+#### Scenario: IMAGE route configured for org A but not org B — isolated routing (IMG-06-b)
+
+- GIVEN org A has a `generate-image` route (OpenAI) and org B has none
+- WHEN both orgs run `ClientAesthetic` carousel jobs
+- THEN org A's creative slides go through the two-step image-gen flow
+- AND org B's creative slides use the CSS designer (no image gen attempted)
+- AND neither job's routing influences the other
+
+---
+
+### Requirement: IMG-07 — Legacy IImageGenerationClient Port Superseded
+
+`IImageGenerationClient` (currently wired to `NullImageGenerationClient`) MUST be
+superseded by the new `IImageModelClient` port introduced in this change. The legacy port
+MUST NOT be called from any generation pipeline path after this change. Its removal or
+retirement MUST be explicit (no orphaned null implementation silently running).
+
+#### Scenario: No call site invokes IImageGenerationClient after the change (IMG-07-a)
+
+- GIVEN the completed implementation
+- WHEN all usages of `IImageGenerationClient` are inspected
+- THEN no active generation pipeline path calls it
+- AND the port is either removed from the codebase or clearly marked deprecated/retired with a comment referencing this change
+
+---
+
+### Requirement: IMG-08 — No Provider Types in Domain or Application Layers
+
+Provider SDK types (e.g., OpenAI client classes, request/response DTOs from provider
+packages) MUST NOT appear in Domain or Application layer projects. All provider-specific
+code MUST reside in Infrastructure adapters.
+
+#### Scenario: Architecture gate passes with no provider types in Application (IMG-08-a)
+
+- GIVEN the completed implementation
+- WHEN `pwsh -File scripts/gates/Run-Gates.ps1` is executed
+- THEN the architecture gate reports no violations
+- AND no OpenAI SDK type is referenced in Domain or Application projects
+
+---
+
+## Implementation Boundary Notes (non-normative)
+
+- IMG-01/IMG-08: ports defined in `Application/Abstractions`; OpenAI adapter in `Infrastructure`.
+- IMG-02: decorator wraps `IImageModelClient` at resolution time (DI decorator), same pattern as text gateway.
+- IMG-03: two-step orchestration lives in the carousel generator (Application); prompt derivation reads `ClientAestheticProfile` fields.
+- IMG-04: storage upload reuses `IGeneratedAssetStorage` or equivalent Application port; no Supabase SDK types in Application.
+- IMG-05/IMG-06: resilience boundary is a try/catch in the carousel generator before the compositing step.
+- IMG-07: retire `IImageGenerationClient` in the same PR; confirm no DI registration remains.

@@ -141,6 +141,78 @@ public sealed class EfProfileAnalysisRepository : IProfileAnalysisRepository
         return true;
     }
 
+    /// <inheritdoc />
+    public async Task<DateTime?> GetLatestAnalyzedCompletedAtAsync(
+        Guid orgId,
+        Guid clientId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.ProfileAnalyses
+            .AsNoTracking()
+            .Where(x =>
+                x.OrganizationId == orgId &&
+                x.ClientId == clientId &&
+                x.Status == "Analyzed" &&
+                x.CompletedAtUtc != null)
+            .MaxAsync(x => (DateTime?)x.CompletedAtUtc, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> HasNonTerminalAnalysisForClientAsync(
+        Guid orgId,
+        Guid clientId,
+        CancellationToken cancellationToken = default)
+    {
+        // Non-terminal statuses: Requested, Scraping, ProfileScraped, Analyzing.
+        // Terminal statuses: Analyzed, Failed.
+        return await _dbContext.ProfileAnalyses
+            .AsNoTracking()
+            .AnyAsync(x =>
+                x.OrganizationId == orgId &&
+                x.ClientId == clientId &&
+                x.Status != "Analyzed" &&
+                x.Status != "Failed",
+                cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> LatestAnalyzedHasAestheticAsync(
+        Guid orgId,
+        Guid clientId,
+        CancellationToken cancellationToken = default)
+    {
+        // Look at the single most-recent Analyzed analysis and report whether it has an aesthetic payload.
+        var row = await _dbContext.ProfileAnalyses
+            .AsNoTracking()
+            .Where(x => x.OrganizationId == orgId && x.ClientId == clientId && x.Status == "Analyzed")
+            .OrderByDescending(x => x.CompletedAtUtc)
+            .Select(x => x.AestheticProfileJson)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return !string.IsNullOrWhiteSpace(row);
+    }
+
+    /// <inheritdoc />
+    public async Task SetAestheticProfileJsonAsync(
+        Guid analysisId,
+        Guid organizationId,
+        string aestheticProfileJson,
+        CancellationToken cancellationToken = default)
+    {
+        var row = await _dbContext.ProfileAnalyses
+            .FirstOrDefaultAsync(
+                x => x.Id == analysisId && x.OrganizationId == organizationId,
+                cancellationToken);
+
+        if (row is null)
+        {
+            return;
+        }
+
+        row.AestheticProfileJson = aestheticProfileJson;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     // ── Mapping helpers ────────────────────────────────────────────────────────
 
     private static ProfileAnalysisData ToData(ProfileAnalysis analysis) => new()

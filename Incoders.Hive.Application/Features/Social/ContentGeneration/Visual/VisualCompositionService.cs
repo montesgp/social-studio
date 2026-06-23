@@ -71,13 +71,21 @@ public sealed class VisualCompositionService : IVisualCompositionService
         string formatKey,
         object generatedPayload,
         BrandSnapshot brand,
-        CancellationToken ct)
+        CancellationToken ct,
+        CarouselBackgroundPlan? plan = null)
     {
         _lastInferred = new InferenceAccumulator();
 
         if (!_composers.TryGetValue(NormalizeComposerKey(formatKey), out var composer))
         {
             throw new InvalidOperationException($"No visual composer registered for format key '{formatKey}'.");
+        }
+
+        // WU-4: When a pre-computed plan is available, thread it into plan-aware composers.
+        // CarouselVisualComposer and SurfaceScopedCarouselVisualComposer implement IBackgroundPlanAwareComposer.
+        if (plan is not null && composer is IBackgroundPlanAwareComposer planAware)
+        {
+            return Task.FromResult(planAware.ComposeMany(generatedPayload, brand, _lastInferred, plan));
         }
 
         // If the composer supports multi-asset composition, use it.

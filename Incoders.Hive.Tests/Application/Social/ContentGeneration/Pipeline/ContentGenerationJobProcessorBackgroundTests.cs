@@ -167,7 +167,7 @@ public sealed class ContentGenerationJobProcessorBackgroundTests
         var guardrails = new AlwaysPassGuardrails();
         var brand = BrandSnapshot.FromBrandData(
             new BrandManualSnapshot(
-                ColorPalette: ["#FFFFFF"],
+                ColorPalette: [new WeightedColor("#FFFFFF", null, 0)],
                 Logos: [],
                 BackgroundTemplates: [],
                 Typography: ["Inter"],
@@ -258,7 +258,8 @@ file sealed class HtmlOutputDesigner : IVisualDesigner
         VisualCompositionSpec contentPayload,
         BrandManualSnapshot brandSnapshot,
         BackgroundSelection backgroundSelection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null)
     {
         const string markup = """<div class="composition" data-format="story" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 data-slot="headline" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""";
         return Task.FromResult(Result.Success(new VisualDesignOutput(
@@ -287,7 +288,7 @@ file sealed class HtmlCompositionService(string designedFormat) : IVisualComposi
         return Task.FromResult(BuildSpec(formatKey));
     }
 
-    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct)
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
     {
         return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>([BuildSpec(formatKey)]);
     }

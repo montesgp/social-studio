@@ -138,7 +138,10 @@ public sealed class AiCompletionGateway : IAiCompletionGateway
                 request.InputJson,
                 request.PreferredProviderKey,
                 model,
-                OutputJsonSchema: outputSchema),
+                OutputJsonSchema: outputSchema,
+                // Phase 2 (CAG2): forward vision input on the primary call only (the json-repair
+                // retry below is text-only — it just needs to fix JSON shape, not re-see images).
+                Images: request.Images),
             cancellationToken);
 
         if (completion.IsFailure)

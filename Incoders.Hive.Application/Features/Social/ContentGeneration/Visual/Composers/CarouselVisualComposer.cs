@@ -3,7 +3,20 @@ using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Composers;
 
-internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAssetVisualComposer
+/// <summary>
+/// Visual composer for carousel formats. Produces one <see cref="VisualCompositionSpec"/>
+/// per slide in the carousel payload.
+///
+/// WU-4: implements <see cref="IBackgroundPlanAwareComposer"/> so the processor's pre-computed
+/// <see cref="CarouselBackgroundPlan"/> can be threaded in to eliminate the per-slide
+/// <c>BackgroundSelector.Select</c> call (C5 coherence fix). When a plan is provided, each
+/// slide's <c>AssetSlots["slide-N"].ImageUrl</c> is set from <c>plan.ForSlide(N)</c> rather
+/// than an independent selector call — ensuring composer and processor use the SAME decision.
+///
+/// Legacy path (no plan / IMultiAssetVisualComposer dispatch): falls back to
+/// <c>BackgroundSelector.Select</c> per slide, preserving pre-WU-4 behavior exactly.
+/// </summary>
+internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAssetVisualComposer, IBackgroundPlanAwareComposer
 {
     public string FormatKey => "carousel";
 
@@ -16,17 +29,41 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
         var specs = ComposeMany(generatedPayload, brand, inferred);
         return specs.Count > 0
             ? specs[0]
-            : BuildSlideSpec(brand, inferred, null, 1, "Carousel Title", string.Empty);
+            : BuildSlideSpec(brand, inferred, null, 1, "Carousel Title", string.Empty, backgroundSelection: null);
     }
 
     /// <summary>
-    /// Returns one <see cref="VisualCompositionSpec"/> per slide in the carousel payload.
-    /// The pipeline renders each spec independently, producing slide_1.png, slide_2.png, …
+    /// Returns one <see cref="VisualCompositionSpec"/> per slide — legacy path (no plan).
+    /// Each slide independently calls <c>BackgroundSelector.Select</c> (pre-WU-4 behavior).
     /// </summary>
     public IReadOnlyList<VisualCompositionSpec> ComposeMany(
         object generatedPayload,
         BrandSnapshot brand,
         InferenceAccumulator inferred)
+    {
+        return ComposeManyCore(generatedPayload, brand, inferred, plan: null);
+    }
+
+    /// <summary>
+    /// WU-4 C5: plan-aware path. Each slide reads <c>plan.ForSlide(slideIndex)</c> for its
+    /// background selection instead of calling <c>BackgroundSelector.Select</c>.
+    /// Both the asset slot URL and the designer's background input come from the same plan entry,
+    /// killing the divergence that existed between the two call sites (CG-COH-02).
+    /// </summary>
+    public IReadOnlyList<VisualCompositionSpec> ComposeMany(
+        object generatedPayload,
+        BrandSnapshot brand,
+        InferenceAccumulator inferred,
+        CarouselBackgroundPlan plan)
+    {
+        return ComposeManyCore(generatedPayload, brand, inferred, plan);
+    }
+
+    private IReadOnlyList<VisualCompositionSpec> ComposeManyCore(
+        object generatedPayload,
+        BrandSnapshot brand,
+        InferenceAccumulator inferred,
+        CarouselBackgroundPlan? plan)
     {
         var payload = PayloadReader.As<CarouselContent>(generatedPayload);
         if (payload is null || payload.Slides.Count == 0)
@@ -39,7 +76,14 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
         {
             var slide = payload.Slides[i];
             var slideIndex = i + 1; // 1-based
-            specs.Add(BuildSlideSpec(brand, inferred, slide, slideIndex, payload.CoverTitle, payload.CtaText));
+
+            // WU-4 C5: when a plan is available, read the per-slide selection from it.
+            // When no plan is provided (legacy path), call BackgroundSelector.Select independently.
+            BackgroundSelection? backgroundSelection = plan is not null
+                ? plan.ForSlide(slideIndex)
+                : null;
+
+            specs.Add(BuildSlideSpec(brand, inferred, slide, slideIndex, payload.CoverTitle, payload.CtaText, backgroundSelection));
         }
 
         return specs;
@@ -51,15 +95,18 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
         CarouselSlide? slide,
         int slideIndex,
         string coverTitle,
-        string ctaText)
+        string ctaText,
+        BackgroundSelection? backgroundSelection)
     {
         var palette = CompositionDefaults.ResolvePalette(brand, inferred);
         var typography = CompositionDefaults.ResolveTypography(brand, inferred);
 
-        // Tier-aware background selection (BG-03).
-        var templates = brand.Brand?.BackgroundTemplates ?? Array.Empty<BrandBackgroundTemplateSnapshot>();
-        var backgroundSelection = BackgroundSelector.Select(templates, FormatKey);
-        var (bgUrl, bgHint) = backgroundSelection switch
+        // WU-4 C5: use the pre-resolved selection when provided; fall back to the
+        // legacy 3-tier selector (BG-03) when null (no plan supplied by the processor).
+        var resolvedSelection = backgroundSelection
+            ?? SelectLegacy(brand);
+
+        var (bgUrl, bgHint) = resolvedSelection switch
         {
             BackgroundSelection.ForcedDefault fd => (fd.Url, fd.Name),
             BackgroundSelection.References refs when refs.Entries.Count > 0 =>
@@ -84,5 +131,15 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
                 ["cta"] = ctaText,
             },
             Dimensions: CompositionDefaults.CarouselDimensions);
+    }
+
+    /// <summary>
+    /// Legacy 3-tier background selector — called only when no pre-computed plan is available.
+    /// Preserved as a private helper so the legacy fallback path stays in one place.
+    /// </summary>
+    private static BackgroundSelection SelectLegacy(BrandSnapshot brand)
+    {
+        var templates = brand.Brand?.BackgroundTemplates ?? Array.Empty<BrandBackgroundTemplateSnapshot>();
+        return BackgroundSelector.Select(templates, "carousel");
     }
 }

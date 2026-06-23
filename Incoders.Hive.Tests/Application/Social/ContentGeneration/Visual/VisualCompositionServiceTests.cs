@@ -1,5 +1,6 @@
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
+using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Visual;
@@ -138,7 +139,14 @@ public sealed class VisualCompositionServiceTests
 
     private static BrandSnapshot BuildFullBrand() => BrandSnapshot.FromBrandData(
         brand: new BrandManualSnapshot(
-            ColorPalette: ["#FF5733", "#C70039", "#FFC300", "#000000", "#FFFFFF"],
+            ColorPalette:
+            [
+                new WeightedColor("#FF5733", ColorRole.Primary,   0),
+                new WeightedColor("#C70039", ColorRole.Secondary, 1),
+                new WeightedColor("#FFC300", ColorRole.Accent,    2),
+                new WeightedColor("#000000", ColorRole.Neutral,   3),
+                new WeightedColor("#FFFFFF", null,                4),
+            ],
             Logos: ["logo.png"],
             BackgroundTemplates:
             [

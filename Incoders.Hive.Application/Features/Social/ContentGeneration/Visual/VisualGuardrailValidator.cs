@@ -446,7 +446,7 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
     private static Result ValidatePalette(string markup, BrandManualSnapshot brand)
     {
         var brandPalette = brand.ColorPalette
-            .Select(c => NormalizeHex(c))
+            .Select(c => NormalizeHex(c.Hex))
             .Where(c => c is not null)
             .ToHashSet(StringComparer.OrdinalIgnoreCase)!;
 

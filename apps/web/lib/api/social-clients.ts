@@ -1,5 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
-import { PageResult, SocialClient } from "@/lib/api/types";
+import { BackgroundSourcingPolicy, PageResult, SocialClient } from "@/lib/api/types";
 
 export interface SocialClientsQuery {
   organizationId?: string;
@@ -13,6 +13,9 @@ export interface SocialClientPayload {
   name: string;
   description?: string | null;
   sectorOrNiche?: string | null;
+  backgroundSourcingPolicy?: BackgroundSourcingPolicy;
+  /** Per-client aesthetic refresh staleness threshold in days. Null/undefined = system default (30 days). */
+  aestheticRefreshThresholdDays?: number | null;
 }
 
 export interface DeletedSocialClient {

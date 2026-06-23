@@ -165,7 +165,7 @@ public sealed class ImputeProfileAnalysisHandler
         // Load-merge-write: start from existing state, override only selected targets
         var palette = targets.Contains(ProfileImputeTarget.ColorPalette)
             ? MapColorPalette(ai.DetectedBrandColors)
-            : [.. manual.ColorPalette.Select(c => new ColorEntryDto(c.Name, c.Hex, c.Role))];
+            : [.. manual.ColorPalette.Select(c => new ColorEntryDto(c.Name, c.Hex, c.Role, c.Rank))];
 
         var typography = targets.Contains(ProfileImputeTarget.Typography)
             ? MapTypography(ai.DetectedFonts)

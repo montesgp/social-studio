@@ -7,9 +7,16 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 /// </summary>
 public static class ContentGenerationPromptVersions
 {
-    public const string Carousel = "carousel.v2";
-    public const string Story = "story-single.v1";
-    public const string FeedPost = "feed-single.v1";
+    // WU-7: bumped after adding ConcisionConstraint to all three generators (CG-CON-04).
+    // WU-4 (CAG-CG-11): bumped after adding additive AestheticGuidance to all three generators.
+    // v5/v4: conditional CTA — never invent a call-to-action unless the client actually uses one.
+    // v6/v4/v5: client-directive precedence (particular→general) — brand-manual notes are authoritative
+    //           and override defaults (incl. prohibitions); style inference is the fallback for signature.
+    //           CTA is default-OFF: added ONLY on explicit user request or an explicit brand-manual
+    //           directive — never inferred from the analysis/style (the agent must not invent CTAs).
+    public const string Carousel = "carousel.v6";
+    public const string Story = "story-single.v4";
+    public const string FeedPost = "feed-single.v5";
     public const string ReelScript = "reel-script.v2";
     public const string ContentIdea = "content-idea.v2";
     public const string CtaVariation = "cta-variation.v2";

@@ -22,4 +22,10 @@ public sealed record GenerationContext(
     Guid CorrelationId,
     string AiProviderKey,
     string? AiModel,
-    string? RegenerationObjection = null);
+    string? RegenerationObjection = null,
+    /// <summary>
+    /// WU-4 (CAG-CG-07): aesthetic profile for CASE C (ClientAesthetic) jobs.
+    /// Null for all other policies — generators append no aesthetic guidance
+    /// (ConcisionConstraint is still emitted unchanged).
+    /// </summary>
+    ClientAestheticProfile? AestheticProfile = null);

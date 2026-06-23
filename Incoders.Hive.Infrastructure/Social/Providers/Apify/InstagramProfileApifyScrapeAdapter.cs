@@ -69,10 +69,13 @@ internal sealed class InstagramProfileApifyScrapeAdapter
     {
         if (IsOfficialApifyProfileActor(actorId))
         {
+            // The official actor's post-count knob is resultsLimit. Without it the actor returns its
+            // own small default (~12); passing it lets the per-client MaxPostsToAnalyze take effect.
             return new
             {
                 usernames = new[] { username },
-                includeAboutSection = false
+                includeAboutSection = false,
+                resultsLimit = maxPostsPerProfile
             };
         }
 
@@ -375,6 +378,34 @@ internal sealed class InstagramProfileApifyScrapeAdapter
         // hashtags: plain strings for Instagram (obs #513, same as obs 426 for single-video)
         var hashtags = ExtractHashtagStrings(postEl);
 
+        // CAG-PA-01: childrenCount — Carousel slide count reported by the actor.
+        // UNCONFIRMED in profile-scraper mode; captured best-effort.
+        // Fallback: try "children" or "sidecar" array length when "childrenCount" is absent.
+        // Applies to Carousel posts only; null for all other media types.
+        int? carouselChildrenCount = null;
+        var isCarousel = string.Equals(mediaType, "Carousel", StringComparison.OrdinalIgnoreCase);
+        if (isCarousel)
+        {
+            var directCount = GetInt(postEl, "childrenCount");
+            if (directCount.HasValue)
+            {
+                carouselChildrenCount = directCount;
+            }
+            else
+            {
+                // Fallback: count items in "children" or "sidecar" arrays
+                carouselChildrenCount = GetArrayLength(postEl, "children")
+                                        ?? GetArrayLength(postEl, "sidecar");
+            }
+        }
+
+        // CAG2-PA-01: capture image URLs (cover + carousel children) + caption when the actor returns
+        // them (e.g. apify/instagram-scraper resultsType=posts). Tolerant of absence: a metadata-only
+        // actor (e.g. instagram-profile-scraper) yields null — downstream aesthetic enrichment is then
+        // simply skipped (graceful degrade). These are transient provider URLs, re-hosted durably later.
+        var imageUrls = ExtractImageUrls(postEl);
+        var caption = GetString(postEl, "caption");
+
         return new ProfilePost(
             PostId: string.IsNullOrWhiteSpace(postId) ? Guid.NewGuid().ToString() : postId,
             MediaType: mediaType,
@@ -386,7 +417,57 @@ internal sealed class InstagramProfileApifyScrapeAdapter
             OwnerUsername: ownerUsername,
             IsPaidPartnership: GetBool(postEl, "isPaidPartnership"),
             IsDegraded: isDegraded,
-            Hashtags: hashtags);
+            Hashtags: hashtags,
+            CarouselChildrenCount: carouselChildrenCount,
+            ImageUrls: imageUrls,
+            Caption: caption);
+    }
+
+    /// <summary>
+    /// CAG2-PA-01: collects post image URLs — the cover (<c>displayUrl</c>) plus carousel children
+    /// from <c>childPosts</c>/<c>images</c>/<c>sidecar</c>/<c>children</c> arrays (objects with a
+    /// <c>displayUrl</c>/<c>url</c>, or plain string URLs). Returns null when none are present.
+    /// </summary>
+    private static IReadOnlyList<string>? ExtractImageUrls(JsonElement postEl)
+    {
+        var urls = new List<string>();
+
+        var cover = GetString(postEl, "displayUrl");
+        if (!string.IsNullOrWhiteSpace(cover))
+        {
+            urls.Add(cover);
+        }
+
+        foreach (var arrayName in new[] { "childPosts", "images", "sidecar", "children" })
+        {
+            if (!postEl.TryGetProperty(arrayName, out var arr) || arr.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (var item in arr.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                {
+                    var s = item.GetString();
+                    if (!string.IsNullOrWhiteSpace(s))
+                    {
+                        urls.Add(s);
+                    }
+                }
+                else if (item.ValueKind == JsonValueKind.Object)
+                {
+                    var u = GetString(item, "displayUrl") ?? GetString(item, "url");
+                    if (!string.IsNullOrWhiteSpace(u))
+                    {
+                        urls.Add(u);
+                    }
+                }
+            }
+        }
+
+        var distinct = urls.Distinct().ToList();
+        return distinct.Count > 0 ? distinct : null;
     }
 
     private static ProfileAggregatesRaw MapAggregates(
@@ -470,6 +551,38 @@ internal sealed class InstagramProfileApifyScrapeAdapter
 
     private static bool GetBool(JsonElement el, string key) =>
         el.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.True;
+
+    private static int? GetInt(JsonElement el, string key)
+    {
+        if (!el.TryGetProperty(key, out var v) || v.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (v.TryGetInt32(out var i32))
+        {
+            return i32;
+        }
+
+        // Accept floating-point encoded ints (e.g. 6.0)
+        if (v.TryGetDouble(out var d))
+        {
+            return (int)d;
+        }
+
+        return null;
+    }
+
+    private static int? GetArrayLength(JsonElement el, string key)
+    {
+        if (!el.TryGetProperty(key, out var v) || v.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var len = v.GetArrayLength();
+        return len > 0 ? len : null;
+    }
 
     private static bool LooksLikeProfileResult(JsonElement el)
     {

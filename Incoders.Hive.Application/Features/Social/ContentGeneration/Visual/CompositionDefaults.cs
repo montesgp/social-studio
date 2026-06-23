@@ -42,8 +42,8 @@ internal static class CompositionDefaults
     internal static CompositionPalette ResolvePalette(BrandSnapshot brand, InferenceAccumulator inferred)
     {
         var colors = brand.Brand?.ColorPalette
-            .Where(color => !string.IsNullOrWhiteSpace(color))
-            .Select(color => color.Trim())
+            .Where(wc => !string.IsNullOrWhiteSpace(wc.Hex))
+            .Select(wc => wc.Hex.Trim())
             .ToArray() ?? [];
 
         var hasPalette = colors.Length > 0;

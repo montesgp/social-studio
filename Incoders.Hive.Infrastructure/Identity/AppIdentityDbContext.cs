@@ -237,6 +237,28 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.Description).HasMaxLength(1_000);
             entity.Property(x => x.SectorOrNiche).HasMaxLength(300);
             entity.Property(x => x.IsActive).IsRequired();
+
+            // WU-6 §6.2: background sourcing policy — nullable smallint, stored as short? via
+            // HasConversion<short?>() so no EF enum type leaks into Domain/Application layers.
+            // NULL == Unset == legacy 3-tier behavior. Refs: design §10.1; BSP-07.
+            entity.Property(x => x.BackgroundSourcingPolicy)
+                .HasColumnName("background_sourcing_policy")
+                .HasColumnType("smallint")
+                .IsRequired(false);
+
+            // CAG-CS-01: per-client staleness threshold override — nullable smallint.
+            // NULL = use system default (30 days). Range 1–365 enforced in domain setter.
+            entity.Property(x => x.AestheticRefreshThresholdDays)
+                .HasColumnName("aesthetic_refresh_threshold_days")
+                .HasColumnType("smallint")
+                .IsRequired(false);
+
+            // Per-client profile posts-to-analyze override — nullable smallint. NULL = default (12).
+            entity.Property(x => x.MaxPostsToAnalyze)
+                .HasColumnName("max_posts_to_analyze")
+                .HasColumnType("smallint")
+                .IsRequired(false);
+
             entity.HasIndex(x => new { x.OrganizationId, x.Name });
             entity.HasOne(x => x.Organization)
                 .WithMany()
@@ -675,6 +697,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.ServerDerivedStatsJson).HasColumnName("server_derived_stats_json").HasColumnType("jsonb");
             entity.Property(x => x.ProfileSnapshotJson).HasColumnName("profile_snapshot_json").HasColumnType("jsonb");
             entity.Property(x => x.AiAnalysisJson).HasColumnName("ai_analysis_json").HasColumnType("jsonb");
+            entity.Property(x => x.AestheticProfileJson).HasColumnName("aesthetic_profile_json").HasColumnType("jsonb");
             entity.Property(x => x.ProviderDiagnosticsJson).HasColumnName("provider_diagnostics_json").HasColumnType("jsonb");
             entity.Property(x => x.FailureCode).HasColumnName("failure_code").HasMaxLength(128);
             entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();

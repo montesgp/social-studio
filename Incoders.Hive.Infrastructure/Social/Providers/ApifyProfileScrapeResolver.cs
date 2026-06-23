@@ -266,7 +266,8 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
         int attemptNumber,
         CancellationToken ct)
     {
-        var input = adapter.BuildProfileActorInput(actorId, username, maxPostsPerProfile: 12);
+        // Per-client posts-to-analyze override flows in via the request; default to 12 when unset.
+        var input = adapter.BuildProfileActorInput(actorId, username, maxPostsPerProfile: request.MaxPosts ?? 12);
         var body = JsonSerializer.Serialize(input, JsonOptions);
         var url = $"https://api.apify.com/v2/acts/{Uri.EscapeDataString(actorId)}/run-sync-get-dataset-items?token={Uri.EscapeDataString(apiKey)}";
 

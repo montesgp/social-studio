@@ -142,7 +142,13 @@ public static class SocialClientsEndpointsExtensions
         }
 
         var result = await sender.Send(
-            new CreateSocialClientCommand(organizationId.Value, body.Name, body.Description, body.SectorOrNiche),
+            new CreateSocialClientCommand(
+                organizationId.Value,
+                body.Name,
+                body.Description,
+                body.SectorOrNiche,
+                body.BackgroundSourcingPolicy,
+                body.AestheticRefreshThresholdDays),
             cancellationToken);
 
         return result.Match(client => TypedResults.Created($"/api/social/clients/{client.Id}", client));
@@ -161,7 +167,14 @@ public static class SocialClientsEndpointsExtensions
         }
 
         var result = await sender.Send(
-            new UpdateSocialClientCommand(id, organizationId.Value, body.Name, body.Description, body.SectorOrNiche),
+            new UpdateSocialClientCommand(
+                id,
+                organizationId.Value,
+                body.Name,
+                body.Description,
+                body.SectorOrNiche,
+                body.BackgroundSourcingPolicy,
+                body.AestheticRefreshThresholdDays),
             cancellationToken);
 
         return result.Match(client => (IResult)TypedResults.Ok(client));
@@ -216,6 +229,20 @@ public static class SocialClientsEndpointsExtensions
     }
 }
 
-public sealed record CreateSocialClientRequest(string Name, string? Description, string? SectorOrNiche = null);
+public sealed record CreateSocialClientRequest(
+    string Name,
+    string? Description,
+    string? SectorOrNiche = null,
+    // WU-8 (BSP-08): optional background sourcing policy. Null = Unset = legacy 3-tier default.
+    Domain.Social.Clients.BackgroundSourcingPolicy? BackgroundSourcingPolicy = null,
+    // WU-7 (CAG-CS-02): optional aesthetic refresh threshold in days. Null = system default (30 days).
+    int? AestheticRefreshThresholdDays = null);
 
-public sealed record UpdateSocialClientRequest(string Name, string? Description, string? SectorOrNiche = null);
+public sealed record UpdateSocialClientRequest(
+    string Name,
+    string? Description,
+    string? SectorOrNiche = null,
+    // WU-8 (BSP-08b): optional policy update. Null = leave current policy unchanged.
+    Domain.Social.Clients.BackgroundSourcingPolicy? BackgroundSourcingPolicy = null,
+    // WU-7 (CAG-CS-02): optional threshold update in days. Null = leave current threshold unchanged.
+    int? AestheticRefreshThresholdDays = null);

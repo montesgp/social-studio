@@ -16,7 +16,8 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Com
 /// In v1 both surfaces share the same templates so output is identical, but the plumbing
 /// is correct for future divergence (S5 per-surface-template guard).
 /// </summary>
-internal sealed class SurfaceScopedCarouselVisualComposer : IFormatVisualComposer, IMultiAssetVisualComposer
+/// <inheritdoc cref="CarouselVisualComposer"/>
+internal sealed class SurfaceScopedCarouselVisualComposer : IFormatVisualComposer, IMultiAssetVisualComposer, IBackgroundPlanAwareComposer
 {
     private readonly FormatDefinition _def;
     private readonly CarouselVisualComposer _inner;
@@ -59,6 +60,21 @@ internal sealed class SurfaceScopedCarouselVisualComposer : IFormatVisualCompose
         InferenceAccumulator inferred)
     {
         var specs = _inner.ComposeMany(generatedPayload, brand, inferred);
+        return specs.Select(s => s with { FormatKey = _def.FormatKey, Dimensions = Dimensions }).ToList();
+    }
+
+    /// <inheritdoc cref="IBackgroundPlanAwareComposer.ComposeMany"/>
+    /// <remarks>
+    /// WU-4: threads the plan to the inner <see cref="CarouselVisualComposer"/> so surface-scoped
+    /// carousels (story-carousel, feed-carousel) also benefit from the coherence refactor.
+    /// </remarks>
+    public IReadOnlyList<VisualCompositionSpec> ComposeMany(
+        object generatedPayload,
+        BrandSnapshot brand,
+        InferenceAccumulator inferred,
+        CarouselBackgroundPlan plan)
+    {
+        var specs = ((IBackgroundPlanAwareComposer)_inner).ComposeMany(generatedPayload, brand, inferred, plan);
         return specs.Select(s => s with { FormatKey = _def.FormatKey, Dimensions = Dimensions }).ToList();
     }
 }

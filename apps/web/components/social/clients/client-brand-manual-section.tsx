@@ -233,6 +233,14 @@ function toSafeHex(hex: string): string {
   return "#000000";
 }
 
+const COLOR_ROLE_OPTIONS = [
+  { value: "", label: "Unclassified" },
+  { value: "Primary", label: "Primary" },
+  { value: "Secondary", label: "Secondary" },
+  { value: "Accent", label: "Accent" },
+  { value: "Neutral", label: "Neutral" },
+];
+
 function ColorRow({
   entry,
   showValidationErrors,
@@ -280,12 +288,32 @@ function ColorRow({
           </div>
           {hexError && <p className="text-xs text-destructive">{hexError}</p>}
         </div>
-        <Input
-          placeholder="Role (optional)"
-          value={entry.role ?? ""}
-          onChange={(e) => onChange({ ...entry, role: e.target.value || null })}
-          className="w-28"
-        />
+        <div className="flex flex-col gap-1">
+          <select
+            value={entry.role ?? ""}
+            onChange={(e) => onChange({ ...entry, role: e.target.value || null })}
+            className="h-9 rounded-md border border-input bg-background px-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring w-32"
+            aria-label="Color role"
+          >
+            {COLOR_ROLE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <Input
+            type="number"
+            min={0}
+            max={99}
+            value={entry.rank ?? 0}
+            onChange={(e) => onChange({ ...entry, rank: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+            className="w-16"
+            aria-label="Rank within role (lower = higher priority)"
+            title="Rank (0 = highest priority within role)"
+          />
+        </div>
         <Button
           type="button"
           variant="ghost"
@@ -844,7 +872,7 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                   onClick={() =>
                     setForm((prev) => ({
                       ...prev,
-                      palette: [...prev.palette, { name: "", hex: "#000000", role: null }],
+                      palette: [...prev.palette, { name: "", hex: "#000000", role: null, rank: 0 }],
                     }))
                   }
                 >

@@ -1,0 +1,44 @@
+change: content-aesthetic-generation-phase-2
+status: apply-code-complete
+created_at: "2026-06-22"
+builds_on: content-aesthetic-generation
+apply_progress: "ALL FEATURE CODE COMPLETE end-to-end. Done: catalog optional step; WU-1..WU-10; AI gateway vision extension; WU-4 Apify media/caption mapping; WU-9 no-grey backstop + caption voice. Full test suite green (1817). Migration 20260622143516_Add_AestheticProfileJson generated but NOT applied to remote DB. Remaining = ops/config only: apply migration; configure Apify post-media actor + optional extract-aesthetic multimodal route; WU-12 ADR/docs/gates."
+
+artifacts:
+  proposal: openspec/changes/content-aesthetic-generation-phase-2/proposal.md
+  design: openspec/changes/content-aesthetic-generation-phase-2/design.md
+  tasks: openspec/changes/content-aesthetic-generation-phase-2/tasks.md
+  known_issues: openspec/changes/content-aesthetic-generation-phase-2/KNOWN-ISSUES.md
+  specs:
+    - openspec/changes/content-aesthetic-generation-phase-2/specs/content-generation/spec-delta.md
+    - openspec/changes/content-aesthetic-generation-phase-2/specs/profile-analysis/spec-delta.md
+    - openspec/changes/content-aesthetic-generation-phase-2/specs/background-sourcing-policy/spec-delta.md
+
+scope:
+  phase: 2
+  name: "Real visual fidelity for ClientAesthetic: capture client post images + captions, persist durably, multimodal multi-signal style extraction (creatives-first, palette OPTIONAL), feed real creatives into the AI visual designer, remove grey-default when no brand manual."
+
+decisions:
+  - "Creatives-first: the client's real post images/backgrounds are the PRIMARY signal; palette is optional and may be inconsequential — never fabricate a default palette."
+  - "For ClientAesthetic the feed IS the brand manual; a missing manual is valid, not a degrade to greys."
+  - "OQ-1 actor capability is a BLOCKING spike (WU-0): current persisted dataset is metadata-only (verified)."
+  - "Bounds (owner-tunable): N=18 posts, thumbnails (~1024px), reference cap 6 once-per-job."
+  - "Engine stays HTML/CSS -> raster; no image-generation/diffusion; no pixel template reuse; photographic feeds out of scope."
+  - "Non-blocking refresh-if-stale contract from Phase 1 preserved unchanged."
+
+non_goals:
+  - "Image-generation/diffusion models."
+  - "Pixel-perfect reuse of a client's exact post as a template (ClientDefinedSet territory)."
+  - "Photographic feeds (engine ceiling, documented)."
+  - "Blocking/waiting-for-analysis generation job state."
+  - "Changes to ClientDefinedSet / AiPalette behavior."
+
+open_questions:
+  - "OQ-1 actor choice — BLOCKING spike (WU-0)."
+  - "OQ-2/OQ-3/OQ-4 cost bounds — defaults set (N=18, thumbnails, cap 6), owner-tunable."
+  - "OQ-7 retention/privacy — keep latest analysis images only; owner-confirm."
+  - "OQ-8 weak/absent palette — derive colour freely from creatives; soft palette only."
+
+validation:
+  gates: PENDING
+  detail: "Planning only — no implementation. Gates run at apply/verify."

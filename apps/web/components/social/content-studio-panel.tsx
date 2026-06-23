@@ -190,6 +190,17 @@ function useVisualAutosaveRevision() {
   return { markEdited, markSaveNeeded, markSavedIfLatest, pendingRevision, savedRevisionRef };
 }
 
+/** Tracks the viewport height so the editable canvas can be sized to fit the screen, not just the column width. */
+function useViewportHeight() {
+  const [height, setHeight] = useState(() => (typeof window === "undefined" ? 0 : window.innerHeight));
+  useEffect(() => {
+    const onResize = () => setHeight(window.innerHeight);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return height;
+}
+
 export function ContentStudioPanel({ analysisId, clientId, token, onClose }: ContentStudioPanelProps) {
   const [set, setSet] = useState<ContentSet | null>(null);
   const [items, setItems] = useState<ContentItem[]>([]);
@@ -1397,6 +1408,10 @@ function InstagramPost({
   const { markEdited, markSaveNeeded, markSavedIfLatest, pendingRevision, savedRevisionRef } =
     useVisualAutosaveRevision();
 
+  const viewportHeight = useViewportHeight();
+  // Budget ~68% of the viewport for the editable media so the tall 4:5 portrait is large enough to edit
+  // comfortably while leaving room for the slide strip and the caption editor below.
+  const feedMaxHeight = viewportHeight > 0 ? Math.round(viewportHeight * 0.68) : undefined;
   const total = envelopes.length;
   const idx = total === 0 ? 0 : Math.min(current, total - 1);
   const slide = envelopes[idx];
@@ -1480,9 +1495,9 @@ function InstagramPost({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Cap the post width like Instagram web (image ~470px + sidebar) so the preview fits the
-          viewport height instead of growing to the full panel width and forcing a vertical scroll. */}
-      <div className="mx-auto w-full max-w-[840px] overflow-hidden rounded-xl border border-border bg-background shadow-sm md:flex md:items-stretch">
+      {/* Instagram-web post: a large editable portrait + the engagement sidebar. The media is sized to
+          the viewport height (see feedMaxHeight) so it is big enough to edit without forcing a scroll. */}
+      <div className="mx-auto w-full max-w-[1040px] overflow-hidden rounded-xl border border-border bg-background shadow-sm md:flex md:items-stretch">
         {/* Media (editable design) */}
         <div className="relative flex min-w-0 flex-1 items-start justify-center bg-black">
           <div className="relative w-full">
@@ -1496,6 +1511,7 @@ function InstagramPost({
                 canEdit={canEdit}
                 onDirty={markEdited}
                 fallbackImageUrl={slide?.flattenedImageRef ?? null}
+                maxHeight={feedMaxHeight}
               />
             ) : (
               <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
@@ -1518,17 +1534,6 @@ function InstagramPost({
                 >
                   ›
                 </button>
-                <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1.5">
-                  {envelopes.map((_, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      aria-label={`Slide ${i + 1}`}
-                      onClick={() => goTo(i)}
-                      className={cn("h-1.5 rounded-full transition-all", i === idx ? "w-4 bg-white" : "w-1.5 bg-white/50")}
-                    />
-                  ))}
-                </div>
               </>
             ) : null}
           </div>
@@ -1569,6 +1574,8 @@ function InstagramPost({
         </div>
       </div>
 
+      {total > 1 ? <SlideThumbnails envelopes={envelopes} idx={idx} onSelect={goTo} /> : null}
+
       {canEdit ? (
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">Click a text to select it, drag to move, double-click to edit.</p>
@@ -1590,6 +1597,110 @@ function InstagramPost({
             </Button>
           ) : null}
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Carousel filmstrip: a clickable preview of every slide so the user can see what is coming next and
+ * jump straight to any slide — like the slide rail in Canva. The active slide is highlighted.
+ */
+function SlideThumbnails({
+  envelopes,
+  idx,
+  onSelect,
+}: {
+  envelopes: Envelope[];
+  idx: number;
+  onSelect: (target: number) => void;
+}) {
+  return (
+    <div className="mx-auto flex w-full max-w-[1040px] items-center gap-2 overflow-x-auto pb-1">
+      {envelopes.map((envelope, i) => {
+        const slideWidth = envelope.canvas?.width ?? 1080;
+        const slideHeight = envelope.canvas?.height ?? 1350;
+        return (
+          <button
+            key={i}
+            type="button"
+            aria-label={`Go to slide ${i + 1}`}
+            aria-current={i === idx}
+            onClick={() => onSelect(i)}
+            className={cn(
+              "relative shrink-0 overflow-hidden rounded-md border-2 transition-colors",
+              i === idx ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/50",
+            )}
+            style={{ width: 76, height: Math.round((76 * slideHeight) / slideWidth) }}
+          >
+            <SlideThumbnail
+              markup={envelope.markup ?? ""}
+              fallbackImageUrl={envelope.flattenedImageRef ?? null}
+              width={slideWidth}
+              height={slideHeight}
+            />
+            <span className="absolute bottom-0.5 left-0.5 rounded bg-black/55 px-1 text-[10px] font-medium leading-tight text-white">
+              {i + 1}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A non-interactive, scaled-down render of a single slide's markup, used inside the carousel filmstrip. */
+function SlideThumbnail({
+  markup,
+  fallbackImageUrl,
+  width,
+  height,
+}: {
+  markup: string;
+  fallbackImageUrl: string | null;
+  width: number;
+  height: number;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const shadowRef = useRef<ShadowRoot | null>(null);
+  const [scale, setScale] = useState(0);
+  const hasMarkup = markup.trim().length > 0;
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !hasMarkup) return;
+    const shadow = shadowRef.current ?? host.attachShadow({ mode: "open" });
+    shadowRef.current = shadow;
+    shadow.innerHTML = `
+      <style>
+        :host { all: initial; display: block; }
+        *, *::before, *::after { box-sizing: border-box; }
+        [data-cs-thumb-root] { position: relative; overflow: hidden; background: #fff; }
+        .composition { position: relative; }
+      </style>
+      <div data-cs-thumb-root>${sanitizeDesignMarkup(markup)}</div>`;
+  }, [markup, hasMarkup]);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const update = () => setScale(el.clientWidth / width);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [width]);
+
+  return (
+    <div ref={boxRef} className="relative h-full w-full overflow-hidden bg-white">
+      {hasMarkup ? (
+        <div
+          ref={hostRef}
+          style={{ width, height, transform: `scale(${scale})`, transformOrigin: "top left" }}
+        />
+      ) : fallbackImageUrl ? (
+        <img src={fallbackImageUrl} alt="" aria-hidden="true" className="h-full w-full object-cover" />
       ) : null}
     </div>
   );
@@ -1640,18 +1751,25 @@ function AssetFallbackImage({ item, token, assetIndex }: { item: ContentItem; to
   );
 }
 
-/** Picks the editable element under a click — any element except the layout wrappers / background. */
+/** The full-bleed art layer (`data-layer="background"`): selectable to recolor its fill, but never dragged. */
+function isBackgroundLayer(el: HTMLElement): boolean {
+  return el.getAttribute("data-layer") === "background" || el.classList.contains("layer-background");
+}
+
+/** The text-only wrapper (`data-layer="content"`): a pure layout wrapper, never directly selectable. */
+function isContentLayer(el: HTMLElement): boolean {
+  return el.getAttribute("data-layer") === "content" || el.classList.contains("layer-content");
+}
+
+/**
+ * Picks the editable element under a click. Text slots and decorative shapes are draggable/editable;
+ * the background layer is selectable too — so its base fill can be recolored — but the pointer handler
+ * never lets it move or resize. Only the structural wrappers (composition root, content layer) are inert.
+ */
 function pickElement(node: Node, root: HTMLElement): HTMLElement | null {
   const el = node instanceof HTMLElement ? node : (node.parentElement as HTMLElement | null);
   if (!el || !root.contains(el) || el === root) return null;
-  if (
-    el.hasAttribute("data-layer") ||
-    el.classList.contains("composition") ||
-    el.classList.contains("layer-content") ||
-    el.classList.contains("layer-background")
-  ) {
-    return null;
-  }
+  if (el.classList.contains("composition") || isContentLayer(el)) return null;
   return el;
 }
 
@@ -1699,8 +1817,18 @@ function sanitizeDesignMarkup(markup: string): string {
  */
 const DesignCanvas = forwardRef<
   DesignCanvasHandle,
-  { markup: string; width: number; height: number; canEdit: boolean; onDirty: () => void; fallbackImageUrl?: string | null }
->(function DesignCanvas({ markup, width, height, canEdit, onDirty, fallbackImageUrl }, ref) {
+  {
+    markup: string;
+    width: number;
+    height: number;
+    canEdit: boolean;
+    onDirty: () => void;
+    fallbackImageUrl?: string | null;
+    /** Caps the rendered height (px) so a tall portrait fits the screen instead of forcing a long scroll. */
+    maxHeight?: number;
+  }
+>(function DesignCanvas({ markup, width, height, canEdit, onDirty, fallbackImageUrl, maxHeight }, ref) {
+  const measureRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const shadowRef = useRef<ShadowRoot | null>(null);
@@ -1708,6 +1836,7 @@ const DesignCanvas = forwardRef<
   const scaleRef = useRef(0);
   const [scale, setScale] = useState(0);
   const selectedRef = useRef<HTMLElement | null>(null);
+  const [selIsBackground, setSelIsBackground] = useState(false);
   const [selRect, setSelRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const dragRef = useRef<
     | { mode: "move"; el: HTMLElement; sx: number; sy: number; left: number; top: number; moved: boolean }
@@ -1738,10 +1867,13 @@ const DesignCanvas = forwardRef<
   }, [markup]);
 
   useEffect(() => {
-    const el = containerRef.current;
+    const el = measureRef.current;
     if (!el) return;
     const update = () => {
-      const sc = el.clientWidth / width;
+      // Scale to the available column width, then clamp by the height budget so the 4:5/9:16 portrait
+      // stays inside the viewport. The aspect ratio is preserved either way — only the scale changes.
+      let sc = el.clientWidth / width;
+      if (maxHeight && maxHeight > 0 && height * sc > maxHeight) sc = maxHeight / height;
       scaleRef.current = sc;
       setScale(sc);
     };
@@ -1749,7 +1881,7 @@ const DesignCanvas = forwardRef<
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [width]);
+  }, [width, height, maxHeight]);
 
   const positionToolbar = useCallback((target: HTMLElement | null) => {
     const cont = containerRef.current;
@@ -1773,8 +1905,9 @@ const DesignCanvas = forwardRef<
       if (target) {
         target.style.outline = "2px solid #6366f1";
         target.style.outlineOffset = "1px";
-        target.style.cursor = "move";
+        target.style.cursor = isBackgroundLayer(target) ? "default" : "move";
       }
+      setSelIsBackground(target ? isBackgroundLayer(target) : false);
       positionToolbar(target);
     },
     [positionToolbar],
@@ -1792,6 +1925,11 @@ const DesignCanvas = forwardRef<
       if (!target) return;
       if (target.isContentEditable) return; // editing text — let the caret work
       select(target);
+      if (isBackgroundLayer(target)) {
+        // Background is selectable (recolor its fill via the toolbar) but must never move or resize.
+        e.preventDefault();
+        return;
+      }
       ensurePositioned(target);
       dragRef.current = {
         mode: "move",
@@ -1839,7 +1977,7 @@ const DesignCanvas = forwardRef<
       const root = designRef.current;
       if (!root) return;
       const target = pickElement(e.target as Node, root);
-      if (!target) return;
+      if (!target || isBackgroundLayer(target)) return; // background has no text to edit in place
       target.contentEditable = "true";
       select(target);
       target.focus();
@@ -1911,11 +2049,12 @@ const DesignCanvas = forwardRef<
   };
 
   return (
+    <div ref={measureRef} className="w-full">
     <div
       data-cs-canvas
       ref={containerRef}
-      className="relative w-full overflow-hidden bg-white"
-      style={{ height: scale > 0 ? height * scale : undefined }}
+      className="relative mx-auto overflow-hidden bg-white"
+      style={{ width: scale > 0 ? width * scale : "100%", height: scale > 0 ? height * scale : undefined }}
     >
       <div
         ref={hostRef}
@@ -1937,6 +2076,7 @@ const DesignCanvas = forwardRef<
       ) : null}
       {selRect ? (
         <>
+        {!selIsBackground ? (
         <div
           data-cs-handle
           onPointerDown={(e) => {
@@ -1958,6 +2098,7 @@ const DesignCanvas = forwardRef<
           className="absolute z-20 h-3.5 w-3.5 cursor-nwse-resize rounded-sm border-2 border-white bg-indigo-500 shadow"
           style={{ top: selRect.top + selRect.height - 7, left: selRect.left + selRect.width - 7 }}
         />
+        ) : null}
         <div
           data-cs-toolbar
           className="absolute z-10 flex items-center gap-0.5 rounded-md border border-border bg-background p-1 shadow-lg"
@@ -2050,6 +2191,7 @@ const DesignCanvas = forwardRef<
         </div>
         </>
       ) : null}
+    </div>
     </div>
   );
 });

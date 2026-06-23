@@ -48,7 +48,7 @@ public sealed class ClientBrandSnapshotLoaderTests : IDisposable
             ClientId = clientId,
             OrganizationId = orgId,
             Title = "Brand 2026",
-            ColorPalette = new() { new("Primary", "#FF0000", null) },
+            ColorPalette = new() { new("Primary", "#FF0000", null, 0) },
             Logos = new(),
             BackgroundTemplates = new()
             {

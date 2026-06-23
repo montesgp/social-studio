@@ -276,6 +276,14 @@ public sealed class AnalyzeProfileHandlerTests
         public Task<bool> DeleteAsync(
             Guid analysisId, Guid organizationId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
+
+        public Task<DateTime?> GetLatestAnalyzedCompletedAtAsync(
+            Guid orgId, Guid clientId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<DateTime?>(null);
+
+        public Task<bool> HasNonTerminalAnalysisForClientAsync(
+            Guid orgId, Guid clientId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
     }
 
     private sealed class FakeClientOwnAccountRepository : IClientOwnAccountRepository

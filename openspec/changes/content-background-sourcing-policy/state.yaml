@@ -1,0 +1,71 @@
+change: content-background-sourcing-policy
+status: apply-complete
+completed_at: null
+adr: docs/architecture/adr/0005-background-sourcing-strategy-port.md
+
+artifacts:
+  proposal: openspec/changes/content-background-sourcing-policy/proposal.md
+  design: null
+  tasks: openspec/changes/content-background-sourcing-policy/tasks.md
+  diagram: null
+  specs:
+    - openspec/changes/content-background-sourcing-policy/specs/background-sourcing-policy/spec.md
+    - openspec/changes/content-background-sourcing-policy/specs/content-generation/spec-delta.md
+    - openspec/changes/content-background-sourcing-policy/specs/profile-analysis/spec-delta.md
+  merged_specs:
+    - openspec/specs/background-sourcing-policy/spec.md
+    - openspec/specs/content-generation/spec.md
+    - openspec/specs/profile-analysis/spec.md
+
+scope:
+  phase: 1
+  name: "Per-client background sourcing policy (decision tree A/B/C) + carousel coherence + color-role scale + advisory concision"
+  roadmap:
+    - phase: 2
+      name: "CASE C full image pipeline (Apify post-image URLs)"
+      status: deferred
+      notes: >
+        Requires extending the Apify scraper to capture per-post image URLs. NOT confirmed
+        that the currently configured Apify actors can return post background images — open
+        dependency to investigate before committing. This change ships the text-descriptor
+        seam only (ProfileAiAnalysis.DetectedBackgroundImages).
+    - phase: 3
+      name: "CASE D concrete strategies"
+      status: deferred
+      notes: "Only the extensibility seam (strategy/policy, open-closed) ships now; new cases plug in without reworking A/B/C."
+
+decisions:
+  - "CASE C is seam-ready only: text descriptors as aesthetic guidance; real image URLs deferred."
+  - "Concision is advisory/prompt-only: log violations, do not hard-reject AI output; bump ContentGenerationPromptVersions."
+  - "ColorEntry.Role becomes a structured ordered model (enum + rank); propagated through BrandManualSnapshot into the AI designer; requires a migration."
+  - "Policy lives at client level (applies regardless of active brand-manual version); existing clients default to legacy 3-tier behavior."
+  - "Carousel coherence fixed via one shared CarouselBackgroundPlan computed before the slide loop; both call sites reconciled."
+
+non_goals:
+  - "CASE C full image pipeline (Apify post-image URLs)."
+  - "Hard concision validation / length validator."
+  - "CASE D concrete strategies (seam only)."
+
+open_questions:
+  - "OQ-1 CASE A multi-background selection: deterministic vs random within a consistent style family."
+  - "OQ-2 Color-role UI representation (enum + rank vs ordered list)."
+  - "OQ-3 CASE C text-descriptor sufficiency for MVP; Apify image-URL investigation as follow-up trigger."
+  - "OQ-4 Policy placement: Client field vs ClientGenerationPolicy sibling aggregate."
+  - "OQ-5 BackgroundSelection.ClientAesthetic / CarouselBackgroundPlan variant vs separate channel."
+  - "OQ-6 Policy interaction with regeneration/RegenerationObjection on retry."
+
+risks:
+  - "Carousel coherence regression when moving to a pre-loop shared plan (two call sites)."
+  - "BrandManualSnapshot.ColorPalette is a frozen hex-only contract; structured role is a coordinated breaking change across all snapshot consumers."
+  - "Prompt-version bump token spike (invalidates cached AI outputs)."
+  - "Apify actor uncertainty for CASE C full image path (open dependency)."
+  - "Policy default mapping for existing clients must be explicit in spec."
+
+validation:
+  gates: PENDING
+  detail: "Proposal phase only — no implementation; gates run at apply/verify."
+
+delivery:
+  strategy: ask-on-risk
+  target_branch: dev
+  branch: feat/content-format-taxonomy
