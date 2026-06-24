@@ -192,7 +192,24 @@ public sealed class IntegrationCatalogSeeder
                 new IntegrationCredentialField("access_token", "Access token", true, true, null, "Meta/Instagram access token"),
                 new IntegrationCredentialField("account_id", "Account ID", false, true, null, "Instagram business account id")
             ],
-            [])
+            []),
+        // OpenAI as a MediaGeneration provider — same API key credential reused.
+        // Seeded separately from the AiModel entry so the Integrations routing UI can present
+        // OpenAI as an option for the generate-image step (category = MediaGeneration).
+        // The existing org OpenAI integration credential (api_key) is shared; no new secret needed.
+        new(
+            new Guid("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"),
+            "openai",
+            "OpenAI",
+            IntegrationProviderCategory.MediaGeneration,
+            "OpenAI image generation (DALL·E 3 / gpt-image-1) for ClientAesthetic carousel creative slides.",
+            "openai",
+            true,
+            true,
+            false,
+            false,
+            [new IntegrationCredentialField("api_key", "API key", true, true, "sk-...", "Organization-scoped OpenAI API key")],
+            ["dall-e-3", "gpt-image-1"])
     ];
 
     private readonly IIntegrationProviderCatalogRepository _providers;

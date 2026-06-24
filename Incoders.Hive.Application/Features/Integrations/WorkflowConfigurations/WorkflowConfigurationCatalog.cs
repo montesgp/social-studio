@@ -52,6 +52,21 @@ public static class WorkflowConfigurationCatalog
                             AllowedProviderKeys: [],
                             SupportsModelSelection: true,
                             SupportsActorSelection: false,
+                            ActorVariantKey: null),
+                        new(
+                            "generate-image",
+                            "Generate images with AI",
+                            "ai-image",
+                            "AI image generation",
+                            "OPTIONAL. Choose the AI image provider/model that generates raster backgrounds for " +
+                            "ClientAesthetic carousel creative slides. Leave unconfigured to use CSS designer " +
+                            "backgrounds for all slides.",
+                            RequiresNetwork: false,
+                            SupportedNetworkKeys: [],
+                            AllowedProviderCategories: [IntegrationProviderCategory.MediaGeneration],
+                            AllowedProviderKeys: [],
+                            SupportsModelSelection: true,
+                            SupportsActorSelection: false,
                             ActorVariantKey: null)
                     ]),
                 new(

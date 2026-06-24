@@ -1,7 +1,7 @@
 change: content-image-generation
-status: tasks
-completed_at: null
-adr: null
+status: apply-complete
+completed_at: "2026-06-24"
+adr: docs/architecture/adr/0007-image-generation-gateway-port.md
 
 artifacts:
   proposal: openspec/changes/content-image-generation/proposal.md
@@ -13,7 +13,19 @@ artifacts:
     - openspec/changes/content-image-generation/specs/content-generation/spec-delta.md
     - openspec/changes/content-image-generation/specs/background-sourcing-policy/spec-delta.md
     - openspec/changes/content-image-generation/specs/integrations/spec-delta.md
-  merged_specs: []
+  merged_specs:
+    - target: openspec/specs/image-generation/spec.md
+      source: openspec/changes/content-image-generation/specs/image-generation/spec.md
+      merged_at: "2026-06-24"
+    - target: openspec/specs/content-generation/spec.md
+      source: openspec/changes/content-image-generation/specs/content-generation/spec-delta.md
+      merged_at: "2026-06-24"
+    - target: openspec/specs/background-sourcing-policy/spec.md
+      source: openspec/changes/content-image-generation/specs/background-sourcing-policy/spec-delta.md
+      merged_at: "2026-06-24"
+    - target: openspec/specs/integrations/spec.md
+      source: openspec/changes/content-image-generation/specs/integrations/spec-delta.md
+      merged_at: "2026-06-24"
 
 scope:
   phase: 1
@@ -74,4 +86,4 @@ validation:
 delivery:
   strategy: ask-on-risk
   target_branch: dev
-  branch: feat/content-format-taxonomy
+  branch: feat/content-image-generation

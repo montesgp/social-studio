@@ -4,6 +4,7 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
@@ -76,6 +77,7 @@ public sealed class ContentGenerationJobProcessor
     private readonly IClientAestheticDescriptorReader? _aestheticDescriptorReader;
     private readonly IClientAestheticProfileReader? _aestheticProfileReader;
     private readonly IClientAestheticEnsureFreshService? _aestheticEnsureFreshService;
+    private readonly IClientAestheticImageBackgroundService? _imageBackgroundService;
 
     public ContentGenerationJobProcessor(
         IContentGenerationJobRepository jobs,
@@ -108,7 +110,11 @@ public sealed class ContentGenerationJobProcessor
         // WU-4 (CAG-CG-04): non-blocking ensure-fresh service for CASE C jobs.
         // Injected optionally so existing call sites and unit tests compile without change.
         // When null, the ensure-fresh step is skipped (no staleness check, no enqueue).
-        IClientAestheticEnsureFreshService? aestheticEnsureFreshService = null)
+        IClientAestheticEnsureFreshService? aestheticEnsureFreshService = null,
+        // WU-8 (CIG-CG-01..04, IMG-05, IMG-06): creative-background producer for ClientAesthetic carousels.
+        // NULLABLE: when null (no IMAGE route, policy ≠ ClientAesthetic, or service not registered) the
+        // existing CSS designer path runs unchanged — rollback-safe. See design §4.1.
+        IClientAestheticImageBackgroundService? imageBackgroundService = null)
     {
         _jobs = jobs;
         _analyses = analyses;
@@ -135,6 +141,7 @@ public sealed class ContentGenerationJobProcessor
         _aestheticDescriptorReader = aestheticDescriptorReader;
         _aestheticProfileReader = aestheticProfileReader;
         _aestheticEnsureFreshService = aestheticEnsureFreshService;
+        _imageBackgroundService = imageBackgroundService;
     }
 
     public async Task ProcessAsync(Guid jobId, CancellationToken ct)
@@ -391,15 +398,6 @@ public sealed class ContentGenerationJobProcessor
                         ClientAestheticDescriptors: aestheticDescriptors));
                 }
 
-                // Fan-out: carousel returns N specs, single-asset formats return 1 spec.
-                // The plan (when available) is threaded into the composer so asset slot URLs
-                // reflect the same per-slide background decision enforced below (CG-COH-02).
-                var specs = await _composer.ComposeManyAsync(formatKey, step.Payload, brand, ct, backgroundPlan);
-                foreach (var f in _composer.GetInferredFields())
-                {
-                    inferred.Add(f);
-                }
-
                 var formatRendered = false;
                 var formatStorageFailed = false;
                 var formatAssetRows = new List<FormatAssetRow>();
@@ -416,6 +414,106 @@ public sealed class ContentGenerationJobProcessor
                 formatResultId = existingByFormat.TryGetValue(formatKey, out var existingResult)
                     ? existingResult.Id
                     : Guid.NewGuid();
+
+                // WU-8 (CIG-CG-01..04, IMG-05, IMG-06): creative-background build step.
+                // For ClientAesthetic CAROUSEL formats with an image background service registered:
+                //   1. Resolve the creative slide indices for this format's slide count.
+                //   2. If non-empty, call BuildCreativeBackgroundsAsync (returns only successes).
+                //   3. Overlay ForcedDefault onto the plan for each successful creative slide.
+                //
+                // FIX-1: a ProviderCallContext scope MUST be active around this call because
+                // BuildCreativeBackgroundsAsync transitively invokes both IAiCompletionGateway
+                // (ImagePromptWriter) and IImageGenerationGateway — both wrapped by instrumentation
+                // decorators that throw when ProviderCallContext.Current is null. The scope mirrors
+                // the designer scope opened in the per-slide loop below (same arguments/source).
+                //
+                // FIX-2 (CG-COH-02): this block runs BEFORE ComposeManyAsync so the overlay is
+                // applied to backgroundPlan first, and ComposeManyAsync receives the AI URLs rather
+                // than the stale CSS plan — keeping the composed spec coherent with the designer path.
+                //
+                // FIX-6: scoped to carousel-layout formats only (the feature is carousel-specific).
+                // Non-carousel ClientAesthetic formats use the CSS designer path unchanged.
+                //
+                // Resilience (IMG-05): any non-cancellation exception from the service is caught, logged
+                // as a warning, and results in an empty map — all slides degrade to the CSS designer path.
+                // The CSS path MUST remain byte-for-byte unchanged when service is null or policy ≠ ClientAesthetic.
+                if (preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
+                    && _imageBackgroundService is not null
+                    && backgroundPlan is not null
+                    && aestheticProfile is not null
+                    && FormatCatalog.ResolveForAssembly(formatKey)?.Layout == Layout.Carousel)
+                {
+                    var formatSlideCount = TryGetSlideCount(step.Payload, formatKey);
+                    var creativeIndices = CreativeSlideIndexResolver.Resolve(
+                        aestheticProfile.CreativeSlideIndices, formatSlideCount);
+
+                    if (creativeIndices.Count > 0)
+                    {
+                        IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault> creativeMap;
+                        try
+                        {
+                            var imgRequest = new ClientAestheticImageRequest(
+                                OrganizationId: job.OrganizationId,
+                                ClientId: effectiveClientId,
+                                JobId: job.Id,
+                                FormatResultId: formatResultId,
+                                FormatKey: formatKey,
+                                SlideCount: formatSlideCount,
+                                CreativeSlideIndices: creativeIndices,
+                                Aesthetic: aestheticProfile,
+                                PerSlideCopySummaries: []);   // v1: empty; full copy threading is a follow-up
+
+                            // FIX-1: open a ProviderCallContext scope so both gateways
+                            // (IAiCompletionGateway for the prompt-writer, IImageGenerationGateway for
+                            // image render) have an active context. The scope mirrors the designer scope
+                            // in the per-slide loop below (same workflow/org/client arguments).
+                            using (_providerCallContext.Begin(
+                                job.OrganizationId,
+                                effectiveClientId,
+                                workflowKey: "content-generation",
+                                pipelineStepKey: $"image-background:{formatKey}",
+                                promptVersion: "image-gen/v1",
+                                correlationId: job.CorrelationId))
+                            {
+                                creativeMap = await _imageBackgroundService.BuildCreativeBackgroundsAsync(
+                                    imgRequest, ct);
+                            }
+                        }
+                        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                        {
+                            // FIX-3: genuine job cancellation — re-throw so the job aborts cleanly
+                            // rather than silently continuing with CSS backgrounds.
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            // IMG-05: exception isolation — log warning; all slides degrade to CSS.
+                            _logger.LogWarning(ex,
+                                "ContentGeneration: image background service threw for format {FormatKey} " +
+                                "(job {JobId}). All slides will degrade to the CSS designer background.",
+                                formatKey, job.Id);
+                            creativeMap = new Dictionary<int, BackgroundSelection.ForcedDefault>();
+                        }
+
+                        if (creativeMap.Count > 0)
+                        {
+                            // FIX-2: overlay applied to backgroundPlan BEFORE ComposeManyAsync runs
+                            // so the composer receives AI URLs, not the stale CSS plan (CG-COH-02).
+                            backgroundPlan = backgroundPlan.WithForcedDefaults(creativeMap);
+                        }
+                    }
+                }
+
+                // Fan-out: carousel returns N specs, single-asset formats return 1 spec.
+                // The plan (when available) is threaded into the composer so asset slot URLs
+                // reflect the same per-slide background decision enforced below (CG-COH-02).
+                // FIX-2: ComposeManyAsync runs AFTER the ForcedDefaults overlay above so the
+                // composer sees AI image URLs for creative slides, not the stale CSS plan.
+                var specs = await _composer.ComposeManyAsync(formatKey, step.Payload, brand, ct, backgroundPlan);
+                foreach (var f in _composer.GetInferredFields())
+                {
+                    inferred.Add(f);
+                }
 
                 for (var specIndex = 0; specIndex < specs.Count; specIndex++)
                 {
@@ -734,6 +832,11 @@ public sealed class ContentGenerationJobProcessor
                     // Storage failed — record as render failure (no asset row written).
                     await PersistRenderFailureAsync(job.Id, formatKey, step, "storage-upload-failed", ct);
                 }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // FIX-3: propagate genuine job cancellation — do not swallow it as a render failure.
+                throw;
             }
             catch (Exception ex)
             {

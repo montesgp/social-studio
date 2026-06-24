@@ -48,4 +48,9 @@ public sealed record ClientAestheticProfile(
     // Caption-derived voice/copy style, distinct from the Phase 1 VoiceTone narrative signal.
     string? CaptionVoice = null,
     // Durable references to the client's real post images — the PRIMARY (creatives-first) signal.
-    IReadOnlyList<Domain.Social.ProfileAnalysis.ProfilePostImageRef>? ReferenceImages = null);
+    IReadOnlyList<Domain.Social.ProfileAnalysis.ProfilePostImageRef>? ReferenceImages = null,
+    // WU-2 (content-image-generation): 1-based slide indices that should receive a generated
+    // raster background. When null → default = { first, last } (see CreativeSlideIndexResolver).
+    // Additive trailing nullable: all existing construction sites and `with` expressions compile unchanged.
+    // Design §0 OQ-1; no EF migration required (read-side projection, not a persisted aggregate).
+    IReadOnlyList<int>? CreativeSlideIndices = null);

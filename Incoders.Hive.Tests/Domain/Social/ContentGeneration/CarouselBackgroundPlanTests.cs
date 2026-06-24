@@ -172,4 +172,99 @@ public sealed class CarouselBackgroundPlanTests
 
         Assert.Equal(h1, h2);
     }
+
+    // -----------------------------------------------------------------------
+    // WU-8.4: WithForcedDefaults — overlays ForcedDefault onto creative slots
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void WithForcedDefaults_OverridesSpecifiedSlides_LeavesOthersUnchanged()
+    {
+        // GIVEN a 5-slide plan where all slides are ClientAesthetic
+        var perSlide = Enumerable.Range(1, 5)
+            .Select(_ => (BackgroundSelection) new BackgroundSelection.Creative())
+            .ToList();
+        var plan = new CarouselBackgroundPlan(BackgroundSourcingPolicy.ClientAesthetic, perSlide, "seed");
+
+        // AND a map that supplies ForcedDefault for slides 1 and 5
+        var map = new Dictionary<int, BackgroundSelection.ForcedDefault>
+        {
+            [1] = new BackgroundSelection.ForcedDefault("https://storage.example.com/slide1.png", "ai-generated-background"),
+            [5] = new BackgroundSelection.ForcedDefault("https://storage.example.com/slide5.png", "ai-generated-background"),
+        };
+
+        // WHEN WithForcedDefaults is applied
+        var updated = plan.WithForcedDefaults(map);
+
+        // THEN slide 1 and 5 have ForcedDefault
+        var s1 = updated.ForSlide(1);
+        Assert.IsType<BackgroundSelection.ForcedDefault>(s1);
+        Assert.Equal("https://storage.example.com/slide1.png", ((BackgroundSelection.ForcedDefault)s1).Url);
+
+        var s5 = updated.ForSlide(5);
+        Assert.IsType<BackgroundSelection.ForcedDefault>(s5);
+        Assert.Equal("https://storage.example.com/slide5.png", ((BackgroundSelection.ForcedDefault)s5).Url);
+
+        // AND slides 2, 3, 4 remain Creative (unchanged)
+        Assert.IsType<BackgroundSelection.Creative>(updated.ForSlide(2));
+        Assert.IsType<BackgroundSelection.Creative>(updated.ForSlide(3));
+        Assert.IsType<BackgroundSelection.Creative>(updated.ForSlide(4));
+    }
+
+    [Fact]
+    public void WithForcedDefaults_EmptyMap_ReturnsPlanUnchanged()
+    {
+        var perSlide = new BackgroundSelection[]
+        {
+            new BackgroundSelection.Creative(),
+            new BackgroundSelection.Creative(),
+        };
+        var plan = new CarouselBackgroundPlan(BackgroundSourcingPolicy.ClientAesthetic, perSlide, "seed");
+        var map = new Dictionary<int, BackgroundSelection.ForcedDefault>();
+
+        var updated = plan.WithForcedDefaults(map);
+
+        Assert.IsType<BackgroundSelection.Creative>(updated.ForSlide(1));
+        Assert.IsType<BackgroundSelection.Creative>(updated.ForSlide(2));
+    }
+
+    [Fact]
+    public void WithForcedDefaults_OutOfRangeIndex_IsIgnored()
+    {
+        // GIVEN a 2-slide plan
+        var perSlide = new BackgroundSelection[]
+        {
+            new BackgroundSelection.Creative(),
+            new BackgroundSelection.Creative(),
+        };
+        var plan = new CarouselBackgroundPlan(BackgroundSourcingPolicy.ClientAesthetic, perSlide, "seed");
+
+        // AND a map with index 9 (out of range)
+        var map = new Dictionary<int, BackgroundSelection.ForcedDefault>
+        {
+            [9] = new BackgroundSelection.ForcedDefault("https://example.com/bad.png", "ai-generated-background")
+        };
+
+        // WHEN — out-of-range index is silently ignored, plan unchanged
+        var updated = plan.WithForcedDefaults(map);
+
+        Assert.IsType<BackgroundSelection.Creative>(updated.ForSlide(1));
+        Assert.IsType<BackgroundSelection.Creative>(updated.ForSlide(2));
+    }
+
+    [Fact]
+    public void WithForcedDefaults_DoesNotMutateOriginalPlan()
+    {
+        var perSlide = new BackgroundSelection[] { new BackgroundSelection.Creative() };
+        var plan = new CarouselBackgroundPlan(BackgroundSourcingPolicy.ClientAesthetic, perSlide, "seed");
+        var map = new Dictionary<int, BackgroundSelection.ForcedDefault>
+        {
+            [1] = new BackgroundSelection.ForcedDefault("https://example.com/s1.png", "ai-generated-background")
+        };
+
+        plan.WithForcedDefaults(map);
+
+        // Original plan must not be mutated (immutable record)
+        Assert.IsType<BackgroundSelection.Creative>(plan.ForSlide(1));
+    }
 }

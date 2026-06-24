@@ -358,3 +358,84 @@ both logging and enqueue obligations apply.
   continue to pass without modification.
 
 *Merged from `openspec/changes/content-aesthetic-generation/specs/background-sourcing-policy/spec-delta.md` — change applied 2026-06-21.*
+
+---
+
+<!-- Merged from openspec/changes/content-image-generation/specs/background-sourcing-policy/spec-delta.md — change applied 2026-06-24 (WU-10) -->
+
+## Added Requirements: ClientAesthetic Creative-vs-Flat Routing + Configurable Creative-Slide Set (content-image-generation)
+
+### Requirement: CIG-BSP-01 — ClientAesthetic Strategy Emits Creative or Flat Background Per Slide
+
+When a client's policy is `ClientAesthetic` AND a `generate-image` IMAGE route is
+configured for the org, the strategy MUST classify each carousel slide as creative or flat
+using `ClientAestheticProfile.CreativeSlideSet`. Creative slides MUST receive a
+generated-image background; flat slides MUST receive the CSS designer background.
+When no IMAGE route is configured, all slides take the CSS designer path regardless of
+the creative-slide set.
+
+#### Scenario: Creative slides get generated background; flat slides get CSS (CIG-BSP-01-a)
+
+- GIVEN a `ClientAesthetic` client with `CreativeSlideSet = {0, 4}` (first + last)
+- AND the org has a configured IMAGE route
+- WHEN the strategy resolves slide backgrounds for a 5-slide carousel
+- THEN slides 0 and 4 receive a `generated-image` background token
+- AND slides 1, 2, 3 receive the CSS designer background token
+
+#### Scenario: No IMAGE route — all slides CSS, no creative classification attempted (CIG-BSP-01-b)
+
+- GIVEN a `ClientAesthetic` client with `CreativeSlideSet = {0, 4}`
+- AND the org has NO configured IMAGE route
+- WHEN the strategy resolves slide backgrounds
+- THEN all slides receive the CSS designer background
+- AND no image-gen call or classification is attempted
+
+---
+
+### Requirement: CIG-BSP-02 — Configurable Creative-Slide Set with v1 Default
+
+`ClientAestheticProfile` MUST expose a nullable `CreativeSlideSet` (a collection of
+zero-based slide index positions or a named configuration such as "first-and-last").
+When the field is absent (null), the system MUST apply the v1 default (first and last
+positions of the carousel). The set MUST be configurable per client; the default is
+not hardcoded in the generation pipeline.
+
+#### Scenario: Null creative-slide set falls back to v1 default (CIG-BSP-02-a)
+
+- GIVEN a `ClientAesthetic` client whose `CreativeSlideSet` on `ClientAestheticProfile` is null
+- WHEN the strategy resolves creative slides for a 5-slide carousel
+- THEN slides at positions 0 and 4 (first + last) are treated as creative
+- AND this default is derived from the v1 default rule, not from hardcoded literals in the generator
+
+#### Scenario: Explicit set overrides the default (CIG-BSP-02-b)
+
+- GIVEN a `ClientAesthetic` client with `CreativeSlideSet = {0, 1}` (first two)
+- WHEN the strategy resolves creative slides for a 5-slide carousel
+- THEN slides 0 and 1 are treated as creative
+- AND slides 2, 3, 4 are treated as flat
+
+#### Scenario: Creative set with index beyond carousel length is silently clamped (CIG-BSP-02-c)
+
+- GIVEN a `ClientAesthetic` client with `CreativeSlideSet = {0, 9}` and a 5-slide carousel
+- WHEN the strategy resolves creative slides
+- THEN only slide 0 is treated as creative (index 9 is out of range and ignored)
+- AND no error is raised; the job continues normally
+
+---
+
+### Requirement: CIG-BSP-03 — Creative-Slide Set Field Is Extractor-Ready (Nullable, Forward-Compatible)
+
+`ClientAestheticProfile.CreativeSlideSet` MUST be a nullable field. Its absence (null)
+is a fully valid state that activates the v1 default. The data model MUST NOT require
+the extractor to be built or active for the field to function; v1 ships the configurable
+set only. A future extractor MUST be able to populate the field without a schema change.
+
+#### Scenario: Extractor-absent state works with v1 default (CIG-BSP-03-a)
+
+- GIVEN a `ClientAesthetic` client with `CreativeSlideSet = null`
+  (extractor has not yet run for this client)
+- WHEN the strategy resolves creative slides
+- THEN the v1 default rule applies and creative slides are identified correctly
+- AND no error is raised for the absent extractor output
+
+*Merged from `openspec/changes/content-image-generation/specs/background-sourcing-policy/spec-delta.md` — change applied 2026-06-24.*
