@@ -23,8 +23,7 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
         var rows = await _dbContext.IntegrationProviders
             .AsNoTracking()
             .Where(x => x.IsActive)
-            .OrderBy(x => x.Category)
-            .ThenBy(x => x.DisplayName)
+            .OrderBy(x => x.DisplayName)
             .ToListAsync(cancellationToken);
 
         return rows.Select(ToDomain).ToList();
@@ -62,7 +61,7 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
         }
 
         existing.DisplayName = provider.DisplayName;
-        existing.Category = provider.Category.ToString();
+        existing.CategoriesJson = SerializeCategories(provider.Categories);
         existing.Description = provider.Description;
         existing.IconKey = provider.IconKey;
         existing.SupportsBringYourOwnKey = provider.SupportsBringYourOwnKey;
@@ -70,7 +69,7 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
         existing.SupportsSystemDefault = provider.SupportsSystemDefault;
         existing.SystemDefaultReadOnly = provider.SystemDefaultReadOnly;
         existing.CredentialFieldsJson = SerializeCredentialFields(provider.CredentialFields);
-        existing.AvailableModelsJson = SerializeModels(provider.AvailableModels);
+        existing.ModelsByCategoryJson = SerializeModelsByCategory(provider.ModelsByCategory);
         existing.IsActive = provider.IsActive;
         existing.UpdatedAtUtc = provider.UpdatedAtUtc;
     }
@@ -78,13 +77,14 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
     private static IntegrationProvider ToDomain(IntegrationProviderData row)
     {
         var fields = DeserializeCredentialFields(row.CredentialFieldsJson);
-        var models = DeserializeModels(row.AvailableModelsJson);
+        var categories = DeserializeCategories(row.CategoriesJson);
+        var modelsByCategory = DeserializeModelsByCategory(row.ModelsByCategoryJson);
 
         return IntegrationProvider.Restore(
             new IntegrationProviderId(row.Id),
             row.Key,
             row.DisplayName,
-            Enum.Parse<IntegrationProviderCategory>(row.Category),
+            categories,
             row.Description,
             row.IconKey,
             row.SupportsBringYourOwnKey,
@@ -92,7 +92,7 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
             row.SupportsSystemDefault,
             row.SystemDefaultReadOnly,
             fields,
-            models,
+            modelsByCategory,
             row.IsActive,
             row.CreatedAtUtc,
             row.UpdatedAtUtc);
@@ -104,7 +104,7 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
             Id = provider.Id.Value,
             Key = provider.Key,
             DisplayName = provider.DisplayName,
-            Category = provider.Category.ToString(),
+            CategoriesJson = SerializeCategories(provider.Categories),
             Description = provider.Description,
             IconKey = provider.IconKey,
             SupportsBringYourOwnKey = provider.SupportsBringYourOwnKey,
@@ -112,7 +112,7 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
             SupportsSystemDefault = provider.SupportsSystemDefault,
             SystemDefaultReadOnly = provider.SystemDefaultReadOnly,
             CredentialFieldsJson = SerializeCredentialFields(provider.CredentialFields),
-            AvailableModelsJson = SerializeModels(provider.AvailableModels),
+            ModelsByCategoryJson = SerializeModelsByCategory(provider.ModelsByCategory),
             IsActive = provider.IsActive,
             CreatedAtUtc = provider.CreatedAtUtc,
             UpdatedAtUtc = provider.UpdatedAtUtc,
@@ -134,18 +134,53 @@ public sealed class EfIntegrationProviderCatalogRepository : IIntegrationProvide
                ?? [];
     }
 
-    private static string SerializeModels(IReadOnlyList<string> models)
+    private static string SerializeCategories(IReadOnlyList<IntegrationProviderCategory> categories)
     {
-        return JsonSerializer.Serialize(models, JsonOptions);
+        return JsonSerializer.Serialize(categories.Select(x => x.ToString()).ToList(), JsonOptions);
     }
 
-    private static IReadOnlyList<string> DeserializeModels(string json)
+    private static IReadOnlyList<IntegrationProviderCategory> DeserializeCategories(string json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
             return [];
         }
 
-        return JsonSerializer.Deserialize<List<string>>(json, JsonOptions) ?? [];
+        var names = JsonSerializer.Deserialize<List<string>>(json, JsonOptions) ?? [];
+
+        return names
+            .Where(name => Enum.TryParse<IntegrationProviderCategory>(name, out _))
+            .Select(Enum.Parse<IntegrationProviderCategory>)
+            .ToList();
+    }
+
+    private static string SerializeModelsByCategory(
+        IReadOnlyDictionary<IntegrationProviderCategory, IReadOnlyList<string>> modelsByCategory)
+    {
+        var byName = modelsByCategory.ToDictionary(x => x.Key.ToString(), x => x.Value);
+        return JsonSerializer.Serialize(byName, JsonOptions);
+    }
+
+    private static IReadOnlyDictionary<IntegrationProviderCategory, IReadOnlyList<string>> DeserializeModelsByCategory(string json)
+    {
+        var result = new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>();
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return result;
+        }
+
+        var byName = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(json, JsonOptions)
+                     ?? new Dictionary<string, List<string>>();
+
+        foreach (var (name, models) in byName)
+        {
+            if (Enum.TryParse<IntegrationProviderCategory>(name, out var category))
+            {
+                result[category] = models;
+            }
+        }
+
+        return result;
     }
 }

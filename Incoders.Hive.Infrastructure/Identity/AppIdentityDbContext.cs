@@ -282,9 +282,10 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Key).HasMaxLength(64).IsRequired();
             entity.Property(x => x.DisplayName).HasMaxLength(120).IsRequired();
-            entity.Property(x => x.Category).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.CategoriesJson).IsRequired();
             entity.Property(x => x.IconKey).HasMaxLength(64).IsRequired();
             entity.Property(x => x.CredentialFieldsJson).IsRequired();
+            entity.Property(x => x.ModelsByCategoryJson).IsRequired();
             entity.Property(x => x.IsActive).IsRequired();
             entity.Property(x => x.SupportsBringYourOwnKey).IsRequired();
             entity.Property(x => x.SupportsManagedByIncoders).IsRequired();

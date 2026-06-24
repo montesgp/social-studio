@@ -10,11 +10,13 @@ internal static class IntegrationResponseFactory
         OrganizationIntegration? integration,
         IReadOnlyList<string> configuredCredentialKeys,
         IReadOnlyDictionary<string, string>? credentialValues = null,
-        IReadOnlyList<string>? availableModels = null)
+        IReadOnlyList<string>? availableModels = null,
+        IntegrationProviderCategory? category = null)
     {
         var providerResponse = IntegrationProviderResponse.FromDomain(provider);
         var values = credentialValues ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var models = availableModels ?? provider.AvailableModels;
+        var resolvedCategory = category ?? provider.Category;
+        var models = availableModels ?? provider.ModelsFor(resolvedCategory);
 
         if (integration is null)
         {
@@ -35,7 +37,7 @@ internal static class IntegrationResponseFactory
                 organizationId,
                 provider.Key,
                 provider.DisplayName,
-                provider.Category,
+                resolvedCategory,
                 provider.IconKey,
                 fallbackMode,
                 fallbackStatus,
@@ -58,7 +60,7 @@ internal static class IntegrationResponseFactory
             integration.OrganizationId,
             provider.Key,
             provider.DisplayName,
-            provider.Category,
+            resolvedCategory,
             provider.IconKey,
             integration.ConnectionMode,
             integration.Status,

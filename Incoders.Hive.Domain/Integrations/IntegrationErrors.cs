@@ -20,6 +20,10 @@ public static class IntegrationErrors
         "integrations.provider_mode_required",
         "integrations.errors.provider_mode_required");
 
+    public static readonly Error ProviderCategoryRequired = Error.Validation(
+        "integrations.provider_category_required",
+        "integrations.errors.provider_category_required");
+
     public static readonly Error ProviderCredentialFieldDuplicate = Error.Validation(
         "integrations.provider_credential_field_duplicate",
         "integrations.errors.provider_credential_field_duplicate");

@@ -114,7 +114,7 @@ public sealed class UpsertWorkflowConfigurationsHandler
             }
 
             if (step.AllowedProviderCategories.Count > 0
-                && !step.AllowedProviderCategories.Contains(provider.Category))
+                && !step.AllowedProviderCategories.Any(provider.ServesCategory))
             {
                 return Result.Failure<WorkflowConfigurationOverviewResponse>(IntegrationErrors.ProviderRouteNotConfigured);
             }
@@ -142,7 +142,12 @@ public sealed class UpsertWorkflowConfigurationsHandler
                 ? input.ActorId.Trim()
                 : null;
 
-            if (provider.Category == IntegrationProviderCategory.AiModel)
+            // Whether THIS step routes an AI model (not the provider's primary category): a shared
+            // connector like OpenAI also serves MediaGeneration, so the synced-model requirement must
+            // be keyed off the step's allowed categories, not provider.Category.
+            var isAiModelStep = step.AllowedProviderCategories.Contains(IntegrationProviderCategory.AiModel);
+
+            if (isAiModelStep)
             {
                 if (string.IsNullOrWhiteSpace(modelId))
                 {

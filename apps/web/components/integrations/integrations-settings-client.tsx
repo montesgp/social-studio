@@ -800,7 +800,21 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     }
   }
 
-  function modelsForProvider(providerKey: string) {
+  function modelsForProvider(providerKey: string, category?: IntegrationProviderCategory) {
+    if (category) {
+      // A shared connector (e.g. OpenAI) is exploded into one card per category; pick the card —
+      // and therefore the model menu — that matches the routed category.
+      const scopedIntegration = overview?.integrations.find(
+        (integration) => integration.providerKey === providerKey && integration.category === category
+      );
+      if (scopedIntegration) {
+        return scopedIntegration.availableModels;
+      }
+
+      const provider = providers.find((p) => p.key === providerKey);
+      return provider?.modelsByCategory?.[category] ?? provider?.availableModels ?? [];
+    }
+
     return overview?.integrations.find((integration) => integration.providerKey === providerKey)?.availableModels
       ?? providers.find((provider) => provider.key === providerKey)?.availableModels
       ?? [];
@@ -809,6 +823,32 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   function providerCategory(providerKey: string) {
     return providers.find((provider) => provider.key === providerKey)?.category
       ?? overview?.integrations.find((integration) => integration.providerKey === providerKey)?.category;
+  }
+
+  function providerServesCategory(providerKey: string, category: IntegrationProviderCategory) {
+    const provider = providers.find((p) => p.key === providerKey);
+    if (provider?.categories?.length) {
+      return provider.categories.includes(category);
+    }
+
+    return (overview?.integrations ?? []).some(
+      (integration) => integration.providerKey === providerKey && integration.category === category
+    );
+  }
+
+  // The category a provider is routed under for a given step: the first allowed category the
+  // provider actually serves. Lets a shared connector resolve to image models on a media step and
+  // chat models on an AI step.
+  function stepCategoryForProvider(
+    providerKey: string,
+    step?: WorkflowStepCatalog | null
+  ): IntegrationProviderCategory | undefined {
+    const allowed = step?.allowedProviderCategories ?? [];
+    return allowed.find((category) => providerServesCategory(providerKey, category)) ?? providerCategory(providerKey);
+  }
+
+  function isAiModelStep(step?: WorkflowStepCatalog | null) {
+    return (step?.allowedProviderCategories ?? []).includes("AiModel");
   }
 
   function providerDisplayName(providerKey: string) {
@@ -897,8 +937,13 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     return options[0]?.value ?? group.networkStages[0]?.networkKey ?? "";
   }
 
-  function modelOptionsForProvider(providerKey: string, currentValue = "") {
-    const options = modelsForProvider(providerKey).map((modelId) => ({
+  function modelOptionsForProvider(
+    providerKey: string,
+    currentValue = "",
+    step?: WorkflowStepCatalog | null
+  ) {
+    const category = step ? stepCategoryForProvider(providerKey, step) : undefined;
+    const options = modelsForProvider(providerKey, category).map((modelId) => ({
       value: modelId,
       label: modelId
     }));
@@ -939,7 +984,9 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
         ? seed?.networkKey ?? ""
         : allowedNetworks[0]?.value ?? seed?.networkKey ?? ""
       : "";
-    const shouldKeepModel = step?.supportsModelSelection && providerCategory(providerKey) === "AiModel";
+    const stepCategory = stepCategoryForProvider(providerKey, step);
+    const shouldKeepModel = Boolean(step?.supportsModelSelection)
+      && (stepCategory === "AiModel" || stepCategory === "MediaGeneration");
     const shouldKeepActor = step?.supportsActorSelection && providerKey === "apify";
 
     return {
@@ -1199,8 +1246,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     const aiWithoutModel = orderedRows.find(
       (row) => {
         const step = stepDefinition(row.analysisType, row.stepKey);
+        // Only AI model steps require an explicit model; media generation steps treat it as optional.
         return Boolean(step?.supportsModelSelection)
-          && providerCategory(row.providerKey) === "AiModel"
+          && isAiModelStep(step)
+          && providerServesCategory(row.providerKey, "AiModel")
           && !row.modelId.trim();
       }
     );
@@ -2000,7 +2049,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                                         route.providerKey,
                                         `${providerDisplayName(route.providerKey)} (current route)`
                                       );
-                                      const modelOptions = modelOptionsForProvider(route.providerKey, route.modelId);
+                                      const modelOptions = modelOptionsForProvider(route.providerKey, route.modelId, step);
                                       const actorOptions = actorOptionsForStep(step, activeNetwork, route.actorId);
                                       const routeTitle = [
                                         route.providerKey ? providerDisplayName(route.providerKey) : "",

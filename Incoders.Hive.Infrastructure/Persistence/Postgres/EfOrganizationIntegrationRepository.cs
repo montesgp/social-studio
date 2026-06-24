@@ -48,7 +48,10 @@ public sealed class EfOrganizationIntegrationRepository : IOrganizationIntegrati
         IntegrationProviderCategory category,
         CancellationToken cancellationToken = default)
     {
-        var categoryName = category.ToString();
+        // Categories are persisted as a JSON array of enum names (e.g. ["AiModel","MediaGeneration"]).
+        // Match the quoted token so a provider that serves the category is included even when it also
+        // serves others (one shared connector listed under multiple sections).
+        var categoryToken = $"\"{category}\"";
 
         var rows = await _dbContext.OrganizationIntegrations
             .AsNoTracking()
@@ -58,7 +61,7 @@ public sealed class EfOrganizationIntegrationRepository : IOrganizationIntegrati
                 integration => integration.ProviderId,
                 provider => provider.Id,
                 (integration, provider) => new { integration, provider })
-            .Where(x => x.provider.Category == categoryName)
+            .Where(x => x.provider.CategoriesJson.Contains(categoryToken))
             .Select(x => x.integration)
             .ToListAsync(cancellationToken);
 

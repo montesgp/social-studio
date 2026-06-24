@@ -7,6 +7,7 @@ public sealed record IntegrationProviderResponse(
     string Key,
     string DisplayName,
     IntegrationProviderCategory Category,
+    IReadOnlyList<IntegrationProviderCategory> Categories,
     string? Description,
     string IconKey,
     bool SupportsBringYourOwnKey,
@@ -14,7 +15,8 @@ public sealed record IntegrationProviderResponse(
     bool SupportsSystemDefault,
     bool SystemDefaultReadOnly,
     IReadOnlyList<IntegrationCredentialFieldResponse> CredentialFields,
-    string[] AvailableModels)
+    string[] AvailableModels,
+    IReadOnlyDictionary<string, string[]> ModelsByCategory)
 {
     public static IntegrationProviderResponse FromDomain(IntegrationProvider provider) =>
         new(
@@ -22,6 +24,7 @@ public sealed record IntegrationProviderResponse(
             provider.Key,
             provider.DisplayName,
             provider.Category,
+            provider.Categories,
             provider.Description,
             provider.IconKey,
             provider.SupportsBringYourOwnKey,
@@ -29,5 +32,8 @@ public sealed record IntegrationProviderResponse(
             provider.SupportsSystemDefault,
             provider.SystemDefaultReadOnly,
             provider.CredentialFields.Select(IntegrationCredentialFieldResponse.FromDomain).ToList(),
-            [.. provider.AvailableModels]);
+            [.. provider.AvailableModels],
+            provider.ModelsByCategory.ToDictionary(
+                x => x.Key.ToString(),
+                x => x.Value.ToArray()));
 }

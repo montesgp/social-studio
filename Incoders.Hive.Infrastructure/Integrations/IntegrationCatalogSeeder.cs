@@ -13,14 +13,20 @@ public sealed class IntegrationCatalogSeeder
             "openai",
             "OpenAI",
             IntegrationProviderCategory.AiModel,
-            "AI model provider for generation and evaluation workflows.",
+            "AI model provider for generation and evaluation workflows, and image generation for ClientAesthetic creative slides.",
             "openai",
             true,
             true,
             false,
             false,
             [new IntegrationCredentialField("api_key", "API key", true, true, "sk-...", "Organization-scoped OpenAI API key")],
-            ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o3-mini"]),
+            ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o3-mini"],
+            // Same connector, same api_key credential — also offered under Media generation providers.
+            AdditionalCategories: [IntegrationProviderCategory.MediaGeneration],
+            AdditionalModelsByCategory: new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>
+            {
+                [IntegrationProviderCategory.MediaGeneration] = ["dall-e-3", "gpt-image-1"],
+            }),
         new(
             new Guid("f3df8bd4-3d68-4e03-b1d4-2ddbbdc3490c"),
             "gemini",
@@ -192,24 +198,7 @@ public sealed class IntegrationCatalogSeeder
                 new IntegrationCredentialField("access_token", "Access token", true, true, null, "Meta/Instagram access token"),
                 new IntegrationCredentialField("account_id", "Account ID", false, true, null, "Instagram business account id")
             ],
-            []),
-        // OpenAI as a MediaGeneration provider — same API key credential reused.
-        // Seeded separately from the AiModel entry so the Integrations routing UI can present
-        // OpenAI as an option for the generate-image step (category = MediaGeneration).
-        // The existing org OpenAI integration credential (api_key) is shared; no new secret needed.
-        new(
-            new Guid("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"),
-            "openai",
-            "OpenAI",
-            IntegrationProviderCategory.MediaGeneration,
-            "OpenAI image generation (DALL·E 3 / gpt-image-1) for ClientAesthetic carousel creative slides.",
-            "openai",
-            true,
-            true,
-            false,
-            false,
-            [new IntegrationCredentialField("api_key", "API key", true, true, "sk-...", "Organization-scoped OpenAI API key")],
-            ["dall-e-3", "gpt-image-1"])
+            [])
     ];
 
     private readonly IIntegrationProviderCatalogRepository _providers;
@@ -230,11 +219,24 @@ public sealed class IntegrationCatalogSeeder
     {
         foreach (var seed in SeedDefinitions)
         {
+            var categories = new List<IntegrationProviderCategory> { seed.Category };
+            categories.AddRange(seed.AdditionalCategories ?? []);
+
+            var modelsByCategory = new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>
+            {
+                [seed.Category] = seed.AvailableModels,
+            };
+
+            foreach (var (category, models) in seed.AdditionalModelsByCategory ?? new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>())
+            {
+                modelsByCategory[category] = models;
+            }
+
             var createResult = IntegrationProvider.Create(
                 new IntegrationProviderId(seed.Id),
                 seed.Key,
                 seed.DisplayName,
-                seed.Category,
+                categories,
                 seed.Description,
                 seed.IconKey,
                 seed.SupportsBringYourOwnKey,
@@ -242,7 +244,7 @@ public sealed class IntegrationCatalogSeeder
                 seed.SupportsSystemDefault,
                 seed.SystemDefaultReadOnly,
                 seed.CredentialFields,
-                seed.AvailableModels,
+                modelsByCategory,
                 _clock.UtcNow);
 
             if (createResult.IsFailure)
@@ -268,5 +270,7 @@ public sealed class IntegrationCatalogSeeder
         bool SupportsSystemDefault,
         bool SystemDefaultReadOnly,
         IReadOnlyList<IntegrationCredentialField> CredentialFields,
-        IReadOnlyList<string> AvailableModels);
+        IReadOnlyList<string> AvailableModels,
+        IReadOnlyList<IntegrationProviderCategory>? AdditionalCategories = null,
+        IReadOnlyDictionary<IntegrationProviderCategory, IReadOnlyList<string>>? AdditionalModelsByCategory = null);
 }

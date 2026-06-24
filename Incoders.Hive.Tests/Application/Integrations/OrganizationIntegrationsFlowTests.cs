@@ -69,11 +69,81 @@ public sealed class OrganizationIntegrationsFlowTests
 
         foreach (var providerKey in expectedProviders)
         {
-            var integration = overview.Value.Integrations.SingleOrDefault(x => x.ProviderKey == providerKey);
+            var integration = overview.Value.Integrations.FirstOrDefault(x => x.ProviderKey == providerKey);
 
             Assert.NotNull(integration);
             Assert.False(string.IsNullOrWhiteSpace(integration!.IconKey));
         }
+    }
+
+    [Fact]
+    public async Task Overview_ExplodesMultiCategoryProvider_IntoOneCardPerCategoryWithItsModels()
+    {
+        var harness = new IntegrationsHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var openAiCards = overview.Value.Integrations
+            .Where(x => x.ProviderKey == "openai")
+            .ToList();
+
+        // One shared OpenAI connector, presented under both sections.
+        Assert.Equal(2, openAiCards.Count);
+
+        var aiModelCard = openAiCards.Single(x => x.Category == IntegrationProviderCategory.AiModel);
+        var mediaCard = openAiCards.Single(x => x.Category == IntegrationProviderCategory.MediaGeneration);
+
+        // Each card exposes ONLY the models for its own category.
+        Assert.Equal(["gpt-4.1", "gpt-4o"], aiModelCard.AvailableModels);
+        Assert.Equal(["dall-e-3", "gpt-image-1"], mediaCard.AvailableModels);
+    }
+
+    [Fact]
+    public async Task Overview_ConnectedMultiCategoryProvider_KeepsDistinctCategoriesPerCard()
+    {
+        var harness = new IntegrationsHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        // Connect the shared OpenAI credential once.
+        var configured = await harness.Configure.Handle(
+            new ConfigureOrganizationIntegrationCommand(
+                organizationId,
+                "openai",
+                IntegrationConnectionMode.BringYourOwnKey,
+                true,
+                "gpt-4.1",
+                new Dictionary<string, string>
+                {
+                    ["api_key"] = "sk-test-openai"
+                }),
+            CancellationToken.None);
+        Assert.True(configured.IsSuccess);
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var openAiCards = overview.Value.Integrations
+            .Where(x => x.ProviderKey == "openai")
+            .ToList();
+
+        // Even once connected, the card MUST stay split across both sections — not collapse to AiModel.
+        Assert.Equal(2, openAiCards.Count);
+        Assert.Contains(openAiCards, x => x.Category == IntegrationProviderCategory.AiModel);
+        Assert.Contains(openAiCards, x => x.Category == IntegrationProviderCategory.MediaGeneration);
+
+        // Both cards reference the same shared integration (one credential).
+        Assert.Single(openAiCards.Select(x => x.IntegrationId).Distinct());
+
+        var mediaCard = openAiCards.Single(x => x.Category == IntegrationProviderCategory.MediaGeneration);
+        Assert.Equal(["dall-e-3", "gpt-image-1"], mediaCard.AvailableModels);
     }
 
     [Fact]
@@ -308,16 +378,21 @@ public sealed class OrganizationIntegrationsFlowTests
         {
             return
             [
-                CreateProvider(
+                CreateMultiProvider(
                     "openai",
                     "OpenAI",
-                    IntegrationProviderCategory.AiModel,
+                    [IntegrationProviderCategory.AiModel, IntegrationProviderCategory.MediaGeneration],
                     "openai",
                     true,
                     true,
                     false,
                     false,
                     [new IntegrationCredentialField("api_key", "API key", true, true)],
+                    new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>
+                    {
+                        [IntegrationProviderCategory.AiModel] = ["gpt-4.1", "gpt-4o"],
+                        [IntegrationProviderCategory.MediaGeneration] = ["dall-e-3", "gpt-image-1"],
+                    },
                     nowUtc),
                 CreateProvider(
                     "canva",
@@ -465,6 +540,37 @@ public sealed class OrganizationIntegrationsFlowTests
                 readonlySystemDefault,
                 fields,
                 [],
+                nowUtc);
+
+            return created.Value;
+        }
+
+        private static IntegrationProvider CreateMultiProvider(
+            string key,
+            string displayName,
+            IReadOnlyList<IntegrationProviderCategory> categories,
+            string iconKey,
+            bool supportsByok,
+            bool supportsManaged,
+            bool supportsSystemDefault,
+            bool readonlySystemDefault,
+            IReadOnlyList<IntegrationCredentialField> fields,
+            IReadOnlyDictionary<IntegrationProviderCategory, IReadOnlyList<string>> modelsByCategory,
+            DateTime nowUtc)
+        {
+            var created = IntegrationProvider.Create(
+                IntegrationProviderId.New(),
+                key,
+                displayName,
+                categories,
+                null,
+                iconKey,
+                supportsByok,
+                supportsManaged,
+                supportsSystemDefault,
+                readonlySystemDefault,
+                fields,
+                modelsByCategory,
                 nowUtc);
 
             return created.Value;

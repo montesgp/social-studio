@@ -8,7 +8,7 @@ public sealed class IntegrationProviderData
 
     public string DisplayName { get; set; } = string.Empty;
 
-    public string Category { get; set; } = string.Empty;
+    public string CategoriesJson { get; set; } = "[]";
 
     public string? Description { get; set; }
 
@@ -24,7 +24,7 @@ public sealed class IntegrationProviderData
 
     public string CredentialFieldsJson { get; set; } = "[]";
 
-    public string AvailableModelsJson { get; set; } = "[]";
+    public string ModelsByCategoryJson { get; set; } = "{}";
 
     public bool IsActive { get; set; }
 

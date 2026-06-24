@@ -59,17 +59,25 @@ public sealed class GetOrganizationIntegrationsHandler
                 ? Array.Empty<string>()
                 : credentialKeyMap.GetValueOrDefault(integration.Id.Value, Array.Empty<string>());
 
-            var availableModels = await ResolveAvailableModelsAsync(
-                request.OrganizationId,
-                provider,
-                cancellationToken);
+            // A single connector (one credential) is presented once per category it serves —
+            // e.g. OpenAI under both AI model providers and Media generation providers — each card
+            // carrying only the models relevant to that category.
+            foreach (var category in provider.Categories)
+            {
+                var availableModels = await ResolveAvailableModelsAsync(
+                    request.OrganizationId,
+                    provider,
+                    category,
+                    cancellationToken);
 
-            responseIntegrations.Add(IntegrationResponseFactory.From(
-                request.OrganizationId,
-                provider,
-                integration,
-                keys,
-                availableModels: availableModels));
+                responseIntegrations.Add(IntegrationResponseFactory.From(
+                    request.OrganizationId,
+                    provider,
+                    integration,
+                    keys,
+                    availableModels: availableModels,
+                    category: category));
+            }
         }
 
         var hasAiProvider = responseIntegrations.Any(x =>
@@ -134,11 +142,14 @@ public sealed class GetOrganizationIntegrationsHandler
     private async Task<IReadOnlyList<string>> ResolveAvailableModelsAsync(
         Guid organizationId,
         IntegrationProvider provider,
+        IntegrationProviderCategory category,
         CancellationToken cancellationToken)
     {
-        if (_models is null || provider.Category != IntegrationProviderCategory.AiModel)
+        // Only AI model cards pull the org-synced model list; media (and other) categories use the
+        // static catalog menu for that category.
+        if (_models is null || category != IntegrationProviderCategory.AiModel)
         {
-            return provider.AvailableModels;
+            return provider.ModelsFor(category);
         }
 
         var synced = await _models.ListByProviderAsync(
@@ -147,7 +158,7 @@ public sealed class GetOrganizationIntegrationsHandler
             cancellationToken);
 
         return synced.Count == 0
-            ? provider.AvailableModels
+            ? provider.ModelsFor(category)
             : synced.Select(x => x.ModelId).ToList();
     }
 }

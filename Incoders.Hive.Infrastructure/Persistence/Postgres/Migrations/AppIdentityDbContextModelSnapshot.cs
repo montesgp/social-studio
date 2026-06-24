@@ -1450,16 +1450,10 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<string>("AvailableModelsJson")
+                    b.Property<string>("CategoriesJson")
                         .IsRequired()
                         .HasColumnType("text")
-                        .HasColumnName("available_models_json");
-
-                    b.Property<string>("Category")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("category");
+                        .HasColumnName("categories_json");
 
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone")
@@ -1495,6 +1489,11 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
                         .HasColumnName("key");
+
+                    b.Property<string>("ModelsByCategoryJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("models_by_category_json");
 
                     b.Property<bool>("SupportsBringYourOwnKey")
                         .HasColumnType("boolean")

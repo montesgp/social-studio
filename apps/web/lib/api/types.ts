@@ -219,7 +219,10 @@ export interface IntegrationProvider {
   id: string;
   key: string;
   displayName: string;
+  /** Primary category (first declared) — back-compat for single-category consumers. */
   category: IntegrationProviderCategory;
+  /** All categories this connector serves; the same credential is listed under each section. */
+  categories: IntegrationProviderCategory[];
   description: string | null;
   iconKey: string;
   supportsBringYourOwnKey: boolean;
@@ -227,7 +230,10 @@ export interface IntegrationProvider {
   supportsSystemDefault: boolean;
   systemDefaultReadOnly: boolean;
   credentialFields: IntegrationCredentialField[];
+  /** Models for the primary category — back-compat. Prefer modelsByCategory for routing. */
   availableModels: string[];
+  /** Catalog model menus keyed by category name (e.g. "AiModel", "MediaGeneration"). */
+  modelsByCategory: Record<string, string[]>;
 }
 
 export interface OrganizationIntegration {
