@@ -49,6 +49,34 @@ public sealed record CarouselBackgroundPlan(
     }
 
     /// <summary>
+    /// Returns a new plan where each 1-based slide index present in <paramref name="overrides"/> is
+    /// replaced with the supplied <see cref="BackgroundSelection.ForcedDefault"/>.
+    /// Indices not present in the map are left unchanged.
+    /// Out-of-range indices (less than 1 or greater than <see cref="PerSlide"/>.Count) are silently ignored.
+    /// The original plan is NOT mutated; the method returns a new record.
+    /// Refs: design §4.1; tasks WU-8.4.
+    /// </summary>
+    public CarouselBackgroundPlan WithForcedDefaults(
+        IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault> overrides)
+    {
+        if (overrides.Count == 0)
+        {
+            return this;
+        }
+
+        var updated = new BackgroundSelection[PerSlide.Count];
+        for (var i = 0; i < PerSlide.Count; i++)
+        {
+            var oneBasedIndex = i + 1;
+            updated[i] = overrides.TryGetValue(oneBasedIndex, out var forced)
+                ? forced
+                : PerSlide[i];
+        }
+
+        return this with { PerSlide = updated };
+    }
+
+    /// <summary>
     /// Deterministic hash combining <paramref name="seed"/> and <paramref name="slideIndex"/>.
     /// Uses FNV-1a over the string "<paramref name="seed"/>:<paramref name="slideIndex"/>".
     /// Always returns a non-negative value suitable for use as a modulo index.

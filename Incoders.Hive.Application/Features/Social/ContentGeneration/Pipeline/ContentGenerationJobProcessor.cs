@@ -4,6 +4,7 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
@@ -76,6 +77,7 @@ public sealed class ContentGenerationJobProcessor
     private readonly IClientAestheticDescriptorReader? _aestheticDescriptorReader;
     private readonly IClientAestheticProfileReader? _aestheticProfileReader;
     private readonly IClientAestheticEnsureFreshService? _aestheticEnsureFreshService;
+    private readonly IClientAestheticImageBackgroundService? _imageBackgroundService;
 
     public ContentGenerationJobProcessor(
         IContentGenerationJobRepository jobs,
@@ -108,7 +110,11 @@ public sealed class ContentGenerationJobProcessor
         // WU-4 (CAG-CG-04): non-blocking ensure-fresh service for CASE C jobs.
         // Injected optionally so existing call sites and unit tests compile without change.
         // When null, the ensure-fresh step is skipped (no staleness check, no enqueue).
-        IClientAestheticEnsureFreshService? aestheticEnsureFreshService = null)
+        IClientAestheticEnsureFreshService? aestheticEnsureFreshService = null,
+        // WU-8 (CIG-CG-01..04, IMG-05, IMG-06): creative-background producer for ClientAesthetic carousels.
+        // NULLABLE: when null (no IMAGE route, policy ≠ ClientAesthetic, or service not registered) the
+        // existing CSS designer path runs unchanged — rollback-safe. See design §4.1.
+        IClientAestheticImageBackgroundService? imageBackgroundService = null)
     {
         _jobs = jobs;
         _analyses = analyses;
@@ -135,6 +141,7 @@ public sealed class ContentGenerationJobProcessor
         _aestheticDescriptorReader = aestheticDescriptorReader;
         _aestheticProfileReader = aestheticProfileReader;
         _aestheticEnsureFreshService = aestheticEnsureFreshService;
+        _imageBackgroundService = imageBackgroundService;
     }
 
     public async Task ProcessAsync(Guid jobId, CancellationToken ct)
@@ -416,6 +423,59 @@ public sealed class ContentGenerationJobProcessor
                 formatResultId = existingByFormat.TryGetValue(formatKey, out var existingResult)
                     ? existingResult.Id
                     : Guid.NewGuid();
+
+                // WU-8 (CIG-CG-01..04, IMG-05, IMG-06): creative-background build step.
+                // For ClientAesthetic carousels with an image background service registered:
+                //   1. Resolve the creative slide indices for this format's slide count.
+                //   2. If non-empty, call BuildCreativeBackgroundsAsync (returns only successes).
+                //   3. Overlay ForcedDefault onto the plan for each successful creative slide.
+                //
+                // Resilience (IMG-05): any exception from the service is caught, logged as a warning,
+                // and results in an empty map — all slides degrade to the CSS designer path.
+                // The CSS path MUST remain byte-for-byte unchanged when service is null or policy ≠ ClientAesthetic.
+                if (preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
+                    && _imageBackgroundService is not null
+                    && backgroundPlan is not null
+                    && aestheticProfile is not null)
+                {
+                    var formatSlideCount = TryGetSlideCount(step.Payload, formatKey);
+                    var creativeIndices = CreativeSlideIndexResolver.Resolve(
+                        aestheticProfile.CreativeSlideIndices, formatSlideCount);
+
+                    if (creativeIndices.Count > 0)
+                    {
+                        IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault> creativeMap;
+                        try
+                        {
+                            var imgRequest = new ClientAestheticImageRequest(
+                                OrganizationId: job.OrganizationId,
+                                ClientId: effectiveClientId,
+                                JobId: job.Id,
+                                FormatResultId: formatResultId,
+                                FormatKey: formatKey,
+                                SlideCount: formatSlideCount,
+                                CreativeSlideIndices: creativeIndices,
+                                Aesthetic: aestheticProfile,
+                                PerSlideCopySummaries: []);   // v1: empty; full copy threading is a follow-up
+                            creativeMap = await _imageBackgroundService.BuildCreativeBackgroundsAsync(
+                                imgRequest, ct);
+                        }
+                        catch (Exception ex)
+                        {
+                            // IMG-05: exception isolation — log warning; all slides degrade to CSS.
+                            _logger.LogWarning(ex,
+                                "ContentGeneration: image background service threw for format {FormatKey} " +
+                                "(job {JobId}). All slides will degrade to the CSS designer background.",
+                                formatKey, job.Id);
+                            creativeMap = new Dictionary<int, BackgroundSelection.ForcedDefault>();
+                        }
+
+                        if (creativeMap.Count > 0)
+                        {
+                            backgroundPlan = backgroundPlan.WithForcedDefaults(creativeMap);
+                        }
+                    }
+                }
 
                 for (var specIndex = 0; specIndex < specs.Count; specIndex++)
                 {
