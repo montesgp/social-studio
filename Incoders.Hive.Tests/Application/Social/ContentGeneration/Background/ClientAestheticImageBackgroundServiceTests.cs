@@ -237,6 +237,49 @@ public sealed class ClientAestheticImageBackgroundServiceTests
     }
 
     // -----------------------------------------------------------------------
+    // FIX-5: read and write paths use the same storage key derivation
+    // If the service reads from a path derived from hashKey fields, it must
+    // match exactly what PersistHashSidecarAsync writes — divergence would
+    // cause reuse-by-hash to always miss even when the prompt is unchanged.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task TryReuseAsync_ReadAndWritePaths_DeriveFromSameKey()
+    {
+        // GIVEN: a storage that records every path opened.
+        var trackingStorage = new PathTrackingStorage();
+
+        // The write path (PersistHashSidecarAsync) builds:
+        //   {org}/{client}/{formatResultId}/{hashRelativePath}
+        // which for slide 1 is:
+        //   {OrgId}/{ClientId}/{FormatResultId}/carousel/slide_1.png.hash
+        var expectedSidecarPath = $"{OrgId}/{ClientId}/{FormatResultId}/carousel/slide_1.png.hash";
+
+        // Seed the sidecar at the WRITE path so the read path will find it when it opens the same path.
+        const string reuseUrl = "https://cdn.example.com/slide_1.png";
+        var promptText = "stable background for reuse test";
+        var realHash = ClientAestheticImageBackgroundService.ComputePromptHash(promptText);
+        trackingStorage.SeedSidecar(expectedSidecarPath, realHash, reuseUrl);
+
+        var promptWriter = new StaticPromptWriter(prompt: promptText);
+        var imageGateway = new StaticImageGateway(bytes: [1, 2, 3], mime: "image/png");
+        var sut = BuildSut(promptWriter, imageGateway, trackingStorage);
+
+        // WHEN
+        var result = await sut.BuildCreativeBackgroundsAsync(BuildRequest([1]), CancellationToken.None);
+
+        // THEN: the read path must have opened the EXACT same path as the write path builds,
+        // proving there is no read/write path divergence (FIX-5).
+        Assert.True(trackingStorage.OpenedPaths.Contains(expectedSidecarPath),
+            $"Read path opened '{string.Join(", ", trackingStorage.OpenedPaths)}' " +
+            $"but expected '{expectedSidecarPath}'. Read/write path divergence detected (FIX-5).");
+
+        // AND the result should reuse the existing URL (the sidecar hash matched)
+        Assert.Contains(1, result.Keys);
+        Assert.Equal(reuseUrl, result[1].Url);
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
@@ -462,6 +505,47 @@ file sealed class HashAwareStorage : IGeneratedAssetStorage
                 var stream = new MemoryStream(bytes);
                 return Task.FromResult(Result.Success(new StoredAssetStream(stream, "text/plain", bytes.Length)));
             }
+        }
+        return Task.FromResult(Result.Failure<StoredAssetStream>(StorageErrors.NotFound));
+    }
+
+    public Task DeleteAsync(string storagePath, CancellationToken ct) => Task.CompletedTask;
+}
+
+/// <summary>
+/// FIX-5: records every path passed to OpenAsync so tests can assert that the read path
+/// derives the storage location from the same source as the write path (PersistHashSidecarAsync).
+/// </summary>
+file sealed class PathTrackingStorage : IGeneratedAssetStorage
+{
+    private readonly HashSet<string> _openedPaths = new();
+    private readonly Dictionary<string, string> _sidecars = new(); // full path → "hash|imageUrl"
+    private string _newUrl = string.Empty;
+
+    public IReadOnlySet<string> OpenedPaths => _openedPaths;
+
+    /// <summary>Seeds a hash sidecar at the given full storage path (orgId/clientId/formatResultId/relative.hash).</summary>
+    public void SeedSidecar(string fullPath, string hash, string imageUrl)
+    {
+        _sidecars[fullPath] = $"{hash}|{imageUrl}";
+        _newUrl = imageUrl;
+    }
+
+    public Task<StoredAssetRef> PutAssetAsync(StoredAssetKey key, StoredAssetContent content, CancellationToken ct) =>
+        Task.FromResult(new StoredAssetRef(_newUrl, content.Mime, content.Bytes.Length, "hash"));
+
+    public Task PutFolderPlaceholderAsync(string folderPath, CancellationToken ct) => Task.CompletedTask;
+
+    public Task<IReadOnlyList<StoredAssetEntry>> ListAsync(string prefix, CancellationToken ct)
+        => Task.FromResult<IReadOnlyList<StoredAssetEntry>>([]);
+
+    public Task<Result<StoredAssetStream>> OpenAsync(string storagePath, CancellationToken ct)
+    {
+        _openedPaths.Add(storagePath);
+        if (_sidecars.TryGetValue(storagePath, out var content))
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+            return Task.FromResult(Result.Success(new StoredAssetStream(new MemoryStream(bytes), "text/plain", bytes.Length)));
         }
         return Task.FromResult(Result.Failure<StoredAssetStream>(StorageErrors.NotFound));
     }

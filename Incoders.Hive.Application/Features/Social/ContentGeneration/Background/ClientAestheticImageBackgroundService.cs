@@ -208,8 +208,9 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
             request.FormatResultId,
             hashRelativePath);
 
-        // Build the full storage path to look up the sidecar.
-        var hashStoragePath = $"{request.OrganizationId}/{request.ClientId ?? Guid.Empty}/{request.FormatResultId}/{hashRelativePath}";
+        // Derive the full storage path from the same key used by the write path (PersistHashSidecarAsync),
+        // eliminating the previously-separate hand-built string that could drift from the write path.
+        var hashStoragePath = $"{hashKey.OrganizationId}/{hashKey.ClientId}/{hashKey.AnalysisId}/{hashKey.RelativePath}";
 
         var openResult = await _storage.OpenAsync(hashStoragePath, ct);
         if (openResult.IsFailure)
