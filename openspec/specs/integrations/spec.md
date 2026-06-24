@@ -136,3 +136,96 @@ The OAuth authorization-code / per-user token flow (PKCE, token exchange,
 refresh rotation) is deferred to B3. B2 stores the app-level credentials only.
 
 See `docs/operators/canva-connector-setup.md` for configuration steps.
+
+---
+
+<!-- Merged from openspec/changes/content-image-generation/specs/integrations/spec-delta.md — change applied 2026-06-24 (WU-10) -->
+
+## Added Requirements: generate-image Workflow Step (MediaGeneration) + OpenAI Seed (content-image-generation)
+
+### Requirement: CIG-INT-01 — generate-image Step Registered in WorkflowConfigurationCatalog
+
+The `WorkflowConfigurationCatalog` MUST include a new step entry with:
+- **Step key**: `generate-image`
+- **Operation category**: `MediaGeneration`
+- **Model selector applicable**: true (provider + model are required per route)
+- **Network requirement**: none (format-level, not network-level)
+
+The entry MUST be code-only (no database migration required). The backend catalog endpoint
+MUST return the new step so the Integrations routing UI can render it without frontend changes.
+
+#### Scenario: generate-image step appears in workflow catalog response (CIG-INT-01-a)
+
+- GIVEN an org with the Integrations routing UI open
+- WHEN `GET /api/integrations/workflow-configurations` is called
+- THEN the response includes a workflow catalog entry with step key `generate-image`
+  under the `MediaGeneration` category
+- AND the entry indicates model selector is applicable
+- AND no database migration has been applied to produce this entry
+
+#### Scenario: generate-image step absent from catalog when feature is not deployed (CIG-INT-01-b)
+
+- GIVEN the pre-change codebase
+- WHEN `GET /api/integrations/workflow-configurations` is called
+- THEN no `generate-image` step appears in the catalog response
+
+---
+
+### Requirement: CIG-INT-02 — OpenAI Seeded as First MediaGeneration Provider Option
+
+OpenAI (`dall-e-3` / `gpt-image-1`) MUST appear as a selectable provider/model option
+in the Integrations routing UI for the `generate-image` step. OpenAI is seeded as a
+`MediaGeneration` provider in `IntegrationCatalogSeeder` (separate from the existing
+`AiModel` entry).
+
+#### Scenario: OpenAI available as image provider in routing UI (CIG-INT-02-a)
+
+- GIVEN an org with an OpenAI integration connected
+- WHEN the Integrations routing UI renders provider options for the `generate-image` step
+- THEN OpenAI appears as a selectable provider
+- AND models available for OpenAI (dall-e-3, gpt-image-1) are selectable
+
+#### Scenario: Unconnected provider does not appear for generate-image (CIG-INT-02-b)
+
+- GIVEN an org with OpenAI NOT connected
+- WHEN the Integrations routing UI renders provider options for the `generate-image` step
+- THEN OpenAI does NOT appear as a selectable option for that org's `generate-image` step
+
+---
+
+### Requirement: CIG-INT-03 — Org-Level IMAGE Route Configured Like Any Text Route
+
+An org MAY configure zero or more routes for the `generate-image` step, each specifying
+a provider key and model. The `IWorkflowConfigurationResolver` MUST resolve the IMAGE
+route for an org by `generate-image` step key, returning the org's configured
+provider+model or null (unconfigured). Resolution behavior MUST mirror `generate-content`.
+
+#### Scenario: Org A image route resolves to OpenAI dall-e-3 (CIG-INT-03-a)
+
+- GIVEN org A has a `generate-image` route configured with provider = OpenAI, model = dall-e-3
+- WHEN `IWorkflowConfigurationResolver` is asked for the IMAGE route for org A
+- THEN it returns a route context with provider key = openai and model = dall-e-3
+
+#### Scenario: Org B has no image route — resolver returns null (CIG-INT-03-b)
+
+- GIVEN org B has no `generate-image` route configured
+- WHEN `IWorkflowConfigurationResolver` is asked for the IMAGE route for org B
+- THEN it returns null (or the absence-of-route sentinel)
+- AND no error is raised; the caller determines the fallback behavior
+
+---
+
+### Requirement: CIG-INT-04 — Integrations UI Renders generate-image Step Without Frontend Code Change
+
+The Integrations workflow routing UI MUST render the `generate-image` step and its
+provider/model selectors automatically from the catalog API response, with no
+frontend-specific UI code changes required to support the new step.
+
+#### Scenario: New generate-image step renders in routing UI without frontend code change (CIG-INT-04-a)
+
+- GIVEN the backend catalog returns the `generate-image` step entry
+- WHEN the Integrations routing UI loads workflow configuration
+- THEN the `generate-image` step section appears in the UI with its provider and model selectors
+- AND no new frontend component or conditional rendering code was added to make this work
+
+*Merged from `openspec/changes/content-image-generation/specs/integrations/spec-delta.md` — change applied 2026-06-24.*
