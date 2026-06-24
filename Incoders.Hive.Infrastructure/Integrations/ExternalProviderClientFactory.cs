@@ -4,6 +4,8 @@ using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Infrastructure.Ai.Providers;
 using Incoders.Hive.Infrastructure.Social.Providers;
 using Microsoft.Extensions.DependencyInjection;
+// Disambiguate: old IImageGenerationClient also defines ImageGenerationRequest.
+using ImageGenerationRequest = Incoders.Hive.Application.Abstractions.Ai.ImageGenerationRequest;
 
 namespace Incoders.Hive.Infrastructure.Integrations;
 
@@ -41,6 +43,15 @@ public sealed class ExternalProviderClientFactory : IExternalProviderClientFacto
                 "openai" => typeof(OpenAiModelClient),
                 "claude" or "anthropic" => typeof(ClaudeModelClient),
                 "gemini" or "google-gemini" => typeof(GeminiModelClient),
+                _ => null,
+            };
+        }
+
+        if (clientType == typeof(IImageModelClient))
+        {
+            return normalized switch
+            {
+                "openai" => typeof(OpenAiImageModelClient),
                 _ => null,
             };
         }

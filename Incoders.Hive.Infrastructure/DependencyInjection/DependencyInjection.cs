@@ -6,6 +6,7 @@ using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Social.ContentStudio;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
 using Incoders.Hive.Infrastructure.Ai;
 using Incoders.Hive.Infrastructure.Packaging;
@@ -225,6 +226,20 @@ public static class DependencyInjection
             var ctx = sp.GetRequiredService<ProviderCallContext>();
             return new AiCompletionGatewayInstrumentationDecorator(inner, ledger, ctx);
         });
+
+        // Image generation gateway — same manual-decoration pattern as the text gateway.
+        services.AddScoped<ImageGenerationGateway>();
+        services.AddScoped<IImageGenerationGateway>(sp =>
+        {
+            var inner = sp.GetRequiredService<ImageGenerationGateway>();
+            var ledger = sp.GetRequiredService<IUsageEventLedger>();
+            var ctx = sp.GetRequiredService<ProviderCallContext>();
+            return new ImageGenerationGatewayInstrumentationDecorator(inner, ledger, ctx);
+        });
+
+        // Application services for the creative-background pipeline.
+        services.AddScoped<IImagePromptWriter, ImagePromptWriter>();
+        services.AddScoped<IClientAestheticImageBackgroundService, ClientAestheticImageBackgroundService>();
 
         services.AddScoped<ISocialContentResolver, SocialContentResolver>();
         // Profile scrape resolver — Mundo 2 infrastructure adapter (PA-04, PA-05, Decision 2).
