@@ -52,7 +52,7 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
 
 ### Phase 1.A — Port definitions + records (Application)
 
-- [ ] 1.1 **[RED]** Add `IImageGenerationGatewayContractTests.cs` — use reflection to assert:
+- [x] 1.1 **[RED]** Add `IImageGenerationGatewayContractTests.cs` — use reflection to assert:
   - `IImageGenerationGateway.GenerateAsync(ImageGenerationRequest, CancellationToken)` returns `Task<Result<ImageGenerationResult>>`
   - No OpenAI, `System.Net.Http`, Supabase, or EF types appear in any parameter/return type
   - `ImageGenerationRequest`, `ImageGenerationResult`, `ImageInitReference`, `ImageUsage` are records containing only primitives, `byte[]`, and Application-layer types
@@ -60,11 +60,11 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - Mirrors the `IVisualDesignerContractTests` pattern.
   (`Incoders.Hive.Tests/Application/IImageGenerationGatewayContractTests.cs`)
 
-- [ ] 1.2 **[RED]** Add `IImagePromptWriterContractTests.cs` — reflect `IImagePromptWriter.WriteAsync(ImagePromptRequest, CancellationToken)` returns `Task<Result<string>>`; assert `ImagePromptRequest` carries only `Guid`, `int`, `string`, and `ClientAestheticProfile`; no provider types. (`Incoders.Hive.Tests/Application/IImagePromptWriterContractTests.cs`)
+- [x] 1.2 **[RED]** Add `IImagePromptWriterContractTests.cs` — reflect `IImagePromptWriter.WriteAsync(ImagePromptRequest, CancellationToken)` returns `Task<Result<string>>`; assert `ImagePromptRequest` carries only `Guid`, `int`, `string`, and `ClientAestheticProfile`; no provider types. (`Incoders.Hive.Tests/Application/IImagePromptWriterContractTests.cs`)
 
-- [ ] 1.3 **[RED]** Add `IClientAestheticImageBackgroundServiceContractTests.cs` — reflect `BuildCreativeBackgroundsAsync(ClientAestheticImageRequest, CancellationToken)` returns `Task<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>>`; assert `ClientAestheticImageRequest` contains only primitives, domain types, and `ClientAestheticProfile`; no provider types. (`Incoders.Hive.Tests/Application/IClientAestheticImageBackgroundServiceContractTests.cs`)
+- [x] 1.3 **[RED]** Add `IClientAestheticImageBackgroundServiceContractTests.cs` — reflect `BuildCreativeBackgroundsAsync(ClientAestheticImageRequest, CancellationToken)` returns `Task<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>>`; assert `ClientAestheticImageRequest` contains only primitives, domain types, and `ClientAestheticProfile`; no provider types. (`Incoders.Hive.Tests/Application/IClientAestheticImageBackgroundServiceContractTests.cs`)
 
-- [ ] 1.4 **[GREEN]** Create `IImageGenerationGateway.cs` in `Application/Abstractions/Ai/` — define:
+- [x] 1.4 **[GREEN]** Create `IImageGenerationGateway.cs` in `Application/Abstractions/Ai/` — define:
   - `IImageGenerationGateway` with `GenerateAsync(ImageGenerationRequest, CancellationToken) → Task<Result<ImageGenerationResult>>`
   - `IImageModelClient` with identical signature
   - `ImageGenerationRequest` sealed record (fields per design §3.1: `OrganizationId`, `CapabilityKey`, `PromptVersionKey`, `Prompt`, `Width`, `Height`, `PreferredProviderKey`, `PreferredModel`, `ImageInitReference? Init = null`)
@@ -73,11 +73,11 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - `ImageUsage` sealed record (`int ImageCount`, `long? OutputBytes = null`)
   (`Incoders.Hive.Application/Abstractions/Ai/IImageGenerationGateway.cs`)
 
-- [ ] 1.5 **[GREEN]** Create `IImagePromptWriter.cs` in `Application/Abstractions/Social/ContentGeneration/` — define `IImagePromptWriter` + `ImagePromptRequest` sealed record (`Guid OrganizationId`, `Guid? ClientId`, `int SlideIndex`, `string SlideCopySummary`, `ClientAestheticProfile Aesthetic`). (`Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IImagePromptWriter.cs`)
+- [x] 1.5 **[GREEN]** Create `IImagePromptWriter.cs` in `Application/Abstractions/Social/ContentGeneration/` — define `IImagePromptWriter` + `ImagePromptRequest` sealed record (`Guid OrganizationId`, `Guid? ClientId`, `int SlideIndex`, `string SlideCopySummary`, `ClientAestheticProfile Aesthetic`). (`Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IImagePromptWriter.cs`)
 
-- [ ] 1.6 **[GREEN]** Create `IClientAestheticImageBackgroundService.cs` in `Application/Abstractions/Social/ContentGeneration/` — define `IClientAestheticImageBackgroundService` + `ClientAestheticImageRequest` sealed record (`Guid OrganizationId`, `Guid? ClientId`, `Guid JobId`, `Guid FormatResultId`, `string FormatKey`, `int SlideCount`, `IReadOnlyList<int> CreativeSlideIndices`, `ClientAestheticProfile Aesthetic`, `IReadOnlyList<string> PerSlideCopySummaries`). (`Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticImageBackgroundService.cs`)
+- [x] 1.6 **[GREEN]** Create `IClientAestheticImageBackgroundService.cs` in `Application/Abstractions/Social/ContentGeneration/` — define `IClientAestheticImageBackgroundService` + `ClientAestheticImageRequest` sealed record (`Guid OrganizationId`, `Guid? ClientId`, `Guid JobId`, `Guid FormatResultId`, `string FormatKey`, `int SlideCount`, `IReadOnlyList<int> CreativeSlideIndices`, `ClientAestheticProfile Aesthetic`, `IReadOnlyList<string> PerSlideCopySummaries`). (`Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticImageBackgroundService.cs`)
 
-- [ ] 1.7 Run `dotnet test` — WU-1 contract tests pass; no regression.
+- [x] 1.7 Run `dotnet test` — WU-1 contract tests pass; no regression.
 
 ---
 
@@ -87,17 +87,17 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
 
 ### Phase 2.A — Profile field (additive, nullable)
 
-- [ ] 2.1 **[RED]** Add `CreativeSlideIndicesTests.cs` — assert:
+- [x] 2.1 **[RED]** Add `CreativeSlideIndicesTests.cs` — assert:
   - `ClientAestheticProfile` construction with `CreativeSlideIndices = null` compiles; existing construction sites unchanged (back-compat)
   - `with` expression changing only `CreativeSlideIndices` compiles
   - Field is `IReadOnlyList<int>?`
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/CreativeSlideIndicesTests.cs`)
 
-- [ ] 2.2 **[GREEN]** Modify `ClientAestheticProfile.cs` — append `IReadOnlyList<int>? CreativeSlideIndices = null` as a trailing nullable parameter; no existing parameter order or defaults changed. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ClientAestheticProfile.cs`)
+- [x] 2.2 **[GREEN]** Modify `ClientAestheticProfile.cs` — append `IReadOnlyList<int>? CreativeSlideIndices = null` as a trailing nullable parameter; no existing parameter order or defaults changed. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ClientAestheticProfile.cs`)
 
 ### Phase 2.B — Default-resolution helper
 
-- [ ] 2.3 **[RED]** Add `CreativeSlideIndexResolverTests.cs` — assert:
+- [x] 2.3 **[RED]** Add `CreativeSlideIndexResolverTests.cs` — assert:
   - `Resolve(null, slideCount: 5)` → `[1, 5]` (first + last, 1-based) (OQ-1 default)
   - `Resolve(null, slideCount: 1)` → `[1]` (single-slide degenerate case)
   - `Resolve([0, 9], slideCount: 5)` → `[]` (all out-of-range, silently clamped/excluded; 1-based so 0 is out-of-range, 9 > 5) (CIG-BSP-02-c)
@@ -107,9 +107,9 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - `MaxCreativeSlidesPerPackage = 2` is a named constant accessible from the resolver
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/CreativeSlideIndexResolverTests.cs`)
 
-- [ ] 2.4 **[GREEN]** Create `CreativeSlideIndexResolver.cs` — static class with `Resolve(IReadOnlyList<int>? indices, int slideCount)` that: applies 1-based range filter (1..slideCount), dedupes, takes first `MaxCreativeSlidesPerPackage`; defines `public const int MaxCreativeSlidesPerPackage = 2`. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/CreativeSlideIndexResolver.cs`)
+- [x] 2.4 **[GREEN]** Create `CreativeSlideIndexResolver.cs` — static class with `Resolve(IReadOnlyList<int>? indices, int slideCount)` that: applies 1-based range filter (1..slideCount), dedupes, takes first `MaxCreativeSlidesPerPackage`; defines `public const int MaxCreativeSlidesPerPackage = 2`. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/CreativeSlideIndexResolver.cs`)
 
-- [ ] 2.5 Run `dotnet test` — WU-2 tests pass; no regression.
+- [x] 2.5 Run `dotnet test` — WU-2 tests pass; no regression.
 
 ---
 
@@ -119,7 +119,7 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
 
 ### Phase 3.A — Prompt-writer implementation
 
-- [ ] 3.1 **[RED]** Add `ImagePromptWriterTests.cs` — using a fake `IAiCompletionGateway`:
+- [x] 3.1 **[RED]** Add `ImagePromptWriterTests.cs` — using a fake `IAiCompletionGateway`:
   - Given a rich `ClientAestheticProfile` (descriptors, motifs, palette), `WriteAsync` sends a structured JSON request via `IAiCompletionGateway` with `CapabilityKey = "ai-generation"` and `PromptVersionKey = "image-prompt/v1"`
   - Response `{ imagePrompt: "…" }` is parsed and the string returned as `Result.Success`
   - Empty `imagePrompt` in the response → `Result.Failure` (degrade trigger; IMG-03-b)
@@ -127,11 +127,11 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - `SlideCopySummary` appears in the assembled prompt (on-topic prompting)
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/ImagePromptWriterTests.cs`)
 
-- [ ] 3.2 **[GREEN]** Create `ImagePromptWriter.cs` — implements `IImagePromptWriter`; uses `IAiCompletionGateway.CompleteJsonAsync<T>` with capability `"ai-generation"` and prompt-version `"image-prompt/v1"`; builds the structured prompt from `ImagePromptRequest.Aesthetic` (descriptors, motifs, palette, voice, reference context) + `SlideCopySummary`; parses `{ imagePrompt }` response; returns `Failure` on empty/null or gateway error. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs`)
+- [x] 3.2 **[GREEN]** Create `ImagePromptWriter.cs` — implements `IImagePromptWriter`; uses `IAiCompletionGateway.CompleteJsonAsync<T>` with capability `"ai-generation"` and prompt-version `"image-prompt/v1"`; builds the structured prompt from `ImagePromptRequest.Aesthetic` (descriptors, motifs, palette, voice, reference context) + `SlideCopySummary`; parses `{ imagePrompt }` response; returns `Failure` on empty/null or gateway error. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs`)
 
-- [ ] 3.3 Add `"image-prompt/v1"` constant to `ContentGenerationPromptVersions.cs` (additive, no bump to existing keys). (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ContentGenerationPromptVersions.cs`)
+- [x] 3.3 Add `"image-prompt/v1"` constant to `ContentGenerationPromptVersions.cs` (additive, no bump to existing keys). (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ContentGenerationPromptVersions.cs`)
 
-- [ ] 3.4 Run `dotnet test` — WU-3 tests pass; no regression.
+- [x] 3.4 Run `dotnet test` — WU-3 tests pass; no regression.
 
 ---
 
@@ -141,7 +141,7 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
 
 ### Phase 4.A — Service implementation (Application)
 
-- [ ] 4.1 **[RED]** Add `ClientAestheticImageBackgroundServiceTests.cs`:
+- [x] 4.1 **[RED]** Add `ClientAestheticImageBackgroundServiceTests.cs`:
 
   **Happy path:**
   - Given `CreativeSlideIndices = [1, 4]`, a fake `IImagePromptWriter` returning prompts, a fake `IImageGenerationGateway` returning bytes, and a fake `IGeneratedAssetStorage` returning a durable URL → `BuildCreativeBackgroundsAsync` returns `{ 1: ForcedDefault(url1, "ai-generated-background"), 4: ForcedDefault(url4, "ai-generated-background") }`
@@ -170,9 +170,9 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
 
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/ClientAestheticImageBackgroundServiceTests.cs`)
 
-- [ ] 4.2 **[GREEN]** Create `ClientAestheticImageBackgroundService.cs` — implements `IClientAestheticImageBackgroundService`; constructor takes `IImagePromptWriter`, `IImageGenerationGateway`, `IGeneratedAssetStorage`; applies `CreativeSlideIndexResolver.MaxCreativeSlidesPerPackage` cap; runs bounded `Task.WhenAll` for ≤2 slides; for each slide: computes prompt hash → checks stored asset (OQ-3 reuse) → calls prompt writer → calls image gateway → calls `PutAssetAsync` using key `(org, client, formatResultId, $"carousel/slide_{slideIndex}.png")`; on any step failure: catches, logs slide index + reason, omits that slide from the map; returns map of successes only. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ClientAestheticImageBackgroundService.cs`)
+- [x] 4.2 **[GREEN]** Create `ClientAestheticImageBackgroundService.cs` — implements `IClientAestheticImageBackgroundService`; constructor takes `IImagePromptWriter`, `IImageGenerationGateway`, `IGeneratedAssetStorage`; applies `CreativeSlideIndexResolver.MaxCreativeSlidesPerPackage` cap; runs bounded `Task.WhenAll` for ≤2 slides; for each slide: computes prompt hash → checks stored asset (OQ-3 reuse) → calls prompt writer → calls image gateway → calls `PutAssetAsync` using key `(org, client, formatResultId, $"carousel/slide_{slideIndex}.png")`; on any step failure: catches, logs slide index + reason, omits that slide from the map; returns map of successes only. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ClientAestheticImageBackgroundService.cs`)
 
-- [ ] 4.3 Run `dotnet test` — WU-4 tests pass; full suite green.
+- [x] 4.3 Run `dotnet test` — WU-4 tests pass; full suite green.
 
 ---
 
@@ -182,31 +182,31 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
 
 ### Phase 5.A — Gateway concrete (Infrastructure)
 
-- [ ] 5.1 **[RED]** Add `ImageGenerationGatewayTests.cs` — mirror `AiCompletionGatewayTests` pattern:
+- [x] 5.1 **[RED]** Add `ImageGenerationGatewayTests.cs` — mirror `AiCompletionGatewayTests` pattern:
   - Given a fake `IWorkflowConfigurationResolver` returning a route (provider + model) for `generate-image`, and a fake `IImageModelClient` factory → `GenerateAsync` creates the client and returns its result (IMG-01-b)
   - Given resolver returns null (no IMAGE route) → gateway returns `Result.Failure` without calling any client (IMG-06-a)
   - `OrganizationId` from the request is forwarded to the resolver
   (`Incoders.Hive.Tests/Infrastructure/Ai/ImageGenerationGatewayTests.cs`)
 
-- [ ] 5.2 **[GREEN]** Create `ImageGenerationGateway.cs` — implements `IImageGenerationGateway`; resolves `generate-image` step via `IWorkflowConfigurationResolver`; creates `IImageModelClient` via `IExternalProviderClientFactory`; delegates `GenerateAsync`; mirrors `AiCompletionGateway.cs` flow. (`Incoders.Hive.Infrastructure/Ai/ImageGenerationGateway.cs`)
+- [x] 5.2 **[GREEN]** Create `ImageGenerationGateway.cs` — implements `IImageGenerationGateway`; resolves `generate-image` step via `IWorkflowConfigurationResolver`; creates `IImageModelClient` via `IExternalProviderClientFactory`; delegates `GenerateAsync`; mirrors `AiCompletionGateway.cs` flow. (`Incoders.Hive.Infrastructure/Ai/ImageGenerationGateway.cs`)
 
 ### Phase 5.B — Instrumentation decorator (Infrastructure)
 
-- [ ] 5.3 **[RED]** Add `ImageGenerationGatewayInstrumentationDecoratorTests.cs` — mirror `AiDecoratorInstrumentationTests`:
+- [x] 5.3 **[RED]** Add `ImageGenerationGatewayInstrumentationDecoratorTests.cs` — mirror `AiDecoratorInstrumentationTests`:
   - Successful call → one `UsageEvent` persisted with `org`, provider key, model, success outcome (IMG-02-a)
   - Failed call → one `UsageEvent` with failure outcome; event is written before propagating the error (IMG-02-b)
   - `ProviderCallContext.Current == null` → throws (mirrors text decorator behavior)
   (`Incoders.Hive.Tests/Infrastructure/Observability/ImageGenerationGatewayInstrumentationDecoratorTests.cs`)
 
-- [ ] 5.4 **[GREEN]** Create `ImageGenerationGatewayInstrumentationDecorator.cs` — wraps `IImageGenerationGateway`; requires active `ProviderCallContext.Current`; writes one `UsageEvent` per call (success or failure); mirrors `AiCompletionGatewayInstrumentationDecorator.cs` exactly. (`Incoders.Hive.Infrastructure/Observability/ImageGenerationGatewayInstrumentationDecorator.cs`)
+- [x] 5.4 **[GREEN]** Create `ImageGenerationGatewayInstrumentationDecorator.cs` — wraps `IImageGenerationGateway`; requires active `ProviderCallContext.Current`; writes one `UsageEvent` per call (success or failure); mirrors `AiCompletionGatewayInstrumentationDecorator.cs` exactly. (`Incoders.Hive.Infrastructure/Observability/ImageGenerationGatewayInstrumentationDecorator.cs`)
 
 ### Phase 5.C — Manual DI decoration
 
-- [ ] 5.5 **[RED]** Add/extend `ContentGenerationDiResolutionTests.cs` or equivalent — assert `IImageGenerationGateway` resolves to the decorated gateway (i.e., the instrumentation decorator wraps the concrete gateway); assert `OpenAiImageModelClient` is accessible via the provider client factory for key `"openai"`.
+- [x] 5.5 **[RED]** Add/extend `ContentGenerationDiResolutionTests.cs` or equivalent — assert `IImageGenerationGateway` resolves to the decorated gateway (i.e., the instrumentation decorator wraps the concrete gateway); assert `OpenAiImageModelClient` is accessible via the provider client factory for key `"openai"`.
 
-- [ ] 5.6 **[GREEN]** Modify `DependencyInjection.cs` — register `ImageGenerationGateway` and its decorator following the SAME manual-decoration pattern as `AiCompletionGateway` (lines ~220-227 of the existing DI file). Register `IClientAestheticImageBackgroundService → ClientAestheticImageBackgroundService` and `IImagePromptWriter → ImagePromptWriter`. (`Incoders.Hive.Infrastructure/DependencyInjection/DependencyInjection.cs`)
+- [x] 5.6 **[GREEN]** Modify `DependencyInjection.cs` — register `ImageGenerationGateway` and its decorator following the SAME manual-decoration pattern as `AiCompletionGateway` (lines ~220-227 of the existing DI file). Register `IClientAestheticImageBackgroundService → ClientAestheticImageBackgroundService` and `IImagePromptWriter → ImagePromptWriter`. (`Incoders.Hive.Infrastructure/DependencyInjection/DependencyInjection.cs`)
 
-- [ ] 5.7 Run `dotnet test` — WU-5 tests pass; no regression.
+- [x] 5.7 Run `dotnet test` — WU-5 tests pass; no regression.
 
 ---
 
@@ -216,16 +216,16 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
 
 ### Phase 6.A — OpenAI adapter (Infrastructure)
 
-- [ ] 6.1 **[RED]** Add `OpenAiImageModelClientTests.cs`:
+- [x] 6.1 **[RED]** Add `OpenAiImageModelClientTests.cs`:
   - Given a mocked OpenAI Images API response with image bytes → `GenerateAsync` returns `Result.Success(ImageGenerationResult { Bytes, Mime = "image/png", ProviderKey = "openai" })`
   - No OpenAI SDK type appears in the returned `ImageGenerationResult` (bytes-only contract; IMG-08)
   - Given a 4xx/5xx OpenAI error response → `GenerateAsync` returns `Result.Failure` (no unhandled exception)
   - Given `Init` is non-null → reserved slot accepted without error (OQ-7; not used in v1 but must not throw)
   (`Incoders.Hive.Tests/Infrastructure/Ai/OpenAiImageModelClientTests.cs`)
 
-- [ ] 6.2 **[GREEN]** Create `OpenAiImageModelClient.cs` — implements `IImageModelClient`; uses OpenAI Images API (`dall-e-3` / `gpt-image-1` per the request's `PreferredModel`); posts with `Width` / `Height` (1024×1024 default per OQ-2); maps response bytes to `ImageGenerationResult`; catches provider errors → `Result.Failure`; ALL OpenAI SDK types confined to this file. (`Incoders.Hive.Infrastructure/Ai/OpenAiImageModelClient.cs`)
+- [x] 6.2 **[GREEN]** Create `OpenAiImageModelClient.cs` — implements `IImageModelClient`; uses OpenAI Images API (`dall-e-3` / `gpt-image-1` per the request's `PreferredModel`); posts with `Width` / `Height` (1024×1024 default per OQ-2); maps response bytes to `ImageGenerationResult`; catches provider errors → `Result.Failure`; ALL OpenAI SDK types confined to this file. (`Incoders.Hive.Infrastructure/Ai/OpenAiImageModelClient.cs`)
 
-- [ ] 6.3 Run `dotnet test` — WU-6 tests pass; no regression.
+- [x] 6.3 Run `dotnet test` — WU-6 tests pass; no regression.
 
 ---
 
