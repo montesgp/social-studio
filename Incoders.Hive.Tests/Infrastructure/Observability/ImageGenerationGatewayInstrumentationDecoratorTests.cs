@@ -2,8 +2,7 @@ using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Infrastructure.Observability;
-// Disambiguate: old IImageGenerationClient also defines ImageGenerationRequest.
-using ImageGenerationRequest = Incoders.Hive.Application.Abstractions.Ai.ImageGenerationRequest;
+// WU-9: alias removed — IImageGenerationClient retired; ImageGenerationRequest is unambiguous now.
 
 namespace Incoders.Hive.Tests.Infrastructure.Observability;
 

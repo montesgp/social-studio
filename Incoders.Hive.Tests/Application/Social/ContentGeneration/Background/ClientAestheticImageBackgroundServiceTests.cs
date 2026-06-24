@@ -5,8 +5,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Microsoft.Extensions.Logging.Abstractions;
-// Disambiguate: old IImageGenerationClient also defines ImageGenerationRequest.
-using ImageGenerationRequest = Incoders.Hive.Application.Abstractions.Ai.ImageGenerationRequest;
+// WU-9: alias removed — IImageGenerationClient retired; ImageGenerationRequest is unambiguous now.
 
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Background;
 

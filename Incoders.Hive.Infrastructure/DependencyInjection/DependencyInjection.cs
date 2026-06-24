@@ -297,8 +297,12 @@ public static class DependencyInjection
         // story/carousel designer pipeline genuinely ACTIVE in production.
         services.AddB1bRenderingAndDesigner(configuration);
 
+        // WU-9: IImageGenerationClient retired — superseded by IClientAestheticImageBackgroundService
+        // (port family: image-prompt-writer → image-render-gateway → image-background-service).
+        // NullImageGenerationClient deleted; image generation is now opt-in via the nullable
+        // IClientAestheticImageBackgroundService processor dependency (registered separately).
+
         // Null adapters for future providers (v1 not supported)
-        services.AddScoped<IImageGenerationClient, NullImageGenerationClient>();
         services.AddScoped<IVideoGenerationClient, NullVideoGenerationClient>();
 
         // Local ephemeral package storage
