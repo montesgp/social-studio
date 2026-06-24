@@ -118,8 +118,134 @@ public sealed class ProcessorImageBackgroundResilienceTests
     }
 
     // -----------------------------------------------------------------------
+    // FIX-1: processor opens a ProviderCallContext scope before invoking the image service
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClientAesthetic_ImageBuild_ProviderCallContextIsActive()
+    {
+        // GIVEN a spy that records whether ProviderCallContext.Current was non-null when called
+        var providerCallContext = new ProviderCallContext();
+        var scopeSpy = new ScopeCheckingImageService(providerCallContext);
+
+        var processor = BuildProcessorWithContext(
+            slideCount: 3,
+            creativeSlideIndices: [1, 3],
+            imageService: scopeSpy,
+            providerCallContext: providerCallContext);
+
+        // WHEN
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        // THEN the service was called AND the scope was active (FIX-1)
+        Assert.True(scopeSpy.WasCalled,
+            "BuildCreativeBackgroundsAsync MUST be called for a ClientAesthetic carousel with wired service.");
+        Assert.True(scopeSpy.ContextWasActive,
+            "ProviderCallContext.Current MUST be non-null when BuildCreativeBackgroundsAsync is called " +
+            "(FIX-1: decorators throw when Current is null).");
+    }
+
+    // -----------------------------------------------------------------------
+    // FIX-2: composition coherence — AI URL appears in plan BEFORE ComposeManyAsync
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClientAesthetic_SuccessfulImageBuild_CompositionPlanContainsAiUrl()
+    {
+        // GIVEN a service that returns a ForcedDefault with a known AI URL for slide 1
+        const string aiImageUrl = "https://storage.example.com/ai-background-slide1.png";
+        var successMap = new Dictionary<int, BackgroundSelection.ForcedDefault>
+        {
+            [1] = new BackgroundSelection.ForcedDefault(aiImageUrl, "ai-generated-background")
+        };
+        var composerSpy = new PlanCapturingCompositionService("carousel", slideCount: 3);
+        var processor = BuildProcessorWithComposer(
+            slideCount: 3,
+            creativeSlideIndices: [1],
+            imageService: new FixedResultImageService(successMap),
+            composer: composerSpy);
+
+        // WHEN
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        // THEN the plan passed to ComposeManyAsync already contains the AI ForcedDefault for slide 1
+        // (FIX-2: overlay happens before composition, not after)
+        Assert.True(composerSpy.ReceivedPlan is not null,
+            "ComposeManyAsync MUST receive a backgroundPlan (carousel with ClientAesthetic strategy).");
+        var slide1Selection = composerSpy.ReceivedPlan!.ForSlide(1);
+        Assert.IsType<BackgroundSelection.ForcedDefault>(slide1Selection);
+        var forced = (BackgroundSelection.ForcedDefault)slide1Selection;
+        Assert.Equal(aiImageUrl, forced.Url);
+    }
+
+    // -----------------------------------------------------------------------
+    // FIX-3: cancelled token during image build → OperationCanceledException propagates
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClientAesthetic_CancelledDuringImageBuild_PropagatesOperationCanceledException()
+    {
+        // GIVEN a CancellationTokenSource that fires during the image build
+        using var cts = new CancellationTokenSource();
+        var processor = BuildProcessor(
+            slideCount: 3,
+            creativeSlideIndices: [1, 3],
+            imageService: new CancellingImageService(cts));
+
+        // WHEN — THEN the cancellation propagates (FIX-3: not swallowed by catch (Exception))
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            processor.ProcessAsync(JobId, cts.Token));
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    private ContentGenerationJobProcessor BuildProcessorWithContext(
+        int slideCount,
+        IReadOnlyList<int> creativeSlideIndices,
+        IClientAestheticImageBackgroundService imageService,
+        ProviderCallContext providerCallContext)
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["minimal"],
+            VoiceTone: "professional",
+            AverageSlidesPerCarousel: slideCount,
+            AnalyzedAtUtc: DateTime.UtcNow,
+            CreativeSlideIndices: creativeSlideIndices);
+
+        return BuildProcessorCore(
+            slideCount,
+            profile,
+            imageService,
+            renderer: new ResilienceTrackingRenderer(),
+            designer: new ResiliencePassthroughDesigner(),
+            composer: null,
+            providerCallContext: providerCallContext);
+    }
+
+    private ContentGenerationJobProcessor BuildProcessorWithComposer(
+        int slideCount,
+        IReadOnlyList<int> creativeSlideIndices,
+        IClientAestheticImageBackgroundService imageService,
+        IVisualCompositionService composer)
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["minimal"],
+            VoiceTone: "professional",
+            AverageSlidesPerCarousel: slideCount,
+            AnalyzedAtUtc: DateTime.UtcNow,
+            CreativeSlideIndices: creativeSlideIndices);
+
+        return BuildProcessorCore(
+            slideCount,
+            profile,
+            imageService,
+            renderer: new ResilienceTrackingRenderer(),
+            designer: new ResiliencePassthroughDesigner(),
+            composer: composer,
+            providerCallContext: null);
+    }
 
     private ContentGenerationJobProcessor BuildProcessor(
         int slideCount,
@@ -127,6 +253,32 @@ public sealed class ProcessorImageBackgroundResilienceTests
         IClientAestheticImageBackgroundService imageService,
         IContentRenderer? renderer = null,
         IVisualDesigner? designer = null)
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["minimal"],
+            VoiceTone: "professional",
+            AverageSlidesPerCarousel: slideCount,
+            AnalyzedAtUtc: DateTime.UtcNow,
+            CreativeSlideIndices: creativeSlideIndices);
+
+        return BuildProcessorCore(
+            slideCount,
+            profile,
+            imageService,
+            renderer: renderer ?? new ResilienceTrackingRenderer(),
+            designer: designer ?? new ResiliencePassthroughDesigner(),
+            composer: null,
+            providerCallContext: null);
+    }
+
+    private ContentGenerationJobProcessor BuildProcessorCore(
+        int slideCount,
+        ClientAestheticProfile profile,
+        IClientAestheticImageBackgroundService imageService,
+        IContentRenderer renderer,
+        IVisualDesigner designer,
+        IVisualCompositionService? composer,
+        ProviderCallContext? providerCallContext)
     {
         var fakeJob = new ContentGenerationJob(
             Id: JobId,
@@ -177,12 +329,6 @@ public sealed class ProcessorImageBackgroundResilienceTests
             CompletedAtUtc: DateTime.UtcNow);
 
         var payload = BuildCarouselPayload(slideCount);
-        var profile = new ClientAestheticProfile(
-            BackgroundDescriptors: ["minimal"],
-            VoiceTone: "professional",
-            AverageSlidesPerCarousel: slideCount,
-            AnalyzedAtUtc: DateTime.UtcNow,
-            CreativeSlideIndices: creativeSlideIndices);
 
         var brand = BrandSnapshot.FromBrandData(
             new BrandManualSnapshot(
@@ -196,25 +342,22 @@ public sealed class ProcessorImageBackgroundResilienceTests
             monthlyObjective: null,
             client: new ClientProfileSnapshot("Test Client", null, null, BackgroundSourcingPolicy.ClientAesthetic));
 
-        var actualDesigner = designer ?? new ResiliencePassthroughDesigner();
-        var actualRenderer = renderer ?? new ResilienceTrackingRenderer();
-
         return new ContentGenerationJobProcessor(
             jobs: new ResilienceJobRepository(fakeJob),
             analyses: new ResilienceAnalysisRepository(analysisRecord),
             orchestrator: new ResilienceOrchestrator("carousel", payload, brand),
             formatResults: new ResilienceFormatResultRepository(),
             brandLoader: new ResilienceBrandLoader(brand),
-            composer: new ResilienceCompositionService("carousel", slideCount),
-            renderer: actualRenderer,
+            composer: composer ?? new ResilienceCompositionService("carousel", slideCount),
+            renderer: renderer,
             packageBuilder: new ResiliencePackageBuilder(),
             packageStorage: new ResiliencePackageStorage(),
             packages: new ResiliencePackageRepository(),
             assetStorage: null,
             assetRepository: null,
-            designer: actualDesigner,
+            designer: designer,
             guardrails: new ResiliencePassingGuardrails(),
-            providerCallContext: new ProviderCallContext(),
+            providerCallContext: providerCallContext ?? new ProviderCallContext(),
             logger: NullLogger<ContentGenerationJobProcessor>.Instance,
             backgroundStrategyResolver: new ResilienceClientAestheticStrategyResolver("carousel", slideCount),
             aestheticDescriptorReader: null,
@@ -487,4 +630,83 @@ file sealed class ResiliencePackageRepository : IGeneratedPackageRepository
     public Task InsertAsync(GeneratedPackage p, CancellationToken ct) => Task.CompletedTask;
     public Task<GeneratedPackage?> GetByJobIdAsync(Guid jobId, Guid organizationId, CancellationToken ct) =>
         Task.FromResult<GeneratedPackage?>(null);
+}
+
+/// <summary>
+/// FIX-1: checks whether ProviderCallContext.Current is non-null at the moment it is called.
+/// </summary>
+file sealed class ScopeCheckingImageService(ProviderCallContext callContext) : IClientAestheticImageBackgroundService
+{
+    public bool WasCalled { get; private set; }
+    public bool ContextWasActive { get; private set; }
+
+    public Task<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>> BuildCreativeBackgroundsAsync(
+        ClientAestheticImageRequest request,
+        CancellationToken ct = default)
+    {
+        WasCalled = true;
+        ContextWasActive = callContext.Current is not null;
+        return Task.FromResult<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>>(
+            new Dictionary<int, BackgroundSelection.ForcedDefault>());
+    }
+}
+
+/// <summary>
+/// FIX-2: captures the backgroundPlan passed to ComposeManyAsync for plan-coherence assertions.
+/// </summary>
+file sealed class PlanCapturingCompositionService(string designedFormat, int slideCount) : IVisualCompositionService
+{
+    private static readonly CompositionPalette DefaultPalette = new("#333", "#666", "#999", "#FFF", "#EEE");
+    private static readonly CompositionTypography DefaultTypo = new("Inter", 24, "Inter", 14);
+    private static readonly CompositionDimensions DefaultDim = new(1080, 1080, 96);
+
+    public CarouselBackgroundPlan? ReceivedPlan { get; private set; }
+
+    public Task<VisualCompositionSpec> ComposeAsync(
+        string formatKey, object payload, BrandSnapshot brand, CancellationToken ct) =>
+        Task.FromResult(BuildSpec(formatKey));
+
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
+        string formatKey, object payload, BrandSnapshot brand, CancellationToken ct,
+        CarouselBackgroundPlan? plan = null)
+    {
+        ReceivedPlan = plan;
+        var specs = Enumerable.Range(1, slideCount).Select(_ => BuildSpec(formatKey)).ToList();
+        return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>(specs);
+    }
+
+    private VisualCompositionSpec BuildSpec(string formatKey)
+    {
+        var outputKind = string.Equals(formatKey, designedFormat, StringComparison.OrdinalIgnoreCase)
+            ? CompositionOutputKind.Raster
+            : CompositionOutputKind.Text;
+        return new VisualCompositionSpec(
+            FormatKey: formatKey,
+            LayoutType: "carousel-carousel",
+            Palette: DefaultPalette,
+            Typography: DefaultTypo,
+            AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+            CopySlots: new Dictionary<string, string> { ["title"] = "Slide" },
+            Dimensions: DefaultDim)
+        with { OutputKind = outputKind, TextBody = outputKind == CompositionOutputKind.Text ? "body" : null };
+    }
+
+    public IReadOnlyList<string> GetInferredFields() => [];
+}
+
+/// <summary>
+/// FIX-3: cancels the token when called, then throws OperationCanceledException so the processor
+/// must propagate it (not swallow it inside the catch (Exception) block).
+/// </summary>
+file sealed class CancellingImageService(CancellationTokenSource cts) : IClientAestheticImageBackgroundService
+{
+    public Task<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>> BuildCreativeBackgroundsAsync(
+        ClientAestheticImageRequest request,
+        CancellationToken ct = default)
+    {
+        cts.Cancel();
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>>(
+            new Dictionary<int, BackgroundSelection.ForcedDefault>());
+    }
 }

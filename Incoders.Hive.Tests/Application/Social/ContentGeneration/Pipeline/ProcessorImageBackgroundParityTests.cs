@@ -113,6 +113,40 @@ public sealed class ProcessorImageBackgroundParityTests
     }
 
     // -----------------------------------------------------------------------
+    // FIX-6: non-carousel ClientAesthetic formats → image path never entered
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("story-single")]
+    [InlineData("story")]
+    [InlineData("feed-single")]
+    public async Task ClientAesthetic_NonCarouselFormat_ImagePathNeverEntered(string formatKey)
+    {
+        // GIVEN a ClientAesthetic job for a non-carousel format (story-single / story / feed-single)
+        // with the image background service wired — it must NOT be called (FIX-6).
+        var imageServiceSpy = new ImageServiceCallSpy();
+
+        var storyPayload = BuildStoryPayload();
+        var aestheticProfile = BuildAestheticProfile(creativeSlideIndices: [1]);
+
+        var processor = BuildProcessor(
+            formatKey: formatKey,
+            payload: storyPayload,
+            policy: BackgroundSourcingPolicy.ClientAesthetic,
+            imageBackgroundService: imageServiceSpy,
+            aestheticProfile: aestheticProfile,
+            designer: new TrackingDesigner());
+
+        // WHEN
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        // THEN BuildCreativeBackgroundsAsync is NEVER called (FIX-6: carousel-only guard)
+        Assert.False(imageServiceSpy.WasCalled,
+            $"Image background service MUST NOT be called for non-carousel format '{formatKey}' " +
+            "even when policy is ClientAesthetic — the feature is scoped to carousel layout only.");
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
@@ -126,6 +160,9 @@ public sealed class ProcessorImageBackgroundParityTests
 
         return new { slides, coverTitle = "Cover", publicationDescription = "Test" };
     }
+
+    private static object BuildStoryPayload() =>
+        new { title = "Story title", subtitle = "Story subtitle", publicationDescription = "Story test" };
 
     private static ClientAestheticProfile BuildAestheticProfile(IReadOnlyList<int>? creativeSlideIndices = null) =>
         new(
