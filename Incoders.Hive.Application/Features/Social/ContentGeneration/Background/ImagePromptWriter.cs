@@ -110,4 +110,4 @@ public sealed class ImagePromptWriter : IImagePromptWriter
 }
 
 /// <summary>Structured response parsed from the TEXT route: the authored image prompt.</summary>
-public sealed record ImagePromptResponse(string? ImagePrompt);
+internal sealed record ImagePromptResponse(string? ImagePrompt);
