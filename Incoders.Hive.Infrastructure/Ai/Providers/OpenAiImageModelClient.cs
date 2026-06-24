@@ -93,7 +93,7 @@ public sealed class OpenAiImageModelClient : IImageModelClient
             response_format = "b64_json",
         }, JsonOptions);
 
-        HttpResponseMessage response;
+        HttpResponseMessage? response = null;
         try
         {
             response = await http.PostAsync(
@@ -112,50 +112,53 @@ public sealed class OpenAiImageModelClient : IImageModelClient
             return Result.Failure<ImageGenerationResult>(IntegrationErrors.ExternalProviderUnavailable);
         }
 
-        if (!response.IsSuccessStatusCode)
+        using (response)
         {
-            var errorBody = await response.Content.ReadAsStringAsync(ct);
-            _logger.LogWarning(
-                "OpenAiImageModelClient: image generation failed. " +
-                "OrganizationId={OrganizationId} Model={Model} StatusCode={StatusCode} Body={Body}",
-                request.OrganizationId,
-                model,
-                (int)response.StatusCode,
-                errorBody.Length > 400 ? errorBody[..400] + "…" : errorBody);
+            if (!response!.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(ct);
+                _logger.LogWarning(
+                    "OpenAiImageModelClient: image generation failed. " +
+                    "OrganizationId={OrganizationId} Model={Model} StatusCode={StatusCode} Body={Body}",
+                    request.OrganizationId,
+                    model,
+                    (int)response.StatusCode,
+                    errorBody.Length > 400 ? errorBody[..400] + "…" : errorBody);
 
-            return Result.Failure<ImageGenerationResult>(MapErrorStatus(response.StatusCode));
-        }
+                return Result.Failure<ImageGenerationResult>(MapErrorStatus(response.StatusCode));
+            }
 
-        try
-        {
-            var bytes = await ExtractImageBytesAsync(response, ct);
-            if (bytes is null)
+            try
+            {
+                var bytes = await ExtractImageBytesAsync(response, ct);
+                if (bytes is null)
+                {
+                    _logger.LogWarning(
+                        "OpenAiImageModelClient: response contained no image bytes. " +
+                        "OrganizationId={OrganizationId} Model={Model}",
+                        request.OrganizationId,
+                        model);
+
+                    return Result.Failure<ImageGenerationResult>(IntegrationErrors.AiJsonInvalid);
+                }
+
+                return Result.Success(new ImageGenerationResult(
+                    bytes,
+                    DefaultImageMime,
+                    ProviderKey,
+                    model,
+                    new ImageUsage(ImageCount: 1)));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 _logger.LogWarning(
-                    "OpenAiImageModelClient: response contained no image bytes. " +
-                    "OrganizationId={OrganizationId} Model={Model}",
+                    ex,
+                    "OpenAiImageModelClient: failed to parse image response for org {OrganizationId} model {Model}.",
                     request.OrganizationId,
                     model);
 
                 return Result.Failure<ImageGenerationResult>(IntegrationErrors.AiJsonInvalid);
             }
-
-            return Result.Success(new ImageGenerationResult(
-                bytes,
-                DefaultImageMime,
-                ProviderKey,
-                model,
-                new ImageUsage(ImageCount: 1)));
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
-        {
-            _logger.LogWarning(
-                ex,
-                "OpenAiImageModelClient: failed to parse image response for org {OrganizationId} model {Model}.",
-                request.OrganizationId,
-                model);
-
-            return Result.Failure<ImageGenerationResult>(IntegrationErrors.AiJsonInvalid);
         }
     }
 
