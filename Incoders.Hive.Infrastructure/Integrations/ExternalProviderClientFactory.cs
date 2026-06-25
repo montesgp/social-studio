@@ -40,6 +40,7 @@ public sealed class ExternalProviderClientFactory : IExternalProviderClientFacto
             return normalized switch
             {
                 "openai" => typeof(OpenAiModelClient),
+                "claude-p" => typeof(ClaudePromptCliModelClient),
                 "claude" or "anthropic" => typeof(ClaudeModelClient),
                 "gemini" or "google-gemini" => typeof(GeminiModelClient),
                 _ => null,
@@ -51,6 +52,7 @@ public sealed class ExternalProviderClientFactory : IExternalProviderClientFacto
             return normalized switch
             {
                 "openai" => typeof(OpenAiImageModelClient),
+                "claude-p" => typeof(ClaudePromptCliImageModelClient),
                 _ => null,
             };
         }

@@ -4,29 +4,19 @@ using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-// WU-9: alias removed — IImageGenerationClient retired; ImageGenerationRequest is unambiguous now.
 
 namespace Incoders.Hive.Infrastructure.Ai;
 
 /// <summary>
-/// Resolves the org's IMAGE route (<c>generate-image</c> step via
-/// <see cref="IWorkflowConfigurationResolver"/>), creates an <see cref="IImageModelClient"/>
-/// via <see cref="IExternalProviderClientFactory"/>, and delegates
-/// <see cref="IImageGenerationGateway.GenerateAsync"/>.
-///
-/// Mirrors <c>AiCompletionGateway</c> — same route-resolution + factory-creation pattern.
-/// Wrapped by <c>ImageGenerationGatewayInstrumentationDecorator</c> at DI composition time.
-/// Refs: IMG-01, IMG-06; design §2.3; tasks 5.2.
+/// Resolves the request route context, executes ordered image provider candidates through the
+/// integration execution policy, and delegates provider-specific work to Infrastructure clients.
 /// </summary>
 public sealed class ImageGenerationGateway : IImageGenerationGateway
 {
-    private const string WorkflowKey = "single-analyzer";
-    private const string AnalysisType = "content-analysis";
-    private const string StepKey = "generate-image";
-
     private readonly IWorkflowConfigurationResolver _workflowResolver;
     private readonly IIntegrationCredentialResolver _credentialResolver;
     private readonly IExternalProviderClientFactory _clientFactory;
+    private readonly IIntegrationExecutionPolicy? _executionPolicy;
     private readonly ILogger<ImageGenerationGateway> _logger;
 
     public ImageGenerationGateway(
@@ -34,76 +24,93 @@ public sealed class ImageGenerationGateway : IImageGenerationGateway
         IIntegrationCredentialResolver credentialResolver,
         IExternalProviderClientFactory clientFactory,
         ILogger<ImageGenerationGateway>? logger = null)
+        : this(workflowResolver, credentialResolver, clientFactory, executionPolicy: null, logger)
+    {
+    }
+
+    public ImageGenerationGateway(
+        IWorkflowConfigurationResolver workflowResolver,
+        IIntegrationCredentialResolver credentialResolver,
+        IExternalProviderClientFactory clientFactory,
+        IIntegrationExecutionPolicy? executionPolicy,
+        ILogger<ImageGenerationGateway>? logger = null)
     {
         _workflowResolver = workflowResolver;
         _credentialResolver = credentialResolver;
         _clientFactory = clientFactory;
+        _executionPolicy = executionPolicy;
         _logger = logger ?? NullLogger<ImageGenerationGateway>.Instance;
     }
 
-    public async Task<Result<ImageGenerationResult>> GenerateAsync(
-        ImageGenerationRequest request,
-        CancellationToken ct = default)
+    public async Task<Result<ImageGenerationResult>> GenerateAsync(ImageGenerationRequest request, CancellationToken ct = default)
     {
-        // 1. Resolve the generate-image route for this org.
         var routeResult = await _workflowResolver.ResolveStepAsync(
             new WorkflowStepResolutionRequest(
                 request.OrganizationId,
-                WorkflowKey,
-                AnalysisType,
-                StepKey),
+                request.WorkflowKey,
+                request.AnalysisType,
+                request.StepKey,
+                request.OperationKey,
+                request.NetworkKey),
             ct);
 
         if (routeResult.IsFailure)
         {
-            _logger.LogWarning(
-                "ImageGenerationGateway: route resolution failed for org {OrgId}: {Code}.",
-                request.OrganizationId,
-                routeResult.Error.Code);
-
+            _logger.LogWarning("Image route resolution failed for org {OrgId}: {Code}.", request.OrganizationId, routeResult.Error.Code);
             return Result.Failure<ImageGenerationResult>(routeResult.Error);
         }
 
-        var candidates = routeResult.Value;
-        if (candidates.Count == 0)
-        {
-            _logger.LogWarning(
-                "ImageGenerationGateway: no IMAGE route configured for org {OrgId}. " +
-                "Creative slides will degrade to CSS.",
-                request.OrganizationId);
+        var candidates = routeResult.Value
+            .Select(candidate => candidate.ToIntegrationRouteCandidate())
+            .OrderBy(candidate => candidate.Priority)
+            .ToArray();
 
+        if (candidates.Length == 0)
+        {
+            _logger.LogWarning("No image generation route configured for org {OrgId}.", request.OrganizationId);
             return Result.Failure<ImageGenerationResult>(IntegrationErrors.AiRouteNotConfigured);
         }
 
-        // Use the first (highest-priority) candidate.
-        var primaryCandidate = candidates[0];
+        if (_executionPolicy is null)
+        {
+            return await ExecuteCandidateAsync(request, candidates[0], ct);
+        }
 
-        // 2. Resolve credentials for this candidate.
-        var credentialResult = await _credentialResolver.ResolveAsync(
-            request.OrganizationId,
-            primaryCandidate.ToIntegrationRouteCandidate(),
+        var execution = await _executionPolicy.ExecuteAsync(
+            new IntegrationExecutionRequest(
+                request.OrganizationId,
+                AnalysisId: null,
+                request.WorkflowKey,
+                request.CapabilityKey,
+                request.NetworkKey),
+            candidates,
+            (candidate, cancellationToken) => ExecuteCandidateAsync(request, candidate, cancellationToken),
             ct);
 
+        return execution.IsSuccess
+            ? Result.Success(execution.Value.Payload)
+            : Result.Failure<ImageGenerationResult>(execution.Error);
+    }
+
+    private async Task<Result<ImageGenerationResult>> ExecuteCandidateAsync(
+        ImageGenerationRequest request,
+        IntegrationRouteCandidate candidate,
+        CancellationToken ct)
+    {
+        var credentialResult = await _credentialResolver.ResolveAsync(request.OrganizationId, candidate, ct);
         if (credentialResult.IsFailure)
         {
-            _logger.LogWarning(
-                "ImageGenerationGateway: credential resolution failed for org {OrgId} provider {ProviderKey}: {Code}.",
-                request.OrganizationId,
-                primaryCandidate.ProviderKey,
-                credentialResult.Error.Code);
-
+            _logger.LogWarning("Image credential resolution failed for org {OrgId} provider {ProviderKey}: {Code}.", request.OrganizationId, candidate.ProviderKey, credentialResult.Error.Code);
             return Result.Failure<ImageGenerationResult>(credentialResult.Error);
         }
 
         var credential = credentialResult.Value;
-
-        // Override model from request if specified.
-        if (!string.IsNullOrWhiteSpace(request.PreferredModel))
+        var selectedModel = request.PreferredModel ?? candidate.SelectedModel ?? credential.SelectedModel;
+        if (!string.IsNullOrWhiteSpace(selectedModel))
         {
-            credential = credential with { SelectedModel = request.PreferredModel };
+            credential = credential with { SelectedModel = selectedModel };
         }
 
-        // 3. Create the provider client via the factory.
         IImageModelClient client;
         try
         {
@@ -111,20 +118,14 @@ public sealed class ImageGenerationGateway : IImageGenerationGateway
         }
         catch (InvalidOperationException)
         {
-            _logger.LogWarning(
-                "ImageGenerationGateway: no IImageModelClient registered for provider '{ProviderKey}'.",
-                primaryCandidate.ProviderKey);
-
+            _logger.LogWarning("No IImageModelClient registered for provider '{ProviderKey}'.", candidate.ProviderKey);
             return Result.Failure<ImageGenerationResult>(IntegrationErrors.ExternalProviderUnsupported);
         }
 
-        // 4. Forward the generation request with the resolved preferred provider/model.
-        var enrichedRequest = request with
+        return await client.GenerateAsync(request with
         {
             PreferredProviderKey = credential.ProviderKey,
             PreferredModel = credential.SelectedModel,
-        };
-
-        return await client.GenerateAsync(enrichedRequest, ct);
+        }, ct);
     }
 }

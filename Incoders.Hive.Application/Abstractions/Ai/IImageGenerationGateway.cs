@@ -48,7 +48,12 @@ public sealed record ImageGenerationRequest(
     /// <summary>
     /// Reserved for image-to-image conditioning (OQ-7). Always null in v1.
     /// </summary>
-    ImageInitReference? Init = null);
+    ImageInitReference? Init = null,
+    string WorkflowKey = "single-analyzer",
+    string AnalysisType = "content-analysis",
+    string StepKey = "generate-image",
+    string? OperationKey = null,
+    string? NetworkKey = null);
 
 /// <summary>
 /// Bytes-only image generation result.

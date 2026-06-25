@@ -21,6 +21,7 @@ using Incoders.Hive.Infrastructure.Integrations;
 using Incoders.Hive.Infrastructure.Integrations.HealthChecks;
 using Incoders.Hive.Infrastructure.Observability;
 using Incoders.Hive.Infrastructure.PlatformConfiguration;
+using Incoders.Hive.Infrastructure.Process;
 using Incoders.Hive.Infrastructure.Persistence;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Repositories;
@@ -52,6 +53,7 @@ public static class DependencyInjection
         services.AddSingleton<ICacheStore, InMemoryCacheStore>();
         services.AddSingleton<IClock, SystemClock>();
         services.AddHttpClient();
+        services.AddSingleton<IProcessRunner, SystemProcessRunner>();
 
         services.TryAddScoped<ICurrentUser, NullCurrentUser>();
 

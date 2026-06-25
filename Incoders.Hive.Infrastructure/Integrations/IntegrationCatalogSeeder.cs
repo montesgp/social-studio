@@ -53,7 +53,35 @@ public sealed class IntegrationCatalogSeeder
             false,
             [new IntegrationCredentialField("api_key", "API key", true, true, "sk-ant-...", "Organization-scoped Anthropic API key")],
             ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]),
-        new(
+                new(
+            new Guid("c4f126f4-7dd5-4e68-9f22-1e6f2ef0e101"),
+            "claude-p",
+            "Claude -p",
+            IntegrationProviderCategory.AiModel,
+            "Backend-local Claude Code CLI provider for text and media generation workflows.",
+            "claude",
+            true,
+            false,
+            false,
+            false,
+            [
+                new IntegrationCredentialField("executable_path", "Executable path", false, false, "claude", "Claude Code CLI executable name or absolute path. Shell commands are rejected."),
+                new IntegrationCredentialField("working_directory", "Working directory", false, false, null, "Optional existing backend working directory for the CLI process."),
+                new IntegrationCredentialField("allowed_output_directory", "Allowed output directory", false, false, null, "Required for filePath image output; generated image files must resolve inside this directory."),
+                new IntegrationCredentialField("default_model", "Default model", false, false, "claude-sonnet-4-6", "Optional Claude model override used when workflow routing does not select a model."),
+                new IntegrationCredentialField("timeout_ms", "Timeout milliseconds", false, false, "120000", "Maximum CLI execution time."),
+                new IntegrationCredentialField("output_format", "Output format", false, false, "json", "Allowed values: text or json."),
+                new IntegrationCredentialField("permission_mode", "Permission mode", false, false, null, "Optional Claude Code permission mode passed as a whitelisted argument."),
+                new IntegrationCredentialField("allowed_tools", "Allowed tools", false, false, null, "Comma-separated Claude Code tool allowlist."),
+                new IntegrationCredentialField("json_schema", "JSON schema", false, false, null, "Optional output schema hint for structured text responses."),
+                new IntegrationCredentialField("settings_json", "Settings JSON", true, false, null, "Optional Claude settings payload; stored as secret configuration metadata.")
+            ],
+            ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+            AdditionalCategories: [IntegrationProviderCategory.MediaGeneration],
+            AdditionalModelsByCategory: new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>
+            {
+                [IntegrationProviderCategory.MediaGeneration] = ["claude-p-image-json"],
+            }),        new(
             new Guid("b2610b54-a258-48d3-b2d2-12f70ac99d52"),
             "canva",
             "Canva",
