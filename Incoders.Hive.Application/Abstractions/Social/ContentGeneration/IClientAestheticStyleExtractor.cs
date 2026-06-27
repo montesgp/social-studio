@@ -37,7 +37,15 @@ public sealed record AestheticExtraction(
     IReadOnlyList<AestheticPaletteEntry> Palette,
     IReadOnlyList<string> StyleDescriptors,
     IReadOnlyList<string> Motifs,
-    string? CaptionVoice)
+    string? CaptionVoice,
+    // client-aligned-carousel-generation (additive trailing nullable — existing construction sites unchanged):
+    //
+    // OQ-1: per-slide photo-vs-flat classification sequence detected by the multimodal extractor.
+    // Null when the AI response contains no slideMixPattern or the pattern is ambiguous (CAC-BSP-01-b).
+    IReadOnlyList<SlideBackgroundKind>? BackgroundPattern = null,
+    // OQ-2: ranked rotating {BackgroundHex,TextHex} pairings derived via ColorPairingDerivation.Derive.
+    // Null or empty when no joinable brand + palette roles exist (CAC-BSP-03-b).
+    IReadOnlyList<ColorPairing>? ColorPairings = null)
 {
     /// <summary>An empty extraction (no signal) — used when extraction is skipped or yields nothing.</summary>
     public static AestheticExtraction Empty { get; } = new([], [], [], null);

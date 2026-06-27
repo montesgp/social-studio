@@ -53,4 +53,15 @@ public sealed record ClientAestheticProfile(
     // raster background. When null → default = { first, last } (see CreativeSlideIndexResolver).
     // Additive trailing nullable: all existing construction sites and `with` expressions compile unchanged.
     // Design §0 OQ-1; no EF migration required (read-side projection, not a persisted aggregate).
-    IReadOnlyList<int>? CreativeSlideIndices = null);
+    IReadOnlyList<int>? CreativeSlideIndices = null,
+    // client-aligned-carousel-generation (additive trailing nullable — all construction sites unchanged):
+    //
+    // OQ-1: per-slide photo-vs-flat classification sequence captured from the client's real feed.
+    // Null → CreativeSlideIndexResolver keeps {first,last} default (CAC-BSP-04-a cold-start).
+    IReadOnlyList<SlideBackgroundKind>? BackgroundPattern = null,
+    // OQ-3: typical carousel slide count for this client; user-requested length always wins.
+    // Null → CarouselGenerator uses current default range (CAC-BSP-04-a cold-start).
+    int? TypicalSlideCount = null,
+    // OQ-2: ranked rotating {BackgroundHex,TextHex} pairings derived from brand + extracted palette.
+    // Null or empty → CompositionDefaults.ResolvePalette uses positional palette (CAC-BSP-04-a cold-start).
+    IReadOnlyList<ColorPairing>? ColorPairings = null);
