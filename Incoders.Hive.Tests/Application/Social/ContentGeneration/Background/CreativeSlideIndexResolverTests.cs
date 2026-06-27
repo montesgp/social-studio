@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Background;
 
@@ -138,5 +139,87 @@ public sealed class CreativeSlideIndexResolverTests
         Assert.Equal(2, result.Count);
         Assert.Equal(3, result[0]);
         Assert.Equal(1, result[1]);
+    }
+
+    // -----------------------------------------------------------------------
+    // ResolveFromPattern — WU-2 (CAC-BSP-01, CAC-BSP-02, CAC-BSP-04; design §3.2, §0 OQ-1)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void ResolveFromPattern_NullPattern_FiveSlides_DelegatesToDefaultFirstAndLast()
+    {
+        // Null pattern → same as Resolve(null, 5) → {first, last}
+        var result = CreativeSlideIndexResolver.ResolveFromPattern(null, slideCount: 5);
+
+        Assert.Equal([1, 5], result);
+    }
+
+    [Fact]
+    public void ResolveFromPattern_EmptyPattern_FiveSlides_DelegatesToDefaultFirstAndLast()
+    {
+        // Empty pattern → same as null → {first, last}
+        var result = CreativeSlideIndexResolver.ResolveFromPattern([], slideCount: 5);
+
+        Assert.Equal([1, 5], result);
+    }
+
+    [Fact]
+    public void ResolveFromPattern_EqualLength_PhotoFlatColorInterleaved_ReturnsPhotoPositionsCapped()
+    {
+        // Pattern [Photo,FlatColor,Photo,FlatColor,Photo] (count=5), slideCount=5 → 1:1 mapping.
+        // Photo positions (0-based): 0,2,4 → 1-based slides: 1,3,5 → capped to [1,3] (MaxCreativeSlidesPerPackage=2).
+        IReadOnlyList<SlideBackgroundKind> pattern =
+        [
+            SlideBackgroundKind.Photo,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.Photo,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.Photo
+        ];
+
+        var result = CreativeSlideIndexResolver.ResolveFromPattern(pattern, slideCount: 5);
+
+        Assert.Equal([1, 3], result);
+    }
+
+    [Fact]
+    public void ResolveFromPattern_ShorterPattern_ProportionalMapping_CappedToMax()
+    {
+        // Pattern [Photo,FlatColor,Photo] (count=3), slideCount=5.
+        // Proportional index = (i-1)*3/5 (integer floor):
+        //   i=1 → 0 → Photo  → creative
+        //   i=2 → 0 → Photo  → creative
+        //   i=3 → 1 → FlatColor → skip
+        //   i=4 → 1 → FlatColor → skip
+        //   i=5 → 2 → Photo  → creative
+        // Photo slides [1,2,5], capped to first MaxCreativeSlidesPerPackage=2 → [1,2].
+        IReadOnlyList<SlideBackgroundKind> pattern =
+        [
+            SlideBackgroundKind.Photo,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.Photo
+        ];
+
+        var result = CreativeSlideIndexResolver.ResolveFromPattern(pattern, slideCount: 5);
+
+        Assert.Equal([1, 2], result);
+    }
+
+    [Fact]
+    public void ResolveFromPattern_AllPhotoPattern_CappedToMax()
+    {
+        // All Photo → every slide is creative → capped to MaxCreativeSlidesPerPackage.
+        IReadOnlyList<SlideBackgroundKind> pattern =
+        [
+            SlideBackgroundKind.Photo,
+            SlideBackgroundKind.Photo,
+            SlideBackgroundKind.Photo
+        ];
+
+        var result = CreativeSlideIndexResolver.ResolveFromPattern(pattern, slideCount: 5);
+
+        Assert.Equal(CreativeSlideIndexResolver.MaxCreativeSlidesPerPackage, result.Count);
+        Assert.Equal(1, result[0]);
+        Assert.Equal(2, result[1]);
     }
 }

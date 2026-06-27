@@ -120,7 +120,7 @@ Chain strategy: size-exception
 
 ### Phase 2.A — `CreativeSlideIndexResolver.ResolveFromPattern`
 
-- [ ] 2.1 **[RED]** Add/extend `CreativeSlideIndexResolverTests.cs` — assert:
+- [x] 2.1 **[RED]** Add/extend `CreativeSlideIndexResolverTests.cs` — assert:
   - `ResolveFromPattern(null, 5)` → `[1, 5]` ({first,last} default; CAC-BSP-04-a)
   - `ResolveFromPattern([], 5)` → `[1, 5]` (empty pattern → same default)
   - `ResolveFromPattern([Photo,FlatColor,Photo,FlatColor,Photo], 5)` → `[1, 3, 5]` capped to `[1, 3]` (1:1; cap 2; CAC-BSP-02-a shape)
@@ -128,12 +128,12 @@ Chain strategy: size-exception
   - Photo-only pattern with cap applied → at most 2 creative indices returned
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/CreativeSlideIndexResolverTests.cs`)
 
-- [ ] 2.2 **[GREEN]** Add `ResolveFromPattern(IReadOnlyList<SlideBackgroundKind>? pattern, int slideCount)` overload to `CreativeSlideIndexResolver.cs` — null/empty delegates to existing `Resolve`; equal-length = 1:1; otherwise `floor((i-1)*pattern.Count/slideCount)` indexing; returns Photo positions deduped + capped to `MaxCreativeSlidesPerPackage`.
+- [x] 2.2 **[GREEN]** Add `ResolveFromPattern(IReadOnlyList<SlideBackgroundKind>? pattern, int slideCount)` overload to `CreativeSlideIndexResolver.cs` — null/empty delegates to existing `Resolve`; equal-length = 1:1; otherwise `floor((i-1)*pattern.Count/slideCount)` indexing; returns Photo positions deduped + capped to `MaxCreativeSlidesPerPackage`.
   (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/CreativeSlideIndexResolver.cs`)
 
 ### Phase 2.B — `CarouselGenerator` effective slide count
 
-- [ ] 2.3 **[RED]** Add `CarouselGeneratorSlideCountTests.cs` — assert:
+- [x] 2.3 **[RED]** Add `CarouselGeneratorSlideCountTests.cs` — assert:
   - Explicit user-requested count = 4 with `TypicalSlideCount = 7` → effective count = 4 (user wins; CAC-CG-01-a variant)
   - No user request, `TypicalSlideCount = 7` → effective count = 7 (CAC-CG-01-a)
   - No user request, `TypicalSlideCount = 15` → effective count = 10 (clamped; OQ-3)
@@ -141,10 +141,11 @@ Chain strategy: size-exception
   - No user request, `TypicalSlideCount = null` → existing default slide range applied (CAC-CG-01-b)
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Formats/Carousel/CarouselGeneratorSlideCountTests.cs`)
 
-- [ ] 2.4 **[GREEN]** Modify `CarouselGenerator.cs` — replace hardcoded `~3-5` range with: `effective = userRequested ?? clamp(profile.TypicalSlideCount, 3..10) ?? currentDefault`; use `effective` as the target slide count.
+- [x] 2.4 **[GREEN]** Modify `CarouselGenerator.cs` — replace hardcoded `~3-5` range with: `effective = userRequested ?? clamp(profile.TypicalSlideCount, 3..10) ?? currentDefault`; use `effective` as the target slide count.
   (`Incoders.Hive.Application/Features/Social/ContentGeneration/Formats/Carousel/CarouselGenerator.cs`)
 
-- [ ] 2.5 Run `dotnet test -c Release` — WU-2 tests pass; no regression.
+- [x] 2.5 Run `dotnet test -c Release` — WU-2 tests pass; no regression.
+  Result: Failed: 0, Passed: 2041, Skipped: 2, Total: 2043 — exit code 0.
 
 ---
 
