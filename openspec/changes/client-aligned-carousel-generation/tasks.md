@@ -155,27 +155,28 @@ Chain strategy: size-exception
 
 ### Phase 3.A — `CompositionDefaults.ResolvePalette` pairing/slide-index overload
 
-- [ ] 3.1 **[RED]** Add `CompositionDefaultsPairingTests.cs` — assert:
+- [x] 3.1 **[RED]** Add `CompositionDefaultsPairingTests.cs` — assert:
   - Given `ColorPairings = [{Bg:"#1A1A2E", Text:"#E0E0E0", Rank:1}]` and `slideIndex = 2` → palette background = `#1A1A2E`, text = `#E0E0E0` (CAC-CG-02-a; rotation `(2-1) % 1 = 0`)
   - Given 3 pairings and `slideIndex = 4` → `(4-1) % 3 = 0` → first pairing applied
   - Given `ColorPairings = null` and any `slideIndex` → existing positional palette unchanged (CAC-CG-02-b; CAC-BSP-04-a parity)
   - Given `ColorPairings = []` → existing positional palette unchanged
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Visual/CompositionDefaultsPairingTests.cs`)
 
-- [ ] 3.2 **[GREEN]** Add `ResolvePalette(BrandSnapshot brand, ClientAestheticProfile? profile, int slideIndex, InferenceAccumulator inferred)` overload to `CompositionDefaults.cs` — when `profile?.ColorPairings` non-empty: select `pairings[(slideIndex-1) % count]`; return palette with `Background = p.BackgroundHex`, `Text = p.TextHex` and remaining roles from brand/defaults; else delegate to existing `ResolvePalette(brand, inferred)`.
+- [x] 3.2 **[GREEN]** Add `ResolvePalette(BrandSnapshot brand, ClientAestheticProfile? profile, int slideIndex, InferenceAccumulator inferred)` overload to `CompositionDefaults.cs` — when `profile?.ColorPairings` non-empty: select `pairings[(slideIndex-1) % count]`; return palette with `Background = p.BackgroundHex`, `Text = p.TextHex` and remaining roles from brand/defaults; else delegate to existing `ResolvePalette(brand, inferred)`.
   (`Incoders.Hive.Application/Features/Social/ContentGeneration/Visual/CompositionDefaults.cs`)
 
 ### Phase 3.B — Thread `slideIndex` through `CarouselVisualComposer`
 
-- [ ] 3.3 **[RED]** Add/extend `CarouselVisualComposerPaletteTests.cs` — assert:
+- [x] 3.3 **[RED]** Add/extend `CarouselVisualComposerPaletteTests.cs` — assert:
   - Composer calls `ResolvePalette` with the 1-based `slideIndex` of each slide (not the array position)
   - Slide 1 and slide 2 in a 2-pairing set receive different palette backgrounds
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Visual/CarouselVisualComposerPaletteTests.cs`)
 
-- [ ] 3.4 **[GREEN]** Modify `CarouselVisualComposer.cs` — pass the 1-based `slideIndex` to `ResolvePalette` for each slide in `ComposeMany`; no structural changes to other composition logic.
+- [x] 3.4 **[GREEN]** Modify `CarouselVisualComposer.cs` — pass the 1-based `slideIndex` to `ResolvePalette` for each slide in `ComposeMany`; no structural changes to other composition logic.
   (`Incoders.Hive.Application/Features/Social/ContentGeneration/Visual/Composers/CarouselVisualComposer.cs`)
 
-- [ ] 3.5 Run `dotnet test -c Release` — WU-3 tests pass; colour parity test (null pairings → positional palette; identical to pre-change output).
+- [x] 3.5 Run `dotnet test -c Release` — WU-3 tests pass; colour parity test (null pairings → positional palette; identical to pre-change output).
+  Result: Failed: 0, Passed: 2052, Skipped: 2, Total: 2054 — exit code 0.
 
 ---
 
