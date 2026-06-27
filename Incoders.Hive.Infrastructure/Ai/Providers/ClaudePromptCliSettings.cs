@@ -23,6 +23,20 @@ public sealed record ClaudePromptCliSettings(
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(120);
     public const int DefaultMaxImageFileBytes = 10 * 1024 * 1024;
 
+    /// <summary>
+    /// Curated set of current Claude text models, used as the seed catalog and as the fallback when a
+    /// live model sync is not possible (the Claude Code CLI has no model-enumeration command, so this is
+    /// the source of truth unless an Anthropic API key is available to query /v1/models live).
+    /// Keep this ordered newest-first and update it when a new model ships.
+    /// </summary>
+    public static readonly IReadOnlyList<string> DefaultTextModels =
+    [
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+    ];
+
     private static readonly string[] AllowedExecutables = ["claude", "claude.exe", "claude.cmd"];
     private static readonly string[] AllowedOutputFormats = ["text", "json"];
     private static readonly char[] UnsafeCommandChars = ['&', '|', ';', '<', '>', '`', '\n', '\r'];

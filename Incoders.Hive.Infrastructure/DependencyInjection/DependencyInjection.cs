@@ -207,6 +207,7 @@ public static class DependencyInjection
         // Real per-provider connectivity probes used by "Test connection".
         services.AddScoped<IExternalIntegrationHealthCheck, ApifyIntegrationHealthCheck>();
         services.AddScoped<IExternalIntegrationHealthCheck, ClaudeIntegrationHealthCheck>();
+        services.AddScoped<IExternalIntegrationHealthCheck, ClaudePromptCliIntegrationHealthCheck>();
         services.AddScoped<IExternalIntegrationHealthCheck, OpenAiIntegrationHealthCheck>();
         services.AddScoped<IIntegrationConnectionTester, DefaultIntegrationConnectionTester>();
         // Pre-flight gate: probes all required provider APIs before the analyzer workflow starts.
@@ -259,6 +260,7 @@ public static class DependencyInjection
         // Background job queue for the async content-generation pipeline.
         services.AddSingleton<IContentGenerationJobQueue, ChannelContentGenerationJobQueue>();
         services.AddScoped<IntegrationCatalogSeeder>();
+        services.AddScoped<ClaudePromptCliOrganizationSeeder>();
         services.AddScoped<ApifyActorMappingBackfill>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 

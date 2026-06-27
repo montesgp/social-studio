@@ -1,6 +1,7 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Integrations;
+using Incoders.Hive.Infrastructure.Ai.Providers;
 
 namespace Incoders.Hive.Infrastructure.Integrations;
 
@@ -58,25 +59,18 @@ public sealed class IntegrationCatalogSeeder
             "claude-p",
             "Claude -p",
             IntegrationProviderCategory.AiModel,
-            "Backend-local Claude Code CLI provider for text and media generation workflows.",
+            "Backend-local Claude Code CLI provider for text and media generation workflows. Runs on the application host; no per-organization credentials are required.",
             "claude",
+            // BYOK + Managed + SystemDefault: claude-p is host-local, so SystemDefault ("use the host's
+            // claude CLI") is the zero-config default. Host tuning (executable path, working/output
+            // directories, timeout, tools…) is NOT an org credential — it falls back to the safe defaults
+            // in ClaudePromptCliSettings on the host where the app runs.
+            true,
+            true,
             true,
             false,
-            false,
-            false,
-            [
-                new IntegrationCredentialField("executable_path", "Executable path", false, false, "claude", "Claude Code CLI executable name or absolute path. Shell commands are rejected."),
-                new IntegrationCredentialField("working_directory", "Working directory", false, false, null, "Optional existing backend working directory for the CLI process."),
-                new IntegrationCredentialField("allowed_output_directory", "Allowed output directory", false, false, null, "Required for filePath image output; generated image files must resolve inside this directory."),
-                new IntegrationCredentialField("default_model", "Default model", false, false, "claude-sonnet-4-6", "Optional Claude model override used when workflow routing does not select a model."),
-                new IntegrationCredentialField("timeout_ms", "Timeout milliseconds", false, false, "120000", "Maximum CLI execution time."),
-                new IntegrationCredentialField("output_format", "Output format", false, false, "json", "Allowed values: text or json."),
-                new IntegrationCredentialField("permission_mode", "Permission mode", false, false, null, "Optional Claude Code permission mode passed as a whitelisted argument."),
-                new IntegrationCredentialField("allowed_tools", "Allowed tools", false, false, null, "Comma-separated Claude Code tool allowlist."),
-                new IntegrationCredentialField("json_schema", "JSON schema", false, false, null, "Optional output schema hint for structured text responses."),
-                new IntegrationCredentialField("settings_json", "Settings JSON", true, false, null, "Optional Claude settings payload; stored as secret configuration metadata.")
-            ],
-            ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+            [],
+            ClaudePromptCliSettings.DefaultTextModels,
             AdditionalCategories: [IntegrationProviderCategory.MediaGeneration],
             AdditionalModelsByCategory: new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>
             {

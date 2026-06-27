@@ -458,6 +458,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const [providers, setProviders] = useState<IntegrationProvider[]>([]);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<string>("");
   const [overview, setOverview] = useState<OrganizationIntegrationsOverview | null>(null);
+  // Organization id the currently loaded `overview` belongs to. Used to keep the blocking loader up
+  // until the overview for the SELECTED org has actually arrived — otherwise switching orgs hides the
+  // loader as soon as the (fast) workflow load finishes while the (slow) overview is still in flight.
+  const [overviewOrgId, setOverviewOrgId] = useState<string | null>(null);
   const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>([]);
   const [loading, setLoading] = useState(true);
   // Value intentionally unbound: handlers still flip this to gate concurrent ops, but no UI reads it
@@ -555,7 +559,12 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const isBlockingInitialPageResources = loading || workflowLoading || workflowActorsLoading;
+  // True while an organization is selected but its overview has not been loaded yet (e.g. right after
+  // switching orgs). Keeps the blocking loader visible until the selected org's data is fully available.
+  const isAwaitingOverviewForSelectedOrg =
+    Boolean(selectedOrganizationId) && overviewOrgId !== selectedOrganizationId;
+  const isBlockingInitialPageResources =
+    loading || isAwaitingOverviewForSelectedOrg || workflowLoading || workflowActorsLoading;
 
   useEffect(() => {
     if (!isBlockingInitialPageResources) {
@@ -761,6 +770,9 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     } finally {
       if (requestId === overviewRequestIdRef.current) {
         loadedOverviewRef.current = organizationId;
+        // Mark this org's overview as resolved (success OR failure) so the blocking loader is released
+        // and the page can render its data — or its error — instead of hanging on the spinner.
+        setOverviewOrgId(organizationId);
       }
 
       if (useRefreshState && requestId === overviewRequestIdRef.current) {
@@ -777,6 +789,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     loadedWorkflowRef.current = null;
     setSelectedOrganizationId(organizationId);
     setOverview(null);
+    setOverviewOrgId(null);
     setWorkflowCatalog(null);
     setModal(null);
     setWorkflowRows([]);
@@ -2265,7 +2278,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       ) : null}
 
       <Dialog open={modal !== null} onOpenChange={(open) => !open && setModal(null)}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{modal?.integration.providerDisplayName} integration</DialogTitle>
             <DialogDescription>
@@ -2283,13 +2296,13 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                   onChange={(event) => setModal((prev) => (prev ? { ...prev, mode: event.target.value as IntegrationConnectionMode } : prev))}
                 >
                   {modal.integration.supportsBringYourOwnKey ? (
-                    <option value="BringYourOwnKey">BringYourOwnKey</option>
+                    <option value="BringYourOwnKey">Bring your own key</option>
                   ) : null}
                   {modal.integration.supportsManagedByIncoders ? (
-                    <option value="ManagedByIncoders">ManagedByIncoders</option>
+                    <option value="ManagedByIncoders">Managed by Incoders</option>
                   ) : null}
                   {modal.integration.supportsSystemDefault ? (
-                    <option value="SystemDefault">SystemDefault</option>
+                    <option value="SystemDefault">System default (host)</option>
                   ) : null}
                 </Select>
               </div>

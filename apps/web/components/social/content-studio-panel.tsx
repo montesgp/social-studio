@@ -769,16 +769,22 @@ function ItemDetail(props: ItemDetailProps) {
                 placeholder="No caption."
               />
               <div>
-                <CaptionAutosave
-                  item={item}
-                  value={draftText}
-                  canEdit={canEdit}
-                  busy={busy}
-                  onAutosaveText={props.onAutosaveText}
-                  onItemSaved={props.onItemSaved}
-                  onSaveStatusChange={props.onSaveStatusChange}
-                />
-                <AutosaveIndicator status={props.saveStatus} error={props.saveError} />
+                {/*
+                  Autosave is temporarily disabled so local/test/dev environments do not
+                  keep calling the API while the user edits. Manual saving remains
+                  available through the explicit save buttons.
+
+                  <CaptionAutosave
+                    item={item}
+                    value={draftText}
+                    canEdit={canEdit}
+                    busy={busy}
+                    onAutosaveText={props.onAutosaveText}
+                    onItemSaved={props.onItemSaved}
+                    onSaveStatusChange={props.onSaveStatusChange}
+                  />
+                  <AutosaveIndicator status={props.saveStatus} error={props.saveError} />
+                */}
                 <Button
                   size="sm"
                   variant="secondary"
@@ -1081,67 +1087,72 @@ function EditableScript({
   );
 }
 
-function CaptionAutosave({
-  item,
-  value,
-  canEdit,
-  busy,
-  onAutosaveText,
-  onItemSaved,
-  onSaveStatusChange,
-}: {
-  item: ContentItem;
-  value: string;
-  canEdit: boolean;
-  busy: boolean;
-  onAutosaveText: (text: string) => Promise<ContentItem>;
-  onItemSaved: (item: ContentItem) => void;
-  onSaveStatusChange: (status: AutosaveStatus, message?: string | null) => void;
-}) {
-  const seq = useRef(0);
-  const persistedRef = useRef(item.text ?? "");
-
-  useEffect(() => {
-    persistedRef.current = item.text ?? "";
-  }, [item.id, item.text]);
-
-  useEffect(() => {
-    if (!canEdit || busy || value === persistedRef.current) return;
-    const saveId = ++seq.current;
-    onSaveStatusChange("saving");
-    const timer = window.setTimeout(() => {
-      onAutosaveText(value)
-        .then((updated) => {
-          if (seq.current !== saveId) return;
-          persistedRef.current = updated.text ?? "";
-          onItemSaved(updated);
-          onSaveStatusChange("saved");
-        })
-        .catch((err) => {
-          if (seq.current !== saveId) return;
-          onSaveStatusChange("error", errorMessage(err));
-        });
-    }, 700);
-
-    return () => {
-      seq.current++;
-      window.clearTimeout(timer);
-    };
-  }, [value, canEdit, busy, onAutosaveText, onItemSaved, onSaveStatusChange]);
-
-  return null;
-}
-
-function AutosaveIndicator({ status, error }: { status: AutosaveStatus; error: string | null }) {
-  if (status === "idle") return null;
-  const label =
-    status === "saving" ? "Saving…" : status === "saved" ? "Saved" : `Save failed${error ? `: ${error}` : ""}`;
-  return (
-    <p className={cn("mb-2 text-xs", status === "error" ? "text-destructive" : "text-muted-foreground")}>
-      {label}
-    </p>
-  );
-}
+/*
+ * Autosave is temporarily disabled. Keep this implementation here so it can be
+ * restored once autosave is behind an explicit environment/client setting.
+ *
+ * function CaptionAutosave({
+ *   item,
+ *   value,
+ *   canEdit,
+ *   busy,
+ *   onAutosaveText,
+ *   onItemSaved,
+ *   onSaveStatusChange,
+ * }: {
+ *   item: ContentItem;
+ *   value: string;
+ *   canEdit: boolean;
+ *   busy: boolean;
+ *   onAutosaveText: (text: string) => Promise<ContentItem>;
+ *   onItemSaved: (item: ContentItem) => void;
+ *   onSaveStatusChange: (status: AutosaveStatus, message?: string | null) => void;
+ * }) {
+ *   const seq = useRef(0);
+ *   const persistedRef = useRef(item.text ?? "");
+ *
+ *   useEffect(() => {
+ *     persistedRef.current = item.text ?? "";
+ *   }, [item.id, item.text]);
+ *
+ *   useEffect(() => {
+ *     if (!canEdit || busy || value === persistedRef.current) return;
+ *     const saveId = ++seq.current;
+ *     onSaveStatusChange("saving");
+ *     const timer = window.setTimeout(() => {
+ *       onAutosaveText(value)
+ *         .then((updated) => {
+ *           if (seq.current !== saveId) return;
+ *           persistedRef.current = updated.text ?? "";
+ *           onItemSaved(updated);
+ *           onSaveStatusChange("saved");
+ *         })
+ *         .catch((err) => {
+ *           if (seq.current !== saveId) return;
+ *           onSaveStatusChange("error", errorMessage(err));
+ *         });
+ *     }, 700);
+ *
+ *     return () => {
+ *       seq.current++;
+ *       window.clearTimeout(timer);
+ *     };
+ *   }, [value, canEdit, busy, onAutosaveText, onItemSaved, onSaveStatusChange]);
+ *
+ *   return null;
+ * }
+ *
+ * function AutosaveIndicator({ status, error }: { status: AutosaveStatus; error: string | null }) {
+ *   if (status === "idle") return null;
+ *   const label =
+ *     status === "saving" ? "Saving…" : status === "saved" ? "Saved" : `Save failed${error ? `: ${error}` : ""}`;
+ *   return (
+ *     <p className={cn("mb-2 text-xs", status === "error" ? "text-destructive" : "text-muted-foreground")}>
+ *       {label}
+ *     </p>
+ *   );
+ * }
+ */
 
 function InstagramStory({
   children,
@@ -1193,11 +1204,12 @@ function InstagramStoryPost({
   igHandle,
   canEdit,
   busy,
-  saveStatus,
-  saveError,
-  onAutosaveVisual,
-  onItemSaved,
-  onSaveStatusChange,
+  // Autosave is temporarily disabled.
+  // saveStatus,
+  // saveError,
+  // onAutosaveVisual,
+  // onItemSaved,
+  // onSaveStatusChange,
   onSaveVisual,
 }: {
   item: ContentItem;
@@ -1220,9 +1232,7 @@ function InstagramStoryPost({
   const assetsRef = useRef(item.assets);
   const initialJson = useMemo(() => serializeEnvelopes(parseEnvelopes(item.visualSpecMarkup)), [item.visualSpecMarkup]);
   const persistedJsonRef = useRef(initialJson);
-  const saveSeq = useRef(0);
-  const { markEdited, markSaveNeeded, markSavedIfLatest, pendingRevision, savedRevisionRef } =
-    useVisualAutosaveRevision();
+  const { markEdited, markSaveNeeded, pendingRevision, savedRevisionRef } = useVisualAutosaveRevision();
 
   const total = envelopes.length;
   const idx = total === 0 ? 0 : Math.min(current, total - 1);
@@ -1247,43 +1257,52 @@ function InstagramStoryPost({
     return next;
   }, [markSaveNeeded]);
 
-  useEffect(() => {
-    if (!canEdit || busy || pendingRevision <= savedRevisionRef.current) return;
-    const saveId = ++saveSeq.current;
-    const revisionToSave = pendingRevision;
-    onSaveStatusChange("saving");
-    const timer = window.setTimeout(() => {
-      const next = commitCurrent();
-      const markup = serializeEnvelopes(next);
-      const assets = assetsRef.current.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime }));
-      onAutosaveVisual(markup, assets)
-        .then((updated) => {
-          if (saveSeq.current !== saveId) return;
-          if (!markSavedIfLatest(revisionToSave)) return;
-          persistedJsonRef.current = markup;
-          onItemSaved(updated);
-          onSaveStatusChange("saved");
-        })
-        .catch((err) => {
-          if (saveSeq.current !== saveId) return;
-          onSaveStatusChange("error", errorMessage(err));
-        });
-    }, 900);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [
-    pendingRevision,
-    savedRevisionRef,
-    canEdit,
-    busy,
-    commitCurrent,
-    markSavedIfLatest,
-    onAutosaveVisual,
-    onItemSaved,
-    onSaveStatusChange,
-  ]);
+  /*
+   * Autosave is temporarily disabled so local/test/dev environments do not keep
+   * calling the API while the user edits. Manual saving remains available
+   * through "Save design changes".
+   *
+   * const saveSeq = useRef(0);
+   * const { markSavedIfLatest } = useVisualAutosaveRevision();
+   *
+   * useEffect(() => {
+   *   if (!canEdit || busy || pendingRevision <= savedRevisionRef.current) return;
+   *   const saveId = ++saveSeq.current;
+   *   const revisionToSave = pendingRevision;
+   *   onSaveStatusChange("saving");
+   *   const timer = window.setTimeout(() => {
+   *     const next = commitCurrent();
+   *     const markup = serializeEnvelopes(next);
+   *     const assets = assetsRef.current.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime }));
+   *     onAutosaveVisual(markup, assets)
+   *       .then((updated) => {
+   *         if (saveSeq.current !== saveId) return;
+   *         if (!markSavedIfLatest(revisionToSave)) return;
+   *         persistedJsonRef.current = markup;
+   *         onItemSaved(updated);
+   *         onSaveStatusChange("saved");
+   *       })
+   *       .catch((err) => {
+   *         if (saveSeq.current !== saveId) return;
+   *         onSaveStatusChange("error", errorMessage(err));
+   *       });
+   *   }, 900);
+   *
+   *   return () => {
+   *     window.clearTimeout(timer);
+   *   };
+   * }, [
+   *   pendingRevision,
+   *   savedRevisionRef,
+   *   canEdit,
+   *   busy,
+   *   commitCurrent,
+   *   markSavedIfLatest,
+   *   onAutosaveVisual,
+   *   onItemSaved,
+   *   onSaveStatusChange,
+   * ]);
+   */
 
   const goTo = (target: number) => {
     commitCurrent();
@@ -1345,7 +1364,7 @@ function InstagramStoryPost({
       {canEdit ? (
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">Click a text to select it, drag to move, double-click to edit.</p>
-          <AutosaveIndicator status={saveStatus} error={saveError} />
+          {/* AutosaveIndicator is hidden while autosave is temporarily disabled. */}
           {onSaveVisual ? (
             <Button
               size="sm"
@@ -1376,11 +1395,12 @@ function InstagramPost({
   caption,
   canEdit,
   busy,
-  saveStatus,
-  saveError,
-  onAutosaveVisual,
-  onItemSaved,
-  onSaveStatusChange,
+  // Autosave is temporarily disabled.
+  // saveStatus,
+  // saveError,
+  // onAutosaveVisual,
+  // onItemSaved,
+  // onSaveStatusChange,
   onSaveVisual,
 }: {
   item: ContentItem;
@@ -1404,9 +1424,7 @@ function InstagramPost({
   const assetsRef = useRef(item.assets);
   const initialJson = useMemo(() => serializeEnvelopes(parseEnvelopes(item.visualSpecMarkup)), [item.visualSpecMarkup]);
   const persistedJsonRef = useRef(initialJson);
-  const saveSeq = useRef(0);
-  const { markEdited, markSaveNeeded, markSavedIfLatest, pendingRevision, savedRevisionRef } =
-    useVisualAutosaveRevision();
+  const { markEdited, markSaveNeeded, pendingRevision, savedRevisionRef } = useVisualAutosaveRevision();
 
   const viewportHeight = useViewportHeight();
   // Budget ~68% of the viewport for the editable media so the tall 4:5 portrait is large enough to edit
@@ -1436,43 +1454,52 @@ function InstagramPost({
     return next;
   }, [markSaveNeeded]);
 
-  useEffect(() => {
-    if (!canEdit || busy || pendingRevision <= savedRevisionRef.current) return;
-    const saveId = ++saveSeq.current;
-    const revisionToSave = pendingRevision;
-    onSaveStatusChange("saving");
-    const timer = window.setTimeout(() => {
-      const next = commitCurrent();
-      const markup = serializeEnvelopes(next);
-      const assets = assetsRef.current.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime }));
-      onAutosaveVisual(markup, assets)
-        .then((updated) => {
-          if (saveSeq.current !== saveId) return;
-          if (!markSavedIfLatest(revisionToSave)) return;
-          persistedJsonRef.current = markup;
-          onItemSaved(updated);
-          onSaveStatusChange("saved");
-        })
-        .catch((err) => {
-          if (saveSeq.current !== saveId) return;
-          onSaveStatusChange("error", errorMessage(err));
-        });
-    }, 900);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [
-    pendingRevision,
-    savedRevisionRef,
-    canEdit,
-    busy,
-    commitCurrent,
-    markSavedIfLatest,
-    onAutosaveVisual,
-    onItemSaved,
-    onSaveStatusChange,
-  ]);
+  /*
+   * Autosave is temporarily disabled so local/test/dev environments do not keep
+   * calling the API while the user edits. Manual saving remains available
+   * through "Save design changes".
+   *
+   * const saveSeq = useRef(0);
+   * const { markSavedIfLatest } = useVisualAutosaveRevision();
+   *
+   * useEffect(() => {
+   *   if (!canEdit || busy || pendingRevision <= savedRevisionRef.current) return;
+   *   const saveId = ++saveSeq.current;
+   *   const revisionToSave = pendingRevision;
+   *   onSaveStatusChange("saving");
+   *   const timer = window.setTimeout(() => {
+   *     const next = commitCurrent();
+   *     const markup = serializeEnvelopes(next);
+   *     const assets = assetsRef.current.map((a) => ({ role: a.role, storageUri: a.storageUri, mime: a.mime }));
+   *     onAutosaveVisual(markup, assets)
+   *       .then((updated) => {
+   *         if (saveSeq.current !== saveId) return;
+   *         if (!markSavedIfLatest(revisionToSave)) return;
+   *         persistedJsonRef.current = markup;
+   *         onItemSaved(updated);
+   *         onSaveStatusChange("saved");
+   *       })
+   *       .catch((err) => {
+   *         if (saveSeq.current !== saveId) return;
+   *         onSaveStatusChange("error", errorMessage(err));
+   *       });
+   *   }, 900);
+   *
+   *   return () => {
+   *     window.clearTimeout(timer);
+   *   };
+   * }, [
+   *   pendingRevision,
+   *   savedRevisionRef,
+   *   canEdit,
+   *   busy,
+   *   commitCurrent,
+   *   markSavedIfLatest,
+   *   onAutosaveVisual,
+   *   onItemSaved,
+   *   onSaveStatusChange,
+   * ]);
+   */
 
   const goTo = (target: number) => {
     commitCurrent();
@@ -1579,7 +1606,7 @@ function InstagramPost({
       {canEdit ? (
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">Click a text to select it, drag to move, double-click to edit.</p>
-          <AutosaveIndicator status={saveStatus} error={saveError} />
+          {/* AutosaveIndicator is hidden while autosave is temporarily disabled. */}
           {onSaveVisual ? (
             <Button
               size="sm"

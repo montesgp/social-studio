@@ -1569,6 +1569,16 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     });
   }
 
+  async function copyPackageJobId() {
+    if (!packageJobId) return;
+    try {
+      await navigator.clipboard.writeText(packageJobId);
+      toast.success("Job ID copied", packageJobId);
+    } catch {
+      toast.error("Couldn't copy Job ID", "Copy it manually: " + packageJobId);
+    }
+  }
+
   async function loadVideoByUrl(opts?: { force?: boolean }) {
     const trimmedUrl = urlInput.trim();
     if (!trimmedUrl) return;
@@ -2472,6 +2482,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
             actionsDisabled={isLoading || packageGenerationIsRunning || isExportingPdf}
             saveLabel={isExportingPdf ? "Exporting…" : "Export"}
             newLabel="New analysis"
+            jobId={packageJobId}
+            onCopyJobId={() => void copyPackageJobId()}
           />
         </div>
       </div>
