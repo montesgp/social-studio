@@ -361,7 +361,7 @@ Chain strategy: size-exception
 
 *Refs: design §10; `openspec/config.yaml` `require_adr_for_architecture_changes: true`; repo `CLAUDE.md` docs-sync MUST.*
 
-- [ ] 7.1 **[GREEN]** Author ADR `docs/architecture/adr/0008-image-conditioning-capability-describe-telemetry-correlation.md` — document:
+- [x] 7.1 **[GREEN]** Author ADR `docs/architecture/adr/0008-image-conditioning-capability-describe-telemetry-correlation.md` — document:
   - Extended image-conditioning contract (`IImageGenerationGateway.DescribeAsync` + `ImageModelCapabilities`); rationale: capability advertised declaratively on the adapter, no DB flag, provider-agnostic
   - `ImageGenerationRequest.ReferenceImages` (Url handles; bytes resolved inside adapter); rationale: Application layer stays free of byte-hauling
   - Cap `MaxConditioningImages = 3`; rationale: bounds vision-token cost reusing curated reference set
@@ -369,13 +369,14 @@ Chain strategy: size-exception
   - Architecture gate compliance: no provider types in Domain/Application; bytes resolved in adapter
   (`docs/architecture/adr/0008-image-conditioning-capability-describe-telemetry-correlation.md`)
 
-- [ ] 7.2 **[GREEN]** Merge spec deltas into living specs:
+- [x] 7.2 **[GREEN]** Merge spec deltas into living specs:
   - `openspec/changes/client-aligned-carousel-generation/specs/background-sourcing-policy/spec-delta.md` → append to `openspec/specs/background-sourcing-policy/spec.md`
   - `openspec/changes/client-aligned-carousel-generation/specs/content-generation/spec-delta.md` → append to `openspec/specs/content-generation/spec.md`
   - `openspec/changes/client-aligned-carousel-generation/specs/image-generation/spec-delta.md` → append to `openspec/specs/image-generation/spec.md`
   - `openspec/changes/client-aligned-carousel-generation/specs/integrations/spec-delta.md` → append to `openspec/specs/integrations/spec.md`
 
-- [ ] 7.3 **[deferred to human]** Run `pwsh -File scripts/gates/Run-Gates.ps1`; report the gate summary. Do NOT mark complete if any MUST gate fails.
+- [x] 7.3 Run `pwsh -File scripts/gates/Run-Gates.ps1`; report the gate summary.
+  Result: PASS — 16 pass / 2 skipped / 0 MUST failed. tests.backend pass (total=2123, passed=2121, failed=0, skipped=2); architecture.layering + architecture.imports pass (no provider/EF leak); secrets/security/vulnerabilities clean.
 
 ---
 
@@ -393,14 +394,14 @@ Chain strategy: size-exception
 
 ## Definition of Done
 
-- [ ] WU-1..WU-7 tasks completed and committed in seam order (work-unit commits: test + code in the same commit per behavior).
-- [ ] `dotnet test -c Release` passes with 0 failures across the full suite.
-- [ ] Cold-start parity test confirms: all-null `ClientAestheticProfile` → output identical to pre-change baseline (no regression on existing clients).
-- [ ] Port contract test confirms: no Infrastructure type in `IImageGenerationGateway`, `ImageModelCapabilities`, `ImageGenerationRequest.ReferenceImages`, or `IntegrationExecutionAttemptRecord`.
-- [ ] Processor integration test confirms: full capture path active + resilience (image-gen failure → CSS + telemetry + `Completed`).
-- [ ] ONE EF migration (`analysis_id` nullable + `correlation_id`/`correlation_kind`) is present and reversible; existing analysis-scoped rows unaffected.
-- [ ] No provider/HTTP/EF/Supabase type appears in Domain or Application projects (architecture gate).
-- [ ] ADR `0008-image-conditioning-capability-describe-telemetry-correlation.md` authored under `docs/architecture/adr/`.
-- [ ] Spec deltas merged into `openspec/specs/` living files.
-- [ ] `pwsh -File scripts/gates/Run-Gates.ps1` exits 0; no MUST gate failure.
+- [x] WU-1..WU-7 tasks completed and committed in seam order (work-unit commits: test + code in the same commit per behavior).
+- [x] `dotnet test -c Release` passes with 0 failures across the full suite. (2121 passed / 0 failed / 2 skipped)
+- [x] Cold-start parity test confirms: all-null `ClientAestheticProfile` → output identical to pre-change baseline (no regression on existing clients).
+- [x] Port contract test confirms: no Infrastructure type in `IImageGenerationGateway`, `ImageModelCapabilities`, `ImageGenerationRequest.ReferenceImages`, or `IntegrationExecutionAttemptRecord`.
+- [x] Processor integration test confirms: full capture path active + resilience (image-gen failure → CSS + telemetry + `Completed`).
+- [x] ONE EF migration (`analysis_id` nullable + `correlation_id`/`correlation_kind`) is present and reversible; existing analysis-scoped rows unaffected.
+- [x] No provider/HTTP/EF/Supabase type appears in Domain or Application projects (architecture gate).
+- [x] ADR `0008-image-conditioning-capability-describe-telemetry-correlation.md` authored under `docs/architecture/adr/`.
+- [x] Spec deltas merged into `openspec/specs/` living files.
+- [x] `pwsh -File scripts/gates/Run-Gates.ps1` exits 0; no MUST gate failure.
 - [ ] `size:exception` recorded (this file, Review Workload Forecast). Single PR on `feat/claude-p-provider` → `dev`.

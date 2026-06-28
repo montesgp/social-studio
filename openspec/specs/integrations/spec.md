@@ -229,3 +229,52 @@ frontend-specific UI code changes required to support the new step.
 - AND no new frontend component or conditional rendering code was added to make this work
 
 *Merged from `openspec/changes/content-image-generation/specs/integrations/spec-delta.md` — change applied 2026-06-24.*
+
+---
+
+<!-- Merged from openspec/changes/client-aligned-carousel-generation/specs/integrations/spec-delta.md — change applied 2026-06-28 -->
+
+## Added Requirements: Per-Slide Image-Gen Degradation Observability (client-aligned-carousel-generation)
+
+### Requirement: CAC-INT-01 — Per-Slide Image-Gen Attempt Recorded in Execution-Attempt Telemetry
+
+For every `generate-image` call on a creative slide, the system MUST write a row to the
+execution-attempt telemetry store (`social.integration_execution_attempts` or the
+equivalent Application-layer port) carrying at minimum:
+
+- Organization id
+- Job id
+- Slide index (zero-based)
+- Step key (`generate-image`)
+- Outcome (`success` or `degraded-to-css` with a structured reason)
+
+Writing the attempt record MUST NOT block or fail the generation job; a telemetry write
+failure MUST be caught, logged, and NOT propagated. Silent per-slide degradation MUST NOT
+change job completion semantics: the job status remains `Completed` and `error_code` remains
+null regardless of how many slides degraded.
+
+#### Scenario: Successful image render — attempt recorded as success (CAC-INT-01-a)
+
+- GIVEN a `ClientAesthetic` creative slide where image-gen produces a valid background
+- WHEN the slide's generation step completes
+- THEN an execution-attempt row is written with outcome = `success`, the slide index,
+  and step key `generate-image`
+
+#### Scenario: Image-gen degrades to CSS — attempt recorded as degraded; job still Completed (CAC-INT-01-b)
+
+- GIVEN a `ClientAesthetic` creative slide where image-gen fails and falls back to the CSS background
+- WHEN the fallback is applied
+- THEN an execution-attempt row is written with outcome = `degraded-to-css` and the failure reason
+- AND the job's overall status remains `Completed`
+- AND `error_code` on the job record remains null
+- AND the execution-attempt row is the mechanism that surfaces the degradation
+
+#### Scenario: Telemetry write failure — logged and not propagated; job continues (CAC-INT-01-c)
+
+- GIVEN the execution-attempt write call throws an exception
+- WHEN the exception occurs during the telemetry write
+- THEN the exception is caught and logged
+- AND the generation job continues and completes normally
+- AND no job-level failure is raised due to the telemetry failure
+
+*Merged from `openspec/changes/client-aligned-carousel-generation/specs/integrations/spec-delta.md` — change applied 2026-06-28.*
