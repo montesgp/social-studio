@@ -252,34 +252,34 @@ Chain strategy: size-exception
 
 ### Phase 5.A — `ClientProfileSnapshot.Handle` (Domain)
 
-- [ ] 5.1 **[RED]** Add `ClientProfileSnapshotHandleTests.cs` — assert `ClientProfileSnapshot.Handle` is `string?`; existing construction with no Handle param compiles; `with { Handle = "@brand" }` compiles.
+- [x] 5.1 **[RED]** Add `ClientProfileSnapshotHandleTests.cs` — assert `ClientProfileSnapshot.Handle` is `string?`; existing construction with no Handle param compiles; `with { Handle = "@brand" }` compiles.
   (`Incoders.Hive.Tests/Domain/Social/ContentGeneration/ClientProfileSnapshotHandleTests.cs`)
 
-- [ ] 5.2 **[GREEN]** Modify `ClientProfileSnapshot.cs` — add `string? Handle = null` as a trailing nullable field; no existing param order or defaults changed.
+- [x] 5.2 **[GREEN]** Modify `ClientProfileSnapshot.cs` — add `string? Handle = null` as a trailing nullable field; no existing param order or defaults changed.
   (`Incoders.Hive.Domain/Social/ContentGeneration/…ClientProfileSnapshot.cs`)
 
 ### Phase 5.B — Snapshot loader (Infrastructure)
 
-- [ ] 5.3 **[RED]** Add/extend `BrandSnapshotLoaderTests.cs` — assert:
+- [x] 5.3 **[RED]** Add/extend `BrandSnapshotLoaderTests.cs` — assert:
   - Given `ClientOwnAccount.Handle = "@brand"` → `ClientProfileSnapshot.Handle = "@brand"` (CAC-CG-04-a)
   - Given no own account → `Handle = null`; snapshot assembly succeeds (CAC-CG-04-b)
   - No Infrastructure or provider type appears in `ClientProfileSnapshot` or in the loader port signature
   (`Incoders.Hive.Tests/Infrastructure/Social/ContentGeneration/BrandSnapshotLoaderTests.cs`)
 
-- [ ] 5.4 **[GREEN]** Modify brand-snapshot loader (Infrastructure) — load `ClientOwnAccount.Handle` into `ClientProfileSnapshot.Handle`; handle no-own-account case as null.
+- [x] 5.4 **[GREEN]** Modify brand-snapshot loader (Infrastructure) — load `ClientOwnAccount.Handle` into `ClientProfileSnapshot.Handle`; handle no-own-account case as null.
   (`Incoders.Hive.Infrastructure/Social/ContentGeneration/…SnapshotLoader.cs`)
 
 ### Phase 5.C — `@handle`/signature copy slot in `CarouselVisualComposer`
 
-- [ ] 5.5 **[RED]** Add `CarouselVisualComposerHandleSlotTests.cs` — assert:
+- [x] 5.5 **[RED]** Add `CarouselVisualComposerHandleSlotTests.cs` — assert:
   - `BrandSnapshot.Handle = "@clientbrand"` → composition envelope carries `@handle` slot = `"@clientbrand"` at parity with `StoryVisualComposer` (CAC-CG-03-a)
   - `BrandSnapshot.Handle = null` → handle/signature slot absent; no exception; slide renders normally (CAC-CG-03-b)
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Visual/CarouselVisualComposerHandleSlotTests.cs`)
 
-- [ ] 5.6 **[GREEN]** Modify `CarouselVisualComposer.cs` — add `handle`/`signature` copy slots via `AttributionPolicy.ResolveSignature`; populate when `Handle` non-null; omit slot (not empty string) when null; mirrors `StoryVisualComposer` pattern exactly.
+- [x] 5.6 **[GREEN]** Modify `CarouselVisualComposer.cs` — add `handle`/`signature` copy slots via `AttributionPolicy.ResolveSignature`; populate when `Handle` non-null; omit slot (not empty string) when null; mirrors `StoryVisualComposer` pattern exactly.
   (`Incoders.Hive.Application/Features/Social/ContentGeneration/Visual/Composers/CarouselVisualComposer.cs`)
 
-- [ ] 5.7 Run `dotnet test -c Release` — WU-5 tests pass; handle-absent parity test passes.
+- [x] 5.7 Run `dotnet test -c Release` — WU-5 tests pass; handle-absent parity test passes.
 
 ---
 

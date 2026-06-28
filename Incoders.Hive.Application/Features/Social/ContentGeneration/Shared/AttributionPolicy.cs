@@ -21,7 +21,11 @@ internal static class AttributionPolicy
     {
         ArgumentNullException.ThrowIfNull(brand);
 
+        // WU-5: ClientProfileSnapshot.Handle (from ClientOwnAccount) is the highest-priority
+        // deterministic attribution — it is the client's own explicitly-registered handle,
+        // which supersedes any handle extracted from brand notes or the client name.
         var deterministic = FirstNotBlank(
+            brand.Client?.Handle,
             ExtractHandleFromNotes(brand.Brand?.Notes),
             brand.Client?.Name);
 

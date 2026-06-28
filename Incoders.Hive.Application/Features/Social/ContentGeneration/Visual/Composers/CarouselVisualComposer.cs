@@ -137,6 +137,25 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
             _ => (null, slide?.ImagePromptHint ?? $"Slide {slideIndex} visual")
         };
 
+        // WU-5: @handle slot — mirrors StoryVisualComposer via AttributionPolicy.ResolveSignature.
+        // Populated only when the client has an explicit own-account handle (CAC-CG-03).
+        // Slot is omitted (not empty) when Handle is null so the slide renders without it.
+        var copySlots = new Dictionary<string, string>
+        {
+            ["title"] = slideIndex == 1 ? coverTitle : (slide?.Title ?? $"Slide {slideIndex}"),
+            ["subtitle"] = slide is null ? "Supporting copy" : slide.Body,
+            ["cta"] = ctaText,
+        };
+
+        if (brand.Client?.Handle is not null)
+        {
+            var signatureText = AttributionPolicy.ResolveSignature(brand, null);
+            if (!string.IsNullOrWhiteSpace(signatureText))
+            {
+                copySlots["@handle"] = signatureText;
+            }
+        }
+
         return new VisualCompositionSpec(
             FormatKey: FormatKey,
             LayoutType: "grid",
@@ -147,12 +166,7 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
                 [$"slide-{slideIndex}"] = new AssetSlotSpec(bgUrl, bgHint),
                 ["logo"] = new AssetSlotSpec(brand.Brand?.Logos.FirstOrDefault(), "Brand logo"),
             },
-            CopySlots: new Dictionary<string, string>
-            {
-                ["title"] = slideIndex == 1 ? coverTitle : (slide?.Title ?? $"Slide {slideIndex}"),
-                ["subtitle"] = slide is null ? "Supporting copy" : slide.Body,
-                ["cta"] = ctaText,
-            },
+            CopySlots: copySlots,
             Dimensions: CompositionDefaults.CarouselDimensions);
     }
 
