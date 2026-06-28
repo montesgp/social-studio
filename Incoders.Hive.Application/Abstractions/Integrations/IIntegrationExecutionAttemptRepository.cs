@@ -13,7 +13,7 @@ public interface IIntegrationExecutionAttemptRepository
 
 public sealed record IntegrationExecutionAttemptRecord(
     Guid Id,
-    Guid AnalysisId,
+    Guid? AnalysisId,
     string CapabilityKey,
     string ProviderKey,
     IntegrationExecutionAttemptStatus Status,
@@ -23,7 +23,9 @@ public sealed record IntegrationExecutionAttemptRecord(
     int ElapsedMs,
     string? DiagnosticsJson,
     DateTime StartedAtUtc,
-    DateTime? CompletedAtUtc);
+    DateTime? CompletedAtUtc,
+    Guid? CorrelationId = null,
+    string? CorrelationKind = null);
 
 public enum IntegrationExecutionAttemptStatus
 {

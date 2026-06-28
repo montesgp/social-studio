@@ -4,7 +4,11 @@ public sealed class IntegrationExecutionAttemptData
 {
     public Guid Id { get; set; }
 
-    public Guid AnalysisId { get; set; }
+    public Guid? AnalysisId { get; set; }
+
+    public Guid? CorrelationId { get; set; }
+
+    public string? CorrelationKind { get; set; }
 
     public string CapabilityKey { get; set; } = string.Empty;
 

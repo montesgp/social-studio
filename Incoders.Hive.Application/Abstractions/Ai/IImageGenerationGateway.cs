@@ -96,7 +96,19 @@ public sealed record ImageGenerationRequest(
     /// the provider: "generate ONLY the background; never render text, logos, @handles, or signatures".
     /// Set by <c>ClientAestheticImageBackgroundService</c> for ClientAesthetic creative slides (CAC-IMG-02).
     /// </summary>
-    bool BackgroundOnly = false);
+    bool BackgroundOnly = false,
+    /// <summary>
+    /// Telemetry correlation anchor for per-slide attempt rows (CAC-INT-01).
+    /// Set to <c>FormatResultId</c> by <c>ClientAestheticImageBackgroundService</c>.
+    /// Passed through to <see cref="IntegrationExecutionRequest"/> so the policy
+    /// persists an attempt row even when <c>AnalysisId</c> is null.
+    /// </summary>
+    Guid? CorrelationId = null,
+    /// <summary>
+    /// Human-readable correlation kind, e.g. <c>"content-generation/generate-image"</c>.
+    /// Paired with <see cref="CorrelationId"/>.
+    /// </summary>
+    string? CorrelationKind = null);
 
 /// <summary>
 /// Bytes-only image generation result.

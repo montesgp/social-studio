@@ -51,6 +51,8 @@ public sealed class EfIntegrationExecutionAttemptRepository : IIntegrationExecut
         DiagnosticsJson = attempt.DiagnosticsJson,
         StartedAtUtc = attempt.StartedAtUtc,
         CompletedAtUtc = attempt.CompletedAtUtc,
+        CorrelationId = attempt.CorrelationId,
+        CorrelationKind = attempt.CorrelationKind,
     };
 
     private static IntegrationExecutionAttemptRecord ToRecord(IntegrationExecutionAttemptData row) => new(
@@ -65,5 +67,7 @@ public sealed class EfIntegrationExecutionAttemptRepository : IIntegrationExecut
         row.ElapsedMs,
         row.DiagnosticsJson,
         row.StartedAtUtc,
-        row.CompletedAtUtc);
+        row.CompletedAtUtc,
+        CorrelationId: row.CorrelationId,
+        CorrelationKind: row.CorrelationKind);
 }

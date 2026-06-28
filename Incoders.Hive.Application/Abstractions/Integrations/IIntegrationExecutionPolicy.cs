@@ -18,7 +18,9 @@ public sealed record IntegrationExecutionRequest(
     Guid? AnalysisId,
     string FlowKey,
     string CapabilityKey,
-    string? PlatformKey);
+    string? PlatformKey,
+    Guid? CorrelationId = null,
+    string? CorrelationKind = null);
 
 public sealed record ProviderExecutionResult<TResponse>(
     TResponse Payload,

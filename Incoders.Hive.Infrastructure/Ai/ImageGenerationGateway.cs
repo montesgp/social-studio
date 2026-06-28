@@ -142,7 +142,9 @@ public sealed class ImageGenerationGateway : IImageGenerationGateway
                 AnalysisId: null,
                 request.WorkflowKey,
                 request.CapabilityKey,
-                request.NetworkKey),
+                request.NetworkKey,
+                CorrelationId: request.CorrelationId,
+                CorrelationKind: request.CorrelationKind),
             candidates,
             (candidate, cancellationToken) => ExecuteCandidateAsync(request, candidate, cancellationToken),
             ct);

@@ -289,71 +289,71 @@ Chain strategy: size-exception
 
 ### Phase 6.A — Correlation contract (Application)
 
-- [ ] 6.1 **[RED]** Add `IntegrationExecutionCorrelationTests.cs` — assert:
+- [x] 6.1 **[RED]** Add `IntegrationExecutionCorrelationTests.cs` — assert:
   - `IntegrationExecutionAttemptRecord` carries `Guid? CorrelationId = null` and `string? CorrelationKind = null` as additive nullable trailing fields
   - `Guid? AnalysisId` is now nullable (not required); existing records with `AnalysisId` compile unchanged
   - `IntegrationExecutionRequest` gains the same two nullable fields
   (`Incoders.Hive.Tests/Application/Integrations/IntegrationExecutionCorrelationTests.cs`)
 
-- [ ] 6.2 **[GREEN]** Modify `IntegrationExecutionAttemptRecord` and `IntegrationExecutionRequest` in `IIntegrationExecutionAttemptRepository.cs` — make `AnalysisId` nullable (`Guid?`); add trailing `Guid? CorrelationId = null` and `string? CorrelationKind = null`.
+- [x] 6.2 **[GREEN]** Modify `IntegrationExecutionAttemptRecord` and `IntegrationExecutionRequest` in `IIntegrationExecutionAttemptRepository.cs` — make `AnalysisId` nullable (`Guid?`); add trailing `Guid? CorrelationId = null` and `string? CorrelationKind = null`.
   (`Incoders.Hive.Application/Abstractions/Integrations/IIntegrationExecutionAttemptRepository.cs`)
 
 ### Phase 6.B — Policy persistence relax (Application)
 
-- [ ] 6.3 **[RED]** Add/extend `IntegrationExecutionPolicyTests.cs` — assert:
+- [x] 6.3 **[RED]** Add/extend `IntegrationExecutionPolicyTests.cs` — assert:
   - `AnalysisId` non-null → attempt persisted (existing behaviour)
   - `AnalysisId = null`, `CorrelationId` non-null → attempt persisted (CAC-INT-01-a; new path)
   - Both null → attempt NOT persisted (guard preserved)
   - Persistence write failure → caught, logged, not propagated; job continues (CAC-INT-01-c)
   (`Incoders.Hive.Tests/Application/Integrations/IntegrationExecutionPolicyTests.cs`)
 
-- [ ] 6.4 **[GREEN]** Modify `IntegrationExecutionPolicy.PersistAttemptAsync` — change guard to `if (request.AnalysisId is not null || request.CorrelationId is not null)`; wrap write in try/catch; log on failure; do not propagate.
+- [x] 6.4 **[GREEN]** Modify `IntegrationExecutionPolicy.PersistAttemptAsync` — change guard to `if (request.AnalysisId is not null || request.CorrelationId is not null)`; wrap write in try/catch; log on failure; do not propagate.
   (`Incoders.Hive.Infrastructure/Integrations/IntegrationExecutionPolicy.cs`)
 
 ### Phase 6.C — EF entity + migration (Infrastructure — the ONE schema migration)
 
-- [ ] 6.5 **[RED]** Add `IntegrationExecutionAttemptMigrationTests.cs` — assert:
+- [x] 6.5 **[RED]** Add `IntegrationExecutionAttemptMigrationTests.cs` — assert:
   - `IntegrationExecutionAttemptData.AnalysisId` is nullable in the EF entity
   - Entity carries `CorrelationId` (`Guid?`) and `CorrelationKind` (`string?`) columns
   - Round-trip: persisted row with `AnalysisId = null` and `CorrelationId` non-null is readable with correct values
   - Existing analysis-scoped rows (non-null `AnalysisId`) are unaffected
   (`Incoders.Hive.Tests/Infrastructure/Integrations/IntegrationExecutionAttemptMigrationTests.cs`)
 
-- [ ] 6.6 **[GREEN]** Modify `IntegrationExecutionAttemptData.cs` + EF config — make `AnalysisId` nullable; add `CorrelationId` (`Guid?`) and `CorrelationKind` (`string?`) columns.
+- [x] 6.6 **[GREEN]** Modify `IntegrationExecutionAttemptData.cs` + EF config — make `AnalysisId` nullable; add `CorrelationId` (`Guid?`) and `CorrelationKind` (`string?`) columns.
   (`Incoders.Hive.Infrastructure/Persistence/Postgres/…IntegrationExecutionAttemptData.cs`)
 
-- [ ] 6.7 **[GREEN]** Author additive EF migration — make `integration_execution_attempts.analysis_id` nullable (relax FK to optional); add nullable `correlation_id` (uuid) and `correlation_kind` (text); additive + reversible (drop columns / re-tighten on rollback).
+- [x] 6.7 **[GREEN]** Author additive EF migration — make `integration_execution_attempts.analysis_id` nullable (relax FK to optional); add nullable `correlation_id` (uuid) and `correlation_kind` (text); additive + reversible (drop columns / re-tighten on rollback).
   (`Incoders.Hive.Infrastructure/Persistence/Postgres/Migrations/`)
 
 ### Phase 6.D — Per-slide degradation rows from background service (Application)
 
-- [ ] 6.8 **[RED]** Add `PerSlideDegradationTelemetryTests.cs` — assert:
+- [x] 6.8 **[RED]** Add `PerSlideDegradationTelemetryTests.cs` — assert:
   - Successful image-gen → one attempt row with `outcome = success`, `slideIndex`, `step = "generate-image"` (CAC-INT-01-a)
   - CSS fallback (image-gen exhausted) → one attempt row with `outcome = "degraded-to-css"` + failure reason (CAC-INT-01-b)
   - Telemetry write failure → caught and logged; generation job continues; no job-level failure (CAC-INT-01-c)
   - `job.Status` remains `Completed`; `error_code` remains null regardless of how many slides degrade
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/PerSlideDegradationTelemetryTests.cs`)
 
-- [ ] 6.9 **[GREEN]** Modify `ClientAestheticImageBackgroundService.cs` — for each creative slide: on success emit attempt row `{ CorrelationId = FormatResultId, CorrelationKind = "content-generation/generate-image", status = success, DiagnosticsJson = { slideIndex } }`; on CSS fallback emit `{ status = Failed, DiagnosticsJson = { slideIndex, reason } }`; wrap telemetry write in try/catch.
+- [x] 6.9 **[GREEN]** Modify `ClientAestheticImageBackgroundService.cs` — for each creative slide: on success emit attempt row `{ CorrelationId = FormatResultId, CorrelationKind = "content-generation/generate-image", status = success, DiagnosticsJson = { slideIndex } }`; on CSS fallback emit `{ status = Failed, DiagnosticsJson = { slideIndex, reason } }`; wrap telemetry write in try/catch.
   (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ClientAestheticImageBackgroundService.cs`)
 
 ### Phase 6.E — Gateway correlation thread + DI wiring (Infrastructure)
 
-- [ ] 6.10 **[GREEN]** Modify `ImageGenerationGateway.cs` — thread `CorrelationId`/`CorrelationKind` from `ImageGenerationRequest` into the execution policy call; ensure `IntegrationExecutionPolicy` is wired on the content-generation image path (not only on the analysis path).
+- [x] 6.10 **[GREEN]** Modify `ImageGenerationGateway.cs` — thread `CorrelationId`/`CorrelationKind` from `ImageGenerationRequest` into the execution policy call; ensure `IntegrationExecutionPolicy` is wired on the content-generation image path (not only on the analysis path).
   (`Incoders.Hive.Infrastructure/Ai/ImageGenerationGateway.cs`)
 
-- [ ] 6.11 **[GREEN]** Modify `DependencyInjection.cs` — wire `IntegrationExecutionPolicy` into the `ImageGenerationGateway` on the content-generation path; register any new service dependencies introduced in WU-6.
+- [x] 6.11 **[GREEN]** Modify `DependencyInjection.cs` — wire `IntegrationExecutionPolicy` into the `ImageGenerationGateway` on the content-generation path; register any new service dependencies introduced in WU-6.
   (`Incoders.Hive.Infrastructure/DependencyInjection/DependencyInjection.cs`)
 
 ### Phase 6.F — Processor integration + cold-start parity
 
-- [ ] 6.12 **[RED]** Add/extend processor integration tests (reuse existing `ContentGenerationJobProcessorVisualTests` harness) — assert:
+- [x] 6.12 **[RED]** Add/extend processor integration tests (reuse existing `ContentGenerationJobProcessorVisualTests` harness) — assert:
   - Full `ClientAesthetic` carousel with all capture fields populated → pattern indices used, rotating pairings applied, conditioning active, handle/signature slot present
   - Cold-start (all profile fields null) → `{first,last}` indices, positional palette, descriptor background, no handle slot; output identical to pre-change baseline (parity; CAC-BSP-04-a)
   - Image-gen failure on one slide → CSS fallback on that slide + telemetry row + job `Completed` (resilience)
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/ProcessorClientAlignedCarouselTests.cs`)
 
-- [ ] 6.13 Run `dotnet test -c Release` — WU-6 tests pass; full suite green.
+- [x] 6.13 Run `dotnet test -c Release` — WU-6 tests pass; full suite green.
 
 ---
 

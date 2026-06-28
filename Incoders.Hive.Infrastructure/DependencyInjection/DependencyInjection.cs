@@ -35,6 +35,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Incoders.Hive.Infrastructure.DependencyInjection;
@@ -230,8 +231,13 @@ public static class DependencyInjection
             return new AiCompletionGatewayInstrumentationDecorator(inner, ledger, ctx);
         });
 
-        // Image generation gateway — same manual-decoration pattern as the text gateway.
-        services.AddScoped<ImageGenerationGateway>();
+        // Image generation gateway — explicit factory wires the execution policy (CAC-INT-01).
+        services.AddScoped<ImageGenerationGateway>(sp => new ImageGenerationGateway(
+            sp.GetRequiredService<IWorkflowConfigurationResolver>(),
+            sp.GetRequiredService<IIntegrationCredentialResolver>(),
+            sp.GetRequiredService<IExternalProviderClientFactory>(),
+            sp.GetRequiredService<IIntegrationExecutionPolicy>(),
+            sp.GetService<ILogger<ImageGenerationGateway>>()));
         services.AddScoped<IImageGenerationGateway>(sp =>
         {
             var inner = sp.GetRequiredService<ImageGenerationGateway>();

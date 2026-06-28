@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
@@ -39,12 +41,19 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Background
 /// <see cref="MaxGuardrailAttempts"/> total attempts; on exhaustion the slide degrades to CSS.
 /// </para>
 ///
+/// <para>
+/// CAC-INT-01 (per-slide telemetry): when an optional <see cref="IIntegrationExecutionAttemptRepository"/>
+/// is injected, one attempt row is written per creative slide — <c>Succeeded</c> on a generated
+/// background or <c>Failed</c> when the slide degrades to CSS.  Telemetry write failures are
+/// non-fatal and never fail the generation job.
+/// </para>
+///
 /// Storage key: <c>(org, client, formatResultId, "carousel/slide_{index}.png")</c>.
 /// Hash sidecar: <c>(org, client, formatResultId, "carousel/slide_{index}.png.hash")</c>
 /// — stores <c>{promptHash}|{imageStoragePath}</c> for reuse detection.
 ///
-/// Refs: IMG-03, IMG-04, IMG-05, CIG-CG-03, CIG-CG-04, CAC-IMG-01, CAC-IMG-02, CAC-IMG-03;
-/// design §3.3, §3.4, §4.1, §4.2, §5, OQ-3, OQ-4.
+/// Refs: IMG-03, IMG-04, IMG-05, CIG-CG-03, CIG-CG-04, CAC-IMG-01, CAC-IMG-02, CAC-IMG-03,
+/// CAC-INT-01; design §3.3, §3.4, §4.1, §4.2, §5, OQ-3, OQ-4, OQ-6.
 /// </summary>
 public sealed class ClientAestheticImageBackgroundService : IClientAestheticImageBackgroundService
 {
@@ -53,6 +62,15 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
     private const int TargetWidth = 1024;
     private const int TargetHeight = 1024;
     private const string ImageMime = "image/png";
+
+    /// <summary>Capability key used for per-slide telemetry rows (CAC-INT-01).</summary>
+    internal const string SlideCapabilityKey = "generate-image";
+
+    /// <summary>Provider key used for per-slide telemetry rows (CAC-INT-01).</summary>
+    internal const string SlideProviderKey = "carousel-background-service";
+
+    /// <summary>Correlation kind forwarded on every per-slide image request (CAC-INT-01).</summary>
+    internal const string SlideCorrelationKind = "content-generation/generate-image";
 
     /// <summary>
     /// Hard cap on reference images forwarded for conditioning (CAC-IMG-01).
@@ -71,13 +89,15 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
     private readonly IGeneratedAssetStorage _storage;
     private readonly ILogger<ClientAestheticImageBackgroundService> _logger;
     private readonly IImageGuardrailValidator? _guardrailValidator;
+    private readonly IIntegrationExecutionAttemptRepository? _attemptRepository;
 
     public ClientAestheticImageBackgroundService(
         IImagePromptWriter promptWriter,
         IImageGenerationGateway imageGateway,
         IGeneratedAssetStorage storage,
         ILogger<ClientAestheticImageBackgroundService> logger,
-        IImageGuardrailValidator? guardrailValidator = null)
+        IImageGuardrailValidator? guardrailValidator = null,
+        IIntegrationExecutionAttemptRepository? attemptRepository = null)
     {
         ArgumentNullException.ThrowIfNull(promptWriter);
         ArgumentNullException.ThrowIfNull(imageGateway);
@@ -89,6 +109,7 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
         _storage = storage;
         _logger = logger;
         _guardrailValidator = guardrailValidator;
+        _attemptRepository = attemptRepository;
     }
 
     /// <inheritdoc />
@@ -169,6 +190,7 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
     // -----------------------------------------------------------------------
     // Per-slide pipeline: write prompt → render (with guardrail retry) → persist → ForcedDefault
     // Any step failure → returns (slideIndex, null); the caller omits it from the map.
+    // CAC-INT-01: a telemetry row is written at each terminal outcome (success or CSS fallback).
     // -----------------------------------------------------------------------
 
     private async Task<(int SlideIndex, BackgroundSelection.ForcedDefault? ForcedDefault)> BuildSingleSlideAsync(
@@ -195,6 +217,7 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
                     "ClientAestheticImageBackgroundService: prompt write failed for slide {SlideIndex} " +
                     "(org {OrgId}): {Code}. Slide degrades to CSS.",
                     slideIndex, request.OrganizationId, promptResult.Error.Code);
+                await WriteCssFallbackTelemetryAsync(request, slideIndex, promptResult.Error.Code);
                 return (slideIndex, null);
             }
 
@@ -212,16 +235,18 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
                     "ClientAestheticImageBackgroundService: reusing stored background for slide {SlideIndex} " +
                     "(org {OrgId}) — prompt hash unchanged.",
                     slideIndex, request.OrganizationId);
+                await WriteSuccessTelemetryAsync(request, slideIndex);
                 return (slideIndex, new BackgroundSelection.ForcedDefault(reuseResult, "ai-generated-background"));
             }
 
             // 3. Render the image with guardrail retry (CAC-IMG-03).
-            var renderedImage = await RenderWithGuardrailRetryAsync(
+            var (renderedImage, failureReason) = await RenderWithGuardrailRetryAsync(
                 request, slideIndex, prompt, referenceImages, ct);
 
             if (renderedImage is null)
             {
-                // Guardrail exhaustion already logged in RenderWithGuardrailRetryAsync.
+                // Guardrail exhaustion or generation failure already logged inside RenderWithGuardrailRetryAsync.
+                await WriteCssFallbackTelemetryAsync(request, slideIndex, failureReason ?? "generation-failed");
                 return (slideIndex, null);
             }
 
@@ -240,6 +265,7 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
             // 5. Persist the hash sidecar for future reuse detection.
             await PersistHashSidecarAsync(request, hashRelativePath, promptHash, storedRef.StoragePath, ct);
 
+            await WriteSuccessTelemetryAsync(request, slideIndex);
             var url = storedRef.StoragePath;
             return (slideIndex, new BackgroundSelection.ForcedDefault(url, "ai-generated-background"));
         }
@@ -254,15 +280,18 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
                 "ClientAestheticImageBackgroundService: unhandled exception for slide {SlideIndex} " +
                 "(org {OrgId}). Slide degrades to CSS.",
                 slideIndex, request.OrganizationId);
+            await WriteCssFallbackTelemetryAsync(request, slideIndex, "unexpected-exception");
             return (slideIndex, null);
         }
     }
 
     // -----------------------------------------------------------------------
     // CAC-IMG-03: image generation with bounded guardrail retry per slide
+    // Returns (result, null) on success; (null, reason) on any failure.
+    // CAC-INT-01: caller threads CorrelationId so the gateway policy tracks provider attempts.
     // -----------------------------------------------------------------------
 
-    private async Task<ImageGenerationResult?> RenderWithGuardrailRetryAsync(
+    private async Task<(ImageGenerationResult? Result, string? Reason)> RenderWithGuardrailRetryAsync(
         ClientAestheticImageRequest request,
         int slideIndex,
         string prompt,
@@ -272,6 +301,7 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
         for (var attempt = 1; attempt <= MaxGuardrailAttempts; attempt++)
         {
             // CAC-IMG-02: set BackgroundOnly = true so the adapter injects the system directive.
+            // CAC-INT-01: thread CorrelationId so the gateway policy records provider-level attempts.
             var imageRequest = new ImageGenerationRequest(
                 request.OrganizationId,
                 ImageCapabilityKey,
@@ -282,7 +312,9 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
                 PreferredProviderKey: null,
                 PreferredModel: null,
                 ReferenceImages: referenceImages,
-                BackgroundOnly: true);
+                BackgroundOnly: true,
+                CorrelationId: request.FormatResultId,
+                CorrelationKind: SlideCorrelationKind);
 
             var imageResult = await _imageGateway.GenerateAsync(imageRequest, ct);
             if (imageResult.IsFailure)
@@ -291,19 +323,19 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
                     "ClientAestheticImageBackgroundService: image generation failed for slide {SlideIndex} " +
                     "(org {OrgId}) attempt {Attempt}: {Code}. Slide degrades to CSS.",
                     slideIndex, request.OrganizationId, attempt, imageResult.Error.Code);
-                return null; // generation failure is not retried
+                return (null, imageResult.Error.Code); // generation failure is not retried
             }
 
             // CAC-IMG-03: apply guardrail validator when injected.
             if (_guardrailValidator is null)
             {
-                return imageResult.Value;
+                return (imageResult.Value, null);
             }
 
             var validationResult = _guardrailValidator.Validate(imageResult.Value);
             if (validationResult.IsSuccess)
             {
-                return validationResult.Value;
+                return (validationResult.Value, null);
             }
 
             // Guardrail failed — retry if budget allows.
@@ -321,11 +353,90 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
                     "ClientAestheticImageBackgroundService: guardrail retries exhausted for slide {SlideIndex} " +
                     "(job {JobId}, org {OrgId}). Last reason: {Reason}. Slide degrades to CSS.",
                     slideIndex, request.JobId, request.OrganizationId, reason);
-                return null;
+                return (null, "guardrail-exhausted");
             }
         }
 
-        return null; // unreachable but satisfies the compiler
+        return (null, "guardrail-exhausted"); // unreachable but satisfies the compiler
+    }
+
+    // -----------------------------------------------------------------------
+    // CAC-INT-01: per-slide telemetry writes — non-fatal, swallowed on failure
+    // -----------------------------------------------------------------------
+
+    private async Task WriteSuccessTelemetryAsync(ClientAestheticImageRequest request, int slideIndex)
+    {
+        if (_attemptRepository is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            await _attemptRepository.AddAsync(new IntegrationExecutionAttemptRecord(
+                Id: Guid.NewGuid(),
+                AnalysisId: null,
+                CapabilityKey: SlideCapabilityKey,
+                ProviderKey: SlideProviderKey,
+                Status: IntegrationExecutionAttemptStatus.Succeeded,
+                AttemptNumber: 1,
+                FailureCode: null,
+                RetryCount: 0,
+                ElapsedMs: 0,
+                DiagnosticsJson: JsonSerializer.Serialize(new { slideIndex }),
+                StartedAtUtc: now,
+                CompletedAtUtc: now,
+                CorrelationId: request.FormatResultId,
+                CorrelationKind: SlideCorrelationKind));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "ClientAestheticImageBackgroundService: telemetry write (success) failed for slide {SlideIndex}. " +
+                "Continuing — telemetry failure must not fail the generation job.",
+                slideIndex);
+        }
+    }
+
+    private async Task WriteCssFallbackTelemetryAsync(
+        ClientAestheticImageRequest request,
+        int slideIndex,
+        string reason)
+    {
+        if (_attemptRepository is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            await _attemptRepository.AddAsync(new IntegrationExecutionAttemptRecord(
+                Id: Guid.NewGuid(),
+                AnalysisId: null,
+                CapabilityKey: SlideCapabilityKey,
+                ProviderKey: SlideProviderKey,
+                Status: IntegrationExecutionAttemptStatus.Failed,
+                AttemptNumber: 1,
+                FailureCode: reason,
+                RetryCount: 0,
+                ElapsedMs: 0,
+                DiagnosticsJson: JsonSerializer.Serialize(new { slideIndex, outcome = "degraded-to-css", reason }),
+                StartedAtUtc: now,
+                CompletedAtUtc: now,
+                CorrelationId: request.FormatResultId,
+                CorrelationKind: SlideCorrelationKind));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "ClientAestheticImageBackgroundService: telemetry write (CSS fallback) failed for slide {SlideIndex}. " +
+                "Continuing — telemetry failure must not fail the generation job.",
+                slideIndex);
+        }
     }
 
     // -----------------------------------------------------------------------
