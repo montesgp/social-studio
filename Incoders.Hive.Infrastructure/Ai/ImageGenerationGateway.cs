@@ -42,6 +42,66 @@ public sealed class ImageGenerationGateway : IImageGenerationGateway
         _logger = logger ?? NullLogger<ImageGenerationGateway>.Instance;
     }
 
+    /// <inheritdoc />
+    public async Task<Result<ImageModelCapabilities>> DescribeAsync(Guid organizationId, CancellationToken ct = default)
+    {
+        // Resolve the IMAGE route (same defaults as GenerateAsync) without calling the provider.
+        var routeResult = await _workflowResolver.ResolveStepAsync(
+            new WorkflowStepResolutionRequest(
+                organizationId,
+                WorkflowKey: "single-analyzer",
+                AnalysisType: "content-analysis",
+                StepKey: "generate-image",
+                OperationKey: null,
+                NetworkKey: null),
+            ct);
+
+        if (routeResult.IsFailure)
+        {
+            _logger.LogWarning(
+                "ImageGenerationGateway.DescribeAsync: route resolution failed for org {OrgId}: {Code}.",
+                organizationId, routeResult.Error.Code);
+            return Result.Failure<ImageModelCapabilities>(routeResult.Error);
+        }
+
+        var candidates = routeResult.Value
+            .Select(c => c.ToIntegrationRouteCandidate())
+            .OrderBy(c => c.Priority)
+            .ToArray();
+
+        if (candidates.Length == 0)
+        {
+            _logger.LogWarning(
+                "ImageGenerationGateway.DescribeAsync: no IMAGE route configured for org {OrgId}.",
+                organizationId);
+            return Result.Failure<ImageModelCapabilities>(IntegrationErrors.AiRouteNotConfigured);
+        }
+
+        var credentialResult = await _credentialResolver.ResolveAsync(organizationId, candidates[0], ct);
+        if (credentialResult.IsFailure)
+        {
+            _logger.LogWarning(
+                "ImageGenerationGateway.DescribeAsync: credential resolution failed for org {OrgId} provider {ProviderKey}: {Code}.",
+                organizationId, candidates[0].ProviderKey, credentialResult.Error.Code);
+            return Result.Failure<ImageModelCapabilities>(credentialResult.Error);
+        }
+
+        IImageModelClient client;
+        try
+        {
+            client = _clientFactory.Create<IImageModelClient>(credentialResult.Value);
+        }
+        catch (InvalidOperationException)
+        {
+            _logger.LogWarning(
+                "ImageGenerationGateway.DescribeAsync: no IImageModelClient registered for provider '{ProviderKey}'.",
+                candidates[0].ProviderKey);
+            return Result.Failure<ImageModelCapabilities>(IntegrationErrors.ExternalProviderUnsupported);
+        }
+
+        return Result.Success(client.Capabilities);
+    }
+
     public async Task<Result<ImageGenerationResult>> GenerateAsync(ImageGenerationRequest request, CancellationToken ct = default)
     {
         var routeResult = await _workflowResolver.ResolveStepAsync(

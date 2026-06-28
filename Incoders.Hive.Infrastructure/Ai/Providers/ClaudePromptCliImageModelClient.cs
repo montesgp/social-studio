@@ -15,6 +15,14 @@ public sealed class ClaudePromptCliImageModelClient : IImageModelClient
     private readonly IProcessRunner _processRunner;
     private readonly ILogger<ClaudePromptCliImageModelClient> _logger;
 
+    /// <summary>
+    /// The Claude -p CLI adapter generates images via the Claude model's multimodal output but
+    /// does not currently support multi-image reference conditioning via ReferenceImages.
+    /// Refs: CAC-IMG-01; design §3.4.
+    /// </summary>
+    public ImageModelCapabilities Capabilities { get; } =
+        new(SupportsImageConditioning: false, MaxConditioningImages: 0);
+
     public ClaudePromptCliImageModelClient(
         ResolvedProviderCredential credential,
         IProcessRunner processRunner,

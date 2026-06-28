@@ -101,6 +101,7 @@ file sealed class RouteImageClient : IImageModelClient
 {
     private readonly Result<ImageGenerationResult> _result;
     public RouteImageClient(Result<ImageGenerationResult> result) => _result = result;
+    public ImageModelCapabilities Capabilities { get; } = new(false, 0);
     public Task<Result<ImageGenerationResult>> GenerateAsync(ImageGenerationRequest request, CancellationToken ct = default) => Task.FromResult(_result);
 }
 

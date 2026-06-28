@@ -157,6 +157,127 @@ public sealed class IImageGenerationGatewayContractTests
     }
 
     // -----------------------------------------------------------------------
+    // WU-4 (CAC-IMG-01/04): IImageGenerationGateway.DescribeAsync + ImageModelCapabilities
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void IImageGenerationGateway_DescribeAsync_Exists()
+    {
+        var method = typeof(IImageGenerationGateway).GetMethod("DescribeAsync",
+            [typeof(Guid), typeof(CancellationToken)]);
+
+        Assert.NotNull(method);
+    }
+
+    [Fact]
+    public void IImageGenerationGateway_DescribeAsync_ReturnsTaskOfResultOfImageModelCapabilities()
+    {
+        var method = typeof(IImageGenerationGateway).GetMethod("DescribeAsync",
+            [typeof(Guid), typeof(CancellationToken)]);
+
+        Assert.NotNull(method);
+
+        var returnType = method!.ReturnType;
+        Assert.True(returnType.IsGenericType, "DescribeAsync return type must be generic Task<...>");
+        Assert.Equal(typeof(Task<>), returnType.GetGenericTypeDefinition());
+
+        var innerType = returnType.GetGenericArguments()[0];
+        Assert.True(innerType.IsGenericType, "Inner type must be generic Result<...>");
+        Assert.Equal(typeof(Result<>), innerType.GetGenericTypeDefinition());
+
+        var capsType = AppAssembly.GetExportedTypes()
+            .FirstOrDefault(t => t.Name == "ImageModelCapabilities");
+        Assert.NotNull(capsType);
+        Assert.Equal(capsType, innerType.GetGenericArguments()[0]);
+    }
+
+    [Fact]
+    public void IImageGenerationGateway_DescribeAsync_HasNoInfrastructureTypes()
+    {
+        var method = typeof(IImageGenerationGateway).GetMethod("DescribeAsync",
+            [typeof(Guid), typeof(CancellationToken)]);
+
+        Assert.NotNull(method);
+        AssertNoForbiddenTypes(method!);
+    }
+
+    [Fact]
+    public void ImageModelCapabilities_ExistsAndHasNoInfrastructureTypes()
+    {
+        var capsType = AppAssembly.GetExportedTypes()
+            .FirstOrDefault(t => t.Name == "ImageModelCapabilities");
+
+        Assert.NotNull(capsType);
+        AssertRecordPropertiesHaveNoForbiddenTypes(capsType!);
+    }
+
+    [Fact]
+    public void ImageModelCapabilities_HasSupportsImageConditioningBoolProperty()
+    {
+        var capsType = AppAssembly.GetExportedTypes()
+            .FirstOrDefault(t => t.Name == "ImageModelCapabilities");
+
+        Assert.NotNull(capsType);
+
+        var prop = capsType!.GetProperty("SupportsImageConditioning");
+        Assert.NotNull(prop);
+        Assert.Equal(typeof(bool), prop!.PropertyType);
+    }
+
+    [Fact]
+    public void ImageModelCapabilities_HasMaxConditioningImagesIntProperty()
+    {
+        var capsType = AppAssembly.GetExportedTypes()
+            .FirstOrDefault(t => t.Name == "ImageModelCapabilities");
+
+        Assert.NotNull(capsType);
+
+        var prop = capsType!.GetProperty("MaxConditioningImages");
+        Assert.NotNull(prop);
+        Assert.Equal(typeof(int), prop!.PropertyType);
+    }
+
+    // -----------------------------------------------------------------------
+    // WU-4 (CAC-IMG-01): IImageModelClient.Capabilities property
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void IImageModelClient_HasCapabilitiesProperty()
+    {
+        var prop = typeof(IImageModelClient).GetProperty("Capabilities");
+
+        Assert.NotNull(prop);
+
+        var capsType = AppAssembly.GetExportedTypes()
+            .FirstOrDefault(t => t.Name == "ImageModelCapabilities");
+        Assert.NotNull(capsType);
+        Assert.Equal(capsType, prop!.PropertyType);
+    }
+
+    // -----------------------------------------------------------------------
+    // WU-4 (CAC-IMG-01): ImageGenerationRequest.ReferenceImages
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void ImageGenerationRequest_HasNullableReferenceImagesProperty()
+    {
+        var requestType = AppAssembly.GetExportedTypes()
+            .FirstOrDefault(t => t.Name == "ImageGenerationRequest");
+
+        Assert.NotNull(requestType);
+
+        var prop = requestType!.GetProperty("ReferenceImages");
+        Assert.NotNull(prop);
+
+        // Must be IReadOnlyList<ImageInitReference>? (nullable)
+        Assert.True(prop!.PropertyType.IsGenericType
+            || prop.PropertyType.GetGenericTypeDefinition() == typeof(IReadOnlyList<>),
+            "ReferenceImages must be a generic IReadOnlyList<> type");
+
+        AssertRecordPropertiesHaveNoForbiddenTypes(requestType!);
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 

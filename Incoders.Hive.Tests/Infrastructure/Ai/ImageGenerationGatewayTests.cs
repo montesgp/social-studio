@@ -160,6 +160,8 @@ file sealed class CapturingImageModelClient : IImageModelClient
     private int _callCount;
     public int CallCount => _callCount;
 
+    public ImageModelCapabilities Capabilities { get; } = new(false, 0);
+
     public CapturingImageModelClient(Result<ImageGenerationResult> result) => _result = result;
 
     public Task<Result<ImageGenerationResult>> GenerateAsync(

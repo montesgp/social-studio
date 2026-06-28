@@ -133,6 +133,10 @@ file sealed class SucceedingImageGateway : IImageGenerationGateway
     public Task<Result<ImageGenerationResult>> GenerateAsync(
         ImageGenerationRequest request, CancellationToken ct = default)
         => Task.FromResult(Result.Success(_result));
+
+    public Task<Result<ImageModelCapabilities>> DescribeAsync(
+        Guid organizationId, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new ImageModelCapabilities(false, 0)));
 }
 
 file sealed class FailingImageGateway : IImageGenerationGateway
@@ -143,4 +147,8 @@ file sealed class FailingImageGateway : IImageGenerationGateway
     public Task<Result<ImageGenerationResult>> GenerateAsync(
         ImageGenerationRequest request, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<ImageGenerationResult>(_error));
+
+    public Task<Result<ImageModelCapabilities>> DescribeAsync(
+        Guid organizationId, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new ImageModelCapabilities(false, 0)));
 }

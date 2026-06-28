@@ -186,52 +186,52 @@ Chain strategy: size-exception
 
 ### Phase 4.A — Port extensions (Application)
 
-- [ ] 4.1 **[RED]** Add/extend `IImageGenerationGatewayContractTests.cs` — assert:
+- [x] 4.1 **[RED]** Add/extend `IImageGenerationGatewayContractTests.cs` — assert:
   - `IImageGenerationGateway.DescribeAsync(Guid organizationId, CancellationToken)` returns `Task<Result<ImageModelCapabilities>>`
   - `ImageModelCapabilities` is a record with `bool SupportsImageConditioning` and `int MaxConditioningImages`; no Infrastructure types
   - `ImageGenerationRequest.ReferenceImages` is `IReadOnlyList<ImageInitReference>?`; existing params unchanged
   - `ImageInitReference` carries only `byte[]? Bytes`, `string? Url`, `string Mime` (Application-safe)
   (`Incoders.Hive.Tests/Application/IImageGenerationGatewayContractTests.cs`)
 
-- [ ] 4.2 **[GREEN]** Modify `IImageGenerationGateway.cs` — add `Task<Result<ImageModelCapabilities>> DescribeAsync(Guid organizationId, CancellationToken ct = default)`. Create `ImageModelCapabilities` sealed record `(bool SupportsImageConditioning, int MaxConditioningImages)`.
+- [x] 4.2 **[GREEN]** Modify `IImageGenerationGateway.cs` — add `Task<Result<ImageModelCapabilities>> DescribeAsync(Guid organizationId, CancellationToken ct = default)`. Create `ImageModelCapabilities` sealed record `(bool SupportsImageConditioning, int MaxConditioningImages)`.
   (`Incoders.Hive.Application/Abstractions/Ai/IImageGenerationGateway.cs`)
 
-- [ ] 4.3 **[GREEN]** Add `IReadOnlyList<ImageInitReference>? ReferenceImages = null` as a trailing nullable param to `ImageGenerationRequest` sealed record; existing `Init` param kept for back-compat.
+- [x] 4.3 **[GREEN]** Add `IReadOnlyList<ImageInitReference>? ReferenceImages = null` as a trailing nullable param to `ImageGenerationRequest` sealed record; existing `Init` param kept for back-compat.
   (`Incoders.Hive.Application/Abstractions/Ai/IImageGenerationGateway.cs`)
 
 ### Phase 4.B — Adapter capability advertisement + byte resolution (Infrastructure)
 
-- [ ] 4.4 **[RED]** Add `ImageModelClientCapabilityTests.cs` — assert:
+- [x] 4.4 **[RED]** Add `ImageModelClientCapabilityTests.cs` — assert:
   - Supporting adapter returns `SupportsImageConditioning = true` and a positive `MaxConditioningImages` from `Capabilities` without making a provider call
   - Non-supporting adapter (or a second adapter type) returns `SupportsImageConditioning = false`
   - `IImageModelClient.Capabilities` is a property, not a method call to the provider
   (`Incoders.Hive.Tests/Infrastructure/Ai/ImageModelClientCapabilityTests.cs`)
 
-- [ ] 4.5 **[GREEN]** Modify the supporting `IImageModelClient` adapter (Infrastructure) — add `ImageModelCapabilities Capabilities { get; }` to the port interface; implement it to return `SupportsImageConditioning = true` / `MaxConditioningImages = 3` (or provider-specific value); resolve `Url` reference bytes from `IGeneratedAssetStorage` when `ReferenceImages` is non-null and forwarded to the provider; non-supporting adapters return `SupportsImageConditioning = false` and ignore `ReferenceImages`.
+- [x] 4.5 **[GREEN]** Modify the supporting `IImageModelClient` adapter (Infrastructure) — add `ImageModelCapabilities Capabilities { get; }` to the port interface; implement it to return `SupportsImageConditioning = true` / `MaxConditioningImages = 3` (or provider-specific value); resolve `Url` reference bytes from `IGeneratedAssetStorage` when `ReferenceImages` is non-null and forwarded to the provider; non-supporting adapters return `SupportsImageConditioning = false` and ignore `ReferenceImages`.
   (`Incoders.Hive.Infrastructure/Ai/…ImageModelClient.cs`)
 
-- [ ] 4.6 **[GREEN]** Modify `ImageGenerationGateway.cs` — implement `DescribeAsync`: resolve the IMAGE route client via `IWorkflowConfigurationResolver` + `IExternalProviderClientFactory`; return client's `Capabilities` without calling the provider.
+- [x] 4.6 **[GREEN]** Modify `ImageGenerationGateway.cs` — implement `DescribeAsync`: resolve the IMAGE route client via `IWorkflowConfigurationResolver` + `IExternalProviderClientFactory`; return client's `Capabilities` without calling the provider.
   (`Incoders.Hive.Infrastructure/Ai/ImageGenerationGateway.cs`)
 
 ### Phase 4.C — Background-only directive + guardrail retry (Infrastructure + Application)
 
-- [ ] 4.7 **[RED]** Add `BackgroundOnlyDirectiveTests.cs` — assert:
+- [x] 4.7 **[RED]** Add `BackgroundOnlyDirectiveTests.cs` — assert:
   - On a `ClientAesthetic` creative slide the assembled `ImageGenerationRequest` prompt includes a system directive "generate ONLY the background; never render text, logos, @handles, or signatures" (CAC-IMG-02-a)
   - Non-`ClientAesthetic` slides do NOT receive the background-only directive (CAC-IMG-02-b)
   (`Incoders.Hive.Tests/Infrastructure/Ai/BackgroundOnlyDirectiveTests.cs`)
 
-- [ ] 4.8 **[RED]** Add `VisualGuardrailRetryTests.cs` (or extend existing) — assert:
+- [x] 4.8 **[RED]** Add `VisualGuardrailRetryTests.cs` (or extend existing) — assert:
   - First render passes `VisualGuardrailValidator` → result accepted; no retry (CAC-IMG-03-a)
   - First render fails; second render passes within budget → second result accepted (CAC-IMG-03-b)
   - All retries exhausted without passing → slide degrades to CSS fallback; failure logged with job id, slide index, reason; job not marked failed (CAC-IMG-03-c)
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/VisualGuardrailRetryTests.cs`)
 
-- [ ] 4.9 **[GREEN]** Modify the `IImageModelClient` adapter (Infrastructure) — inject background-only system directive for `ClientAesthetic` creative slides.
+- [x] 4.9 **[GREEN]** Modify the `IImageModelClient` adapter (Infrastructure) — inject background-only system directive for `ClientAesthetic` creative slides.
   (`Incoders.Hive.Infrastructure/Ai/…ImageModelClient.cs`)
 
 ### Phase 4.D — Background service capability-gated conditioning (Application)
 
-- [ ] 4.10 **[RED]** Add `ClientAestheticImageBackgroundServiceConditioningTests.cs` — assert:
+- [x] 4.10 **[RED]** Add `ClientAestheticImageBackgroundServiceConditioningTests.cs` — assert:
   - `DescribeAsync` called ONCE per job (not per slide)
   - `SupportsImageConditioning = true` + reference images present → `ReferenceImages` populated with up to `min(MaxConditioningImages, 3)` `ImageInitReference` Url handles (CAC-IMG-01-a)
   - `SupportsImageConditioning = false` → `ReferenceImages = null`; descriptor prompt drives generation (CAC-IMG-01-b)
@@ -239,10 +239,10 @@ Chain strategy: size-exception
   - `VisualGuardrailValidator` applied per slide with bounded retry; CSS fallback on exhaustion (CAC-IMG-03-c)
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/ClientAestheticImageBackgroundServiceConditioningTests.cs`)
 
-- [ ] 4.11 **[GREEN]** Modify `ClientAestheticImageBackgroundService.cs` — call `gateway.DescribeAsync(orgId)` once before the per-slide loop; build `ImageInitReference` Url handles from `profile.ReferenceImages` (cap `min(MaxConditioningImages, 3)`); set `ReferenceImages` on the request only when `SupportsImageConditioning`; apply `VisualGuardrailValidator` with bounded retry per creative slide; on retry exhaustion: emit per-slide CSS fallback + log.
+- [x] 4.11 **[GREEN]** Modify `ClientAestheticImageBackgroundService.cs` — call `gateway.DescribeAsync(orgId)` once before the per-slide loop; build `ImageInitReference` Url handles from `profile.ReferenceImages` (cap `min(MaxConditioningImages, 3)`); set `ReferenceImages` on the request only when `SupportsImageConditioning`; apply `VisualGuardrailValidator` with bounded retry per creative slide; on retry exhaustion: emit per-slide CSS fallback + log.
   (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ClientAestheticImageBackgroundService.cs`)
 
-- [ ] 4.12 Run `dotnet test -c Release` — WU-4 tests pass; no regression.
+- [x] 4.12 Run `dotnet test -c Release` — WU-4 tests pass; no regression.
 
 ---
 
