@@ -8,7 +8,7 @@ namespace Incoders.Hive.Tests.Infrastructure.Integrations;
 /// <summary>
 /// Entity-mapping tests for <see cref="IntegrationExecutionAttemptData"/> that cover the
 /// schema changes introduced by migration
-/// <c>20260628000000_RelaxAnalysisIdNullableAndAddCorrelationToIntegrationAttempts</c>:
+/// <c>20260629022233_RelaxAnalysisIdNullableAndAddCorrelationToIntegrationAttempts</c>:
 /// <list type="bullet">
 ///   <item><c>analysis_id</c> made nullable (optional FK).</item>
 ///   <item><c>correlation_id</c> uuid column added (nullable).</item>

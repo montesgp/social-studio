@@ -2954,7 +2954,6 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .WithMany("Attempts")
                         .HasForeignKey("AnalysisId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired(false)
                         .HasConstraintName("fk_integration_execution_attempts_single_content_analyses_anal~");
 
                     b.Navigation("Analysis");
