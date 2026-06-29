@@ -2,25 +2,39 @@ using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Incoders.Hive.Infrastructure.Persistence.Postgres;
 
 public sealed class EfIntegrationExecutionAttemptRepository : IIntegrationExecutionAttemptRepository
 {
     private readonly AppIdentityDbContext _dbContext;
+    private readonly IServiceScopeFactory _scopeFactory;
 
-    public EfIntegrationExecutionAttemptRepository(AppIdentityDbContext dbContext)
+    public EfIntegrationExecutionAttemptRepository(
+        AppIdentityDbContext dbContext,
+        IServiceScopeFactory scopeFactory)
     {
         _dbContext = dbContext;
+        _scopeFactory = scopeFactory;
     }
 
-    public Task AddAsync(
+    /// <summary>
+    /// Persists a telemetry attempt row on a dedicated, short-lived context committed in its
+    /// own transaction. The write is intentionally NOT enqueued on the caller's (scoped)
+    /// context: telemetry is best-effort observability and must never poison the caller's
+    /// unit of work. By saving here, any failure surfaces inside this call (so the caller's
+    /// try/catch can swallow it) instead of being deferred to an unrelated later SaveChanges
+    /// on the shared content-generation context.
+    /// </summary>
+    public async Task AddAsync(
         IntegrationExecutionAttemptRecord attempt,
         CancellationToken cancellationToken = default)
     {
-        _ = cancellationToken;
-        _dbContext.IntegrationExecutionAttempts.Add(ToData(attempt));
-        return Task.CompletedTask;
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppIdentityDbContext>();
+        context.IntegrationExecutionAttempts.Add(ToData(attempt));
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<IntegrationExecutionAttemptRecord>> ListByAnalysisIdAsync(

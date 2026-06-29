@@ -2,6 +2,7 @@ using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Incoders.Hive.Tests.Infrastructure.Integrations;
 
@@ -74,8 +75,16 @@ public sealed class IntegrationExecutionAttemptMigrationTests
     [Fact]
     public async Task AttemptRecord_CorrelationFields_RoundTripViaRepository()
     {
-        await using var db = CreateDbContext();
-        var repo = new Incoders.Hive.Infrastructure.Persistence.Postgres.EfIntegrationExecutionAttemptRepository(db);
+        var databaseName = "attempt-roundtrip-" + Guid.NewGuid().ToString("N");
+        var services = new ServiceCollection();
+        services.AddDbContext<AppIdentityDbContext>(options => options.UseInMemoryDatabase(databaseName));
+        using var provider = services.BuildServiceProvider();
+
+        using var callerScope = provider.CreateScope();
+        var callerContext = callerScope.ServiceProvider.GetRequiredService<AppIdentityDbContext>();
+        var repo = new Incoders.Hive.Infrastructure.Persistence.Postgres.EfIntegrationExecutionAttemptRepository(
+            callerContext,
+            provider.GetRequiredService<IServiceScopeFactory>());
 
         var correlationId = Guid.NewGuid();
         var record = new IntegrationExecutionAttemptRecord(
@@ -94,9 +103,11 @@ public sealed class IntegrationExecutionAttemptMigrationTests
             CorrelationId: correlationId,
             CorrelationKind: "content-generation/generate-image");
 
+        // AddAsync self-persists on its own isolated context — no external SaveChanges needed.
         await repo.AddAsync(record);
-        await db.SaveChangesAsync();
 
+        using var verifyScope = provider.CreateScope();
+        var db = verifyScope.ServiceProvider.GetRequiredService<AppIdentityDbContext>();
         var read = await db.IntegrationExecutionAttempts.FindAsync(record.Id);
         Assert.NotNull(read);
         Assert.Equal(correlationId, read!.CorrelationId);
