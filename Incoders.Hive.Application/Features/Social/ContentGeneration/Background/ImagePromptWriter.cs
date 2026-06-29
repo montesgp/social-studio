@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Integrations;
 using Microsoft.Extensions.Logging;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
@@ -12,9 +14,11 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Background
 /// prompt-version "image-prompt/v1"). Claude (or whatever text model the org configured) is excellent at
 /// authoring the prompt; the IMAGE route renders the pixels separately.
 /// <para>
-/// A weak/empty aesthetic signal, a gateway failure, or an empty/null returned prompt yields a
-/// <see cref="Result"/> failure so the caller degrades that slide to the CSS designer path — the
-/// non-negotiable resilience contract. No provider SDK type appears in this class or its contracts.
+/// The org's AI route is resolved via <see cref="IWorkflowConfigurationResolver"/> (same mechanism as the
+/// content-package orchestrator) before every call. A missing/unconfigured route, a gateway failure, or an
+/// empty/null returned prompt yields a <see cref="Result"/> failure so the caller degrades that slide to the
+/// CSS designer path — the non-negotiable resilience contract. No provider SDK type appears in this class or
+/// its contracts.
 /// </para>
 /// Refs: IMG-03, CIG-CG-04; design §3.2, OQ-6.
 /// </summary>
@@ -26,13 +30,19 @@ public sealed class ImagePromptWriter : IImagePromptWriter
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly IAiCompletionGateway _gateway;
+    private readonly IWorkflowConfigurationResolver _workflowResolver;
     private readonly ILogger<ImagePromptWriter> _logger;
 
-    public ImagePromptWriter(IAiCompletionGateway gateway, ILogger<ImagePromptWriter> logger)
+    public ImagePromptWriter(
+        IAiCompletionGateway gateway,
+        IWorkflowConfigurationResolver workflowResolver,
+        ILogger<ImagePromptWriter> logger)
     {
         ArgumentNullException.ThrowIfNull(gateway);
+        ArgumentNullException.ThrowIfNull(workflowResolver);
         ArgumentNullException.ThrowIfNull(logger);
         _gateway = gateway;
+        _workflowResolver = workflowResolver;
         _logger = logger;
     }
 
@@ -40,6 +50,39 @@ public sealed class ImagePromptWriter : IImagePromptWriter
     public async Task<Result<string>> WriteAsync(ImagePromptRequest request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        // Resolve the org's AI route before building the completion request.
+        // Mirrors ContentPackageOrchestrator.ResolveGenerationAiAsync — no default-AI fallback.
+        var route = await _workflowResolver.ResolveStepAsync(
+            new WorkflowStepResolutionRequest(
+                request.OrganizationId,
+                "single-analyzer",
+                "content-analysis",
+                "generate-content",
+                "ai-generation",
+                null),
+            ct);
+
+        if (route.IsFailure)
+        {
+            _logger.LogWarning(
+                "ImagePromptWriter: route resolution failed for slide {SlideIndex} (org {OrgId}): {Code}. Slide degrades to CSS.",
+                request.SlideIndex, request.OrganizationId, route.Error.Code);
+            return Result.Failure<string>(route.Error);
+        }
+
+        var candidate = route.Value
+            .Where(c => c.IsEnabled)
+            .OrderBy(c => c.Priority)
+            .FirstOrDefault();
+
+        if (candidate is null)
+        {
+            _logger.LogWarning(
+                "ImagePromptWriter: no enabled AI route candidate for slide {SlideIndex} (org {OrgId}). Slide degrades to CSS.",
+                request.SlideIndex, request.OrganizationId);
+            return Result.Failure<string>(IntegrationErrors.AiRouteNotConfigured);
+        }
 
         var inputJson = JsonSerializer.Serialize(BuildInput(request), JsonOptions);
 
@@ -49,8 +92,8 @@ public sealed class ImagePromptWriter : IImagePromptWriter
             CapabilityKey: CapabilityKey,
             PromptVersionKey: PromptVersionKey,
             InputJson: inputJson,
-            PreferredProviderKey: null,
-            PreferredModel: null);
+            PreferredProviderKey: candidate.ProviderKey,
+            PreferredModel: candidate.ModelId);
 
         var result = await _gateway.CompleteJsonAsync<ImagePromptResponse>(aiRequest, ct);
         if (result.IsFailure)
