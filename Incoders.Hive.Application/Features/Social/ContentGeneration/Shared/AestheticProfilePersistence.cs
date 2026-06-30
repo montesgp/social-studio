@@ -33,7 +33,21 @@ public static class AestheticProfilePersistence
             TypicalSlideCount: extraction.BackgroundPattern?.Count,
             ColorPairings: extraction.ColorPairings?
                 .Select(p => new StoredColorPairing(p.BackgroundHex, p.TextHex, p.Rank))
-                .ToArray());
+                .ToArray(),
+            // client-aesthetic-conceptual-detection: additive keys; absent on old blobs → null on Read (OQ-4)
+            ConceptualMethod: extraction.ConceptualMethod is null ? null
+                : new StoredConceptualMethod(
+                    Method: extraction.ConceptualMethod.Method.ToString(),
+                    Rationale: extraction.ConceptualMethod.Rationale,
+                    Cues: extraction.ConceptualMethod.Cues.ToArray()),
+            ImageTypeRatio: extraction.ImageTypeRatio is null ? null
+                : new StoredImageTypeRatio(
+                    Photo: extraction.ImageTypeRatio.Photo,
+                    Flat: extraction.ImageTypeRatio.FlatColor,
+                    Decorator: extraction.ImageTypeRatio.Decorator,
+                    SampleSize: extraction.ImageTypeRatio.SampleSize),
+            // Marks blobs written after CACD landed; absent on pre-v2 blobs; read unchanged
+            PromptVersion: "aesthetic-extractor/v2");
 
         return JsonSerializer.Serialize(dto, JsonOpts);
     }
@@ -41,7 +55,8 @@ public static class AestheticProfilePersistence
     /// <summary>
     /// Deserializes the stored JSON into the enriched fields of a <see cref="ClientAestheticProfile"/>.
     /// Returns all-null parts when <paramref name="json"/> is null or malformed (graceful degrade).
-    /// Absent keys (old blobs) deserialize to null — no exception (CAC-BSP-02-b cold-start).
+    /// Absent keys (old blobs) deserialize to null — no exception (CAC-BSP-02-b cold-start;
+    /// CACD-PA-05-b pre-v2 parity).
     /// </summary>
     public static (IReadOnlyList<AestheticPaletteEntry>? Palette,
         IReadOnlyList<string>? StyleDescriptors,
@@ -50,11 +65,13 @@ public static class AestheticProfilePersistence
         IReadOnlyList<ProfilePostImageRef>? ReferenceImages,
         IReadOnlyList<SlideBackgroundKind>? BackgroundPattern,
         int? TypicalSlideCount,
-        IReadOnlyList<ColorPairing>? ColorPairings) Read(string? json)
+        IReadOnlyList<ColorPairing>? ColorPairings,
+        ConceptualMethod? ConceptualMethod,
+        ImageTypeRatio? ImageTypeRatio) Read(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
-            return (null, null, null, null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null, null, null);
         }
 
         try
@@ -62,7 +79,7 @@ public static class AestheticProfilePersistence
             var dto = JsonSerializer.Deserialize<StoredAestheticProfile>(json, JsonOpts);
             if (dto is null)
             {
-                return (null, null, null, null, null, null, null, null);
+                return (null, null, null, null, null, null, null, null, null, null);
             }
 
             var palette = (dto.Palette ?? [])
@@ -85,12 +102,26 @@ public static class AestheticProfilePersistence
                     .Select(p => new ColorPairing(p.BackgroundHex, p.TextHex, p.Rank))
                     .ToArray();
 
+            // client-aesthetic-conceptual-detection additive fields (absent on old blobs → null; CACD-PA-05-b)
+            ConceptualMethod? conceptualMethod = dto.ConceptualMethod is null ? null : new ConceptualMethod(
+                Method: Enum.TryParse<ArtDirectionMethod>(dto.ConceptualMethod.Method, ignoreCase: true, out var artMethod)
+                    ? artMethod : ArtDirectionMethod.Unknown,
+                Rationale: dto.ConceptualMethod.Rationale ?? string.Empty,
+                Cues: (IReadOnlyList<string>)(dto.ConceptualMethod.Cues ?? []));
+
+            ImageTypeRatio? imageTypeRatio = dto.ImageTypeRatio is null ? null : new ImageTypeRatio(
+                Photo: dto.ImageTypeRatio.Photo ?? 0.0,
+                FlatColor: dto.ImageTypeRatio.Flat ?? 0.0,
+                Decorator: dto.ImageTypeRatio.Decorator ?? 0.0,
+                SampleSize: dto.ImageTypeRatio.SampleSize ?? 0);
+
             return (palette, dto.StyleDescriptors ?? [], dto.Motifs ?? [], dto.CaptionVoice, refs,
-                backgroundPattern, dto.TypicalSlideCount, colorPairings);
+                backgroundPattern, dto.TypicalSlideCount, colorPairings,
+                conceptualMethod, imageTypeRatio);
         }
         catch
         {
-            return (null, null, null, null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null, null, null);
         }
     }
 
@@ -103,11 +134,31 @@ public static class AestheticProfilePersistence
         // client-aligned-carousel-generation additive keys (nullable; absent on old blobs)
         IReadOnlyList<string>? BackgroundPattern = null,
         int? TypicalSlideCount = null,
-        IReadOnlyList<StoredColorPairing>? ColorPairings = null);
+        IReadOnlyList<StoredColorPairing>? ColorPairings = null,
+        // client-aesthetic-conceptual-detection additive keys (nullable; absent on old blobs; OQ-4)
+        StoredConceptualMethod? ConceptualMethod = null,
+        StoredImageTypeRatio? ImageTypeRatio = null,
+        string? PromptVersion = null);
 
     private sealed record StoredPaletteEntry(string Hex, string? Role, int Rank);
 
     private sealed record StoredImageRef(string SourcePostId, int AssetIndex, string StoragePath, string ContentHash);
 
     private sealed record StoredColorPairing(string BackgroundHex, string TextHex, int Rank);
+
+    /// <summary>Stored shape for ConceptualMethod; method serialized as its enum name string.</summary>
+    private sealed record StoredConceptualMethod(
+        string? Method = null,
+        string? Rationale = null,
+        IReadOnlyList<string>? Cues = null);
+
+    /// <summary>
+    /// Stored shape for ImageTypeRatio. Field <c>Flat</c> maps to <c>FlatColor</c> on the
+    /// Application VO; <c>photo + flat + decorator = sampleSize</c> (proportions sum ~1.0).
+    /// </summary>
+    private sealed record StoredImageTypeRatio(
+        double? Photo = null,
+        double? Flat = null,
+        double? Decorator = null,
+        int? SampleSize = null);
 }
