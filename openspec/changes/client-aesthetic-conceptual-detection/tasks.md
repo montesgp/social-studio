@@ -50,44 +50,44 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
 
 ### Phase 1.A — Application value objects (pure)
 
-- [ ] 1.1 **[RED]** Create `ArtDirectionMethodTests.cs` — assert enum members
+- [x] 1.1 **[RED]** Create `ArtDirectionMethodTests.cs` — assert enum members
   `{ Unknown, MetaphoricalEditorial, LiteralIllustration, SymbolicStillLife,
   DocumentaryPhotography, GraphicTypographic, Mixed }` exist; no Infrastructure types referenced;
   `ArtDirectionMethod.Unknown` is the zero-value; `Atlas → MetaphoricalEditorial`,
   `Comet → LiteralIllustration` (fixture constants declared for re-use).
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/ArtDirectionMethodTests.cs`)
 
-- [ ] 1.2 **[GREEN]** Create `ArtDirectionMethod.cs` — closed `public enum ArtDirectionMethod` with
+- [x] 1.2 **[GREEN]** Create `ArtDirectionMethod.cs` — closed `public enum ArtDirectionMethod` with
   exactly the six named members; namespace `…ContentGeneration.Shared`; no dependencies.
   (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ArtDirectionMethod.cs`)
 
-- [ ] 1.3 **[RED]** Create `ConceptualMethodTests.cs` — assert record construction
+- [x] 1.3 **[RED]** Create `ConceptualMethodTests.cs` — assert record construction
   `ConceptualMethod(ArtDirectionMethod Method, string Rationale, IReadOnlyList<string> Cues)`
   compiles; `Cues` is immutable; `with` expression compiles; no Infrastructure types.
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/ConceptualMethodTests.cs`)
 
-- [ ] 1.4 **[GREEN]** Create `ConceptualMethod.cs` — `public sealed record ConceptualMethod(
+- [x] 1.4 **[GREEN]** Create `ConceptualMethod.cs` — `public sealed record ConceptualMethod(
   ArtDirectionMethod Method, string Rationale, IReadOnlyList<string> Cues)`.
   (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ConceptualMethod.cs`)
 
-- [ ] 1.5 **[RED]** Create `ImageTypeRatioTests.cs` — assert record construction
+- [x] 1.5 **[RED]** Create `ImageTypeRatioTests.cs` — assert record construction
   `ImageTypeRatio(double Photo, double FlatColor, double Decorator, int SampleSize)` compiles;
   proportions field types correct; `with` expression compiles; no Infrastructure types.
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/ImageTypeRatioTests.cs`)
 
-- [ ] 1.6 **[GREEN]** Create `ImageTypeRatio.cs` — `public sealed record ImageTypeRatio(
+- [x] 1.6 **[GREEN]** Create `ImageTypeRatio.cs` — `public sealed record ImageTypeRatio(
   double Photo, double FlatColor, double Decorator, int SampleSize)`.
   (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ImageTypeRatio.cs`)
 
 ### Phase 1.B — Domain pairing record (pure)
 
-- [ ] 1.7 **[RED]** Create `ProfilePostImageCaptionPairTests.cs` — assert record construction
+- [x] 1.7 **[RED]** Create `ProfilePostImageCaptionPairTests.cs` — assert record construction
   `ProfilePostImageCaptionPair(ProfilePostImageRef Image, string? Caption)` compiles;
   `Caption = null` is valid (image-only scenario; CACD-PA-03-b/d); no Infrastructure types;
   `ProfilePostImageRef` is the existing Domain type (field `SourcePostId` confirmed as `string`).
   (`Incoders.Hive.Tests/Domain/Social/ProfileAnalysis/ProfilePostImageCaptionPairTests.cs`)
 
-- [ ] 1.8 **[GREEN]** Create `ProfilePostImageCaptionPair.cs` —
+- [x] 1.8 **[GREEN]** Create `ProfilePostImageCaptionPair.cs` —
   `public sealed record ProfilePostImageCaptionPair(ProfilePostImageRef Image, string? Caption)`
   in `Incoders.Hive.Domain.Social.ProfileAnalysis`; pure Domain record; no Application/Infrastructure
   imports.
@@ -95,7 +95,7 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
 
 ### Phase 1.C — Additive fields on `AestheticExtraction` + port signature (Application)
 
-- [ ] 1.9 **[RED]** Extend `AestheticExtractionExtensionTests.cs` — add assertions:
+- [x] 1.9 **[RED]** Extend `AestheticExtractionExtensionTests.cs` — add assertions:
   - `AestheticExtraction` carries `ConceptualMethod? ConceptualMethod = null` and
     `ImageTypeRatio? ImageTypeRatio = null` as trailing nullable fields (CACD-PA-04-a/b/c).
   - Existing construction `new AestheticExtraction(palette, descriptors, motifs, voice,
@@ -103,29 +103,34 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
   - `AestheticExtraction.Empty` remains valid (null for both new fields).
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/AestheticExtractionExtensionTests.cs`)
 
-- [ ] 1.10 **[GREEN]** Modify `IClientAestheticStyleExtractor.cs` — append two trailing nullable
+- [x] 1.10 **[GREEN]** Modify `IClientAestheticStyleExtractor.cs` — append two trailing nullable
   params to `AestheticExtraction`: `ConceptualMethod? ConceptualMethod = null` and
   `ImageTypeRatio? ImageTypeRatio = null`; migrate `ExtractAsync` signature to accept
   `IReadOnlyList<ProfilePostImageCaptionPair> referenceImages` replacing the two loose params
   `(IReadOnlyList<ProfilePostImageRef> referenceImages, IReadOnlyList<string> captions)` (OQ-3).
   (`Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticStyleExtractor.cs`)
+  **Note:** Additive fields on `AestheticExtraction` applied. `ExtractAsync` signature migration
+  DEFERRED to WU-3/WU-4 (breaking change; would leave `MultimodalAestheticStyleExtractor` and
+  `ProfileAnalyzerOrchestrator` uncompilable in isolation). Applied per option (a) from the
+  coupling warning: signature migrated in the same commit as implementer+caller migration.
 
 ### Phase 1.D — Additive fields on `ClientAestheticProfile` (Application)
 
-- [ ] 1.11 **[RED]** Extend `ClientAestheticProfileExtensionTests.cs` — add assertions:
+- [x] 1.11 **[RED]** Extend `ClientAestheticProfileExtensionTests.cs` — add assertions:
   - `ClientAestheticProfile` carries `ConceptualMethod? ConceptualMethod = null` and
     `ImageTypeRatio? ImageTypeRatio = null` as trailing nullable fields (CACD-PA-05).
   - Existing construction with no new params compiles unchanged (cold-start back-compat).
   - `with { ConceptualMethod = null }` compiles and yields null field.
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/ClientAestheticProfileExtensionTests.cs`)
 
-- [ ] 1.12 **[GREEN]** Modify `ClientAestheticProfile.cs` — append two trailing nullable params
+- [x] 1.12 **[GREEN]** Modify `ClientAestheticProfile.cs` — append two trailing nullable params
   (after existing `ColorPairings`): `ConceptualMethod? ConceptualMethod = null` and
   `ImageTypeRatio? ImageTypeRatio = null`; no existing param order or defaults changed.
   (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ClientAestheticProfile.cs`)
 
-- [ ] 1.13 Run `dotnet test -c Release` — WU-1 tests pass; full suite green; no existing test broken
+- [x] 1.13 Run `dotnet test -c Release` — WU-1 tests pass; full suite green; no existing test broken
   (cold-start: all-null new fields → compilation unchanged at all existing construction sites).
+  **Result:** Passed! Failed: 0, Passed: 2169, Skipped: 2, Total: 2171.
 
 ---
 

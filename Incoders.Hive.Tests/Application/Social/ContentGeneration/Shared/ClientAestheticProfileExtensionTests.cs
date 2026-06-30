@@ -3,10 +3,10 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Shared;
 
 /// <summary>
-/// WU-1 task 1.5 [RED] — <see cref="ClientAestheticProfile"/> additive extension for the three
-/// client-aligned-carousel-generation capture fields.
-/// Asserts: existing construction unchanged; new fields nullable and accessible via <c>with</c>.
-/// Refs: design §3.1; tasks 1.5/1.6; CAC-BSP-02, CAC-BSP-04-a.
+/// Additive extension tests for <see cref="ClientAestheticProfile"/>.
+/// Covers client-aligned-carousel-generation fields (BackgroundPattern, TypicalSlideCount, ColorPairings) and
+/// WU-1 task 1.11 [RED] additions (ConceptualMethod, ImageTypeRatio; CACD-PA-05).
+/// Refs: design §3.1; tasks 1.5/1.6 (carousel), 1.11/1.12 (conceptual); CAC-BSP-02; CAC-BSP-04-a; CACD-PA-05.
 /// </summary>
 public sealed class ClientAestheticProfileExtensionTests
 {
@@ -153,5 +153,130 @@ public sealed class ClientAestheticProfileExtensionTests
         Assert.Null(profile.TypicalSlideCount);
         Assert.Null(profile.ColorPairings);
         Assert.Equal([1, 3], profile.CreativeSlideIndices);
+    }
+
+    // ── WU-1 task 1.11 [RED]: ConceptualMethod field (CACD-PA-05) ────────────
+
+    [Fact]
+    public void ConceptualMethod_DefaultsToNull_WhenOmittedFromConstruction()
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["dark minimal"],
+            VoiceTone: "warm",
+            AverageSlidesPerCarousel: 5.0,
+            AnalyzedAtUtc: DateTime.UtcNow);
+
+        Assert.Null(profile.ConceptualMethod);
+    }
+
+    [Fact]
+    public void ConceptualMethod_WhenSet_IsStoredCorrectly()
+    {
+        var cm = new ConceptualMethod(ArtDirectionMethod.MetaphoricalEditorial, "Metaphor", ["mono-color backdrop"]);
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: [],
+            VoiceTone: null,
+            AverageSlidesPerCarousel: null,
+            AnalyzedAtUtc: null,
+            ConceptualMethod: cm);
+
+        Assert.NotNull(profile.ConceptualMethod);
+        Assert.Equal(ArtDirectionMethod.MetaphoricalEditorial, profile.ConceptualMethod!.Method);
+    }
+
+    // ── WU-1 task 1.11 [RED]: ImageTypeRatio field (CACD-PA-05) ─────────────
+
+    [Fact]
+    public void ImageTypeRatio_DefaultsToNull_WhenOmittedFromConstruction()
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: [],
+            VoiceTone: null,
+            AverageSlidesPerCarousel: null,
+            AnalyzedAtUtc: null);
+
+        Assert.Null(profile.ImageTypeRatio);
+    }
+
+    [Fact]
+    public void ImageTypeRatio_WhenSet_IsStoredCorrectly()
+    {
+        var ratio = new ImageTypeRatio(0.5, 0.5, 0.0, 10);
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: [],
+            VoiceTone: null,
+            AverageSlidesPerCarousel: null,
+            AnalyzedAtUtc: null,
+            ImageTypeRatio: ratio);
+
+        Assert.NotNull(profile.ImageTypeRatio);
+        Assert.Equal(0.5, profile.ImageTypeRatio!.Photo);
+    }
+
+    // ── with { ConceptualMethod = null } compiles and yields null ────────────
+
+    [Fact]
+    public void WithExpression_ConceptualMethod_Null_Compiles()
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: [],
+            VoiceTone: null,
+            AverageSlidesPerCarousel: null,
+            AnalyzedAtUtc: null);
+
+        var updated = profile with { ConceptualMethod = null };
+
+        Assert.Null(updated.ConceptualMethod);
+    }
+
+    [Fact]
+    public void WithExpression_ConceptualMethod_NonNull_CompilesAndYieldsValue()
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: [],
+            VoiceTone: null,
+            AverageSlidesPerCarousel: null,
+            AnalyzedAtUtc: null);
+
+        var cm      = new ConceptualMethod(ArtDirectionMethod.LiteralIllustration, "Tender", ["watercolor"]);
+        var updated = profile with { ConceptualMethod = cm };
+
+        Assert.NotNull(updated.ConceptualMethod);
+        Assert.Equal(ArtDirectionMethod.LiteralIllustration, updated.ConceptualMethod!.Method);
+    }
+
+    // ── with { ImageTypeRatio = null } compiles and yields null ──────────────
+
+    [Fact]
+    public void WithExpression_ImageTypeRatio_Null_Compiles()
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: [],
+            VoiceTone: null,
+            AverageSlidesPerCarousel: null,
+            AnalyzedAtUtc: null);
+
+        var updated = profile with { ImageTypeRatio = null };
+
+        Assert.Null(updated.ImageTypeRatio);
+    }
+
+    // ── Cold-start back-compat: existing construction with no new params ──────
+
+    [Fact]
+    public void ExistingConstruction_WithNoNewConceptualParams_NewFieldsAreNull()
+    {
+        // All construction sites from before this change compile unchanged (CACD-PA-05).
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["dark minimal"],
+            VoiceTone: "warm",
+            AverageSlidesPerCarousel: 5.0,
+            AnalyzedAtUtc: DateTime.UtcNow,
+            BackgroundPattern: [SlideBackgroundKind.Photo],
+            TypicalSlideCount: 5,
+            ColorPairings: [new ColorPairing("#111111", "#EEEEEE", 1)]);
+
+        Assert.Null(profile.ConceptualMethod);
+        Assert.Null(profile.ImageTypeRatio);
     }
 }
