@@ -26,6 +26,26 @@ public sealed class CarouselGenerator : FormatContentGeneratorBase<CarouselConte
     /// <inheritdoc />
     public override string PromptVersion => ContentGenerationPromptVersions.Carousel;
 
+    /// <summary>
+    /// Resolves the effective slide count for a carousel.
+    /// OQ-3 priority: explicit user-requested count wins; else profile TypicalSlideCount clamped to [3..10];
+    /// else null (caller falls back to current default text hint).
+    /// Refs: CAC-CG-01; design §0 OQ-3; tasks 2.4.
+    /// </summary>
+    /// <param name="userRequested">Explicit user-requested count, if any.</param>
+    /// <param name="typicalSlideCount">Profile-captured typical slide count, if any.</param>
+    /// <returns>Resolved effective count, or null when neither source provides a value.</returns>
+    public static int? ResolveEffectiveSlideCount(int? userRequested, int? typicalSlideCount)
+    {
+        if (userRequested.HasValue)
+            return userRequested.Value;
+
+        if (typicalSlideCount.HasValue)
+            return Math.Clamp(typicalSlideCount.Value, 3, 10);
+
+        return null;
+    }
+
     /// <inheritdoc />
     protected override string BuildPromptJson(GenerationContext ctx)
     {
@@ -34,6 +54,15 @@ public sealed class CarouselGenerator : FormatContentGeneratorBase<CarouselConte
         // Non-CaseC jobs: ctx.AestheticProfile is null → AestheticGuidance returns "" → no change.
         var aestheticGuidance = GenerationPromptContext.AestheticGuidance(ctx.AestheticProfile);
         var aestheticSuffix = aestheticGuidance.Length > 0 ? " " + aestheticGuidance : string.Empty;
+
+        // WU-2 (CAC-CG-01 / OQ-3): replace hardcoded ~3-5 with the resolved effective slide count.
+        // userRequested wins; else profile TypicalSlideCount clamped [3..10]; else fallback hint.
+        var effectiveSlideCount = ResolveEffectiveSlideCount(
+            ctx.RequestedSlideCount,
+            ctx.AestheticProfile?.TypicalSlideCount);
+        var slideScopeHint = effectiveSlideCount.HasValue
+            ? $"~{effectiveSlideCount} slides"
+            : "~3-5 slides";
 
         var input = new
         {
@@ -44,7 +73,7 @@ public sealed class CarouselGenerator : FormatContentGeneratorBase<CarouselConte
                           "Respect the primary derived idea and adapt it to the client context. " +
                           "Image prompt hints must reference the client's explicit palette, typography, logos, and visual notes when available. " +
                           GenerationPromptContext.ConcisionConstraint + " " +
-                          "Carousel scope: one concept across ~3-5 slides; no exhaustive lists. " +
+                          $"Carousel scope: one concept across {slideScopeHint}; no exhaustive lists. " +
                           "CTA RULE: do NOT add a call-to-action by default. Set ctaText ONLY when the user's request/" +
                           "objection explicitly asks for one, or a brand-manual directive explicitly defines one. NEVER " +
                           "infer or invent a CTA from the analysis or the client's style — when it is not explicitly asked " +

@@ -21,6 +21,7 @@ using Incoders.Hive.Infrastructure.Integrations;
 using Incoders.Hive.Infrastructure.Integrations.HealthChecks;
 using Incoders.Hive.Infrastructure.Observability;
 using Incoders.Hive.Infrastructure.PlatformConfiguration;
+using Incoders.Hive.Infrastructure.Process;
 using Incoders.Hive.Infrastructure.Persistence;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Repositories;
@@ -34,6 +35,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Incoders.Hive.Infrastructure.DependencyInjection;
@@ -52,6 +54,7 @@ public static class DependencyInjection
         services.AddSingleton<ICacheStore, InMemoryCacheStore>();
         services.AddSingleton<IClock, SystemClock>();
         services.AddHttpClient();
+        services.AddSingleton<IProcessRunner, SystemProcessRunner>();
 
         services.TryAddScoped<ICurrentUser, NullCurrentUser>();
 
@@ -205,6 +208,7 @@ public static class DependencyInjection
         // Real per-provider connectivity probes used by "Test connection".
         services.AddScoped<IExternalIntegrationHealthCheck, ApifyIntegrationHealthCheck>();
         services.AddScoped<IExternalIntegrationHealthCheck, ClaudeIntegrationHealthCheck>();
+        services.AddScoped<IExternalIntegrationHealthCheck, ClaudePromptCliIntegrationHealthCheck>();
         services.AddScoped<IExternalIntegrationHealthCheck, OpenAiIntegrationHealthCheck>();
         services.AddScoped<IIntegrationConnectionTester, DefaultIntegrationConnectionTester>();
         // Pre-flight gate: probes all required provider APIs before the analyzer workflow starts.
@@ -227,8 +231,13 @@ public static class DependencyInjection
             return new AiCompletionGatewayInstrumentationDecorator(inner, ledger, ctx);
         });
 
-        // Image generation gateway — same manual-decoration pattern as the text gateway.
-        services.AddScoped<ImageGenerationGateway>();
+        // Image generation gateway — explicit factory wires the execution policy (CAC-INT-01).
+        services.AddScoped<ImageGenerationGateway>(sp => new ImageGenerationGateway(
+            sp.GetRequiredService<IWorkflowConfigurationResolver>(),
+            sp.GetRequiredService<IIntegrationCredentialResolver>(),
+            sp.GetRequiredService<IExternalProviderClientFactory>(),
+            sp.GetRequiredService<IIntegrationExecutionPolicy>(),
+            sp.GetService<ILogger<ImageGenerationGateway>>()));
         services.AddScoped<IImageGenerationGateway>(sp =>
         {
             var inner = sp.GetRequiredService<ImageGenerationGateway>();
@@ -257,6 +266,7 @@ public static class DependencyInjection
         // Background job queue for the async content-generation pipeline.
         services.AddSingleton<IContentGenerationJobQueue, ChannelContentGenerationJobQueue>();
         services.AddScoped<IntegrationCatalogSeeder>();
+        services.AddScoped<ClaudePromptCliOrganizationSeeder>();
         services.AddScoped<ApifyActorMappingBackfill>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 

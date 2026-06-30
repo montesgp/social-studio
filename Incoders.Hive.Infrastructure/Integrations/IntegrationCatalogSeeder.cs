@@ -1,6 +1,7 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Integrations;
+using Incoders.Hive.Infrastructure.Ai.Providers;
 
 namespace Incoders.Hive.Infrastructure.Integrations;
 
@@ -53,7 +54,28 @@ public sealed class IntegrationCatalogSeeder
             false,
             [new IntegrationCredentialField("api_key", "API key", true, true, "sk-ant-...", "Organization-scoped Anthropic API key")],
             ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]),
-        new(
+                new(
+            new Guid("c4f126f4-7dd5-4e68-9f22-1e6f2ef0e101"),
+            "claude-p",
+            "Claude -p",
+            IntegrationProviderCategory.AiModel,
+            "Backend-local Claude Code CLI provider for text and media generation workflows. Runs on the application host; no per-organization credentials are required.",
+            "claude",
+            // BYOK + Managed + SystemDefault: claude-p is host-local, so SystemDefault ("use the host's
+            // claude CLI") is the zero-config default. Host tuning (executable path, working/output
+            // directories, timeout, tools…) is NOT an org credential — it falls back to the safe defaults
+            // in ClaudePromptCliSettings on the host where the app runs.
+            true,
+            true,
+            true,
+            false,
+            [],
+            ClaudePromptCliSettings.DefaultTextModels,
+            AdditionalCategories: [IntegrationProviderCategory.MediaGeneration],
+            AdditionalModelsByCategory: new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>
+            {
+                [IntegrationProviderCategory.MediaGeneration] = ["claude-p-image-json"],
+            }),        new(
             new Guid("b2610b54-a258-48d3-b2d2-12f70ac99d52"),
             "canva",
             "Canva",

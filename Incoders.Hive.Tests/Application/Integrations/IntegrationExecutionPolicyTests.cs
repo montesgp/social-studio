@@ -76,11 +76,79 @@ public sealed class IntegrationExecutionPolicyTests
         Assert.Equal(1, calls);
     }
 
+    // 6.3 RED → 6.4 GREEN: CorrelationId-only anchor persists an attempt row.
+    [Fact]
+    public async Task ExecuteAsync_CorrelationIdOnly_AttemptPersisted()
+    {
+        var repository = new InMemoryAttemptRepository();
+        var policy = new IntegrationExecutionPolicy(new ProviderFallbackPolicy(), repository, TimeProvider.System);
+
+        var result = await policy.ExecuteAsync(
+            CorrelationOnlyRequest(),
+            [Candidate("openai", maxAttempts: 1)],
+            (_, _) => Task.FromResult(Result.Success("ok")),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(repository.Attempts);
+        Assert.Null(repository.Attempts[0].AnalysisId);
+        Assert.NotNull(repository.Attempts[0].CorrelationId);
+    }
+
+    // 6.3 RED → 6.4 GREEN: both anchors null → attempt NOT persisted.
+    [Fact]
+    public async Task ExecuteAsync_BothAnchorsNull_AttemptNotPersisted()
+    {
+        var repository = new InMemoryAttemptRepository();
+        var policy = new IntegrationExecutionPolicy(new ProviderFallbackPolicy(), repository, TimeProvider.System);
+
+        var result = await policy.ExecuteAsync(
+            NoAnchorRequest(),
+            [Candidate("openai", maxAttempts: 1)],
+            (_, _) => Task.FromResult(Result.Success("ok")),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(repository.Attempts);
+    }
+
+    // 6.3 RED → 6.4 GREEN: repository write failure is caught — generation job succeeds.
+    [Fact]
+    public async Task ExecuteAsync_PersistenceWriteThrows_JobStillSucceeds()
+    {
+        var policy = new IntegrationExecutionPolicy(new ProviderFallbackPolicy(), new FailingAttemptRepository(), TimeProvider.System);
+
+        var result = await policy.ExecuteAsync(
+            Request(),
+            [Candidate("openai", maxAttempts: 1)],
+            (_, _) => Task.FromResult(Result.Success("ok")),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("ok", result.Value.Payload);
+    }
+
     private static IntegrationExecutionRequest Request() => new(
         OrganizationId,
         AnalysisId: Guid.NewGuid(),
         FlowKey: "single-analyzer",
         CapabilityKey: "ai-analysis",
+        PlatformKey: null);
+
+    private static IntegrationExecutionRequest CorrelationOnlyRequest() => new(
+        OrganizationId,
+        AnalysisId: null,
+        FlowKey: "single-analyzer",
+        CapabilityKey: "generate-image",
+        PlatformKey: null,
+        CorrelationId: Guid.NewGuid(),
+        CorrelationKind: "content-generation/generate-image");
+
+    private static IntegrationExecutionRequest NoAnchorRequest() => new(
+        OrganizationId,
+        AnalysisId: null,
+        FlowKey: "single-analyzer",
+        CapabilityKey: "generate-image",
         PlatformKey: null);
 
     private static IntegrationRouteCandidate Candidate(
@@ -113,5 +181,16 @@ public sealed class IntegrationExecutionPolicyTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<IntegrationExecutionAttemptRecord>>(
                 Attempts.Where(x => x.AnalysisId == analysisId).ToArray());
+    }
+
+    private sealed class FailingAttemptRepository : IIntegrationExecutionAttemptRepository
+    {
+        public Task AddAsync(IntegrationExecutionAttemptRecord attempt, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Simulated persistence failure");
+
+        public Task<IReadOnlyList<IntegrationExecutionAttemptRecord>> ListByAnalysisIdAsync(
+            Guid analysisId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<IntegrationExecutionAttemptRecord>>(Array.Empty<IntegrationExecutionAttemptRecord>());
     }
 }

@@ -30,6 +30,15 @@ public sealed class ImageGenerationGatewayInstrumentationDecorator : IImageGener
         _callContext = callContext;
     }
 
+    /// <summary>
+    /// Pass-through to the inner gateway — DescribeAsync does not make a provider call,
+    /// so there is no usage event to record.
+    /// </summary>
+    public Task<Result<ImageModelCapabilities>> DescribeAsync(
+        Guid organizationId,
+        CancellationToken ct = default)
+        => _inner.DescribeAsync(organizationId, ct);
+
     public async Task<Result<ImageGenerationResult>> GenerateAsync(
         ImageGenerationRequest request,
         CancellationToken ct = default)

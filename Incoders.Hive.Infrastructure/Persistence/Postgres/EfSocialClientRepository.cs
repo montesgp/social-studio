@@ -193,7 +193,7 @@ public sealed class EfSocialClientRepository : ISocialClientRepository, ISocialC
         {
             _dbContext.IntegrationExecutionAttempts.RemoveRange(
                 await _dbContext.IntegrationExecutionAttempts
-                    .Where(x => analysisIdsToDelete.Contains(x.AnalysisId))
+                    .Where(x => x.AnalysisId.HasValue && analysisIdsToDelete.Contains(x.AnalysisId.Value))
                     .ToListAsync(cancellationToken));
 
             _dbContext.SingleContentAnalyses.RemoveRange(

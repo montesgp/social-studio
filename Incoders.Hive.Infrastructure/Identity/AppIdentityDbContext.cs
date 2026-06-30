@@ -727,13 +727,18 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.ProviderKey).HasMaxLength(64).IsRequired();
             entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
             entity.Property(x => x.FailureCode).HasMaxLength(128);
+            entity.Property(x => x.CorrelationId).IsRequired(false);
+            entity.Property(x => x.CorrelationKind).HasMaxLength(128).IsRequired(false);
             entity.HasIndex(x => new { x.AnalysisId, x.CapabilityKey, x.ProviderKey, x.AttemptNumber })
                 .HasDatabaseName("ix_integration_attempts_analysis_capability_provider_attempt");
 
+            // AnalysisId is now nullable — rows produced by background services carry a
+            // CorrelationId instead of an AnalysisId.  The FK is retained but made optional.
             entity.HasOne(x => x.Analysis)
                 .WithMany(x => x.Attempts)
                 .HasForeignKey(x => x.AnalysisId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired(false);
         });
 
         builder.Entity<UsageEventData>(entity =>

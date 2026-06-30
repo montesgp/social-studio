@@ -137,7 +137,7 @@ public sealed class EfTenantHardDeleteRepository : ITenantHardDeleteRepository
         {
             await RemoveRangeAsync(
                 _dbContext.IntegrationExecutionAttempts
-                    .Where(x => analysisIds.Contains(x.AnalysisId)),
+                    .Where(x => x.AnalysisId.HasValue && analysisIds.Contains(x.AnalysisId.Value)),
                 cancellationToken);
         }
 

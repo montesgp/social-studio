@@ -369,6 +369,9 @@ file sealed class StaticImageGateway : IImageGenerationGateway
         var result = new ImageGenerationResult(_bytes, _mime, "openai", "dall-e-3");
         return Task.FromResult(Result.Success(result));
     }
+
+    public Task<Result<ImageModelCapabilities>> DescribeAsync(Guid organizationId, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new ImageModelCapabilities(false, 0)));
 }
 
 /// <summary>
@@ -400,6 +403,9 @@ file sealed class PerSlideImageGateway : IImageGenerationGateway
 
         return Task.FromResult(Result.Success(new ImageGenerationResult(_bytes, _mime, "openai", "dall-e-3")));
     }
+
+    public Task<Result<ImageModelCapabilities>> DescribeAsync(Guid organizationId, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new ImageModelCapabilities(false, 0)));
 }
 
 file sealed class CapturingStorage : IGeneratedAssetStorage

@@ -100,6 +100,8 @@ if (app.Configuration.GetValue("StartupTasks:ApplyMigrations", app.Environment.I
 if (app.Configuration.GetValue("StartupTasks:SeedData", true))
 {
     await app.Services.SeedIntegrationCatalogAsync();
+    // Auto-provision the host-local claude-p connector for every active organization (idempotent).
+    await app.Services.SeedClaudePromptCliOrganizationIntegrationsAsync();
     await app.Services.SeedSocialNetworkCatalogAsync();
     await app.Services.SeedPlatformSystemModulesAsync();
     await app.Services.SeedPlatformEmailTemplatesAsync();

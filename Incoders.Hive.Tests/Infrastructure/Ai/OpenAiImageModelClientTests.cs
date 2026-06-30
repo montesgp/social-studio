@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Integrations;
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Infrastructure.Ai.Providers;
@@ -162,6 +163,7 @@ public sealed class OpenAiImageModelClientTests
         var client = new OpenAiImageModelClient(
             credential,
             new StaticHttpClientFactory(handler),
+            new NullOpenAiStorage(),
             NullLogger<OpenAiImageModelClient>.Instance);
 
         var result = await client.GenerateAsync(BuildRequest(), CancellationToken.None);
@@ -194,6 +196,7 @@ public sealed class OpenAiImageModelClientTests
         return new OpenAiImageModelClient(
             credential,
             new StaticHttpClientFactory(handler),
+            new NullOpenAiStorage(),
             NullLogger<OpenAiImageModelClient>.Instance);
     }
 }
@@ -234,4 +237,17 @@ file sealed class StaticHttpClientFactory : IHttpClientFactory
     private readonly HttpMessageHandler _handler;
     public StaticHttpClientFactory(HttpMessageHandler handler) => _handler = handler;
     public HttpClient CreateClient(string name) => new(_handler, disposeHandler: false);
+}
+
+/// <summary>No-op IGeneratedAssetStorage — always returns NotFound (no conditioning).</summary>
+file sealed class NullOpenAiStorage : IGeneratedAssetStorage
+{
+    public Task<StoredAssetRef> PutAssetAsync(StoredAssetKey key, StoredAssetContent content, CancellationToken ct)
+        => Task.FromResult(new StoredAssetRef("path", content.Mime, content.Bytes.Length, "hash"));
+    public Task PutFolderPlaceholderAsync(string folderPath, CancellationToken ct) => Task.CompletedTask;
+    public Task<IReadOnlyList<StoredAssetEntry>> ListAsync(string prefix, CancellationToken ct)
+        => Task.FromResult<IReadOnlyList<StoredAssetEntry>>([]);
+    public Task<Result<StoredAssetStream>> OpenAsync(string storagePath, CancellationToken ct)
+        => Task.FromResult(Result.Failure<StoredAssetStream>(StorageErrors.NotFound));
+    public Task DeleteAsync(string storagePath, CancellationToken ct) => Task.CompletedTask;
 }

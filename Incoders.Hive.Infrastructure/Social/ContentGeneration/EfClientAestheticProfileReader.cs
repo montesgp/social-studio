@@ -73,7 +73,10 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
 
         // Phase 2 (CAG2-PA-04): surface the enriched multimodal payload when present. Absent or
         // malformed JSON leaves the enriched fields null — Phase 1 behavior is preserved exactly.
-        var (palette, styleDescriptors, motifs, captionVoice, referenceImages) =
+        // client-aligned-carousel-generation: Read now also returns BackgroundPattern, TypicalSlideCount,
+        // and ColorPairings; absent keys (old blobs) → null, cold-start parity unchanged (CAC-BSP-04-a).
+        var (palette, styleDescriptors, motifs, captionVoice, referenceImages,
+                backgroundPattern, typicalSlideCount, colorPairings) =
             AestheticProfilePersistence.Read(row.AestheticProfileJson);
 
         return new ClientAestheticProfile(
@@ -85,7 +88,10 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
             StyleDescriptors: styleDescriptors,
             Motifs: motifs,
             CaptionVoice: captionVoice,
-            ReferenceImages: referenceImages);
+            ReferenceImages: referenceImages,
+            BackgroundPattern: backgroundPattern,
+            TypicalSlideCount: typicalSlideCount,
+            ColorPairings: colorPairings);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────

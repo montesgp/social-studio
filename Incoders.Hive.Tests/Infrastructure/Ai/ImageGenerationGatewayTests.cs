@@ -14,7 +14,7 @@ namespace Incoders.Hive.Tests.Infrastructure.Ai;
 /// and delegates GenerateAsync. Mirrors AiCompletionGatewayTests pattern.
 /// Refs: IMG-01, IMG-02, IMG-06; design §2.3; tasks 5.1.
 /// </summary>
-public sealed class ImageGenerationGatewayTests
+public sealed partial class ImageGenerationGatewayTests
 {
     private static readonly Guid OrgId = Guid.NewGuid();
 
@@ -159,6 +159,8 @@ file sealed class CapturingImageModelClient : IImageModelClient
     private readonly Result<ImageGenerationResult> _result;
     private int _callCount;
     public int CallCount => _callCount;
+
+    public ImageModelCapabilities Capabilities { get; } = new(false, 0);
 
     public CapturingImageModelClient(Result<ImageGenerationResult> result) => _result = result;
 

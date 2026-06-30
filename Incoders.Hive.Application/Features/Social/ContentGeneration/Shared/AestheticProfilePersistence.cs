@@ -25,6 +25,14 @@ public static class AestheticProfilePersistence
             CaptionVoice: extraction.CaptionVoice,
             ReferenceImages: referenceImages
                 .Select(r => new StoredImageRef(r.SourcePostId, r.AssetIndex, r.StoragePath, r.ContentHash))
+                .ToArray(),
+            // client-aligned-carousel-generation: additive keys; absent on old blobs → null on Read
+            BackgroundPattern: extraction.BackgroundPattern?
+                .Select(k => k.ToString())
+                .ToArray(),
+            TypicalSlideCount: extraction.BackgroundPattern?.Count,
+            ColorPairings: extraction.ColorPairings?
+                .Select(p => new StoredColorPairing(p.BackgroundHex, p.TextHex, p.Rank))
                 .ToArray());
 
         return JsonSerializer.Serialize(dto, JsonOpts);
@@ -33,16 +41,20 @@ public static class AestheticProfilePersistence
     /// <summary>
     /// Deserializes the stored JSON into the enriched fields of a <see cref="ClientAestheticProfile"/>.
     /// Returns all-null parts when <paramref name="json"/> is null or malformed (graceful degrade).
+    /// Absent keys (old blobs) deserialize to null — no exception (CAC-BSP-02-b cold-start).
     /// </summary>
     public static (IReadOnlyList<AestheticPaletteEntry>? Palette,
         IReadOnlyList<string>? StyleDescriptors,
         IReadOnlyList<string>? Motifs,
         string? CaptionVoice,
-        IReadOnlyList<ProfilePostImageRef>? ReferenceImages) Read(string? json)
+        IReadOnlyList<ProfilePostImageRef>? ReferenceImages,
+        IReadOnlyList<SlideBackgroundKind>? BackgroundPattern,
+        int? TypicalSlideCount,
+        IReadOnlyList<ColorPairing>? ColorPairings) Read(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
-            return (null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null);
         }
 
         try
@@ -50,7 +62,7 @@ public static class AestheticProfilePersistence
             var dto = JsonSerializer.Deserialize<StoredAestheticProfile>(json, JsonOpts);
             if (dto is null)
             {
-                return (null, null, null, null, null);
+                return (null, null, null, null, null, null, null, null);
             }
 
             var palette = (dto.Palette ?? [])
@@ -60,11 +72,25 @@ public static class AestheticProfilePersistence
                 .Select(r => new ProfilePostImageRef(r.SourcePostId, r.AssetIndex, r.StoragePath, r.ContentHash))
                 .ToArray();
 
-            return (palette, dto.StyleDescriptors ?? [], dto.Motifs ?? [], dto.CaptionVoice, refs);
+            // client-aligned-carousel-generation additive fields (absent on old blobs → null)
+            var backgroundPattern = dto.BackgroundPattern is null
+                ? null
+                : (IReadOnlyList<SlideBackgroundKind>?)dto.BackgroundPattern
+                    .Select(s => Enum.TryParse<SlideBackgroundKind>(s, ignoreCase: true, out var kind) ? kind : SlideBackgroundKind.FlatColor)
+                    .ToArray();
+
+            var colorPairings = dto.ColorPairings is null
+                ? null
+                : (IReadOnlyList<ColorPairing>?)dto.ColorPairings
+                    .Select(p => new ColorPairing(p.BackgroundHex, p.TextHex, p.Rank))
+                    .ToArray();
+
+            return (palette, dto.StyleDescriptors ?? [], dto.Motifs ?? [], dto.CaptionVoice, refs,
+                backgroundPattern, dto.TypicalSlideCount, colorPairings);
         }
         catch
         {
-            return (null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null);
         }
     }
 
@@ -73,9 +99,15 @@ public static class AestheticProfilePersistence
         IReadOnlyList<string>? StyleDescriptors,
         IReadOnlyList<string>? Motifs,
         string? CaptionVoice,
-        IReadOnlyList<StoredImageRef>? ReferenceImages);
+        IReadOnlyList<StoredImageRef>? ReferenceImages,
+        // client-aligned-carousel-generation additive keys (nullable; absent on old blobs)
+        IReadOnlyList<string>? BackgroundPattern = null,
+        int? TypicalSlideCount = null,
+        IReadOnlyList<StoredColorPairing>? ColorPairings = null);
 
     private sealed record StoredPaletteEntry(string Hex, string? Role, int Rank);
 
     private sealed record StoredImageRef(string SourcePostId, int AssetIndex, string StoragePath, string ContentHash);
+
+    private sealed record StoredColorPairing(string BackgroundHex, string TextHex, int Rank);
 }

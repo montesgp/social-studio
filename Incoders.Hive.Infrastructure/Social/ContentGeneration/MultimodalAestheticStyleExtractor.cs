@@ -4,6 +4,7 @@ using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Integrations;
+using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -140,6 +141,11 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         return Map(result.Value.Payload);
     }
 
+    // Default background-candidate roles used when calling ColorPairingDerivation from the extractor.
+    // The extractor has no access to the brand manual, so it considers all non-Neutral roles as candidates.
+    private static readonly IReadOnlyList<ColorRole> DefaultBackgroundRoles =
+        [ColorRole.Primary, ColorRole.Secondary, ColorRole.Accent];
+
     private static AestheticExtraction Map(AestheticExtractionDto dto)
     {
         var palette = (dto.Palette ?? [])
@@ -147,19 +153,54 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             .Select((p, i) => new AestheticPaletteEntry(p.Hex!, p.Role, p.Rank > 0 ? p.Rank : i + 1))
             .ToArray();
 
+        // client-aligned-carousel-generation: map slideMixPattern → BackgroundPattern (CAC-BSP-01-a)
+        var backgroundPattern = MapSlideMixPattern(dto.SlideMixPattern);
+
+        // client-aligned-carousel-generation: derive color pairings from extracted palette (CAC-BSP-03)
+        // Uses all non-Neutral roles as background candidates since the brand manual is not available here.
+        var colorPairings = ColorPairingDerivation.Derive(DefaultBackgroundRoles, palette);
+
         return new AestheticExtraction(
             Palette: palette,
             StyleDescriptors: dto.StyleDescriptors ?? [],
             Motifs: dto.Motifs ?? [],
-            CaptionVoice: string.IsNullOrWhiteSpace(dto.CaptionVoice) ? null : dto.CaptionVoice);
+            CaptionVoice: string.IsNullOrWhiteSpace(dto.CaptionVoice) ? null : dto.CaptionVoice,
+            BackgroundPattern: backgroundPattern,
+            ColorPairings: colorPairings.Count > 0 ? colorPairings : null);
     }
 
-    // -- AI response DTO (palette optional) --
+    private static IReadOnlyList<SlideBackgroundKind>? MapSlideMixPattern(string[]? pattern)
+    {
+        if (pattern is null || pattern.Length == 0)
+        {
+            return null;
+        }
+
+        var result = new SlideBackgroundKind[pattern.Length];
+        for (var i = 0; i < pattern.Length; i++)
+        {
+            result[i] = pattern[i].Trim().ToLowerInvariant() switch
+            {
+                "photo"       => SlideBackgroundKind.Photo,
+                "flat"        => SlideBackgroundKind.FlatColor,
+                "flatcolor"   => SlideBackgroundKind.FlatColor,
+                "flat_color"  => SlideBackgroundKind.FlatColor,
+                "decorator"   => SlideBackgroundKind.Decorator,
+                _             => SlideBackgroundKind.FlatColor, // safe default for unknown values
+            };
+        }
+
+        return result;
+    }
+
+    // -- AI response DTO (palette optional; slideMixPattern additive) --
     private sealed record AestheticExtractionDto(
         [property: JsonPropertyName("palette")] PaletteEntryDto[]? Palette,
         [property: JsonPropertyName("styleDescriptors")] string[]? StyleDescriptors,
         [property: JsonPropertyName("motifs")] string[]? Motifs,
-        [property: JsonPropertyName("captionVoice")] string? CaptionVoice);
+        [property: JsonPropertyName("captionVoice")] string? CaptionVoice,
+        // client-aligned-carousel-generation: additive nullable field (CAC-BSP-01-a)
+        [property: JsonPropertyName("slideMixPattern")] string[]? SlideMixPattern = null);
 
     private sealed record PaletteEntryDto(
         [property: JsonPropertyName("hex")] string? Hex,

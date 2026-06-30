@@ -11,4 +11,7 @@ public sealed record ClientProfileSnapshot(
     string? SectorOrNiche,
     // WU-4: policy snapshot enables the processor to resolve the background strategy once per job.
     // Null = Unset = legacy 3-tier behavior (backward-compatible default).
-    BackgroundSourcingPolicy? BackgroundSourcingPolicy = null);
+    BackgroundSourcingPolicy? BackgroundSourcingPolicy = null,
+    // WU-5: client own-account handle loaded by the brand-snapshot loader (CAC-CG-04).
+    // Null when no own account is registered. Additive — all existing construction sites unchanged.
+    string? Handle = null);

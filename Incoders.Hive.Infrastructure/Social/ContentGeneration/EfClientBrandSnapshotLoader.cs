@@ -70,6 +70,15 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
             .ThenByDescending(x => x.Month)
             .FirstOrDefaultAsync(cancellationToken);
 
+        // WU-5: load the primary active own account (lowest SortOrder) to populate
+        // ClientProfileSnapshot.Handle. Null when no active own account exists (CAC-CG-04).
+        var ownAccountRow = await _dbContext.ClientOwnAccounts
+            .AsNoTracking()
+            .Where(x => x.ClientId == clientId && x.OrganizationId == organizationId && x.IsActive)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
         var networkRows = await _dbContext.SocialNetworks
             .AsNoTracking()
             .ToDictionaryAsync(x => x.Id, cancellationToken);
@@ -89,8 +98,10 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
             .ToListAsync(cancellationToken);
 
         // Map to domain snapshots
-        // WU-6 §6.5: load BackgroundSourcingPolicy from the client row.
+        // WU-4 §6.5: load BackgroundSourcingPolicy from the client row.
         // The raw short? is cast to the domain enum; null == Unset == legacy path.
+        // WU-5 CAC-CG-04: load the primary own-account handle into ClientProfileSnapshot.Handle.
+        // Null when no active own account exists for this client.
         ClientProfileSnapshot? clientSnapshot = clientRow is null
             ? null
             : new ClientProfileSnapshot(
@@ -99,7 +110,8 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
                 SectorOrNiche: clientRow.SectorOrNiche,
                 BackgroundSourcingPolicy: clientRow.BackgroundSourcingPolicy.HasValue
                     ? (Domain.Social.Clients.BackgroundSourcingPolicy)clientRow.BackgroundSourcingPolicy.Value
-                    : null);
+                    : null,
+                Handle: ownAccountRow?.Handle);
 
         BrandManualSnapshot? brandSnapshot = brandRow is null
             ? null

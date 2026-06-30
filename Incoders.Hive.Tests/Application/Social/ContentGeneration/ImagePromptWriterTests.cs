@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
@@ -11,6 +12,8 @@ namespace Incoders.Hive.Tests.Application.Social.ContentGeneration;
 /// <summary>
 /// WU-3 RED tests: ImagePromptWriter implements IImagePromptWriter over the TEXT route
 /// via a fake IAiCompletionGateway.
+/// Also covers route-resolution: WriteAsync resolves the org's AI route via
+/// IWorkflowConfigurationResolver before calling the gateway (bug fix: was always null).
 /// Refs: IMG-03, CIG-CG-04; design §3.2, OQ-6; tasks 3.1.
 /// </summary>
 public sealed class ImagePromptWriterTests
@@ -41,7 +44,7 @@ public sealed class ImagePromptWriterTests
             onRequest: req => capturedRequest = req,
             response: """{"imagePrompt": "warm hand-drawn botanical scene"}""");
 
-        var writer = new ImagePromptWriter(fakeGateway, NullLogger<ImagePromptWriter>.Instance);
+        var writer = new ImagePromptWriter(fakeGateway, FakeWorkflowConfigurationResolver.Default(), NullLogger<ImagePromptWriter>.Instance);
 
         var result = await writer.WriteAsync(new ImagePromptRequest(
             OrgId, ClientId, SlideIndex: 1,
@@ -66,7 +69,7 @@ public sealed class ImagePromptWriterTests
             onRequest: req => capturedRequest = req,
             response: """{"imagePrompt": "scene matching the copy"}""");
 
-        var writer = new ImagePromptWriter(fakeGateway, NullLogger<ImagePromptWriter>.Instance);
+        var writer = new ImagePromptWriter(fakeGateway, FakeWorkflowConfigurationResolver.Default(), NullLogger<ImagePromptWriter>.Instance);
 
         const string CopySummary = "Unlock your creative potential today";
 
@@ -91,7 +94,7 @@ public sealed class ImagePromptWriterTests
             onRequest: _ => { },
             response: $$"""{ "imagePrompt": "{{ExpectedPrompt}}" }""");
 
-        var writer = new ImagePromptWriter(fakeGateway, NullLogger<ImagePromptWriter>.Instance);
+        var writer = new ImagePromptWriter(fakeGateway, FakeWorkflowConfigurationResolver.Default(), NullLogger<ImagePromptWriter>.Instance);
 
         var result = await writer.WriteAsync(new ImagePromptRequest(
             OrgId, ClientId, SlideIndex: 1,
@@ -113,7 +116,7 @@ public sealed class ImagePromptWriterTests
             onRequest: _ => { },
             response: """{"imagePrompt": ""}""");
 
-        var writer = new ImagePromptWriter(fakeGateway, NullLogger<ImagePromptWriter>.Instance);
+        var writer = new ImagePromptWriter(fakeGateway, FakeWorkflowConfigurationResolver.Default(), NullLogger<ImagePromptWriter>.Instance);
 
         var result = await writer.WriteAsync(new ImagePromptRequest(
             OrgId, ClientId, SlideIndex: 1,
@@ -130,7 +133,7 @@ public sealed class ImagePromptWriterTests
             onRequest: _ => { },
             response: """{"imagePrompt": null}""");
 
-        var writer = new ImagePromptWriter(fakeGateway, NullLogger<ImagePromptWriter>.Instance);
+        var writer = new ImagePromptWriter(fakeGateway, FakeWorkflowConfigurationResolver.Default(), NullLogger<ImagePromptWriter>.Instance);
 
         var result = await writer.WriteAsync(new ImagePromptRequest(
             OrgId, ClientId, SlideIndex: 1,
@@ -150,7 +153,7 @@ public sealed class ImagePromptWriterTests
         var fakeGateway = new FailingAiCompletionGateway(
             Error.Failure("provider-unavailable", "provider.unavailable"));
 
-        var writer = new ImagePromptWriter(fakeGateway, NullLogger<ImagePromptWriter>.Instance);
+        var writer = new ImagePromptWriter(fakeGateway, FakeWorkflowConfigurationResolver.Default(), NullLogger<ImagePromptWriter>.Instance);
 
         var result = await writer.WriteAsync(new ImagePromptRequest(
             OrgId, ClientId, SlideIndex: 1,
@@ -172,7 +175,7 @@ public sealed class ImagePromptWriterTests
             onRequest: req => capturedRequest = req,
             response: """{"imagePrompt": "botanical warmth"}""");
 
-        var writer = new ImagePromptWriter(fakeGateway, NullLogger<ImagePromptWriter>.Instance);
+        var writer = new ImagePromptWriter(fakeGateway, FakeWorkflowConfigurationResolver.Default(), NullLogger<ImagePromptWriter>.Instance);
 
         await writer.WriteAsync(new ImagePromptRequest(
             OrgId, ClientId, SlideIndex: 1,
@@ -181,6 +184,86 @@ public sealed class ImagePromptWriterTests
 
         Assert.NotNull(capturedRequest);
         Assert.Equal(OrgId, capturedRequest!.OrganizationId);
+    }
+
+    // -----------------------------------------------------------------------
+    // Route-resolution tests (bug fix: provider key was always null → CSS fallback)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// When the resolver returns a priority-1 enabled candidate with ProviderKey = "claude-p",
+    /// WriteAsync must forward that key (and ModelId) to the gateway.
+    /// This is the core regression guard for the "always null → CSS" bug.
+    /// </summary>
+    [Fact]
+    public async Task WriteAsync_ResolvedProvider_ForwardsProviderKeyAndModelToGateway()
+    {
+        var capturedRequest = (AiJsonCompletionRequest?)null;
+        var fakeGateway = new FakeAiCompletionGateway(
+            onRequest: req => capturedRequest = req,
+            response: """{"imagePrompt": "botanical warmth"}""");
+        var resolver = FakeWorkflowConfigurationResolver.WithCandidate("claude-p", "claude-opus-4-8");
+
+        var writer = new ImagePromptWriter(fakeGateway, resolver, NullLogger<ImagePromptWriter>.Instance);
+
+        var result = await writer.WriteAsync(new ImagePromptRequest(
+            OrgId, ClientId, SlideIndex: 1,
+            SlideCopySummary: "Test",
+            Aesthetic: RichProfile()));
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("claude-p", capturedRequest!.PreferredProviderKey);
+        Assert.Equal("claude-opus-4-8", capturedRequest.PreferredModel);
+    }
+
+    /// <summary>
+    /// When the resolver returns a failure, WriteAsync must return a failure Result
+    /// and must NOT call the gateway (slide degrades to CSS gracefully).
+    /// </summary>
+    [Fact]
+    public async Task WriteAsync_ResolverFailure_ReturnsFailureWithoutCallingGateway()
+    {
+        var gatewayCallCount = 0;
+        var fakeGateway = new FakeAiCompletionGateway(
+            onRequest: _ => gatewayCallCount++,
+            response: """{"imagePrompt": "never reached"}""");
+        var resolver = FakeWorkflowConfigurationResolver.WithFailure(
+            Error.Failure("route-not-found", "route.not.found"));
+
+        var writer = new ImagePromptWriter(fakeGateway, resolver, NullLogger<ImagePromptWriter>.Instance);
+
+        var result = await writer.WriteAsync(new ImagePromptRequest(
+            OrgId, ClientId, SlideIndex: 1,
+            SlideCopySummary: "Test",
+            Aesthetic: RichProfile()));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(0, gatewayCallCount);
+    }
+
+    /// <summary>
+    /// When the resolver returns success but no enabled candidate, WriteAsync must
+    /// return a failure Result and must NOT call the gateway.
+    /// </summary>
+    [Fact]
+    public async Task WriteAsync_NoEnabledRouteCandidate_ReturnsFailureWithoutCallingGateway()
+    {
+        var gatewayCallCount = 0;
+        var fakeGateway = new FakeAiCompletionGateway(
+            onRequest: _ => gatewayCallCount++,
+            response: """{"imagePrompt": "never reached"}""");
+        var resolver = FakeWorkflowConfigurationResolver.WithNoCandidates();
+
+        var writer = new ImagePromptWriter(fakeGateway, resolver, NullLogger<ImagePromptWriter>.Instance);
+
+        var result = await writer.WriteAsync(new ImagePromptRequest(
+            OrgId, ClientId, SlideIndex: 1,
+            SlideCopySummary: "Test",
+            Aesthetic: RichProfile()));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(0, gatewayCallCount);
     }
 
     // -----------------------------------------------------------------------
@@ -237,5 +320,51 @@ public sealed class ImagePromptWriterTests
             CancellationToken cancellationToken = default)
             where TResponse : notnull =>
             Task.FromResult(Result.Failure<AiJsonCompletionResponse<TResponse>>(_error));
+    }
+
+    /// <summary>
+    /// Fake resolver for use in ImagePromptWriter tests. Mirrors the style of
+    /// <see cref="FakeAiCompletionGateway"/> — factory methods for common cases.
+    /// </summary>
+    private sealed class FakeWorkflowConfigurationResolver : IWorkflowConfigurationResolver
+    {
+        private readonly Result<IReadOnlyList<WorkflowStepRouteCandidate>> _result;
+
+        private FakeWorkflowConfigurationResolver(Result<IReadOnlyList<WorkflowStepRouteCandidate>> result)
+        {
+            _result = result;
+        }
+
+        /// <summary>Returns a single priority-1 enabled claude-p candidate — use in tests that don't care about the route.</summary>
+        public static FakeWorkflowConfigurationResolver Default() =>
+            WithCandidate("claude-p", "claude-opus-4-8");
+
+        public static FakeWorkflowConfigurationResolver WithCandidate(string providerKey, string? modelId = null)
+        {
+            IReadOnlyList<WorkflowStepRouteCandidate> candidates =
+            [
+                new WorkflowStepRouteCandidate(
+                    ProviderId: Guid.NewGuid(),
+                    ProviderKey: providerKey,
+                    OrganizationIntegrationId: Guid.NewGuid(),
+                    ConnectionMode: IntegrationConnectionMode.BringYourOwnKey,
+                    Priority: 1,
+                    ModelId: modelId,
+                    ActorId: null,
+                    IsEnabled: true)
+            ];
+            return new FakeWorkflowConfigurationResolver(Result.Success(candidates));
+        }
+
+        public static FakeWorkflowConfigurationResolver WithFailure(Error error) =>
+            new(Result.Failure<IReadOnlyList<WorkflowStepRouteCandidate>>(error));
+
+        public static FakeWorkflowConfigurationResolver WithNoCandidates() =>
+            new(Result.Success<IReadOnlyList<WorkflowStepRouteCandidate>>([]));
+
+        public Task<Result<IReadOnlyList<WorkflowStepRouteCandidate>>> ResolveStepAsync(
+            WorkflowStepResolutionRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(_result);
     }
 }

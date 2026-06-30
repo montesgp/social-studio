@@ -196,25 +196,41 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
         DateTime? completedAtUtc,
         CancellationToken cancellationToken)
     {
-        if (request.AnalysisId is null)
+        // Skip telemetry only when neither anchor is present.
+        if (request.AnalysisId is null && request.CorrelationId is null)
         {
             return;
         }
 
-        await _attemptRepository.AddAsync(
-            new IntegrationExecutionAttemptRecord(
-                Guid.NewGuid(),
-                request.AnalysisId.Value,
-                request.CapabilityKey,
-                candidate.ProviderKey,
-                status,
-                attemptNumber,
-                failureCode,
-                retryCount,
-                elapsedMs,
-                diagnosticsJson,
-                startedAtUtc,
-                completedAtUtc),
-            cancellationToken);
+        try
+        {
+            await _attemptRepository.AddAsync(
+                new IntegrationExecutionAttemptRecord(
+                    Guid.NewGuid(),
+                    request.AnalysisId,
+                    request.CapabilityKey,
+                    candidate.ProviderKey,
+                    status,
+                    attemptNumber,
+                    failureCode,
+                    retryCount,
+                    elapsedMs,
+                    diagnosticsJson,
+                    startedAtUtc,
+                    completedAtUtc,
+                    CorrelationId: request.CorrelationId,
+                    CorrelationKind: request.CorrelationKind),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Telemetry write failed — attempt record not persisted. OrganizationId={OrganizationId} AnalysisId={AnalysisId} CorrelationId={CorrelationId} CapabilityKey={CapabilityKey}",
+                request.OrganizationId,
+                request.AnalysisId,
+                request.CorrelationId,
+                request.CapabilityKey);
+        }
     }
 }

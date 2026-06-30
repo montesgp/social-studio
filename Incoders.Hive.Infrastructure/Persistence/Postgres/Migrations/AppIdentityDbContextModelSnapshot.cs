@@ -1333,7 +1333,7 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<Guid>("AnalysisId")
+                    b.Property<Guid?>("AnalysisId")
                         .HasColumnType("uuid")
                         .HasColumnName("analysis_id");
 
@@ -1350,6 +1350,15 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.Property<DateTime?>("CompletedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("completed_at_utc");
+
+                    b.Property<Guid?>("CorrelationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<string>("CorrelationKind")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("correlation_kind");
 
                     b.Property<string>("DiagnosticsJson")
                         .HasColumnType("text")
@@ -2945,7 +2954,6 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .WithMany("Attempts")
                         .HasForeignKey("AnalysisId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
                         .HasConstraintName("fk_integration_execution_attempts_single_content_analyses_anal~");
 
                     b.Navigation("Analysis");

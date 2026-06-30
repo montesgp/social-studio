@@ -1,3 +1,4 @@
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
@@ -60,6 +61,37 @@ internal static class CompositionDefaults
             Accent: Pick(colors, 2, Palette.Accent),
             Text: Pick(colors, 3, Palette.Text),
             Background: Pick(colors, 4, Palette.Background));
+    }
+
+    /// <summary>
+    /// Resolves a palette using the client's ranked rotating colour pairings when present,
+    /// otherwise delegates to the existing positional <see cref="ResolvePalette(BrandSnapshot, InferenceAccumulator)"/>.
+    ///
+    /// Rotation formula: <c>pairings[(slideIndex-1) % pairings.Count]</c>.
+    /// When <paramref name="profile"/> is null or <c>ColorPairings</c> is null/empty, the result is
+    /// byte-identical to <see cref="ResolvePalette(BrandSnapshot, InferenceAccumulator)"/> (cold-start parity).
+    ///
+    /// Refs: CAC-CG-02; design §3.3, §0 OQ-2.
+    /// </summary>
+    internal static CompositionPalette ResolvePalette(
+        BrandSnapshot brand,
+        ClientAestheticProfile? profile,
+        int slideIndex,
+        InferenceAccumulator inferred)
+    {
+        var pairings = profile?.ColorPairings;
+        if (pairings is { Count: > 0 })
+        {
+            var p = pairings[(slideIndex - 1) % pairings.Count];
+            var basePalette = ResolvePalette(brand, inferred);
+            return basePalette with
+            {
+                Background = p.BackgroundHex,
+                Text = p.TextHex,
+            };
+        }
+
+        return ResolvePalette(brand, inferred);
     }
 
     /// <summary>

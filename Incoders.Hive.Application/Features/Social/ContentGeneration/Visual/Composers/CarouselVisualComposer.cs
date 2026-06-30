@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Composers;
@@ -16,7 +17,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Com
 /// Legacy path (no plan / IMultiAssetVisualComposer dispatch): falls back to
 /// <c>BackgroundSelector.Select</c> per slide, preserving pre-WU-4 behavior exactly.
 /// </summary>
-internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAssetVisualComposer, IBackgroundPlanAwareComposer
+internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAssetVisualComposer, IBackgroundPlanAwareComposer, IClientAestheticAwareComposer
 {
     public string FormatKey => "carousel";
 
@@ -56,14 +57,32 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
         InferenceAccumulator inferred,
         CarouselBackgroundPlan plan)
     {
-        return ComposeManyCore(generatedPayload, brand, inferred, plan);
+        return ComposeManyCore(generatedPayload, brand, inferred, plan, profile: null);
+    }
+
+    /// <summary>
+    /// WU-3: aesthetic-profile-aware path. Passes the client's <see cref="ClientAestheticProfile"/>
+    /// into per-slide palette resolution so the rotating colour pairing is applied.
+    /// Each slide calls <c>CompositionDefaults.ResolvePalette(brand, profile, slideIndex, inferred)</c>
+    /// which selects <c>pairings[(slideIndex-1) % count]</c> when pairings are present.
+    /// Null profile or empty pairings degrade to the positional palette (CAC-BSP-04-a parity).
+    /// Refs: CAC-CG-02; design §3.3.
+    /// </summary>
+    public IReadOnlyList<VisualCompositionSpec> ComposeMany(
+        object generatedPayload,
+        BrandSnapshot brand,
+        InferenceAccumulator inferred,
+        ClientAestheticProfile? profile)
+    {
+        return ComposeManyCore(generatedPayload, brand, inferred, plan: null, profile);
     }
 
     private IReadOnlyList<VisualCompositionSpec> ComposeManyCore(
         object generatedPayload,
         BrandSnapshot brand,
         InferenceAccumulator inferred,
-        CarouselBackgroundPlan? plan)
+        CarouselBackgroundPlan? plan,
+        ClientAestheticProfile? profile = null)
     {
         var payload = PayloadReader.As<CarouselContent>(generatedPayload);
         if (payload is null || payload.Slides.Count == 0)
@@ -83,7 +102,7 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
                 ? plan.ForSlide(slideIndex)
                 : null;
 
-            specs.Add(BuildSlideSpec(brand, inferred, slide, slideIndex, payload.CoverTitle, payload.CtaText, backgroundSelection));
+            specs.Add(BuildSlideSpec(brand, inferred, slide, slideIndex, payload.CoverTitle, payload.CtaText, backgroundSelection, profile));
         }
 
         return specs;
@@ -96,9 +115,13 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
         int slideIndex,
         string coverTitle,
         string ctaText,
-        BackgroundSelection? backgroundSelection)
+        BackgroundSelection? backgroundSelection,
+        ClientAestheticProfile? profile = null)
     {
-        var palette = CompositionDefaults.ResolvePalette(brand, inferred);
+        // WU-3: use the pairing/slide-index overload so rotating colour pairings are applied
+        // when profile.ColorPairings is non-empty; null profile or empty pairings delegates
+        // to the existing positional palette (cold-start parity — CAC-BSP-04-a).
+        var palette = CompositionDefaults.ResolvePalette(brand, profile, slideIndex, inferred);
         var typography = CompositionDefaults.ResolveTypography(brand, inferred);
 
         // WU-4 C5: use the pre-resolved selection when provided; fall back to the
@@ -114,6 +137,25 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
             _ => (null, slide?.ImagePromptHint ?? $"Slide {slideIndex} visual")
         };
 
+        // WU-5: @handle slot — mirrors StoryVisualComposer via AttributionPolicy.ResolveSignature.
+        // Populated only when the client has an explicit own-account handle (CAC-CG-03).
+        // Slot is omitted (not empty) when Handle is null so the slide renders without it.
+        var copySlots = new Dictionary<string, string>
+        {
+            ["title"] = slideIndex == 1 ? coverTitle : (slide?.Title ?? $"Slide {slideIndex}"),
+            ["subtitle"] = slide is null ? "Supporting copy" : slide.Body,
+            ["cta"] = ctaText,
+        };
+
+        if (brand.Client?.Handle is not null)
+        {
+            var signatureText = AttributionPolicy.ResolveSignature(brand, null);
+            if (!string.IsNullOrWhiteSpace(signatureText))
+            {
+                copySlots["@handle"] = signatureText;
+            }
+        }
+
         return new VisualCompositionSpec(
             FormatKey: FormatKey,
             LayoutType: "grid",
@@ -124,12 +166,7 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
                 [$"slide-{slideIndex}"] = new AssetSlotSpec(bgUrl, bgHint),
                 ["logo"] = new AssetSlotSpec(brand.Brand?.Logos.FirstOrDefault(), "Brand logo"),
             },
-            CopySlots: new Dictionary<string, string>
-            {
-                ["title"] = slideIndex == 1 ? coverTitle : (slide?.Title ?? $"Slide {slideIndex}"),
-                ["subtitle"] = slide is null ? "Supporting copy" : slide.Body,
-                ["cta"] = ctaText,
-            },
+            CopySlots: copySlots,
             Dimensions: CompositionDefaults.CarouselDimensions);
     }
 

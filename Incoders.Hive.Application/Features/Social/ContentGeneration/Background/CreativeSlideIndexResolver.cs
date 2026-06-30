@@ -1,3 +1,5 @@
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 
 /// <summary>
@@ -45,6 +47,46 @@ public static class CreativeSlideIndexResolver
             .Where(i => i >= 1 && i <= slideCount)    // 1-based range filter
             .Distinct()                                 // deduplication (LINQ Distinct preserves first occurrence)
             .Take(MaxCreativeSlidesPerPackage)          // OQ-2 cap
+            .ToList();
+    }
+
+    /// <summary>
+    /// Resolves the set of 1-based creative slide indices from a captured background-kind pattern.
+    /// Maps the pattern onto the actual slide count by proportional scaling and returns
+    /// the indices whose mapped kind is <see cref="SlideBackgroundKind.Photo"/>,
+    /// deduped and capped to <see cref="MaxCreativeSlidesPerPackage"/>.
+    /// Refs: design §3.2, §0 OQ-1; CAC-BSP-01, CAC-BSP-02, CAC-BSP-04.
+    /// </summary>
+    /// <param name="pattern">
+    /// Ordered per-slide background-kind sequence from <c>ClientAestheticProfile.BackgroundPattern</c>.
+    /// Null or empty → delegates to the existing <see cref="Resolve"/> default ({first, last}).
+    /// </param>
+    /// <param name="slideCount">Total number of slides in the carousel (1-based upper bound).</param>
+    /// <returns>Resolved, deduped, capped list of 1-based creative slide indices.</returns>
+    public static IReadOnlyList<int> ResolveFromPattern(
+        IReadOnlyList<SlideBackgroundKind>? pattern, int slideCount)
+    {
+        if (pattern is null || pattern.Count == 0)
+            return Resolve(null, slideCount);
+
+        var patternCount = pattern.Count;
+        var photoIndices = new List<int>();
+
+        for (var i = 1; i <= slideCount; i++)
+        {
+            // Proportional index: floor((i-1) * patternCount / slideCount).
+            // Integer arithmetic in C# truncates toward zero, which equals floor for positive operands.
+            // Equal-length case (patternCount == slideCount) degenerates to 1:1 (patternIndex == i-1).
+            var patternIndex = (i - 1) * patternCount / slideCount;
+
+            if (pattern[patternIndex] == SlideBackgroundKind.Photo)
+                photoIndices.Add(i);
+        }
+
+        // Slide indices are unique (i is strictly monotone), so Distinct() is precautionary.
+        return photoIndices
+            .Distinct()
+            .Take(MaxCreativeSlidesPerPackage)
             .ToList();
     }
 }

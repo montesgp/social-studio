@@ -28,4 +28,10 @@ public sealed record GenerationContext(
     /// Null for all other policies — generators append no aesthetic guidance
     /// (ConcisionConstraint is still emitted unchanged).
     /// </summary>
-    ClientAestheticProfile? AestheticProfile = null);
+    ClientAestheticProfile? AestheticProfile = null,
+    /// <summary>
+    /// WU-2 (CAC-CG-01): explicit user-requested carousel slide count, when provided by the caller.
+    /// When non-null, this value wins over any profile-derived TypicalSlideCount (OQ-3).
+    /// Null → effective count falls back to profile TypicalSlideCount clamped [3..10], then current default.
+    /// </summary>
+    int? RequestedSlideCount = null);
