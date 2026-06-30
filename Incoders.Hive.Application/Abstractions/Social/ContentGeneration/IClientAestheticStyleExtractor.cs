@@ -45,7 +45,16 @@ public sealed record AestheticExtraction(
     IReadOnlyList<SlideBackgroundKind>? BackgroundPattern = null,
     // OQ-2: ranked rotating {BackgroundHex,TextHex} pairings derived via ColorPairingDerivation.Derive.
     // Null or empty when no joinable brand + palette roles exist (CAC-BSP-03-b).
-    IReadOnlyList<ColorPairing>? ColorPairings = null)
+    IReadOnlyList<ColorPairing>? ColorPairings = null,
+    // client-aesthetic-conceptual-detection (additive trailing nullable — all existing construction sites
+    // and `with` expressions compile unchanged; CACD-PA-04):
+    //
+    // OQ-1: structured conceptual art-direction method detected across the client's corpus.
+    // Null when the model omits the field or returns an unrecognised method token (cold-start parity).
+    ConceptualMethod? ConceptualMethod = null,
+    // OQ-2: corpus-grounded image-type distribution (photo/flat/decorator proportions + sample size).
+    // Null when the model omits imageTypeCounts or returns zero slides observed (cold-start parity).
+    ImageTypeRatio? ImageTypeRatio = null)
 {
     /// <summary>An empty extraction (no signal) — used when extraction is skipped or yields nothing.</summary>
     public static AestheticExtraction Empty { get; } = new([], [], [], null);
