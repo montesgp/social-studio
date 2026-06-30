@@ -140,7 +140,7 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
 
 ### Phase 2.A — `AestheticProfilePersistence` round-trip for new fields
 
-- [ ] 2.1 **[RED]** Extend `AestheticProfilePersistenceTests.cs` — add assertions:
+- [x] 2.1 **[RED]** Extend `AestheticProfilePersistenceTests.cs` — add assertions:
   - `Serialize` includes `conceptualMethod { method, rationale, cues[] }` and
     `imageTypeRatio { photo, flat, decorator, sampleSize }` as additive keys in the JSON blob
     (CACD-PA-05-a).
@@ -151,7 +151,7 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
     succeeds; both fields remain null (CACD-PA-05-c).
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/AestheticProfilePersistenceTests.cs`)
 
-- [ ] 2.2 **[GREEN]** Modify `AestheticProfilePersistence.cs` — add `conceptualMethod` and
+- [x] 2.2 **[GREEN]** Modify `AestheticProfilePersistence.cs` — add `conceptualMethod` and
   `imageTypeRatio` key serialization/deserialization; absent keys deserialize to null; no
   existing keys removed or renamed; `PromptVersion` field updated to `aesthetic-extractor/v2`
   for new blobs only (existing v1 blobs read unchanged).
@@ -159,7 +159,7 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
 
 ### Phase 2.B — `EfClientAestheticProfileReader` threading of new fields
 
-- [ ] 2.3 **[RED]** Add/extend `EfClientAestheticProfileReaderEnrichedTests.cs` (or equivalent)
+- [x] 2.3 **[RED]** Add/extend `EfClientAestheticProfileReaderEnrichedTests.cs` (or equivalent)
   — assert:
   - When the stored blob carries `conceptualMethod` + `imageTypeRatio`, `GetProfileAsync`
     returns a `ClientAestheticProfile` with non-null `ConceptualMethod` and `ImageTypeRatio`.
@@ -169,13 +169,14 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
     (architecture gate; CACD-PA-04-c).
   (`Incoders.Hive.Tests/Infrastructure/Social/ContentGeneration/EfClientAestheticProfileReaderEnrichedTests.cs`)
 
-- [ ] 2.4 **[GREEN]** Modify `EfClientAestheticProfileReader.cs` — pass `ConceptualMethod` and
+- [x] 2.4 **[GREEN]** Modify `EfClientAestheticProfileReader.cs` — pass `ConceptualMethod` and
   `ImageTypeRatio` (read via `AestheticProfilePersistence.Read`) into the returned
   `ClientAestheticProfile`; null when absent.
   (`Incoders.Hive.Infrastructure/Social/ContentGeneration/EfClientAestheticProfileReader.cs`)
 
-- [ ] 2.5 Run `dotnet test -c Release` — WU-2 tests pass; persistence parity (pre-v2 blob → null
+- [x] 2.5 Run `dotnet test -c Release` — WU-2 tests pass; persistence parity (pre-v2 blob → null
   new fields; all-null profile → no exception) confirmed; full suite green.
+  **Result:** Passed! Failed: 0, Passed: 2175, Skipped: 2, Total: 2177.
 
 ---
 
