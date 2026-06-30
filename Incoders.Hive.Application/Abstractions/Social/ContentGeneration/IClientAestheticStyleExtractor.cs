@@ -16,16 +16,19 @@ namespace Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 public interface IClientAestheticStyleExtractor
 {
     /// <summary>
-    /// Extracts a multi-signal aesthetic from the client's durably-hosted post images + captions.
+    /// Extracts a multi-signal aesthetic from the client's durably-hosted post images paired with
+    /// their parent post captions.
     /// </summary>
     /// <param name="organizationId">Owning organization (for AI route + credential resolution).</param>
-    /// <param name="referenceImages">Durable references to the client's recent post images.</param>
-    /// <param name="captions">Recent post captions (best-effort; may be empty).</param>
+    /// <param name="referenceImages">
+    /// Ordered list of image↔caption pairs. Each pair carries a durable image reference and the
+    /// caption of the parent post (null when the post has no caption or when the join found no
+    /// matching post — image-only; never throws on missing captions). (CACD-PA-03; OQ-3.)
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     Task<AestheticExtraction> ExtractAsync(
         Guid organizationId,
-        IReadOnlyList<ProfilePostImageRef> referenceImages,
-        IReadOnlyList<string> captions,
+        IReadOnlyList<ProfilePostImageCaptionPair> referenceImages,
         CancellationToken ct);
 }
 

@@ -12,11 +12,29 @@ using Incoders.Hive.Infrastructure.Social.ContentGeneration;
 namespace Incoders.Hive.Tests.Infrastructure.Social.ContentGeneration;
 
 /// <summary>Phase 2 (CAG2-PA-03): multimodal extractor — palette optional; degrades when no route.</summary>
+/// <remarks>WU-3 (CACD-PA-01/02/03): ConceptualMethod + ImageTypeRatio mapping; pairs caption-tagging.</remarks>
 public sealed class MultimodalAestheticStyleExtractorTests
 {
     private static readonly Guid Org = Guid.NewGuid();
-    private static readonly IReadOnlyList<ProfilePostImageRef> Refs =
-        [new ProfilePostImageRef("p1", 0, "org/c/a/aesthetic/p1-0.jpg", "h1")];
+
+    // WU-3: pairs replace the old (refs, captions) params (OQ-3).
+    // Null caption = image-only scenario (CACD-PA-03-b).
+    private static readonly IReadOnlyList<ProfilePostImageCaptionPair> Pairs =
+    [
+        new ProfilePostImageCaptionPair(
+            new ProfilePostImageRef("p1", 0, "org/c/a/aesthetic/p1-0.jpg", "h1"),
+            null),
+    ];
+
+    // Pairs carrying a caption — used by tests that previously passed a caption string.
+    private static readonly IReadOnlyList<ProfilePostImageCaptionPair> PairsWithCaption =
+    [
+        new ProfilePostImageCaptionPair(
+            new ProfilePostImageRef("p1", 0, "org/c/a/aesthetic/p1-0.jpg", "h1"),
+            "summer drop"),
+    ];
+
+    // ── Pre-existing Phase 2 tests (updated to new pairs signature) ─────────
 
     [Fact]
     public async Task NoConfiguredRoute_ReturnsEmpty_AndDoesNotCallGateway()
@@ -24,7 +42,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
         var gateway = new CaptureGateway();
         var extractor = new MultimodalAestheticStyleExtractor(gateway, EmptyResolver(), new OneImageStorage());
 
-        var result = await extractor.ExtractAsync(Org, Refs, [], CancellationToken.None);
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
         Assert.Empty(result.Palette);
         Assert.False(gateway.WasCalled);
@@ -36,7 +54,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
         var gateway = new CaptureGateway();
         var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
 
-        var result = await extractor.ExtractAsync(Org, [], ["caption"], CancellationToken.None);
+        var result = await extractor.ExtractAsync(Org, [], CancellationToken.None);
 
         Assert.Same(AestheticExtraction.Empty, result);
         Assert.False(gateway.WasCalled);
@@ -48,7 +66,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
         var gateway = new CaptureGateway(paletteJson: "[]", descriptors: """["editorial, high-contrast"]""", captionVoice: "playful");
         var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
 
-        var result = await extractor.ExtractAsync(Org, Refs, ["summer drop"], CancellationToken.None);
+        var result = await extractor.ExtractAsync(Org, PairsWithCaption, CancellationToken.None);
 
         Assert.True(gateway.WasCalled);
         Assert.True(gateway.ImageCount > 0, "vision images must be sent to the gateway");
@@ -66,7 +84,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
             captionVoice: null);
         var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
 
-        var result = await extractor.ExtractAsync(Org, Refs, [], CancellationToken.None);
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
         Assert.Single(result.Palette);
         Assert.Equal("#C0FFEE", result.Palette[0].Hex);
@@ -84,7 +102,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
             slideMixPattern: """["photo","flat","photo"]""");
         var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
 
-        var result = await extractor.ExtractAsync(Org, Refs, [], CancellationToken.None);
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
         Assert.NotNull(result.BackgroundPattern);
         Assert.Equal(3, result.BackgroundPattern!.Count);
@@ -103,7 +121,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
             slideMixPattern: null);
         var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
 
-        var result = await extractor.ExtractAsync(Org, Refs, [], CancellationToken.None);
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
         Assert.Null(result.BackgroundPattern);
         Assert.True(gateway.WasCalled);
@@ -117,7 +135,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
         var gateway = new CaptureGateway(paletteJson: paletteJson, descriptors: "[]");
         var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
 
-        var result = await extractor.ExtractAsync(Org, Refs, [], CancellationToken.None);
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
         Assert.NotNull(result.ColorPairings);
         Assert.NotEmpty(result.ColorPairings!);
@@ -131,9 +149,197 @@ public sealed class MultimodalAestheticStyleExtractorTests
         var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
         var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
 
-        var result = await extractor.ExtractAsync(Org, Refs, [], CancellationToken.None);
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
         Assert.True(result.ColorPairings is null || result.ColorPairings.Count == 0);
+    }
+
+    // ── WU-3 task 3.1 [RED] — ConceptualMethod mapping (CACD-PA-01) ─────────
+
+    [Fact]
+    public async Task ConceptualMethod_MetaphoricalEditorial_MapsCorrectly()
+    {
+        // CACD-PA-01-a: Atlas exemplar → ArtDirectionMethod.MetaphoricalEditorial
+        const string conceptualMethodJson =
+            """{"method":"MetaphoricalEditorial","rationale":"turns message into visual metaphor","cues":["mono-color saturated backdrop","object-as-metaphor"]}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", conceptualMethodJson: conceptualMethodJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.ConceptualMethod);
+        Assert.Equal(ArtDirectionMethod.MetaphoricalEditorial, result.ConceptualMethod!.Method);
+        Assert.Equal("turns message into visual metaphor", result.ConceptualMethod.Rationale);
+        Assert.Contains("mono-color saturated backdrop", result.ConceptualMethod.Cues);
+        Assert.Contains("object-as-metaphor", result.ConceptualMethod.Cues);
+    }
+
+    [Fact]
+    public async Task ConceptualMethod_LiteralIllustration_MapsCorrectly_AndDiffersFromMetaphorical()
+    {
+        // CACD-PA-01-b: Comet exemplar → ArtDirectionMethod.LiteralIllustration (distinguishable from Atlas)
+        const string conceptualMethodJson =
+            """{"method":"LiteralIllustration","rationale":"literal tender scene","cues":["tender watercolor","children characters"]}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", conceptualMethodJson: conceptualMethodJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.ConceptualMethod);
+        Assert.Equal(ArtDirectionMethod.LiteralIllustration, result.ConceptualMethod!.Method);
+        // Atlas vs Comet fixtures are distinguishable (CACD-PA-01-c)
+        Assert.NotEqual(ArtDirectionMethod.MetaphoricalEditorial, result.ConceptualMethod.Method);
+    }
+
+    [Fact]
+    public async Task ConceptualMethod_UnrecognisedMethodToken_MapsToUnknown()
+    {
+        // CACD-PA-01-c / OQ-1: enum-parse fallback — unrecognised token → Unknown; no throw
+        const string conceptualMethodJson = """{"method":"UnrecognisedToken","rationale":"","cues":[]}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", conceptualMethodJson: conceptualMethodJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.ConceptualMethod);
+        Assert.Equal(ArtDirectionMethod.Unknown, result.ConceptualMethod!.Method);
+    }
+
+    [Fact]
+    public async Task ConceptualMethod_Absent_IsNull_ExtractionSucceeds()
+    {
+        // CACD-PA-01-c: no conceptualMethod key → null; extraction completes normally
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Null(result.ConceptualMethod);
+        Assert.True(gateway.WasCalled);
+    }
+
+    [Fact]
+    public async Task ConceptualMethod_NullRationale_DefaultsToEmptyString()
+    {
+        // OQ-1: null Rationale → "" (not nullable suppressor); Cues null → []
+        const string conceptualMethodJson = """{"method":"MetaphoricalEditorial","rationale":null,"cues":null}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", conceptualMethodJson: conceptualMethodJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.ConceptualMethod);
+        Assert.Equal(string.Empty, result.ConceptualMethod!.Rationale);
+        Assert.NotNull(result.ConceptualMethod.Cues);
+        Assert.Empty(result.ConceptualMethod.Cues);
+    }
+
+    // ── WU-3 task 3.1 [RED] — ImageTypeRatio mapping (CACD-PA-02) ──────────
+
+    [Fact]
+    public async Task ImageTypeCounts_AtlasRatio_PhotoAndFlatEachHalfSampleSizeTen()
+    {
+        // CACD-PA-02-a: Atlas exemplar — photo:5, flat:5, decorator:0 → 50/50 split; SampleSize=10
+        const string countsJson = """{"photo":5,"flat":5,"decorator":0}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", imageTypeCountsJson: countsJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.ImageTypeRatio);
+        Assert.Equal(0.5, result.ImageTypeRatio!.Photo, precision: 10);
+        Assert.Equal(0.5, result.ImageTypeRatio.FlatColor, precision: 10);
+        Assert.Equal(0.0, result.ImageTypeRatio.Decorator, precision: 10);
+        Assert.Equal(10, result.ImageTypeRatio.SampleSize);
+    }
+
+    [Fact]
+    public async Task ImageTypeCounts_CometRatio_PhotoRatioBelowFifteenPercent()
+    {
+        // CACD-PA-02-b: Comet exemplar — photo:1, flat:10, decorator:2 → photo < 0.15; SampleSize=13
+        const string countsJson = """{"photo":1,"flat":10,"decorator":2}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", imageTypeCountsJson: countsJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.ImageTypeRatio);
+        Assert.True(result.ImageTypeRatio!.Photo < 0.15,
+            $"Photo ratio {result.ImageTypeRatio.Photo} should be < 0.15 for Comet low-photo exemplar");
+        Assert.Equal(13, result.ImageTypeRatio.SampleSize);
+    }
+
+    [Fact]
+    public async Task ImageTypeCounts_AtlasAndCometRatios_AreDistinguishable()
+    {
+        // CACD-PA-02-b: Atlas and Comet exemplars produce distinguishably different ratios
+        const string atlasJson = """{"photo":5,"flat":5,"decorator":0}""";
+        const string cometJson = """{"photo":1,"flat":10,"decorator":2}""";
+
+        var atlasResult = await new MultimodalAestheticStyleExtractor(
+                new CaptureGateway(paletteJson: "[]", descriptors: "[]", imageTypeCountsJson: atlasJson),
+                CandidateResolver(), new OneImageStorage())
+            .ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        var cometResult = await new MultimodalAestheticStyleExtractor(
+                new CaptureGateway(paletteJson: "[]", descriptors: "[]", imageTypeCountsJson: cometJson),
+                CandidateResolver(), new OneImageStorage())
+            .ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotEqual(atlasResult.ImageTypeRatio!.Photo, cometResult.ImageTypeRatio!.Photo);
+    }
+
+    [Fact]
+    public async Task ImageTypeCounts_Absent_IsNull_ExtractionSucceeds()
+    {
+        // CACD-PA-02-c: no imageTypeCounts key → null; extraction completes normally
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Null(result.ImageTypeRatio);
+        Assert.True(gateway.WasCalled);
+    }
+
+    // ── WU-3 task 3.1 [RED] — Pairs caption-tagging (CACD-PA-03) ───────────
+
+    [Fact]
+    public async Task Pair_WithCaption_IncludesCaptionTextInModelInstruction()
+    {
+        // CACD-PA-03-a: non-null Caption → caption appears tagged in the model instruction
+        var captionPairs = new[]
+        {
+            new ProfilePostImageCaptionPair(
+                new ProfilePostImageRef("p1", 0, "org/c/a/aesthetic/p1-0.jpg", "h1"),
+                "fresh summer drop"),
+        };
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        await extractor.ExtractAsync(Org, captionPairs, CancellationToken.None);
+
+        Assert.NotNull(gateway.CapturedInstruction);
+        Assert.Contains("fresh summer drop", gateway.CapturedInstruction!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Pair_WithNullCaption_DoesNotThrow_AndImageIsStillSentToGateway()
+    {
+        // CACD-PA-03-b: Caption = null → image-only; extraction never throws; image is still sent
+        var nullCaptionPairs = new[]
+        {
+            new ProfilePostImageCaptionPair(
+                new ProfilePostImageRef("p1", 0, "org/c/a/aesthetic/p1-0.jpg", "h1"),
+                null),
+        };
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, nullCaptionPairs, CancellationToken.None);
+
+        Assert.True(gateway.WasCalled);
+        Assert.True(gateway.ImageCount > 0, "image must still be sent even when caption is null");
     }
 
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);
@@ -175,11 +381,16 @@ file sealed class CaptureGateway(
     string paletteJson = "[]",
     string descriptors = "[]",
     string? captionVoice = null,
-    string? slideMixPattern = null)
+    string? slideMixPattern = null,
+    string? conceptualMethodJson = null,
+    string? imageTypeCountsJson = null)
     : IAiCompletionGateway
 {
     public bool WasCalled { get; private set; }
     public int ImageCount { get; private set; }
+
+    /// <summary>The full instruction text passed to the AI gateway — used to assert caption tagging.</summary>
+    public string? CapturedInstruction { get; private set; }
 
     public Task<Result<AiJsonCompletionResponse<TResponse>>> CompleteJsonAsync<TResponse>(
         AiJsonCompletionRequest request,
@@ -188,12 +399,20 @@ file sealed class CaptureGateway(
     {
         WasCalled = true;
         ImageCount = request.Images?.Count ?? 0;
+        CapturedInstruction = request.InputJson;
 
         var voice = captionVoice is null ? "null" : $"\"{captionVoice}\"";
         var patternPart = slideMixPattern is null
             ? string.Empty
             : $",\"slideMixPattern\":{slideMixPattern}";
-        var json = $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}}""";
+        var conceptualPart = conceptualMethodJson is null
+            ? string.Empty
+            : $",\"conceptualMethod\":{conceptualMethodJson}";
+        var countsPart = imageTypeCountsJson is null
+            ? string.Empty
+            : $",\"imageTypeCounts\":{imageTypeCountsJson}";
+        var json =
+            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}}""";
         var payload = JsonSerializer.Deserialize<TResponse>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         return Task.FromResult(Result.Success(new AiJsonCompletionResponse<TResponse>(payload, "claude", "claude-opus-4-8", [], null)));
     }
