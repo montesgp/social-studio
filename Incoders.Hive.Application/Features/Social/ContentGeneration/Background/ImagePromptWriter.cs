@@ -2,6 +2,7 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using Microsoft.Extensions.Logging;
@@ -119,36 +120,142 @@ public sealed class ImagePromptWriter : IImagePromptWriter
     /// <summary>
     /// Builds the structured input for the TEXT route. The prompt MUST describe a TEXT-FREE background
     /// in the client's real visual line (text is added later as an editable layer), so the image model
-    /// never bakes copy or the client's @handle into the raster.
+    /// never bakes copy or the client's handle into the raster.
+    ///
+    /// <para>
+    /// When <see cref="ClientAestheticProfile.ConceptualMethod"/> is non-null and not
+    /// <see cref="ArtDirectionMethod.Unknown"/>, and the slide is creative (Photo or unspecified),
+    /// the method-gated ideation instruction fires: the model is asked to INVENT a concept in the
+    /// detected art-direction method, constrained to the captured cues (OQ-5; CACD-CG-01).
+    /// Otherwise the existing emulate-style instruction runs verbatim (cold-start parity; CACD-PA-07-a).
+    /// </para>
+    ///
+    /// <para>
+    /// When <see cref="ClientAestheticProfile.ImageTypeRatio"/> is non-null and
+    /// <see cref="ImagePromptRequest.SlideKind"/> is known, a ratio-aware cue is appended:
+    /// photographic for <see cref="SlideBackgroundKind.Photo"/>;
+    /// flat mono-color for <see cref="SlideBackgroundKind.FlatColor"/> (CACD-CG-02-a/b/c).
+    /// </para>
     /// </summary>
     private static object BuildInput(ImagePromptRequest request)
     {
         var a = request.Aesthetic;
-        return new
+        var cm = a.ConceptualMethod;
+        var ratio = a.ImageTypeRatio;
+
+        // Method-gated ideation fires when ConceptualMethod is present (non-null, non-Unknown)
+        // and the slide is creative (Photo) or the kind is unspecified (writer only called for
+        // creative slides in the production pipeline — single responsibility, OQ-5).
+        string instruction;
+        if (cm is not null
+            && cm.Method != ArtDirectionMethod.Unknown
+            && (request.SlideKind is null || request.SlideKind == SlideBackgroundKind.Photo))
         {
+            // CACD-CG-01: invent a concept in the detected method, constrained to cues + slide message.
+            // Text-free, no aesthetics outside the cues. Method-specific hints guide the model.
+            var cuesStr = cm.Cues.Count > 0
+                ? string.Join(", ", cm.Cues)
+                : cm.Rationale;
+
+            instruction =
+                $"INVENT a single visual CONCEPT for THIS slide's message using the client's " +
+                $"art-direction method {cm.Method} and ONLY these detected visual cues: {cuesStr}. " +
+                "For MetaphoricalEditorial, design a fresh mono-color conceptual still-life or staged metaphor " +
+                "that embodies the message through the detected cues. " +
+                "For LiteralIllustration, create a literal tender scene depicting the message subjects. " +
+                "The concept MUST depict the slide message, stay completely free of any text, letters, words, " +
+                "numbers, logos, or watermarks — copy is composited separately as an editable layer — and must " +
+                "not introduce aesthetics or motifs outside the detected cues. " +
+                "Respond with ONLY raw JSON matching the expected structure.";
+        }
+        else
+        {
+            // CACD-PA-07-a / CACD-CG-03-a: cold-start parity — exact verbatim emulate-style instruction.
+            // This branch MUST remain byte-identical to the pre-change baseline when null/Unknown.
             instruction =
                 "Write ONE concise text-to-image prompt for a single carousel slide BACKGROUND image in this " +
                 "client's established visual style. The background MUST be free of any text, letters, words, " +
                 "numbers, logos, handles, or watermarks — copy is composited separately as an editable layer. " +
                 "Emulate the client's real aesthetic (composition, palette, mood, motifs) so the result looks " +
                 "authentically authored by this client, never generic. Keep it vivid but concise. " +
-                "Respond with ONLY raw JSON matching the expected structure.",
+                "Respond with ONLY raw JSON matching the expected structure.";
+        }
+
+        // Ratio-aware cue: appended when ImageTypeRatio is present and the slide kind is known.
+        // CACD-CG-02-a: photo slide → photographic cue; CACD-CG-02-b: flat slide → flat cue.
+        // CACD-CG-02-c: null ratio OR null SlideKind → no cue appended (cold-start safe).
+        if (ratio is not null)
+        {
+            if (request.SlideKind == SlideBackgroundKind.Photo)
+            {
+                instruction +=
+                    " Favor a photographic, staged-photography background consistent with the client's photo-dominant visual corpus.";
+            }
+            else if (request.SlideKind == SlideBackgroundKind.FlatColor)
+            {
+                instruction +=
+                    " Favor a flat mono-color background consistent with the client's flat-color-dominant visual corpus.";
+            }
+        }
+
+        // Build the clientAesthetic block. New fields (conceptualMethod, imageTypeRatio) are added
+        // conditionally so the JSON remains clean. Existing fields serialized in the same order as before.
+        var clientAesthetic = BuildClientAesthetic(a, cm, ratio);
+
+        return new
+        {
+            instruction,
             slideIndex = request.SlideIndex,
             slideCopySummary = request.SlideCopySummary,
-            clientAesthetic = new
-            {
-                styleDescriptors = a.StyleDescriptors,
-                motifs = a.Motifs,
-                backgroundDescriptors = a.BackgroundDescriptors,
-                voiceTone = a.VoiceTone,
-                captionVoice = a.CaptionVoice,
-                palette = a.Palette?.Select(p => new { hex = p.Hex, role = p.Role }),
-            },
+            clientAesthetic,
             expectedOutput = new
             {
                 imagePrompt = "string - one vivid image-generation prompt for a TEXT-FREE background in the client's style",
             },
         };
+    }
+
+    /// <summary>
+    /// Builds the clientAesthetic block. The six pre-change fields are always included
+    /// (preserving cold-start shape). New CACD fields are added only when non-null.
+    /// </summary>
+    private static Dictionary<string, object?> BuildClientAesthetic(
+        ClientAestheticProfile a,
+        ConceptualMethod? cm,
+        ImageTypeRatio? ratio)
+    {
+        var dict = new Dictionary<string, object?>
+        {
+            ["styleDescriptors"] = a.StyleDescriptors,
+            ["motifs"] = a.Motifs,
+            ["backgroundDescriptors"] = a.BackgroundDescriptors,
+            ["voiceTone"] = a.VoiceTone,
+            ["captionVoice"] = a.CaptionVoice,
+            ["palette"] = a.Palette?.Select(p => new { hex = p.Hex, role = p.Role }),
+        };
+
+        if (cm is not null)
+        {
+            dict["conceptualMethod"] = new
+            {
+                method = cm.Method.ToString(),
+                rationale = cm.Rationale,
+                cues = cm.Cues,
+            };
+        }
+
+        if (ratio is not null)
+        {
+            dict["imageTypeRatio"] = new
+            {
+                photo = ratio.Photo,
+                flatColor = ratio.FlatColor,
+                decorator = ratio.Decorator,
+                sampleSize = ratio.SampleSize,
+            };
+        }
+
+        return dict;
     }
 }
 

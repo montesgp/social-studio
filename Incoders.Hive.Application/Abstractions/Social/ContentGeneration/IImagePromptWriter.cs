@@ -32,4 +32,12 @@ public sealed record ImagePromptRequest(
     /// The client's aesthetic profile — style descriptors, motifs, palette, voice, and
     /// reference context used to produce a brand-accurate image prompt.
     /// </summary>
-    ClientAestheticProfile Aesthetic);
+    ClientAestheticProfile Aesthetic,
+    // client-aesthetic-conceptual-detection (additive trailing nullable — all existing construction
+    // sites compile unchanged):
+    //
+    // OQ-5: the upstream CreativeSlideIndexResolver resolves which slides are creative (Photo) and
+    // which are flat; the writer reads the resolved kind here so it can emit ratio-aware cues
+    // without reassigning photo-vs-flat (single-responsibility; CACD-CG-02-a/b/c).
+    // Null → SlideKind unspecified; ratio cue is omitted (safe cold-start default).
+    SlideBackgroundKind? SlideKind = null);
