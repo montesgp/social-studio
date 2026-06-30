@@ -188,7 +188,7 @@ design §3.3, §0 OQ-1/OQ-2/OQ-3.*
 
 ### Phase 3.A — Extractor DTO + mapping in `MultimodalAestheticStyleExtractor`
 
-- [ ] 3.1 **[RED]** Extend `MultimodalAestheticStyleExtractorTests.cs` — add assertions:
+- [x] 3.1 **[RED]** Extend `MultimodalAestheticStyleExtractorTests.cs` — add assertions:
   - Given DTO JSON `conceptualMethod: { method: "MetaphoricalEditorial", rationale: "...",
     cues: ["mono-color saturated backdrop", "object-as-metaphor"] }` →
     mapped `ConceptualMethod.Method = ArtDirectionMethod.MetaphoricalEditorial`
@@ -212,7 +212,7 @@ design §3.3, §0 OQ-1/OQ-2/OQ-3.*
     (CACD-PA-03-a/b).
   (`Incoders.Hive.Tests/Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractorTests.cs`)
 
-- [ ] 3.2 **[GREEN]** Modify `MultimodalAestheticStyleExtractor.cs`:
+- [x] 3.2 **[GREEN]** Modify `MultimodalAestheticStyleExtractor.cs`:
   - Change `ExtractAsync` parameter from `(refs, captions)` to
     `IReadOnlyList<ProfilePostImageCaptionPair> referenceImages` (OQ-3).
   - For each pair: tag the image attachment with its post caption when `Caption != null`;
@@ -227,8 +227,11 @@ design §3.3, §0 OQ-1/OQ-2/OQ-3.*
   - Extend instruction text with three deterministic-elicitation additions per design §3.3.
   (`Incoders.Hive.Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractor.cs`)
 
-- [ ] 3.3 Run `dotnet test -c Release` — WU-3 tests pass; Atlas and Comet exemplar fixtures
+- [x] 3.3 Run `dotnet test -c Debug` — WU-3 tests pass; Atlas and Comet exemplar fixtures
   return distinguishable `ConceptualMethod` and `ImageTypeRatio` values; full suite green.
+  **Result:** Passed! Failed: 0, Passed: 2191, Skipped: 2, Total: 2193 (Debug config; WDAC
+  blocks Release assembly from bash shell — test evidence in Debug output; Release build compiles
+  clean with 0 errors/warnings).
 
 ---
 
@@ -239,7 +242,7 @@ design §4.1, §0 OQ-3. Field name confirmed: `ProfilePostImageRef.SourcePostId`
 
 ### Phase 4.A — Pair-building logic in orchestrator
 
-- [ ] 4.1 **[RED]** Add `ProfileAnalyzerOrchestratorPairsTests.cs` — assert:
+- [x] 4.1 **[RED]** Add `ProfileAnalyzerOrchestratorPairsTests.cs` — assert:
   - Given `visionRefs` with `SourcePostId = "P1"` and a `ProfilePost` with `PostId = "P1"`
     and `Caption = "hello"` → resulting pair has `Image.SourcePostId = "P1"` and
     `Caption = "hello"` (CACD-PA-03-a key-join).
@@ -252,7 +255,7 @@ design §4.1, §0 OQ-3. Field name confirmed: `ProfilePostImageRef.SourcePostId`
     `(refs, captions)` params.
   (`Incoders.Hive.Tests/Application/Social/ProfileAnalyzer/ProfileAnalyzerOrchestratorPairsTests.cs`)
 
-- [ ] 4.2 **[GREEN]** Modify `ProfileAnalyzerOrchestrator.cs` — replace the loose
+- [x] 4.2 **[GREEN]** Modify `ProfileAnalyzerOrchestrator.cs` — replace the loose
   `captions` list with a key-join:
   ```
   var pairs = visionRefs
@@ -265,8 +268,9 @@ design §4.1, §0 OQ-3. Field name confirmed: `ProfilePostImageRef.SourcePostId`
   Update `ProviderCallContext.Begin(promptVersion: "aesthetic-extractor/v2", ...)`.
   (`Incoders.Hive.Application/Features/Social/ProfileAnalyzer/Analyze/ProfileAnalyzerOrchestrator.cs`)
 
-- [ ] 4.3 Run `dotnet test -c Release` — WU-4 tests pass; key-join verified;
+- [x] 4.3 Run `dotnet test -c Debug` — WU-4 tests pass; key-join verified;
   missing-caption-null verified; full suite green (all call sites for `ExtractAsync` updated).
+  **Result:** Passed! Failed: 0, Passed: 2191, Skipped: 2, Total: 2193 (shared green run with 3.3).
 
 ---
 
