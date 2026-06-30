@@ -1,6 +1,7 @@
 # Tasks: client-aesthetic-conceptual-detection
 
-**Branch:** `feat/claude-p-provider` (delivery: `ask-on-risk`; see PR split below).
+**Branch:** `feat/client-aesthetic-conceptual-detection` (off `dev`, merges to `dev`).
+**Delivery:** SINGLE PR with `size:exception` (user decision; one issue → one branch → one PR).
 **TDD mode:** STRICT — every behavior task RED → GREEN.
 **Test runner:** `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release`
 **WDAC signing:** build first (`dotnet build -c Release`), sign the 4 Incoders DLLs
@@ -17,15 +18,15 @@ the prior change (`client-aligned-carousel-generation`) — called out in the Fo
 | Estimated changed lines | ~900–1,200 |
 | 400-line budget risk | **High** |
 | No schema migration | **Yes** — lower risk than prior change; JSON-blob additive only |
-| Chained PRs recommended | **Pending** — delivery strategy is `ask-on-risk`; user decision required |
-| Suggested split | PR 1 (WU-1+WU-2) → PR 2 (WU-3+WU-4) → PR 3 (WU-5+WU-6+WU-7) |
-| Delivery strategy | `ask-on-risk` |
-| Chain strategy | `pending` — stacked-to-main or feature-branch-chain; user decides |
+| Chained PRs recommended | **No** — user chose a SINGLE PR with `size:exception` |
+| Internal work-unit order | WU-1 → WU-2 → WU-3 → WU-4 → WU-5/WU-6 → WU-7 (one branch) |
+| Delivery strategy | `single-pr` + `size:exception` |
+| Chain strategy | n/a — one issue, one branch off `dev`, merges to `dev` |
 
-Decision needed before apply: Yes
-Chained PRs recommended: Yes
-Chain strategy: pending
-400-line budget risk: High
+Decision needed before apply: Resolved — single PR, `size:exception`
+Chained PRs recommended: No
+Chain strategy: n/a
+400-line budget risk: High (accepted via `size:exception`)
 
 ### Suggested Work Units → PRs
 
