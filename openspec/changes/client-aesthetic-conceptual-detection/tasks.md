@@ -285,7 +285,7 @@ design §3.4, §0 OQ-5.*
 
 ### Phase 5.A — Ideation tests (Atlas, Comet, null, ratio-aware)
 
-- [ ] 5.1 **[RED]** Add `ImagePromptWriterIdeationTests.cs` — assert:
+- [x] 5.1 **[RED]** Add `ImagePromptWriterIdeationTests.cs` — assert:
   - Given `ConceptualMethod.Method = MetaphoricalEditorial` and `Cues = ["mono-color backdrop",
     "object-as-metaphor"]` → built instruction contains a specific metaphorical concept
     for the slide topic, constrained to those cues; instruction does NOT contain "text",
@@ -311,7 +311,7 @@ design §3.4, §0 OQ-5.*
     not LLM output).
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/ImagePromptWriterIdeationTests.cs`)
 
-- [ ] 5.2 **[GREEN]** Modify `ImagePromptWriter.cs` — in `BuildInput`/instruction assembly:
+- [x] 5.2 **[GREEN]** Modify `ImagePromptWriter.cs` — in `BuildInput`/instruction assembly:
   - Add `conceptualMethod { method, rationale, cues }` and `imageTypeRatio` to the
     `clientAesthetic` block when non-null.
   - Branch instruction:
@@ -323,15 +323,17 @@ design §3.4, §0 OQ-5.*
     (single-responsibility per OQ-5).
   (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs`)
 
-- [ ] 5.3 **[PARITY]** Add `ImagePromptWriterColdStartParityTests.cs` — assert full pipeline
+- [x] 5.3 **[PARITY]** Add `ImagePromptWriterColdStartParityTests.cs` — assert full pipeline
   with no conceptual data (null `ConceptualMethod`, null `ImageTypeRatio`) produces
   instruction text BYTE-IDENTICAL to the pre-change baseline for the same
   `ClientAestheticProfile` and slide inputs; no ideation section, no ratio section
   (CACD-PA-07-a; CACD-IMG-02-a). This test is a required Definition-of-Done item.
   (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/ImagePromptWriterColdStartParityTests.cs`)
 
-- [ ] 5.4 Run `dotnet test -c Release` — WU-5 tests pass; cold-start parity test green;
+- [x] 5.4 Run `dotnet test -c Release` — WU-5 tests pass; cold-start parity test green;
   Atlas and Comet exemplar instructions distinguishably different; full suite green.
+  **Result:** Passed! Failed: 0, Passed: 2206, Skipped: 2, Total: 2208 (Debug config; WDAC blocks
+  Release assembly from bash shell — Release build compiles clean with 0 errors/warnings).
 
 ---
 
@@ -341,7 +343,7 @@ design §3.4, §0 OQ-5.*
 
 ### Phase 6.A — Routing config verification
 
-- [ ] 6.1 **[GREEN]** Verify/update workflow configuration — confirm that `ai-aesthetic` /
+- [x] 6.1 **[GREEN]** Verify/update workflow configuration — confirm that `ai-aesthetic` /
   `extract-aesthetic` step capability key resolves via `IWorkflowConfigurationResolver`
   to a vision-capable model (e.g. GPT-4o-class or Claude vision via API); confirm
   `claude -p` binary is NOT referenced in any route configuration or DI wiring
@@ -349,14 +351,15 @@ design §3.4, §0 OQ-5.*
   at the resolution site. Other workflow steps must remain unaffected (CACD-PA-06-b).
   (Workflow config file or `DependencyInjection.cs` `ai-aesthetic` binding)
 
-- [ ] 6.2 **[RED]** Add `AiAestheticRoutingTests.cs` — assert:
+- [x] 6.2 **[RED]** Add `AiAestheticRoutingTests.cs` — assert:
   - `IWorkflowConfigurationResolver` resolves `ai-aesthetic` to a non-null, non-`claude-p`
     provider key in the test environment configuration (CACD-PA-06-a).
   - No test-environment route for `ai-aesthetic` resolves to the `claude -p` provider alias
     (CACD-PA-06-a guard).
   (`Incoders.Hive.Tests/Infrastructure/Social/ContentGeneration/AiAestheticRoutingTests.cs`)
 
-- [ ] 6.3 Run `dotnet test -c Release` — WU-6 tests pass; routing guard green.
+- [x] 6.3 Run `dotnet test -c Release` — WU-6 tests pass; routing guard green.
+  **Result:** Passed! Failed: 0, Passed: 2206, Skipped: 2, Total: 2208 (shared run with 5.4).
 
 ---
 

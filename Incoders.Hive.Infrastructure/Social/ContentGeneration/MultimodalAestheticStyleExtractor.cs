@@ -60,7 +60,13 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             return AestheticExtraction.Empty;
         }
 
-        // Resolve the OPTIONAL aesthetic route. No route configured -> skip extraction (degrade to Phase 1).
+        // OQ-6: Resolve the OPTIONAL aesthetic route. The "ai-aesthetic" capability key MUST be
+        // configured to a real vision-capable API model — e.g., openai / gpt-4o or
+        // anthropic / claude-3-5-sonnet via BYOK API key.
+        // The claude-p CLI provider is explicitly EXCLUDED: it is a backend-local CLI agent that
+        // refuses JSON contracts and cannot perform structured multimodal vision extraction.
+        // Configured model key: resolved per-org via IWorkflowConfigurationResolver.
+        // No route configured → skip extraction (degrade to Phase 1 text-signal path).
         var route = await _workflowResolver.ResolveStepAsync(
             new WorkflowStepResolutionRequest(
                 organizationId,
