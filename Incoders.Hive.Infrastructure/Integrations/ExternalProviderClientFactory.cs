@@ -53,6 +53,7 @@ public sealed class ExternalProviderClientFactory : IExternalProviderClientFacto
             {
                 "openai" => typeof(OpenAiImageModelClient),
                 "claude-p" => typeof(ClaudePromptCliImageModelClient),
+                "comfyui" => typeof(ComfyUiImageModelClient),
                 _ => null,
             };
         }
@@ -64,6 +65,7 @@ public sealed class ExternalProviderClientFactory : IExternalProviderClientFacto
                 "claude" or "anthropic" => typeof(ClaudeModelCatalogClient),
                 "claude-p" => typeof(ClaudePromptCliModelCatalogClient),
                 "openai" => typeof(OpenAiModelCatalogClient),
+                "comfyui" => typeof(ComfyUiModelCatalogClient),
                 _ => null,
             };
         }
