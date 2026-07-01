@@ -64,4 +64,13 @@ public sealed record ClientAestheticProfile(
     int? TypicalSlideCount = null,
     // OQ-2: ranked rotating {BackgroundHex,TextHex} pairings derived from brand + extracted palette.
     // Null or empty → CompositionDefaults.ResolvePalette uses positional palette (CAC-BSP-04-a cold-start).
-    IReadOnlyList<ColorPairing>? ColorPairings = null);
+    IReadOnlyList<ColorPairing>? ColorPairings = null,
+    // client-aesthetic-conceptual-detection (additive trailing nullable — all existing construction sites
+    // and `with` expressions compile unchanged; CACD-PA-05):
+    //
+    // OQ-1: structured conceptual art-direction method detected across the client's corpus.
+    // Null → ImagePromptWriter runs the current emulate-style instruction unchanged (cold-start parity).
+    ConceptualMethod? ConceptualMethod = null,
+    // OQ-2: corpus-grounded image-type distribution (photo/flat/decorator proportions + sample size).
+    // Null → photo-vs-flat assignment uses BackgroundPattern / current defaults (cold-start parity).
+    ImageTypeRatio? ImageTypeRatio = null);

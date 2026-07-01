@@ -5,9 +5,10 @@ using Incoders.Hive.Domain.Social.ProfileAnalysis;
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Shared;
 
 /// <summary>
-/// WU-1 task 1.11 [RED] — <see cref="AestheticProfilePersistence"/> round-trip for the three
-/// new client-aligned-carousel-generation fields.
-/// Refs: design §3.1/§7; tasks 1.11/1.12; CAC-BSP-02-b, CAC-BSP-02-c.
+/// Persistence round-trip tests for <see cref="AestheticProfilePersistence"/>.
+/// WU-1 (tasks 1.11–1.12): client-aligned-carousel-generation additive fields.
+/// WU-2 (tasks 2.1–2.2): client-aesthetic-conceptual-detection additive fields (CACD-PA-05).
+/// Refs: design §3.1/§7; CAC-BSP-02-b/c; CACD-PA-05-a/b/c.
 /// </summary>
 public sealed class AestheticProfilePersistenceTests
 {
@@ -158,5 +159,106 @@ public sealed class AestheticProfilePersistenceTests
         Assert.Equal(2, read.TypicalSlideCount);
         Assert.Single(read.ColorPairings!);
         Assert.Equal("#C0FFEE", read.ColorPairings![0].BackgroundHex);
+    }
+
+    // ── WU-2 (CACD-PA-05): ConceptualMethod round-trip ───────────────────────
+
+    /// <summary>
+    /// CACD-PA-05-a — Serialize with a non-null ConceptualMethod, then Read returns the
+    /// same enum token, rationale, and cues (task 2.1 RED / 2.2 GREEN).
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_PreservesConceptualMethod()
+    {
+        var method = new ConceptualMethod(
+            Method: ArtDirectionMethod.MetaphoricalEditorial,
+            Rationale: "message becomes visual metaphor",
+            Cues: ["mono-color backdrop", "object-as-metaphor"]);
+
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            ConceptualMethod: method);
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.NotNull(read.ConceptualMethod);
+        Assert.Equal(ArtDirectionMethod.MetaphoricalEditorial, read.ConceptualMethod!.Method);
+        Assert.Equal("message becomes visual metaphor", read.ConceptualMethod.Rationale);
+        Assert.Equal(2, read.ConceptualMethod.Cues.Count);
+        Assert.Contains("mono-color backdrop", read.ConceptualMethod.Cues);
+        Assert.Contains("object-as-metaphor", read.ConceptualMethod.Cues);
+    }
+
+    /// <summary>
+    /// CACD-PA-05-a — Serialize with a non-null ImageTypeRatio, then Read returns the
+    /// same proportions and sample size (task 2.1 RED / 2.2 GREEN).
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_PreservesImageTypeRatio()
+    {
+        var ratio = new ImageTypeRatio(Photo: 0.5, FlatColor: 0.4, Decorator: 0.1, SampleSize: 10);
+
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            ImageTypeRatio: ratio);
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.NotNull(read.ImageTypeRatio);
+        Assert.Equal(0.5, read.ImageTypeRatio!.Photo);
+        Assert.Equal(0.4, read.ImageTypeRatio.FlatColor);
+        Assert.Equal(0.1, read.ImageTypeRatio.Decorator);
+        Assert.Equal(10, read.ImageTypeRatio.SampleSize);
+    }
+
+    /// <summary>
+    /// CACD-PA-05-b — A pre-v2 blob that has no conceptualMethod / imageTypeRatio keys
+    /// must deserialize to null for both new fields without throwing (cold-start parity).
+    /// Task 2.1 RED / 2.2 GREEN.
+    /// </summary>
+    [Fact]
+    public void Read_PreV2Blob_ReturnsNull_ForConceptualMethodAndImageTypeRatio_NoException()
+    {
+        // JSON produced before CACD landed — no new keys present
+        const string preV2Json =
+            """{"palette":[],"styleDescriptors":["editorial"],"motifs":[],"captionVoice":"playful","referenceImages":[]}""";
+
+        var read = AestheticProfilePersistence.Read(preV2Json);
+
+        Assert.Null(read.ConceptualMethod);
+        Assert.Null(read.ImageTypeRatio);
+        // Existing fields still parse correctly
+        Assert.NotNull(read.StyleDescriptors);
+        Assert.Contains("editorial", read.StyleDescriptors!);
+    }
+
+    /// <summary>
+    /// CACD-PA-05-c — Serialize/Read round-trip with both new fields null succeeds;
+    /// both remain null (task 2.1 RED / 2.2 GREEN).
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_NullConceptualMethod_NullImageTypeRatio_RemainsNull()
+    {
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null
+            // ConceptualMethod = null (default), ImageTypeRatio = null (default)
+        );
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.Null(read.ConceptualMethod);
+        Assert.Null(read.ImageTypeRatio);
     }
 }

@@ -4,10 +4,10 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Shared;
 
 /// <summary>
-/// WU-1 task 1.7 [RED] — <see cref="AestheticExtraction"/> additive extension for
-/// <c>BackgroundPattern</c> and <c>ColorPairings</c>.
-/// Asserts: new fields exist; null-safe construction; existing construction sites compile unchanged.
-/// Refs: design §3.1; tasks 1.7/1.8; CAC-BSP-01-b shape check.
+/// Additive extension tests for <see cref="AestheticExtraction"/>.
+/// Covers client-aligned-carousel-generation fields (BackgroundPattern, ColorPairings) and
+/// WU-1 task 1.9 [RED] additions (ConceptualMethod, ImageTypeRatio; CACD-PA-04-a/b/c).
+/// Refs: design §3.1; tasks 1.7/1.8 (carousel), 1.9/1.10 (conceptual); CAC-BSP-01-b; CACD-PA-04.
 /// </summary>
 public sealed class AestheticExtractionExtensionTests
 {
@@ -108,5 +108,106 @@ public sealed class AestheticExtractionExtensionTests
 
         Assert.Null(original.ColorPairings);
         Assert.Single(updated.ColorPairings!);
+    }
+
+    // ── WU-1 task 1.9 [RED]: ConceptualMethod field (CACD-PA-04-a) ───────────
+
+    [Fact]
+    public void ConceptualMethod_DefaultsToNull_WhenOmittedFromConstruction()
+    {
+        var extraction = new AestheticExtraction([], [], [], null);
+
+        Assert.Null(extraction.ConceptualMethod);
+    }
+
+    [Fact]
+    public void ConceptualMethod_WhenSet_IsStoredCorrectly()
+    {
+        var cm = new ConceptualMethod(ArtDirectionMethod.MetaphoricalEditorial, "Metaphor", ["mono-color backdrop"]);
+        var extraction = new AestheticExtraction([], [], [], null, ConceptualMethod: cm);
+
+        Assert.NotNull(extraction.ConceptualMethod);
+        Assert.Equal(ArtDirectionMethod.MetaphoricalEditorial, extraction.ConceptualMethod!.Method);
+    }
+
+    // ── WU-1 task 1.9 [RED]: ImageTypeRatio field (CACD-PA-04-b) ────────────
+
+    [Fact]
+    public void ImageTypeRatio_DefaultsToNull_WhenOmittedFromConstruction()
+    {
+        var extraction = new AestheticExtraction([], [], [], null);
+
+        Assert.Null(extraction.ImageTypeRatio);
+    }
+
+    [Fact]
+    public void ImageTypeRatio_WhenSet_IsStoredCorrectly()
+    {
+        var ratio = new ImageTypeRatio(0.5, 0.5, 0.0, 10);
+        var extraction = new AestheticExtraction([], [], [], null, ImageTypeRatio: ratio);
+
+        Assert.NotNull(extraction.ImageTypeRatio);
+        Assert.Equal(0.5, extraction.ImageTypeRatio!.Photo);
+    }
+
+    // ── CACD-PA-04-c: existing 6-param construction unchanged ────────────────
+
+    [Fact]
+    public void ExistingSixParamConstruction_NewFieldsAreNull()
+    {
+        IReadOnlyList<SlideBackgroundKind> pattern = [SlideBackgroundKind.Photo];
+        IReadOnlyList<ColorPairing> pairings = [new ColorPairing("#AA0000", "#FFFFFF", 1)];
+
+        var extraction = new AestheticExtraction([], ["editorial"], [], "playful", pattern, pairings);
+
+        Assert.Null(extraction.ConceptualMethod);
+        Assert.Null(extraction.ImageTypeRatio);
+    }
+
+    // ── AestheticExtraction.Empty has null for both new fields ────────────────
+
+    [Fact]
+    public void Empty_StaticProperty_NewFieldsAreNull()
+    {
+        var empty = AestheticExtraction.Empty;
+
+        Assert.Null(empty.ConceptualMethod);
+        Assert.Null(empty.ImageTypeRatio);
+    }
+
+    // ── with-expression on new fields compiles (CACD-PA-04-a/b) ─────────────
+
+    [Fact]
+    public void WithExpression_ConceptualMethod_CompilesAndYieldsNewValue()
+    {
+        var original = new AestheticExtraction([], [], [], null);
+        var cm       = new ConceptualMethod(ArtDirectionMethod.LiteralIllustration, "Tender", ["watercolor"]);
+        var updated  = original with { ConceptualMethod = cm };
+
+        Assert.Null(original.ConceptualMethod);
+        Assert.NotNull(updated.ConceptualMethod);
+        Assert.Equal(ArtDirectionMethod.LiteralIllustration, updated.ConceptualMethod!.Method);
+    }
+
+    [Fact]
+    public void WithExpression_ImageTypeRatio_CompilesAndYieldsNewValue()
+    {
+        var original = new AestheticExtraction([], [], [], null);
+        var ratio    = new ImageTypeRatio(0.7, 0.3, 0.0, 7);
+        var updated  = original with { ImageTypeRatio = ratio };
+
+        Assert.Null(original.ImageTypeRatio);
+        Assert.NotNull(updated.ImageTypeRatio);
+        Assert.Equal(0.7, updated.ImageTypeRatio!.Photo);
+    }
+
+    [Fact]
+    public void WithExpression_ConceptualMethod_SetToNull_CompilesAndYieldsNull()
+    {
+        var cm        = new ConceptualMethod(ArtDirectionMethod.MetaphoricalEditorial, "r", []);
+        var withValue = new AestheticExtraction([], [], [], null, ConceptualMethod: cm);
+        var cleared   = withValue with { ConceptualMethod = null };
+
+        Assert.Null(cleared.ConceptualMethod);
     }
 }

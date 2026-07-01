@@ -827,9 +827,13 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
             // Cap the reference set sent to the vision model to bound payload/latency.
             var visionRefs = referenceImages.Take(MaxAestheticImages).ToList();
 
-            var captions = postsWithImages
-                .Where(p => !string.IsNullOrWhiteSpace(p.Caption))
-                .Select(p => p.Caption!)
+            // CACD-PA-03 (OQ-3): build image↔caption pairs by key-joining each vision ref to its
+            // parent post caption on SourcePostId. Missing post → Caption = null (image-only).
+            // Extra posts with no matching ref are silently dropped. Never throws on missing caption.
+            var pairs = visionRefs
+                .Select(r => new ProfilePostImageCaptionPair(
+                    r,
+                    postsWithImages.FirstOrDefault(p => p.PostId == r.SourcePostId)?.Caption))
                 .ToList();
 
             // The extractor makes a provider (vision) call through the instrumented AI gateway, which
@@ -841,11 +845,11 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
                        analysis.ClientId,
                        workflowKey: "profile-analyzer",
                        pipelineStepKey: "extract-aesthetic",
-                       promptVersion: "aesthetic-extractor/v1",
+                       promptVersion: "aesthetic-extractor/v2",
                        analysis.Id))
             {
                 extraction = await _aestheticExtractor.ExtractAsync(
-                    analysis.OrganizationId, visionRefs, captions, ct);
+                    analysis.OrganizationId, pairs, ct);
             }
 
             var json = AestheticProfilePersistence.Serialize(extraction, visionRefs);
