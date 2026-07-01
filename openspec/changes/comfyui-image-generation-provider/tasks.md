@@ -101,7 +101,7 @@ Chain strategy: pending
 
 ### Phase 3.A — Error path tests + implementation
 
-- [ ] 3.1 **[RED]** Add `ComfyUiErrorMappingTests.cs` — assert all rows of the design §3.4 error table:
+- [x] 3.1 **[RED]** Add `ComfyUiErrorMappingTests.cs` — assert all rows of the design §3.4 error table:
   - Fake handler throws `HttpRequestException` (socket refused) → `ExternalProviderUnavailable` (CUI-02-a)
   - Fake handler returns HTTP 500 on `/prompt` → `ExternalProviderUnavailable` (CUI-02-b)
   - Fake handler returns `node_errors` present in `/prompt` response → `ExternalProviderUnavailable`
@@ -113,10 +113,10 @@ Chain strategy: pending
   - None of the above paths propagates an unhandled exception (CUI-02-a blanket assertion)
   (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiErrorMappingTests.cs`)
 
-- [ ] 3.2 **[GREEN]** Extend `ComfyUiImageModelClient.GenerateAsync` — wrap every HTTP call + poll loop in try/catch; map each failure to exact `IntegrationErrors` code per design §3.4; `OperationCanceledException`/elapsed timeout → `ProviderTimeout`; never propagate. Zero new `IntegrationErrors` codes introduced.
+- [x] 3.2 **[GREEN]** Extend `ComfyUiImageModelClient.GenerateAsync` — wrap every HTTP call + poll loop in try/catch; map each failure to exact `IntegrationErrors` code per design §3.4; `OperationCanceledException`/elapsed timeout → `ProviderTimeout`; never propagate. Zero new `IntegrationErrors` codes introduced.
   (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
 
-- [ ] 3.3 Run `dotnet test -c Release` — WU-3 tests pass; existing suite green.
+- [x] 3.3 Run `dotnet test -c Release` — WU-3 tests pass; existing suite green.
 
 ---
 

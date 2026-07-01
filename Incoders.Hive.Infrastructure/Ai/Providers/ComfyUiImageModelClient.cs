@@ -122,69 +122,114 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
         }
 
         var baseUrl = settings.BaseUrl.TrimEnd('/');
-        using var http = _httpClientFactory.CreateClient(nameof(ComfyUiImageModelClient));
 
-        var resolvedRefs = await ResolveReferenceImageBytesAsync(request, settings, ct);
+        // WU-3 (CUI-02-c): bound the ENTIRE HTTP flow (upload/queue/poll/fetch) by the
+        // configured overall Timeout, in addition to the caller-supplied CancellationToken.
+        // Both an elapsed budget and a caller-cancelled token map onto ProviderTimeout below.
+        using var timeoutCts = new CancellationTokenSource(settings.Timeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+        var effectiveCt = linkedCts.Token;
 
-        string? referenceImageName = null;
-        if (resolvedRefs.Count > 0)
+        try
         {
-            var uploadResult = await UploadReferenceImageAsync(http, baseUrl, resolvedRefs[0], ct);
-            if (uploadResult.IsFailure)
+            using var http = _httpClientFactory.CreateClient(nameof(ComfyUiImageModelClient));
+
+            var resolvedRefs = await ResolveReferenceImageBytesAsync(request, settings, effectiveCt);
+
+            string? referenceImageName = null;
+            if (resolvedRefs.Count > 0)
             {
-                return Result.Failure<ImageGenerationResult>(uploadResult.Error);
+                var uploadResult = await UploadReferenceImageAsync(http, baseUrl, resolvedRefs[0], effectiveCt);
+                if (uploadResult.IsFailure)
+                {
+                    return Result.Failure<ImageGenerationResult>(uploadResult.Error);
+                }
+
+                referenceImageName = uploadResult.Value;
             }
 
-            referenceImageName = uploadResult.Value;
+            var template = string.IsNullOrWhiteSpace(settings.WorkflowTemplateJson)
+                ? LoadBundledDefaultTemplate()
+                : settings.WorkflowTemplateJson;
+
+            var seed = Random.Shared.NextInt64(0, int.MaxValue);
+            var graphResult = BuildWorkflowGraph(
+                template,
+                checkpoint,
+                request.Prompt,
+                negativePrompt: string.Empty,
+                referenceImageName,
+                settings.IpAdapterModel,
+                request.Width,
+                request.Height,
+                seed,
+                DefaultSteps,
+                DefaultCfg);
+
+            if (graphResult.IsFailure)
+            {
+                return Result.Failure<ImageGenerationResult>(graphResult.Error);
+            }
+
+            var promptIdResult = await QueuePromptAsync(http, baseUrl, graphResult.Value, effectiveCt);
+            if (promptIdResult.IsFailure)
+            {
+                return Result.Failure<ImageGenerationResult>(promptIdResult.Error);
+            }
+
+            var outputImageResult = await PollHistoryAsync(http, baseUrl, promptIdResult.Value, settings, effectiveCt);
+            if (outputImageResult.IsFailure)
+            {
+                return Result.Failure<ImageGenerationResult>(outputImageResult.Error);
+            }
+
+            var bytesResult = await FetchImageBytesAsync(http, baseUrl, outputImageResult.Value, effectiveCt);
+            if (bytesResult.IsFailure)
+            {
+                return Result.Failure<ImageGenerationResult>(bytesResult.Error);
+            }
+
+            return Result.Success(new ImageGenerationResult(
+                bytesResult.Value,
+                DefaultImageMime,
+                ProviderKey,
+                checkpoint,
+                new ImageUsage(ImageCount: 1, OutputBytes: bytesResult.Value.Length)));
         }
-
-        var template = string.IsNullOrWhiteSpace(settings.WorkflowTemplateJson)
-            ? LoadBundledDefaultTemplate()
-            : settings.WorkflowTemplateJson;
-
-        var seed = Random.Shared.NextInt64(0, int.MaxValue);
-        var graphResult = BuildWorkflowGraph(
-            template,
-            checkpoint,
-            request.Prompt,
-            negativePrompt: string.Empty,
-            referenceImageName,
-            settings.IpAdapterModel,
-            request.Width,
-            request.Height,
-            seed,
-            DefaultSteps,
-            DefaultCfg);
-
-        if (graphResult.IsFailure)
+        catch (OperationCanceledException)
         {
-            return Result.Failure<ImageGenerationResult>(graphResult.Error);
-        }
+            // CUI-02-c: overall Timeout elapsed OR the caller-supplied CancellationToken was
+            // cancelled — both degrade identically, never propagate.
+            _logger.LogWarning(
+                "ComfyUiImageModelClient: generation timed out or was cancelled. " +
+                "OrganizationId={OrganizationId} CapabilityKey={CapabilityKey}",
+                request.OrganizationId,
+                request.CapabilityKey);
 
-        var promptIdResult = await QueuePromptAsync(http, baseUrl, graphResult.Value, ct);
-        if (promptIdResult.IsFailure)
+            return Result.Failure<ImageGenerationResult>(IntegrationErrors.ProviderTimeout);
+        }
+        catch (HttpRequestException ex)
         {
-            return Result.Failure<ImageGenerationResult>(promptIdResult.Error);
-        }
+            // CUI-02-a: base URL unreachable / socket-level failure.
+            _logger.LogWarning(
+                ex,
+                "ComfyUiImageModelClient: HTTP call threw. OrganizationId={OrganizationId} CapabilityKey={CapabilityKey}",
+                request.OrganizationId,
+                request.CapabilityKey);
 
-        var outputImageResult = await PollHistoryAsync(http, baseUrl, promptIdResult.Value, settings, ct);
-        if (outputImageResult.IsFailure)
+            return Result.Failure<ImageGenerationResult>(IntegrationErrors.ExternalProviderUnavailable);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return Result.Failure<ImageGenerationResult>(outputImageResult.Error);
-        }
+            // Blanket safety net (CUI-02): no path may propagate an unhandled exception.
+            _logger.LogWarning(
+                ex,
+                "ComfyUiImageModelClient: unexpected failure. OrganizationId={OrganizationId} CapabilityKey={CapabilityKey}",
+                request.OrganizationId,
+                request.CapabilityKey);
 
-        var bytesResult = await FetchImageBytesAsync(http, baseUrl, outputImageResult.Value, ct);
-        if (bytesResult.IsFailure)
-        {
-            return Result.Failure<ImageGenerationResult>(bytesResult.Error);
+            return Result.Failure<ImageGenerationResult>(IntegrationErrors.ExternalProviderUnavailable);
         }
-
-        return Result.Success(new ImageGenerationResult(
-            bytesResult.Value,
-            DefaultImageMime,
-            ProviderKey,
-            checkpoint,
-            new ImageUsage(ImageCount: 1, OutputBytes: bytesResult.Value.Length)));
     }
 
     // -----------------------------------------------------------------------
@@ -247,6 +292,10 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
         return Result.Success(name ?? string.Empty);
     }
 
+    /// <summary>
+    /// CUI-02-b: a non-2xx <c>/prompt</c> response or a queue rejection surfaced via
+    /// <c>node_errors</c> both map to <see cref="IntegrationErrors.ExternalProviderUnavailable"/>.
+    /// </summary>
     private static async Task<Result<string>> QueuePromptAsync(
         HttpClient http,
         string baseUrl,
@@ -265,12 +314,37 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
             new StringContent(body, Encoding.UTF8, "application/json"),
             ct);
 
+        if (!response.IsSuccessStatusCode)
+        {
+            return Result.Failure<string>(IntegrationErrors.ExternalProviderUnavailable);
+        }
+
         var json = await response.Content.ReadAsStringAsync(ct);
         using var doc = JsonDocument.Parse(json);
-        var promptId = doc.RootElement.GetProperty("prompt_id").GetString();
-        return Result.Success(promptId ?? string.Empty);
+
+        if (doc.RootElement.TryGetProperty("node_errors", out var nodeErrors)
+            && nodeErrors.ValueKind == JsonValueKind.Object
+            && nodeErrors.EnumerateObject().Any())
+        {
+            return Result.Failure<string>(IntegrationErrors.ExternalProviderUnavailable);
+        }
+
+        var promptId = doc.RootElement.TryGetProperty("prompt_id", out var idProp) ? idProp.GetString() : null;
+        return string.IsNullOrWhiteSpace(promptId)
+            ? Result.Failure<string>(IntegrationErrors.ExternalProviderUnavailable)
+            : Result.Success(promptId);
     }
 
+    /// <summary>
+    /// Polls <c>GET /history/{id}</c> every <see cref="ComfyUiSettings.PollInterval"/> until the
+    /// configured <see cref="ComfyUiSettings.OutputNodeId"/> carries <c>images[]</c>. A
+    /// <c>status.status_str == "error"</c> entry maps to
+    /// <see cref="IntegrationErrors.ExternalProviderUnavailable"/> (CUI-02-b). The loop is bounded
+    /// by the caller's <paramref name="ct"/> (already linked to the overall Timeout in
+    /// <see cref="GenerateAsync"/>) — an elapsed/cancelled token propagates as
+    /// <see cref="OperationCanceledException"/> and is mapped to
+    /// <see cref="IntegrationErrors.ProviderTimeout"/> by the caller (CUI-02-c).
+    /// </summary>
     private static async Task<Result<JsonElement>> PollHistoryAsync(
         HttpClient http,
         string baseUrl,
@@ -280,24 +354,41 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     {
         while (true)
         {
+            ct.ThrowIfCancellationRequested();
+
             var response = await http.GetAsync($"{baseUrl}/history/{promptId}", ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                return Result.Failure<JsonElement>(IntegrationErrors.ExternalProviderUnavailable);
+            }
+
             var json = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
 
-            if (doc.RootElement.TryGetProperty(promptId, out var entry)
-                && entry.TryGetProperty("outputs", out var outputs)
-                && outputs.TryGetProperty(settings.OutputNodeId, out var outputNode)
-                && outputNode.TryGetProperty("images", out var images)
-                && images.ValueKind == JsonValueKind.Array
-                && images.GetArrayLength() > 0)
+            if (doc.RootElement.TryGetProperty(promptId, out var entry))
             {
-                return Result.Success(images[0].Clone());
+                if (entry.TryGetProperty("status", out var status)
+                    && status.TryGetProperty("status_str", out var statusStr)
+                    && string.Equals(statusStr.GetString(), "error", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Result.Failure<JsonElement>(IntegrationErrors.ExternalProviderUnavailable);
+                }
+
+                if (entry.TryGetProperty("outputs", out var outputs)
+                    && outputs.TryGetProperty(settings.OutputNodeId, out var outputNode)
+                    && outputNode.TryGetProperty("images", out var images)
+                    && images.ValueKind == JsonValueKind.Array
+                    && images.GetArrayLength() > 0)
+                {
+                    return Result.Success(images[0].Clone());
+                }
             }
 
             await Task.Delay(settings.PollInterval, ct);
         }
     }
 
+    /// <summary>An empty <c>/view</c> body maps to <see cref="IntegrationErrors.AiJsonInvalid"/>.</summary>
     private static async Task<Result<byte[]>> FetchImageBytesAsync(
         HttpClient http,
         string baseUrl,
@@ -313,8 +404,15 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
             $"&type={Uri.EscapeDataString(type ?? "output")}";
 
         var response = await http.GetAsync(query, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            return Result.Failure<byte[]>(IntegrationErrors.ExternalProviderUnavailable);
+        }
+
         var bytes = await response.Content.ReadAsByteArrayAsync(ct);
-        return Result.Success(bytes);
+        return bytes.Length == 0
+            ? Result.Failure<byte[]>(IntegrationErrors.AiJsonInvalid)
+            : Result.Success(bytes);
     }
 
     // -----------------------------------------------------------------------
