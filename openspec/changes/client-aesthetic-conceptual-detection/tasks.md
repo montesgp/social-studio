@@ -392,9 +392,12 @@ project `CLAUDE.md` docs-sync MUST.*
   - `openspec/changes/client-aesthetic-conceptual-detection/specs/image-generation/spec-delta.md`
     → append to `openspec/specs/image-generation/spec.md`.
 
-- [ ] 7.3 Run `pwsh -File scripts/gates/Run-Gates.ps1`; report the gate summary.
+- [x] 7.3 Run `pwsh -File scripts/gates/Run-Gates.ps1`; report the gate summary.
   All MUST gates must pass: `tests.backend`, `architecture.layering`, `architecture.imports`,
   `secrets`, `security`, `vulnerabilities`. No MUST gate failure is acceptable.
+  **Result:** PASS — 16 pass, 2 skipped (SHOULD: frontend tests / coverage, no config), 0 MUST failures.
+  `tests.backend`: total=2208, passed=2206, failed=0, skipped=2 (signed Release run). Closes the
+  deferred signed-Release test gate.
 
 ---
 
