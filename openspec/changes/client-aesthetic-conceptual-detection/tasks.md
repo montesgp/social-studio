@@ -416,27 +416,28 @@ project `CLAUDE.md` docs-sync MUST.*
 
 ## Definition of Done
 
-- [ ] WU-1..WU-7 tasks completed and committed in seam order (test + implementation in the same
+- [x] WU-1..WU-7 tasks completed and committed in seam order (test + implementation in the same
   commit per behavior; RED commit followed by GREEN commit).
-- [ ] `dotnet test -c Release` (post WDAC sign) passes with 0 failures across the full suite.
-- [ ] **Cold-start parity test** (`ImagePromptWriterColdStartParityTests`) confirms: null
+- [x] `dotnet test -c Release` (post WDAC sign) passes with 0 failures across the full suite.
+  (Run-Gates.ps1 `tests.backend`: total=2208, passed=2206, failed=0, skipped=2.)
+- [x] **Cold-start parity test** (`ImagePromptWriterColdStartParityTests`) confirms: null
   `ConceptualMethod` + null `ImageTypeRatio` → instruction text BYTE-IDENTICAL to
   pre-change baseline; scope is the INSTRUCTION TEXT, not LLM output (CACD-PA-07-a).
-- [ ] **Atlas/Comet exemplar tests** confirm `MetaphoricalEditorial` and `LiteralIllustration`
+- [x] **Atlas/Comet exemplar tests** confirm `MetaphoricalEditorial` and `LiteralIllustration`
   produce distinguishably different instructions for the same slide topic (CACD-CG-01-c).
-- [ ] **Pre-v2 blob parity** (`AestheticProfilePersistenceTests`) confirms old blobs without new
+- [x] **Pre-v2 blob parity** (`AestheticProfilePersistenceTests`) confirms old blobs without new
   keys deserialize with null `ConceptualMethod` + null `ImageTypeRatio`; no exception (CACD-PA-05-b).
-- [ ] **Key-join test** (`ProfileAnalyzerOrchestratorPairsTests`) confirms pairs built on
+- [x] **Key-join test** (`ProfileAnalyzerOrchestratorPairsTests`) confirms pairs built on
   `SourcePostId` (string field on `ProfilePostImageRef`); missing caption → null; no exception.
-- [ ] **No schema migration.** Zero EF migrations added in this change.
-- [ ] No provider/HTTP/EF/Supabase type appears in any Domain or Application signature
+- [x] **No schema migration.** Zero EF migrations added in this change.
+- [x] No provider/HTTP/EF/Supabase type appears in any Domain or Application signature
   (architecture gate; design §6).
-- [ ] `TreatWarningsAsErrors=true` respected: no `!` suppressors; enum parse → `Unknown`;
+- [x] `TreatWarningsAsErrors=true` respected: no `!` suppressors; enum parse → `Unknown`;
   nullable-by-design throughout (design §6).
-- [ ] ADR `0009-pairs-contract-migration-conceptual-method-vision-routing.md` authored under
+- [x] ADR `0009-pairs-contract-migration-conceptual-method-vision-routing.md` authored under
   `docs/architecture/adr/`.
-- [ ] Spec deltas merged into `openspec/specs/` living files (all three: profile-analysis,
+- [x] Spec deltas merged into `openspec/specs/` living files (all three: profile-analysis,
   content-generation, image-generation).
-- [ ] `pwsh -File scripts/gates/Run-Gates.ps1` exits 0; no MUST gate failure.
-- [ ] PR split decision confirmed (ask-on-risk): stacked-to-main or feature-branch-chain
-  chosen by user before `sdd-apply` launches.
+- [x] `pwsh -File scripts/gates/Run-Gates.ps1` exits 0; no MUST gate failure.
+- [x] PR split decision confirmed (ask-on-risk): user chose a SINGLE PR with `size:exception`
+  (one issue → one branch off `dev` → merges to `dev`), not chained.
