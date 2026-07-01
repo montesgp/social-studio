@@ -126,17 +126,17 @@ Chain strategy: pending
 
 ### Phase 4.A — Reference byte-resolution tests + implementation
 
-- [ ] 4.1 **[RED]** Add `ComfyUiReferenceResolutionTests.cs` — assert with fake `IGeneratedAssetStorage`:
+- [x] 4.1 **[RED]** Add `ComfyUiReferenceResolutionTests.cs` — assert with fake `IGeneratedAssetStorage`:
   - Bytes returned for each ref URL → `POST /upload/image` called per ref; returned filename substituted as `{{REFERENCE_IMAGE}}` in template (CUI-06-a)
   - Three refs, `MaxReferenceImages = 1` → only first ref uploaded; cap enforced (OQ-5)
   - One ref with `OpenAsync` throwing → logged + skipped; remaining refs proceed without error
   - All refs fail → zero resolved; descriptor-only path executed (no `/upload/image` call); generation continues (CUI-01-b)
   (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiReferenceResolutionTests.cs`)
 
-- [ ] 4.2 **[GREEN]** Add `ResolveReferenceImageBytesAsync` private method to `ComfyUiImageModelClient` — iterates `request.ReferenceImages` capped to `settings.MaxReferenceImages`; calls `IGeneratedAssetStorage.OpenAsync(ref.Url)` per entry; catches + logs on failure and skips; returns resolved (bytes, mime) pairs; empty result → descriptor-only template path (no upload, bypass substitution).
+- [x] 4.2 **[GREEN]** Add `ResolveReferenceImageBytesAsync` private method to `ComfyUiImageModelClient` — iterates `request.ReferenceImages` capped to `settings.MaxReferenceImages`; calls `IGeneratedAssetStorage.OpenAsync(ref.Url)` per entry; catches + logs on failure and skips; returns resolved (bytes, mime) pairs; empty result → descriptor-only template path (no upload, bypass substitution).
   (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
 
-- [ ] 4.3 Run `dotnet test -c Release` — WU-4 tests pass; existing suite green.
+- [x] 4.3 Run `dotnet test -c Release` — WU-4 tests pass; existing suite green.
 
 ---
 

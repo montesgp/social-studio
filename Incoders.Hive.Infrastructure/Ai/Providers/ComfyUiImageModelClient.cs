@@ -136,16 +136,22 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
 
             var resolvedRefs = await ResolveReferenceImageBytesAsync(request, settings, effectiveCt);
 
+            // OQ-5: upload every resolved reference (within the cap) so the ComfyUI server has
+            // each byte handle available; the single-reference template (§3.3) only wires the
+            // FIRST uploaded filename into the LoadImage node in v1.
             string? referenceImageName = null;
             if (resolvedRefs.Count > 0)
             {
-                var uploadResult = await UploadReferenceImageAsync(http, baseUrl, resolvedRefs[0], effectiveCt);
-                if (uploadResult.IsFailure)
+                foreach (var resolvedRef in resolvedRefs)
                 {
-                    return Result.Failure<ImageGenerationResult>(uploadResult.Error);
-                }
+                    var uploadResult = await UploadReferenceImageAsync(http, baseUrl, resolvedRef, effectiveCt);
+                    if (uploadResult.IsFailure)
+                    {
+                        return Result.Failure<ImageGenerationResult>(uploadResult.Error);
+                    }
 
-                referenceImageName = uploadResult.Value;
+                    referenceImageName ??= uploadResult.Value;
+                }
             }
 
             var template = string.IsNullOrWhiteSpace(settings.WorkflowTemplateJson)
@@ -233,7 +239,9 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     }
 
     // -----------------------------------------------------------------------
-    // OQ-5: reference byte-resolution from IGeneratedAssetStorage (hardened in WU-4)
+    // OQ-5: reference byte-resolution from IGeneratedAssetStorage, capped to
+    // ComfyUiSettings.MaxReferenceImages; failed resolves are logged and skipped so the
+    // remaining references still proceed (CUI-01-a, CUI-01-b, CUI-06-a).
     // -----------------------------------------------------------------------
 
     private async Task<IReadOnlyList<(byte[] Bytes, string Mime)>> ResolveReferenceImageBytesAsync(
@@ -246,24 +254,57 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
             return [];
         }
 
-        var resolved = new List<(byte[], string)>();
-        foreach (var refImage in request.ReferenceImages)
+        var cap = Math.Min(request.ReferenceImages.Count, settings.MaxReferenceImages);
+        var resolved = new List<(byte[], string)>(cap);
+
+        for (var i = 0; i < cap; i++)
         {
+            var refImage = request.ReferenceImages[i];
             if (string.IsNullOrWhiteSpace(refImage.Url))
             {
                 continue;
             }
 
-            var openResult = await _storage.OpenAsync(refImage.Url, ct);
-            if (openResult.IsFailure)
+            Result<StoredAssetStream> openResult;
+            try
             {
+                openResult = await _storage.OpenAsync(refImage.Url, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "ComfyUiImageModelClient: failed to resolve reference image handle '{Url}' for org {OrganizationId}. Skipping this reference.",
+                    refImage.Url,
+                    request.OrganizationId);
                 continue;
             }
 
-            using var stream = openResult.Value;
-            using var ms = new MemoryStream();
-            await stream.Content.CopyToAsync(ms, ct);
-            resolved.Add((ms.ToArray(), stream.Mime));
+            if (openResult.IsFailure)
+            {
+                _logger.LogWarning(
+                    "ComfyUiImageModelClient: failed to open reference image handle '{Url}' for org {OrganizationId}: {Code}. Skipping this reference.",
+                    refImage.Url,
+                    request.OrganizationId,
+                    openResult.Error.Code);
+                continue;
+            }
+
+            try
+            {
+                using var stream = openResult.Value;
+                using var ms = new MemoryStream();
+                await stream.Content.CopyToAsync(ms, ct);
+                resolved.Add((ms.ToArray(), stream.Mime));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "ComfyUiImageModelClient: failed to read reference image bytes from '{Url}' for org {OrganizationId}. Skipping this reference.",
+                    refImage.Url,
+                    request.OrganizationId);
+            }
         }
 
         return resolved;
