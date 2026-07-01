@@ -146,7 +146,7 @@ Chain strategy: pending
 
 ### Phase 5.A — Catalog client tests + implementation
 
-- [ ] 5.1 **[RED]** Add `ComfyUiModelCatalogClientTests.cs` — assert with fake `HttpMessageHandler`:
+- [x] 5.1 **[RED]** Add `ComfyUiModelCatalogClientTests.cs` — assert with fake `HttpMessageHandler`:
   - `/object_info` JSON with `CheckpointLoaderSimple.input.required.ckpt_name[0]` string-array → `Result.Success` list of `AiProviderModel` entries; `metadata.source = "checkpoint"` (CUI-04-a; CUI-06-c)
   - `/object_info` JSON also has `IPAdapterModelLoader.input.required.ipadapter_file[0]` → entries tagged `source = "ipadapter"` appended
   - `ckpt_name[0]` is empty array → empty list returned; no error (CUI-04-b)
@@ -154,10 +154,10 @@ Chain strategy: pending
   - No provider-specific type in returned `AiProviderModel` list
   (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiModelCatalogClientTests.cs`)
 
-- [ ] 5.2 **[GREEN]** Create `ComfyUiModelCatalogClient : IAiModelCatalogClient` — `ListModelsAsync`: `GET {base}/object_info`; parses `CheckpointLoaderSimple.input.required.ckpt_name[0]`; optionally appends `IPAdapterModelLoader.ipadapter_file` and `LoraLoader.lora_name` enums tagged by source; on any failure returns `Result.Success(settings.DefaultCheckpoints → AiProviderModel(source="curated"))`; same `Result<IReadOnlyList<AiProviderModel>>` contract as `ClaudePromptCliModelCatalogClient`.
+- [x] 5.2 **[GREEN]** Create `ComfyUiModelCatalogClient : IAiModelCatalogClient` — `ListModelsAsync`: `GET {base}/object_info`; parses `CheckpointLoaderSimple.input.required.ckpt_name[0]`; optionally appends `IPAdapterModelLoader.ipadapter_file` and `LoraLoader.lora_name` enums tagged by source; on any failure returns `Result.Success(settings.DefaultCheckpoints → AiProviderModel(source="curated"))`; same `Result<IReadOnlyList<AiProviderModel>>` contract as `ClaudePromptCliModelCatalogClient`.
   (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiModelCatalogClient.cs`)
 
-- [ ] 5.3 Run `dotnet test -c Release` — WU-5 tests pass; existing suite green.
+- [x] 5.3 Run `dotnet test -c Release` — WU-5 tests pass; existing suite green.
 
 ---
 
@@ -167,7 +167,7 @@ Chain strategy: pending
 
 ### Phase 6.A — Factory resolution tests
 
-- [ ] 6.1 **[RED]** Add `ComfyUiProviderFactoryTests.cs` — assert:
+- [x] 6.1 **[RED]** Add `ComfyUiProviderFactoryTests.cs` — assert:
   - `ExternalProviderClientFactory.Create<IImageModelClient>(comfyui-credential)` returns `ComfyUiImageModelClient` (CUI-INT-04-a)
   - `Create<IAiModelCatalogClient>(comfyui-credential)` returns `ComfyUiModelCatalogClient`
   - `Create<IImageModelClient>(openai-credential)` does NOT return `ComfyUiImageModelClient` (CUI-INT-04-b)
@@ -175,48 +175,48 @@ Chain strategy: pending
 
 ### Phase 6.B — Health check tests + implementation
 
-- [ ] 6.2 **[RED]** Add `ComfyUiIntegrationHealthCheckTests.cs` — assert:
+- [x] 6.2 **[RED]** Add `ComfyUiIntegrationHealthCheckTests.cs` — assert:
   - Fake handler returns HTTP 200 on `GET /system_stats` → reports `Connected` (CUI-INT-03-a)
   - Fake handler returns non-2xx / throws → reports `Failed` with connectivity detail (CUI-INT-03-b)
   (`Incoders.Hive.Tests/Infrastructure/Integrations/ComfyUiIntegrationHealthCheckTests.cs`)
 
-- [ ] 6.3 **[GREEN]** Create `ComfyUiIntegrationHealthCheck : IExternalIntegrationHealthCheck` — `GET {baseUrl}/system_stats` via named `HttpClient`; `Connected` on HTTP 200, `Failed` with error detail otherwise; mirrors `ClaudePromptCliIntegrationHealthCheck`.
+- [x] 6.3 **[GREEN]** Create `ComfyUiIntegrationHealthCheck : IExternalIntegrationHealthCheck` — `GET {baseUrl}/system_stats` via named `HttpClient`; `Connected` on HTTP 200, `Failed` with error detail otherwise; mirrors `ClaudePromptCliIntegrationHealthCheck`.
   (`Incoders.Hive.Infrastructure/Integrations/HealthChecks/ComfyUiIntegrationHealthCheck.cs`)
 
 ### Phase 6.C — Per-org seeder + catalog seed
 
-- [ ] 6.4 **[RED]** Add `ComfyUiOrganizationSeederTests.cs` — assert:
+- [x] 6.4 **[RED]** Add `ComfyUiOrganizationSeederTests.cs` — assert:
   - Configured org → `OrganizationIntegration` with `ProviderKey = "comfyui"` created (CUI-INT-02-a)
   - Re-run on same org is idempotent (no duplicate record)
   - Org not in config → no `comfyui` integration record created (CUI-INT-02-b)
   (`Incoders.Hive.Tests/Infrastructure/Integrations/ComfyUiOrganizationSeederTests.cs`)
 
-- [ ] 6.5 **[GREEN]** Create `ComfyUiOrganizationSeeder.cs` + `ComfyUiOrganizationSeederExtensions.cs` — mirrors `ClaudePromptCliOrganizationSeeder`; idempotent upsert via `OrganizationIntegration.Create`; extension method `SeedComfyUiOrganizationIntegrationsAsync`.
+- [x] 6.5 **[GREEN]** Create `ComfyUiOrganizationSeeder.cs` + `ComfyUiOrganizationSeederExtensions.cs` — mirrors `ClaudePromptCliOrganizationSeeder`; idempotent upsert via `OrganizationIntegration.Create`; extension method `SeedComfyUiOrganizationIntegrationsAsync`.
   (`Incoders.Hive.Infrastructure/Integrations/ComfyUiOrganizationSeeder.cs`, `Incoders.Hive.Infrastructure/Integrations/ComfyUiOrganizationSeederExtensions.cs`)
 
-- [ ] 6.6 **[GREEN]** Modify `IntegrationCatalogSeeder.cs` — add `comfyui` `SeedDefinition`: category `MediaGeneration`, connection mode `SystemDefault`, `base_url` credential field, default checkpoints from `ComfyUiSettings.DefaultCheckpoints`, model-selector applicable `true` (CUI-INT-01).
+- [x] 6.6 **[GREEN]** Modify `IntegrationCatalogSeeder.cs` — add `comfyui` `SeedDefinition`: category `MediaGeneration`, connection mode `SystemDefault`, `base_url` credential field, default checkpoints from `ComfyUiSettings.DefaultCheckpoints`, model-selector applicable `true` (CUI-INT-01).
   (`Incoders.Hive.Infrastructure/Integrations/IntegrationCatalogSeeder.cs`)
 
 ### Phase 6.D — Factory wiring + DI + startup
 
-- [ ] 6.7 **[GREEN]** Modify `ExternalProviderClientFactory.cs` — add `"comfyui"` arms to both `IImageModelClient` and `IAiModelCatalogClient` switches; instantiate via `ActivatorUtilities.CreateInstance` (adapter type NOT registered in DI, same pattern as `OpenAiImageModelClient`).
+- [x] 6.7 **[GREEN]** Modify `ExternalProviderClientFactory.cs` — add `"comfyui"` arms to both `IImageModelClient` and `IAiModelCatalogClient` switches; instantiate via `ActivatorUtilities.CreateInstance` (adapter type NOT registered in DI, same pattern as `OpenAiImageModelClient`).
   (`Incoders.Hive.Infrastructure/Integrations/ExternalProviderClientFactory.cs`)
 
-- [ ] 6.8 **[GREEN]** Modify `DependencyInjection.cs` — register named `HttpClient` for ComfyUI; register `ComfyUiIntegrationHealthCheck`; register `ComfyUiOrganizationSeeder` (additive only; `IGeneratedAssetStorage` already wired).
+- [x] 6.8 **[GREEN]** Modify `DependencyInjection.cs` — register named `HttpClient` for ComfyUI; register `ComfyUiIntegrationHealthCheck`; register `ComfyUiOrganizationSeeder` (additive only; `IGeneratedAssetStorage` already wired).
   (`Incoders.Hive.Infrastructure/DependencyInjection/DependencyInjection.cs`)
 
-- [ ] 6.9 **[GREEN]** Modify `Program.cs` — invoke `SeedComfyUiOrganizationIntegrationsAsync` at startup alongside the claude-p seed call (additive one-liner).
+- [x] 6.9 **[GREEN]** Modify `Program.cs` — invoke `SeedComfyUiOrganizationIntegrationsAsync` at startup alongside the claude-p seed call (additive one-liner).
   (`Incoders.Hive.ApiService/Program.cs`)
 
 ### Phase 6.E — Non-comfyui parity + regression test
 
-- [ ] 6.10 **[RED]** Add `ComfyUiNonRoutedOrgParityTests.cs` — assert:
+- [x] 6.10 **[RED]** Add `ComfyUiNonRoutedOrgParityTests.cs` — assert:
   - Org routed to `openai`: `Create<IImageModelClient>(openai-credential)` returns `OpenAiImageModelClient`; `ComfyUiImageModelClient` never constructed (CUI-IMG-02-a; CUI-INT-05-a)
   - Org with no image route: CSS-only path unchanged; factory not called for image generation
   - All existing provider keys resolve correctly after `"comfyui"` arm addition
   (`Incoders.Hive.Tests/Infrastructure/Integrations/ComfyUiNonRoutedOrgParityTests.cs`)
 
-- [ ] 6.11 Run `dotnet test -c Release` — WU-6 tests pass; full suite green including parity assertions.
+- [x] 6.11 Run `dotnet test -c Release` — WU-6 tests pass; full suite green including parity assertions.
 
 ---
 
