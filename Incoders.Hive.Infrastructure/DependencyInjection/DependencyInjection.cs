@@ -195,6 +195,10 @@ public static class DependencyInjection
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.OpenAiModelClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.OpenAiModelCatalogClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.GeminiModelClient),
+            // ComfyUiImageModelClient's own overall Timeout (default 180s) bounds generation via
+            // CancellationTokenSource; the underlying HttpClient must not cut the request short first.
+            nameof(Incoders.Hive.Infrastructure.Ai.Providers.ComfyUiImageModelClient),
+            nameof(Incoders.Hive.Infrastructure.Ai.Providers.ComfyUiModelCatalogClient),
         ];
 #pragma warning disable EXTEXP0001
         foreach (var clientName in longRunningHttpClients)
@@ -210,6 +214,7 @@ public static class DependencyInjection
         services.AddScoped<IExternalIntegrationHealthCheck, ClaudeIntegrationHealthCheck>();
         services.AddScoped<IExternalIntegrationHealthCheck, ClaudePromptCliIntegrationHealthCheck>();
         services.AddScoped<IExternalIntegrationHealthCheck, OpenAiIntegrationHealthCheck>();
+        services.AddScoped<IExternalIntegrationHealthCheck, ComfyUiIntegrationHealthCheck>();
         services.AddScoped<IIntegrationConnectionTester, DefaultIntegrationConnectionTester>();
         // Pre-flight gate: probes all required provider APIs before the analyzer workflow starts.
         services.AddScoped<IContentAnalysisPreflight, ContentAnalysisPreflight>();
@@ -267,6 +272,7 @@ public static class DependencyInjection
         services.AddSingleton<IContentGenerationJobQueue, ChannelContentGenerationJobQueue>();
         services.AddScoped<IntegrationCatalogSeeder>();
         services.AddScoped<ClaudePromptCliOrganizationSeeder>();
+        services.AddScoped<ComfyUiOrganizationSeeder>();
         services.AddScoped<ApifyActorMappingBackfill>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 

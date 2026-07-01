@@ -75,7 +75,25 @@ public sealed class IntegrationCatalogSeeder
             AdditionalModelsByCategory: new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>
             {
                 [IntegrationProviderCategory.MediaGeneration] = ["claude-p-image-json"],
-            }),        new(
+            }),
+        new(
+            new Guid("6a1f2c3d-9b4e-4f7a-8c2d-1e5f6a7b8c07"),
+            "comfyui",
+            "ComfyUI",
+            IntegrationProviderCategory.MediaGeneration,
+            "Local zero-marginal-cost IP-Adapter image backend driven over HTTP. Runs on a local " +
+            "GPU-hosted ComfyUI server; no per-organization credentials are required by default.",
+            "comfyui",
+            // SystemDefault only: comfyui is a local dev-GPU service (base_url falls back to
+            // http://127.0.0.1:8188). Model-selector applicable via the non-empty checkpoint list,
+            // synced live through ComfyUiModelCatalogClient (CUI-INT-01).
+            false,
+            false,
+            true,
+            false,
+            [new IntegrationCredentialField("base_url", "Base URL", false, false, "http://127.0.0.1:8188", "ComfyUI server base URL")],
+            ComfyUiSettings.CuratedDefaultCheckpoints),
+        new(
             new Guid("b2610b54-a258-48d3-b2d2-12f70ac99d52"),
             "canva",
             "Canva",
