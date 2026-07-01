@@ -69,14 +69,14 @@ Chain strategy: pending
 
 ### Phase 2.A — Template substitution
 
-- [ ] 2.1 **[RED]** Add `ComfyUiTemplateSubstitutionTests.cs` — assert:
+- [x] 2.1 **[RED]** Add `ComfyUiTemplateSubstitutionTests.cs` — assert:
   - All `{{TOKEN}}` placeholders replaced (CUI-01-c shape); output passes `JsonDocument.Parse` without exception
   - Prompt with JSON-special chars (`"`, `\`, newline) is correctly JSON-escaped before substitution
   - Template producing invalid JSON after substitution → `Result.Failure(IntegrationErrors.AiJsonInvalid)`
   - No-reference bypass: empty reference filename → `LoadImage`/IP-Adapter chain replaced by pass-through model edge on KSampler; result still valid JSON (design §3.3 bypass)
   (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiTemplateSubstitutionTests.cs`)
 
-- [ ] 2.2 **[GREEN]** Create `ComfyUiImageModelClient.cs` (stub + `SubstituteTemplate` only) — `private string SubstituteTemplate(...)` performs `string.Replace` for each `{{TOKEN}}`; reads bundled default via `Assembly.GetManifestResourceStream` when `WorkflowTemplateJson` is null/empty; applies no-reference bypass path; validates result via `JsonDocument.Parse`.
+- [x] 2.2 **[GREEN]** Create `ComfyUiImageModelClient.cs` (stub + `SubstituteTemplate` only) — `private string SubstituteTemplate(...)` performs `string.Replace` for each `{{TOKEN}}`; reads bundled default via `Assembly.GetManifestResourceStream` when `WorkflowTemplateJson` is null/empty; applies no-reference bypass path; validates result via `JsonDocument.Parse`.
   (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
 
 ### Phase 2.B — HTTP happy-path sequence + capabilities
