@@ -42,12 +42,12 @@ Chain strategy: pending
 
 ### Phase 1.A — Bundled default workflow template resource
 
-- [ ] 1.1 **[GREEN]** Add `DefaultComfyUiWorkflowTemplate.json` — API-format SD1.5 + IP-Adapter graph (nodes 1..9 + `vae`) with `{{CHECKPOINT_NAME}}`, `{{POSITIVE_PROMPT}}`, `{{NEGATIVE_PROMPT}}`, `{{REFERENCE_IMAGE}}`, `{{IPADAPTER_MODEL}}`, `{{WIDTH}}`, `{{HEIGHT}}`, `{{SEED}}`, `{{STEPS}}`, `{{CFG}}` placeholders per design §3.3; `OutputNodeId = "9"` (SaveImage node). Mark as `EmbeddedResource` in Infrastructure `.csproj`.
+- [x] 1.1 **[GREEN]** Add `DefaultComfyUiWorkflowTemplate.json` — API-format SD1.5 + IP-Adapter graph (nodes 1..9 + `vae`) with `{{CHECKPOINT_NAME}}`, `{{POSITIVE_PROMPT}}`, `{{NEGATIVE_PROMPT}}`, `{{REFERENCE_IMAGE}}`, `{{IPADAPTER_MODEL}}`, `{{WIDTH}}`, `{{HEIGHT}}`, `{{SEED}}`, `{{STEPS}}`, `{{CFG}}` placeholders per design §3.3; `OutputNodeId = "9"` (SaveImage node). Mark as `EmbeddedResource` in Infrastructure `.csproj`.
   (`Incoders.Hive.Infrastructure/Ai/Providers/DefaultComfyUiWorkflowTemplate.json`)
 
 ### Phase 1.B — `ComfyUiSettings` record + `FromCredential` validation
 
-- [ ] 1.2 **[RED]** Add `ComfyUiSettingsTests.cs` — assert:
+- [x] 1.2 **[RED]** Add `ComfyUiSettingsTests.cs` — assert:
   - `FromCredential` with `base_url` credential key → settings parsed; `ProviderKey == "comfyui"` (CUI-03-a)
   - Missing `base_url` → defaults to `http://127.0.0.1:8188` (CUI-03-b)
   - Invalid/relative `base_url` → `Result.Failure(IntegrationErrors.ProviderCredentialUnavailable)`
@@ -56,10 +56,10 @@ Chain strategy: pending
   - `workflow_template_json` absent/empty → `WorkflowTemplateJson` is null (signals bundled default)
   (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiSettingsTests.cs`)
 
-- [ ] 1.3 **[GREEN]** Create `ComfyUiSettings.cs` — sealed record with all fields from design §3.1 (`BaseUrl`, `DefaultCheckpoint`, `IpAdapterModel`, `WorkflowTemplateJson`, `OutputNodeId`, `MaxReferenceImages`, `Timeout`, `PollInterval`, `DefaultCheckpoints`); `const string ProviderKey = "comfyui"`; `static Result<ComfyUiSettings> FromCredential(ResolvedProviderCredential)` reads credential keys with safe defaults; validates base URL is absolute http/https.
+- [x] 1.3 **[GREEN]** Create `ComfyUiSettings.cs` — sealed record with all fields from design §3.1 (`BaseUrl`, `DefaultCheckpoint`, `IpAdapterModel`, `WorkflowTemplateJson`, `OutputNodeId`, `MaxReferenceImages`, `Timeout`, `PollInterval`, `DefaultCheckpoints`); `const string ProviderKey = "comfyui"`; `static Result<ComfyUiSettings> FromCredential(ResolvedProviderCredential)` reads credential keys with safe defaults; validates base URL is absolute http/https.
   (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiSettings.cs`)
 
-- [ ] 1.4 Run `dotnet test -c Release` — WU-1 tests pass; existing suite green.
+- [x] 1.4 Run `dotnet test -c Release` — WU-1 tests pass; existing suite green.
 
 ---
 
