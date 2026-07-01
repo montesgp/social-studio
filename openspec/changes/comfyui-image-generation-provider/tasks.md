@@ -81,17 +81,17 @@ Chain strategy: pending
 
 ### Phase 2.B — HTTP happy-path sequence + capabilities
 
-- [ ] 2.3 **[RED]** Add `ComfyUiHappyPathTests.cs` — assert with fake `HttpMessageHandler` scripted as:
+- [x] 2.3 **[RED]** Add `ComfyUiHappyPathTests.cs` — assert with fake `HttpMessageHandler` scripted as:
   `POST /upload/image` → `{name, subfolder, type}`; `POST /prompt` → `{prompt_id}`; `GET /history/{id}` (pending then done with `images[]` under `OutputNodeId`); `GET /view` → fixture bytes:
   - `GenerateAsync` returns `Result.Success` with fixture bytes; `ProviderKey = "comfyui"`; resolved checkpoint in result (CUI-01-a)
   - `Capabilities.SupportsImageConditioning = true`; `MaxConditioningImages = settings.MaxReferenceImages` (CUI-IMG-01)
   - No-reference path: handler receives no `/upload/image` call; returns bytes via text-only variant (CUI-01-b)
   (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiHappyPathTests.cs`)
 
-- [ ] 2.4 **[GREEN]** Implement `ComfyUiImageModelClient.GenerateAsync` — `FromCredential` → resolve checkpoint (`PreferredModel ?? SelectedModel ?? DefaultCheckpoint`) → `ResolveReferenceImageBytesAsync` → upload → `SubstituteTemplate` → `POST /prompt` (with `client_id` guid) → poll `GET /history/{prompt_id}` every `PollInterval` until `OutputNodeId` has `images[]` (bounded by `Timeout`/`CancellationToken`) → `GET /view` → `Result.Success(ImageGenerationResult(bytes, mime, "comfyui", checkpoint, usage))`. `Capabilities` property: `new ImageModelCapabilities(SupportsImageConditioning: true, MaxConditioningImages: settings.MaxReferenceImages)`.
+- [x] 2.4 **[GREEN]** Implement `ComfyUiImageModelClient.GenerateAsync` — `FromCredential` → resolve checkpoint (`PreferredModel ?? SelectedModel ?? DefaultCheckpoint`) → `ResolveReferenceImageBytesAsync` → upload → `SubstituteTemplate` → `POST /prompt` (with `client_id` guid) → poll `GET /history/{prompt_id}` every `PollInterval` until `OutputNodeId` has `images[]` (bounded by `Timeout`/`CancellationToken`) → `GET /view` → `Result.Success(ImageGenerationResult(bytes, mime, "comfyui", checkpoint, usage))`. `Capabilities` property: `new ImageModelCapabilities(SupportsImageConditioning: true, MaxConditioningImages: settings.MaxReferenceImages)`.
   (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
 
-- [ ] 2.5 Run `dotnet test -c Release` — WU-2 tests pass; existing suite green.
+- [x] 2.5 Run `dotnet test -c Release` — WU-2 tests pass; existing suite green.
 
 ---
 
