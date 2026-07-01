@@ -42,12 +42,12 @@ Chain strategy: pending
 
 ### Phase 1.A — Bundled default workflow template resource
 
-- [ ] 1.1 **[GREEN]** Add `DefaultComfyUiWorkflowTemplate.json` — API-format SD1.5 + IP-Adapter graph (nodes 1..9 + `vae`) with `{{CHECKPOINT_NAME}}`, `{{POSITIVE_PROMPT}}`, `{{NEGATIVE_PROMPT}}`, `{{REFERENCE_IMAGE}}`, `{{IPADAPTER_MODEL}}`, `{{WIDTH}}`, `{{HEIGHT}}`, `{{SEED}}`, `{{STEPS}}`, `{{CFG}}` placeholders per design §3.3; `OutputNodeId = "9"` (SaveImage node). Mark as `EmbeddedResource` in Infrastructure `.csproj`.
+- [x] 1.1 **[GREEN]** Add `DefaultComfyUiWorkflowTemplate.json` — API-format SD1.5 + IP-Adapter graph (nodes 1..9 + `vae`) with `{{CHECKPOINT_NAME}}`, `{{POSITIVE_PROMPT}}`, `{{NEGATIVE_PROMPT}}`, `{{REFERENCE_IMAGE}}`, `{{IPADAPTER_MODEL}}`, `{{WIDTH}}`, `{{HEIGHT}}`, `{{SEED}}`, `{{STEPS}}`, `{{CFG}}` placeholders per design §3.3; `OutputNodeId = "9"` (SaveImage node). Mark as `EmbeddedResource` in Infrastructure `.csproj`.
   (`Incoders.Hive.Infrastructure/Ai/Providers/DefaultComfyUiWorkflowTemplate.json`)
 
 ### Phase 1.B — `ComfyUiSettings` record + `FromCredential` validation
 
-- [ ] 1.2 **[RED]** Add `ComfyUiSettingsTests.cs` — assert:
+- [x] 1.2 **[RED]** Add `ComfyUiSettingsTests.cs` — assert:
   - `FromCredential` with `base_url` credential key → settings parsed; `ProviderKey == "comfyui"` (CUI-03-a)
   - Missing `base_url` → defaults to `http://127.0.0.1:8188` (CUI-03-b)
   - Invalid/relative `base_url` → `Result.Failure(IntegrationErrors.ProviderCredentialUnavailable)`
@@ -56,10 +56,10 @@ Chain strategy: pending
   - `workflow_template_json` absent/empty → `WorkflowTemplateJson` is null (signals bundled default)
   (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiSettingsTests.cs`)
 
-- [ ] 1.3 **[GREEN]** Create `ComfyUiSettings.cs` — sealed record with all fields from design §3.1 (`BaseUrl`, `DefaultCheckpoint`, `IpAdapterModel`, `WorkflowTemplateJson`, `OutputNodeId`, `MaxReferenceImages`, `Timeout`, `PollInterval`, `DefaultCheckpoints`); `const string ProviderKey = "comfyui"`; `static Result<ComfyUiSettings> FromCredential(ResolvedProviderCredential)` reads credential keys with safe defaults; validates base URL is absolute http/https.
+- [x] 1.3 **[GREEN]** Create `ComfyUiSettings.cs` — sealed record with all fields from design §3.1 (`BaseUrl`, `DefaultCheckpoint`, `IpAdapterModel`, `WorkflowTemplateJson`, `OutputNodeId`, `MaxReferenceImages`, `Timeout`, `PollInterval`, `DefaultCheckpoints`); `const string ProviderKey = "comfyui"`; `static Result<ComfyUiSettings> FromCredential(ResolvedProviderCredential)` reads credential keys with safe defaults; validates base URL is absolute http/https.
   (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiSettings.cs`)
 
-- [ ] 1.4 Run `dotnet test -c Release` — WU-1 tests pass; existing suite green.
+- [x] 1.4 Run `dotnet test -c Release` — WU-1 tests pass; existing suite green.
 
 ---
 
@@ -69,29 +69,29 @@ Chain strategy: pending
 
 ### Phase 2.A — Template substitution
 
-- [ ] 2.1 **[RED]** Add `ComfyUiTemplateSubstitutionTests.cs` — assert:
+- [x] 2.1 **[RED]** Add `ComfyUiTemplateSubstitutionTests.cs` — assert:
   - All `{{TOKEN}}` placeholders replaced (CUI-01-c shape); output passes `JsonDocument.Parse` without exception
   - Prompt with JSON-special chars (`"`, `\`, newline) is correctly JSON-escaped before substitution
   - Template producing invalid JSON after substitution → `Result.Failure(IntegrationErrors.AiJsonInvalid)`
   - No-reference bypass: empty reference filename → `LoadImage`/IP-Adapter chain replaced by pass-through model edge on KSampler; result still valid JSON (design §3.3 bypass)
   (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiTemplateSubstitutionTests.cs`)
 
-- [ ] 2.2 **[GREEN]** Create `ComfyUiImageModelClient.cs` (stub + `SubstituteTemplate` only) — `private string SubstituteTemplate(...)` performs `string.Replace` for each `{{TOKEN}}`; reads bundled default via `Assembly.GetManifestResourceStream` when `WorkflowTemplateJson` is null/empty; applies no-reference bypass path; validates result via `JsonDocument.Parse`.
+- [x] 2.2 **[GREEN]** Create `ComfyUiImageModelClient.cs` (stub + `SubstituteTemplate` only) — `private string SubstituteTemplate(...)` performs `string.Replace` for each `{{TOKEN}}`; reads bundled default via `Assembly.GetManifestResourceStream` when `WorkflowTemplateJson` is null/empty; applies no-reference bypass path; validates result via `JsonDocument.Parse`.
   (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
 
 ### Phase 2.B — HTTP happy-path sequence + capabilities
 
-- [ ] 2.3 **[RED]** Add `ComfyUiHappyPathTests.cs` — assert with fake `HttpMessageHandler` scripted as:
+- [x] 2.3 **[RED]** Add `ComfyUiHappyPathTests.cs` — assert with fake `HttpMessageHandler` scripted as:
   `POST /upload/image` → `{name, subfolder, type}`; `POST /prompt` → `{prompt_id}`; `GET /history/{id}` (pending then done with `images[]` under `OutputNodeId`); `GET /view` → fixture bytes:
   - `GenerateAsync` returns `Result.Success` with fixture bytes; `ProviderKey = "comfyui"`; resolved checkpoint in result (CUI-01-a)
   - `Capabilities.SupportsImageConditioning = true`; `MaxConditioningImages = settings.MaxReferenceImages` (CUI-IMG-01)
   - No-reference path: handler receives no `/upload/image` call; returns bytes via text-only variant (CUI-01-b)
   (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiHappyPathTests.cs`)
 
-- [ ] 2.4 **[GREEN]** Implement `ComfyUiImageModelClient.GenerateAsync` — `FromCredential` → resolve checkpoint (`PreferredModel ?? SelectedModel ?? DefaultCheckpoint`) → `ResolveReferenceImageBytesAsync` → upload → `SubstituteTemplate` → `POST /prompt` (with `client_id` guid) → poll `GET /history/{prompt_id}` every `PollInterval` until `OutputNodeId` has `images[]` (bounded by `Timeout`/`CancellationToken`) → `GET /view` → `Result.Success(ImageGenerationResult(bytes, mime, "comfyui", checkpoint, usage))`. `Capabilities` property: `new ImageModelCapabilities(SupportsImageConditioning: true, MaxConditioningImages: settings.MaxReferenceImages)`.
+- [x] 2.4 **[GREEN]** Implement `ComfyUiImageModelClient.GenerateAsync` — `FromCredential` → resolve checkpoint (`PreferredModel ?? SelectedModel ?? DefaultCheckpoint`) → `ResolveReferenceImageBytesAsync` → upload → `SubstituteTemplate` → `POST /prompt` (with `client_id` guid) → poll `GET /history/{prompt_id}` every `PollInterval` until `OutputNodeId` has `images[]` (bounded by `Timeout`/`CancellationToken`) → `GET /view` → `Result.Success(ImageGenerationResult(bytes, mime, "comfyui", checkpoint, usage))`. `Capabilities` property: `new ImageModelCapabilities(SupportsImageConditioning: true, MaxConditioningImages: settings.MaxReferenceImages)`.
   (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
 
-- [ ] 2.5 Run `dotnet test -c Release` — WU-2 tests pass; existing suite green.
+- [x] 2.5 Run `dotnet test -c Release` — WU-2 tests pass; existing suite green.
 
 ---
 
@@ -101,7 +101,7 @@ Chain strategy: pending
 
 ### Phase 3.A — Error path tests + implementation
 
-- [ ] 3.1 **[RED]** Add `ComfyUiErrorMappingTests.cs` — assert all rows of the design §3.4 error table:
+- [x] 3.1 **[RED]** Add `ComfyUiErrorMappingTests.cs` — assert all rows of the design §3.4 error table:
   - Fake handler throws `HttpRequestException` (socket refused) → `ExternalProviderUnavailable` (CUI-02-a)
   - Fake handler returns HTTP 500 on `/prompt` → `ExternalProviderUnavailable` (CUI-02-b)
   - Fake handler returns `node_errors` present in `/prompt` response → `ExternalProviderUnavailable`
@@ -113,10 +113,10 @@ Chain strategy: pending
   - None of the above paths propagates an unhandled exception (CUI-02-a blanket assertion)
   (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiErrorMappingTests.cs`)
 
-- [ ] 3.2 **[GREEN]** Extend `ComfyUiImageModelClient.GenerateAsync` — wrap every HTTP call + poll loop in try/catch; map each failure to exact `IntegrationErrors` code per design §3.4; `OperationCanceledException`/elapsed timeout → `ProviderTimeout`; never propagate. Zero new `IntegrationErrors` codes introduced.
+- [x] 3.2 **[GREEN]** Extend `ComfyUiImageModelClient.GenerateAsync` — wrap every HTTP call + poll loop in try/catch; map each failure to exact `IntegrationErrors` code per design §3.4; `OperationCanceledException`/elapsed timeout → `ProviderTimeout`; never propagate. Zero new `IntegrationErrors` codes introduced.
   (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
 
-- [ ] 3.3 Run `dotnet test -c Release` — WU-3 tests pass; existing suite green.
+- [x] 3.3 Run `dotnet test -c Release` — WU-3 tests pass; existing suite green.
 
 ---
 
@@ -126,17 +126,17 @@ Chain strategy: pending
 
 ### Phase 4.A — Reference byte-resolution tests + implementation
 
-- [ ] 4.1 **[RED]** Add `ComfyUiReferenceResolutionTests.cs` — assert with fake `IGeneratedAssetStorage`:
+- [x] 4.1 **[RED]** Add `ComfyUiReferenceResolutionTests.cs` — assert with fake `IGeneratedAssetStorage`:
   - Bytes returned for each ref URL → `POST /upload/image` called per ref; returned filename substituted as `{{REFERENCE_IMAGE}}` in template (CUI-06-a)
   - Three refs, `MaxReferenceImages = 1` → only first ref uploaded; cap enforced (OQ-5)
   - One ref with `OpenAsync` throwing → logged + skipped; remaining refs proceed without error
   - All refs fail → zero resolved; descriptor-only path executed (no `/upload/image` call); generation continues (CUI-01-b)
   (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiReferenceResolutionTests.cs`)
 
-- [ ] 4.2 **[GREEN]** Add `ResolveReferenceImageBytesAsync` private method to `ComfyUiImageModelClient` — iterates `request.ReferenceImages` capped to `settings.MaxReferenceImages`; calls `IGeneratedAssetStorage.OpenAsync(ref.Url)` per entry; catches + logs on failure and skips; returns resolved (bytes, mime) pairs; empty result → descriptor-only template path (no upload, bypass substitution).
+- [x] 4.2 **[GREEN]** Add `ResolveReferenceImageBytesAsync` private method to `ComfyUiImageModelClient` — iterates `request.ReferenceImages` capped to `settings.MaxReferenceImages`; calls `IGeneratedAssetStorage.OpenAsync(ref.Url)` per entry; catches + logs on failure and skips; returns resolved (bytes, mime) pairs; empty result → descriptor-only template path (no upload, bypass substitution).
   (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
 
-- [ ] 4.3 Run `dotnet test -c Release` — WU-4 tests pass; existing suite green.
+- [x] 4.3 Run `dotnet test -c Release` — WU-4 tests pass; existing suite green.
 
 ---
 

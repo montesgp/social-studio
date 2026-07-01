@@ -85,4 +85,8 @@
     <InternalsVisibleTo Include="Incoders.Hive.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Ai\Providers\DefaultComfyUiWorkflowTemplate.json" />
+  </ItemGroup>
+
 </Project>
