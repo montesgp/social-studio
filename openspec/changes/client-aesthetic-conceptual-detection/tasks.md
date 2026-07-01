@@ -368,7 +368,7 @@ design §3.4, §0 OQ-5.*
 *Refs: design §10; `openspec/config.yaml` `require_adr_for_architecture_changes: true`;
 project `CLAUDE.md` docs-sync MUST.*
 
-- [ ] 7.1 **[GREEN]** Author ADR
+- [x] 7.1 **[GREEN]** Author ADR
   `docs/architecture/adr/0009-pairs-contract-migration-conceptual-method-vision-routing.md`
   — document:
   - Port-signature migration `(refs, captions)` → `IReadOnlyList<ProfilePostImageCaptionPair>`:
@@ -384,7 +384,7 @@ project `CLAUDE.md` docs-sync MUST.*
     `TreatWarningsAsErrors=true`; nullable-by-design; no `!` suppressors.
   (`docs/architecture/adr/0009-pairs-contract-migration-conceptual-method-vision-routing.md`)
 
-- [ ] 7.2 **[GREEN]** Merge spec deltas into living specs:
+- [x] 7.2 **[GREEN]** Merge spec deltas into living specs:
   - `openspec/changes/client-aesthetic-conceptual-detection/specs/profile-analysis/spec-delta.md`
     → append to `openspec/specs/profile-analysis/spec.md`.
   - `openspec/changes/client-aesthetic-conceptual-detection/specs/content-generation/spec-delta.md`
