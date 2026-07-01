@@ -224,7 +224,7 @@ Chain strategy: pending
 
 *Refs: CUI-05, CUI-IMG-02; design §10, §11; `openspec/config.yaml` `require_adr_for_architecture_changes: true`.*
 
-- [ ] 7.1 **[GREEN]** Author `docs/architecture/adr/0009-comfyui-ip-adapter-image-provider.md` — document:
+- [x] 7.1 **[GREEN]** Author `docs/architecture/adr/0010-comfyui-ip-adapter-image-provider.md` — document:
   - New `comfyui` Infrastructure adapter: `ComfyUiImageModelClient`, `ComfyUiSettings`, `ComfyUiModelCatalogClient`
   - OQ-1: templated API-format JSON with `{{TOKEN}}` substitution + `OutputNodeId` (graph/model swap via config, zero code change)
   - OQ-2: polling HTTP contract (`upload → /prompt → poll /history → /view`); OpenAI-identical `IntegrationErrors` codes; degrade path unchanged
@@ -232,18 +232,20 @@ Chain strategy: pending
   - OQ-4: `FromCredential` binding (same shape as `ClaudePromptCliSettings`; per-org config, workflow template as credential)
   - OQ-5: `IGeneratedAssetStorage` byte-resolution + cap; Application layer stays byte-free
   - Architecture gate compliance: no ComfyUI/`HttpClient`/JSON-graph type in Domain or Application
-  (`docs/architecture/adr/0009-comfyui-ip-adapter-image-provider.md`)
+  - NOTE: filed as ADR **0010**, not 0009 — `docs/architecture/adr/0009-pairs-contract-migration-conceptual-method-vision-routing.md` was authored by the sibling `client-aesthetic-conceptual-detection` change and merged to `dev` first, so 0009 was already taken by the time this slice ran.
+  (`docs/architecture/adr/0010-comfyui-ip-adapter-image-provider.md`)
 
-- [ ] 7.2 **[GREEN]** Merge spec deltas into living specs:
+- [x] 7.2 **[GREEN]** Merge spec deltas into living specs:
   - Create `openspec/specs/comfyui-image-provider/spec.md` from `openspec/changes/comfyui-image-generation-provider/specs/comfyui-image-provider/spec-delta.md` (new spec — no prior file)
   - Append image-generation delta → `openspec/specs/image-generation/spec.md` (CUI-IMG-01, CUI-IMG-02)
   - Append integrations delta → `openspec/specs/integrations/spec.md` (CUI-INT-01..CUI-INT-05)
+  - RECONCILIATION: scenario CUI-04-c wording was corrected during merge — the delta draft said "an error result is returned" for `/object_info` unreachability, but the shipped `ComfyUiModelCatalogClient` (WU-5, verified on this branch) returns `Result.Success` with the curated `DefaultCheckpoints` fallback on ANY failure and never returns `Result.Failure`. The merged living spec now reads "curated fallback returned as a success; sync never errors" to match shipped behavior.
 
-- [ ] 7.3 **[DATA]** Verify the per-org `generate-image` → `comfyui` ROUTING config entry exists in the database for the target org; create it via seeder or admin tooling if absent. This is data, not code — must be confirmed before any end-to-end smoke test. (Design apply-time risk a.)
+- [ ] 7.3 **[DATA]** (blocked: requires live DB / admin session — see `docs/architecture/adr/0010-comfyui-ip-adapter-image-provider.md` §Operational prerequisites #1) Verify the per-org `generate-image` → `comfyui` ROUTING config entry exists in the database for the target org; create it via the Integrations routing UI or the `platform.organization_workflow_step_configs` row shape documented in the ADR if absent. This is data, not code — must be confirmed before any end-to-end smoke test. (Design apply-time risk a.)
 
-- [ ] 7.4 **[VALIDATE]** Validate default workflow template node class names (`CheckpointLoaderSimple`, `IPAdapterUnifiedLoader`, `IPAdapterAdvanced`, `LoadImage`, `KSampler`, `EmptyLatentImage`, `VAEDecode`, `SaveImage`) against the actual ComfyUI-Zluda install's `/object_info` response. Update `DefaultComfyUiWorkflowTemplate.json` if any class name differs from the installed nodes. (Design apply-time risk b.)
+- [ ] 7.4 **[VALIDATE]** (blocked: requires a running ComfyUI-Zluda instance — see `docs/architecture/adr/0010-comfyui-ip-adapter-image-provider.md` §Operational prerequisites #2) Validate default workflow template node class names (`CheckpointLoaderSimple`, `IPAdapterUnifiedLoader`, `IPAdapterAdvanced`, `LoadImage`, `KSampler`, `EmptyLatentImage`, `VAEDecode`, `SaveImage`) against the actual ComfyUI-Zluda install's `/object_info` response. Update `DefaultComfyUiWorkflowTemplate.json` if any class name differs from the installed nodes. (Design apply-time risk b.) NOTE: the ADR already records one already-shipped deviation from `design.md` §3.3 — `KSampler` input `latent_image` (not `latent`) — this remains to be validated against the live install for the OTHER node names.
 
-- [ ] 7.5 Run `pwsh -File scripts/gates/Run-Gates.ps1`; report gate summary. Do NOT mark complete on any MUST gate failure.
+- [x] 7.5 Run `pwsh -File scripts/gates/Run-Gates.ps1 -Skip tests`; report gate summary. Do NOT mark complete on any MUST gate failure. (`tests` gate skipped: Windows Smart App Control blocks local `dotnet test` for this repo; backend tests were CI-verified on ubuntu through PR 2 (WU-1..WU-6); this slice is docs/spec-only and changes zero application code.) Result: **PASS — 15 pass, 1 skipped (coverage, SHOULD-only), 0 MUST failures.**
 
 ---
 
@@ -261,17 +263,17 @@ Chain strategy: pending
 
 ## Definition of Done
 
-- [ ] WU-1..WU-7 tasks completed and committed in seam order (test + implementation in the same commit per behavior).
-- [ ] `dotnet test -c Release` exits 0 across the full suite. (WDAC flow: build → sign 4 Incoders DLLs thumbprint `162D6D5A0F56EDA79363B7EB475946778577042F` → `dotnet test --no-build`.)
-- [ ] Non-comfyui org parity test confirms: orgs routed to `openai`, `claude-p`, or CSS-only are completely unaffected (CUI-IMG-02, CUI-INT-05).
-- [ ] Architecture gate confirms: no ComfyUI/`HttpClient`/JSON-graph type in Domain or Application projects (CUI-05); `TreatWarningsAsErrors=true` — zero `!` suppressors introduced by this change.
-- [ ] All error paths return `Result.Failure(IntegrationErrors.*)` — no unhandled exception propagated from `ComfyUiImageModelClient` (CUI-02); no new `IntegrationErrors` codes introduced.
-- [ ] Reference byte-resolution cap enforced (`MaxConditioningImages`); failed `OpenAsync` logged + skipped; zero-resolve → descriptor-only path with no exception (OQ-5).
-- [ ] `/object_info` catalog unreachable → `DefaultCheckpoints` fallback returned; "Sync models" never errors (CUI-04-c).
-- [ ] Per-org seeder is idempotent; re-run does not duplicate `OrganizationIntegration` records (CUI-INT-02).
-- [ ] Default workflow template node class names validated against the target ComfyUI-Zluda install (task 7.4 complete).
-- [ ] Per-org `generate-image` → `comfyui` routing config entry confirmed present in data (task 7.3 complete).
-- [ ] ADR `0009-comfyui-ip-adapter-image-provider.md` authored under `docs/architecture/adr/`.
-- [ ] Spec deltas merged into `openspec/specs/` living files (`comfyui-image-provider` created; `image-generation` + `integrations` appended).
-- [ ] `pwsh -File scripts/gates/Run-Gates.ps1` exits 0; no MUST gate failure.
-- [ ] PR-split decision recorded per `ask-on-risk` delivery strategy (chain strategy TBD by user before apply).
+- [ ] WU-1..WU-7 tasks completed and committed in seam order (test + implementation in the same commit per behavior). (blocked: WU-7.3/7.4 remain open — environment-dependent, see below)
+- [ ] `dotnet test -c Release` exits 0 across the full suite. (WDAC flow: build → sign 4 Incoders DLLs thumbprint `162D6D5A0F56EDA79363B7EB475946778577042F` → `dotnet test --no-build`.) (blocked: Windows Smart App Control blocks local `dotnet test` in this environment; CI-verified on ubuntu for the WU-1..WU-6 commit range through PR 1 (#38) and PR 2 (#40) merges, but not re-run in this docs-only slice)
+- [x] Non-comfyui org parity test confirms: orgs routed to `openai`, `claude-p`, or CSS-only are completely unaffected (CUI-IMG-02, CUI-INT-05). CI-verified — `ComfyUiNonRoutedOrgParityTests` (WU-6, PR 2 #40).
+- [x] Architecture gate confirms: no ComfyUI/`HttpClient`/JSON-graph type in Domain or Application projects (CUI-05); `TreatWarningsAsErrors=true` — zero `!` suppressors introduced by this change. Verified this slice: `pwsh -File scripts/gates/Run-Gates.ps1 -Skip tests` → `architecture.layering` PASS, `architecture.imports` PASS.
+- [x] All error paths return `Result.Failure(IntegrationErrors.*)` — no unhandled exception propagated from `ComfyUiImageModelClient` (CUI-02); no new `IntegrationErrors` codes introduced. CI-verified — `ComfyUiErrorMappingTests` (WU-3, PR 1 #38).
+- [x] Reference byte-resolution cap enforced (`MaxConditioningImages`); failed `OpenAsync` logged + skipped; zero-resolve → descriptor-only path with no exception (OQ-5). CI-verified — `ComfyUiReferenceResolutionTests` (WU-4, PR 1 #38).
+- [x] `/object_info` catalog unreachable → `DefaultCheckpoints` fallback returned; "Sync models" never errors (CUI-04-c). CI-verified — `ComfyUiModelCatalogClientTests` (WU-5, PR 2 #40); re-confirmed by direct code read of `ComfyUiModelCatalogClient.ListModelsAsync` this slice (always `Result.Success`, never `Result.Failure`).
+- [x] Per-org seeder is idempotent; re-run does not duplicate `OrganizationIntegration` records (CUI-INT-02). CI-verified — `ComfyUiOrganizationSeederTests` (WU-6, PR 2 #40).
+- [ ] Default workflow template node class names validated against the target ComfyUI-Zluda install (task 7.4 complete). (blocked: requires a running ComfyUI-Zluda instance — see ADR 0010 §Operational prerequisites #2)
+- [ ] Per-org `generate-image` → `comfyui` routing config entry confirmed present in data (task 7.3 complete). (blocked: requires live DB / admin session — see ADR 0010 §Operational prerequisites #1)
+- [x] ADR `0010-comfyui-ip-adapter-image-provider.md` authored under `docs/architecture/adr/`. (Filed as 0010, not 0009 — see note on task 7.1.)
+- [x] Spec deltas merged into `openspec/specs/` living files (`comfyui-image-provider` created; `image-generation` + `integrations` appended).
+- [x] `pwsh -File scripts/gates/Run-Gates.ps1` exits 0; no MUST gate failure. (Run with `-Skip tests`; see gate summary on task 7.5. `dotnet test` gate itself remains blocked locally by SAC — see the `dotnet test` DoD line above.)
+- [x] PR-split decision recorded per `ask-on-risk` delivery strategy — executed as the 3-PR chain (PR 1: WU-1..4 core adapter, `#38`; PR 2: WU-5+WU-6 catalog+wiring, `#40`; PR 3: WU-7 ADR+gates, this slice) on `stacked-to-main`, evidenced by both prior PRs already merged to `dev`.
