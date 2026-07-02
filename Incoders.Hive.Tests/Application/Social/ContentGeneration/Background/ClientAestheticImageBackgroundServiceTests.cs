@@ -280,6 +280,41 @@ public sealed class ClientAestheticImageBackgroundServiceTests
     }
 
     // -----------------------------------------------------------------------
+    // Regression (DbContext concurrency incident): the per-slide loop MUST run serially.
+    // The defect: BuildCreativeBackgroundsAsync fanned the <=2 creative slides out with
+    // Task.WhenAll, and each slide's prompt-write transitively resolves workflow config
+    // through a scoped EF DbContext (ImagePromptWriter -> WorkflowConfigurationResolver ->
+    // EfWorkflowStepConfigurationRepository). EF Core's DbContext is not thread-safe, so the
+    // parallel slides raced the shared context ("A second operation was started on this context
+    // instance before a previous operation completed") and the losing slide degraded to CSS —
+    // the carousel came out without its generated photo slides.
+    // This fake throws exactly like EF on concurrent entry; a serialized loop never triggers it.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task BuildCreativeBackgroundsAsync_PerSlideLoop_RunsSeriallyWithoutConcurrentDbAccess()
+    {
+        var promptWriter = new ConcurrencyGuardPromptWriter(prompt: "background prompt");
+        var imageGateway = new StaticImageGateway(bytes: [1, 2, 3], mime: "image/png");
+        var storage = new CapturingStorage(url: "https://example.com/image.png");
+
+        var sut = BuildSut(promptWriter, imageGateway, storage);
+
+        var result = await sut.BuildCreativeBackgroundsAsync(BuildRequest([1, 4]), CancellationToken.None);
+
+        // If the loop ran in parallel, the two prompt-writes would overlap and the guard would
+        // observe concurrent access — exactly as the real shared DbContext did in production.
+        Assert.False(promptWriter.SawConcurrentAccess,
+            "Creative-slide prompt-writes ran concurrently. They share a scoped EF DbContext and " +
+            "MUST be serialized (regression: 'A second operation was started on this context instance').");
+
+        // And with serial execution both creative slides must succeed (neither degrades to CSS).
+        Assert.Equal(2, result.Count);
+        Assert.Contains(1, result.Keys);
+        Assert.Contains(4, result.Keys);
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
@@ -307,6 +342,47 @@ file sealed class StaticPromptWriter : IImagePromptWriter
 
     public Task<Result<string>> WriteAsync(ImagePromptRequest request, CancellationToken ct = default)
         => Task.FromResult(Result.Success(_prompt));
+}
+
+/// <summary>
+/// Simulates the non-thread-safe EF DbContext used by ImagePromptWriter's workflow-config
+/// resolution: if two prompt-writes overlap, it records the violation and throws the exact
+/// "second operation on this context instance" InvalidOperationException that EF Core raises.
+/// A serialized per-slide loop keeps in-flight count at 1 and never triggers it.
+/// The Task.Delay widens the overlap window so a parallel loop collides deterministically.
+/// </summary>
+file sealed class ConcurrencyGuardPromptWriter : IImagePromptWriter
+{
+    private readonly string _prompt;
+    private int _active;
+    private volatile bool _sawConcurrentAccess;
+
+    public ConcurrencyGuardPromptWriter(string prompt) => _prompt = prompt;
+
+    public bool SawConcurrentAccess => _sawConcurrentAccess;
+
+    public async Task<Result<string>> WriteAsync(ImagePromptRequest request, CancellationToken ct = default)
+    {
+        if (Interlocked.Increment(ref _active) > 1)
+        {
+            _sawConcurrentAccess = true;
+            Interlocked.Decrement(ref _active);
+            throw new InvalidOperationException(
+                "A second operation was started on this context instance before a previous " +
+                "operation completed. This is usually caused by different threads concurrently " +
+                "using the same instance of DbContext.");
+        }
+
+        try
+        {
+            await Task.Delay(50, ct);
+            return Result.Success(_prompt);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _active);
+        }
+    }
 }
 
 file sealed class TrackingPromptWriter : IImagePromptWriter
