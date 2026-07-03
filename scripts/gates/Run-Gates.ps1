@@ -114,7 +114,7 @@ foreach ($gate in $selected) {
 }
 
 if ($Json) {
-    $allResults | ConvertTo-Json -Depth 6
+    ConvertTo-SafeGateResultsJson -Results $allResults
 } elseif (-not $NoSummary) {
     Write-GateSummary -Results $allResults
 }

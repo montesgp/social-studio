@@ -33,7 +33,8 @@ function New-GateResult {
 
 function Format-GateLine {
     param([Parameter(Mandatory)] [GateResult] $Result)
-    return ('[ {0,-6} ] {1}: {2} - {3}' -f $Result.Level, $Result.Gate, $Result.Status, $Result.Message)
+    $safeMessage = Protect-GateOutput -Text $Result.Message
+    return ('[ {0,-6} ] {1}: {2} - {3}' -f $Result.Level, $Result.Gate, $Result.Status, $safeMessage)
 }
 
 function Write-GateResult {
@@ -46,6 +47,101 @@ function Write-GateResult {
         default   { 'White' }
     }
     Write-Host (Format-GateLine -Result $Result) -ForegroundColor $color
+    if ($Result.Details -and ($Result.Status -eq 'fail' -or $Result.Status -eq 'warn')) {
+        Write-Host (Format-GateDetails -Details $Result.Details) -ForegroundColor DarkGray
+    }
+}
+
+function Format-GateDetails {
+    param(
+        [Parameter(Mandatory)] $Details,
+        [int] $MaxLines = 80,
+        [int] $MaxCharacters = 6000
+    )
+    $text = Protect-GateOutput -Text ([string] $Details)
+    $lines = @($text -split "`r?`n")
+    $truncated = $lines.Count -gt $MaxLines
+    if ($truncated) { $lines = $lines[0..($MaxLines - 1)] }
+    $formatted = ($lines | ForEach-Object { "    $_" }) -join "`n"
+    if ($formatted.Length -gt $MaxCharacters) {
+        $formatted = $formatted.Substring(0, $MaxCharacters)
+        $truncated = $true
+    }
+    if ($truncated) { $formatted += "`n    ... details truncated ..." }
+    return $formatted
+}
+
+function Protect-GateOutput {
+    param([AllowEmptyString()] [string] $Text)
+    if ([string]::IsNullOrEmpty($Text)) { return $Text }
+
+    # Remove complete private-key blocks before line-oriented sanitization.
+    $sanitized = [regex]::Replace(
+        $Text,
+        '(?is)-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----.*?-----END (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----',
+        '[REDACTED_PRIVATE_KEY]')
+
+    # Known standalone credential formats enforced by the MUST secrets gate.
+    $knownPatterns = @(
+        '(?i)\bAKIA[0-9A-Z]{16}\b',
+        '(?i)\beyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b',
+        '(?i)\bsbp_[A-Za-z0-9]{40,}\b',
+        '(?i)\bsb-[A-Za-z0-9-]{20,}\b',
+        '(?i)\bghp_[A-Za-z0-9]{36,}\b',
+        '(?i)\bgithub_pat_[A-Za-z0-9_]{82,}\b',
+        '(?i)\bsk-ant-[A-Za-z0-9_\-]{32,}\b',
+        '(?i)\bsk-[A-Za-z0-9]{20,}\b'
+    )
+    foreach ($pattern in $knownPatterns) {
+        $sanitized = [regex]::Replace($sanitized, $pattern, '[REDACTED_CREDENTIAL]')
+    }
+
+    # Redact quoted assignments as a whole, including whitespace and embedded newlines.
+    $keyName = '(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|secret[_-]?access[_-]?key|aws[_-]?secret[_-]?access[_-]?key|connection[_-]?string|credential|authorization|client[_-]?secret|private[_-]?key)'
+    $quotedAssignment = ('(?is)((?<![A-Za-z0-9]){0}(?![A-Za-z0-9])\s*[=:]\s*)([''"])(.*?)\2' -f $keyName)
+    $sanitized = [regex]::Replace($sanitized, $quotedAssignment, {
+        param($match)
+        return $match.Groups[1].Value + '[REDACTED]'
+    })
+
+    # Unquoted assignments stop at a line or common connection-string delimiter.
+    $unquotedAssignment = ('(?im)((?<![A-Za-z0-9]){0}(?![A-Za-z0-9])\s*[=:]\s*)(?!\[REDACTED\])[^\r\n;,]+' -f $keyName)
+    $sanitized = [regex]::Replace($sanitized, $unquotedAssignment, {
+        param($match)
+        return $match.Groups[1].Value + '[REDACTED]'
+    })
+
+    # User-info embedded in URLs is credential material even without a key name.
+    $sanitized = [regex]::Replace(
+        $sanitized,
+        '(?i)(https?://)[^\s/@:]+:[^\s/@]+@',
+        '$1[REDACTED_CREDENTIALS]@')
+
+    return $sanitized
+}
+
+function ConvertTo-SafeGateResult {
+    param([Parameter(Mandatory)] [GateResult] $Result)
+    return [pscustomobject]@{
+        Gate = $Result.Gate
+        Level = $Result.Level
+        Status = $Result.Status
+        Message = Protect-GateOutput -Text $Result.Message
+        Details = if ($null -eq $Result.Details) { $null } else { Protect-GateOutput -Text ([string] $Result.Details) }
+    }
+}
+
+function ConvertTo-SafeGateResultsJson {
+    param([Parameter(Mandatory)] [GateResult[]] $Results)
+    $safeResults = @($Results | ForEach-Object { ConvertTo-SafeGateResult -Result $_ })
+    return ConvertTo-Json -InputObject $safeResults -Depth 6
+}
+
+function Get-ProjectReferenceName {
+    param([Parameter(Mandatory)] [string] $Include)
+    $normalized = $Include.Replace('\', '/')
+    $leaf = ($normalized -split '/')[-1]
+    return [System.IO.Path]::GetFileNameWithoutExtension($leaf)
 }
 
 function Get-RepoRoot {
