@@ -7,7 +7,8 @@
     "dev:fast": "node ./scripts/dev-fast.mjs",
     "build": "node -e \"process.env.NEXT_DIST_DIR='.next-build'; const result = require('child_process').spawnSync('next', ['build'], { env: process.env, shell: true, stdio: 'inherit' }); process.exit(result.status ?? 1)\"",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --experimental-strip-types --test \"lib/*.test.ts\""
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

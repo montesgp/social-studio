@@ -59,6 +59,7 @@ function reducer(state: HookState, action: HookAction): HookState {
 // ── Hook result type ──────────────────────────────────────────────────────────
 
 export interface UseContentGenerationJobResult {
+  observedJobId: string | null;
   status: ContentGenerationJobStatus | null;
   perFormatStatus: ContentGenerationJobStatusResponse["perFormatStatus"];
   perFormatFailureCounts: ContentGenerationJobStatusResponse["perFormatFailureCounts"];
@@ -194,6 +195,7 @@ export function useContentGenerationJob(
     state.phase === "polling" || state.phase === "done" ? state.data : null;
 
   return {
+    observedJobId: data?.jobId ?? null,
     status: data?.status ?? null,
     perFormatStatus: data?.perFormatStatus ?? {},
     perFormatFailureCounts: data?.perFormatFailureCounts ?? {},
