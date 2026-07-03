@@ -144,7 +144,45 @@ function ConvertTo-SafeGateResult {
         Level = $Result.Level
         Status = $Result.Status
         Message = Protect-GateOutput -Text $Result.Message
-        Details = if ($null -eq $Result.Details) { $null } else { Protect-GateOutput -Text ([string] $Result.Details) }
+        Details = if ($null -eq $Result.Details) { $null } else { Format-GateDetails -Details $Result.Details }
+    }
+}
+
+function Get-DotNetTestArguments {
+    param(
+        [Parameter(Mandatory)] [string] $ProjectPath,
+        [Parameter(Mandatory)] [string] $TrxFileName,
+        [Parameter(Mandatory)] [string] $ResultsDirectory,
+        [bool] $CollectCoverage = $false
+    )
+    $arguments = @(
+        'test', $ProjectPath,
+        '--nologo',
+        '--logger', 'console;verbosity=normal',
+        '--logger', "trx;LogFileName=$TrxFileName",
+        '--results-directory', $ResultsDirectory
+    )
+    if ($CollectCoverage) { $arguments += '--collect:XPlat Code Coverage' }
+    return $arguments
+}
+
+function Get-TestArtifactPaths {
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [Parameter(Mandatory)] [string] $CoverageDirectory,
+        [Parameter(Mandatory)] [string] $ProjectPath,
+        [bool] $CollectCoverage = $false
+    )
+    $effectiveDirectory = if ($CollectCoverage) {
+        $CoverageDirectory
+    } else {
+        Join-Path $RepoRoot '.gates/test-results'
+    }
+    $trxFileName = ('{0}.trx' -f ([System.IO.Path]::GetFileNameWithoutExtension($ProjectPath)))
+    return [pscustomobject]@{
+        Directory = $effectiveDirectory
+        TrxFileName = $trxFileName
+        TrxPath = Join-Path $effectiveDirectory $trxFileName
     }
 }
 
@@ -159,6 +197,26 @@ function Get-ProjectReferenceName {
     $normalized = $Include.Replace('\', '/')
     $leaf = ($normalized -split '/')[-1]
     return [System.IO.Path]::GetFileNameWithoutExtension($leaf)
+}
+
+function Get-TrxFailureSummary {
+    param([Parameter(Mandatory)] [string] $Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return '' }
+    try { [xml] $trx = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop }
+    catch { return "TRX parse error: $($_.Exception.Message)" }
+
+    $failedResults = @($trx.SelectNodes('//*[local-name()="UnitTestResult" and @outcome="Failed"]'))
+    if ($failedResults.Count -eq 0) { return '' }
+    $sections = foreach ($result in $failedResults) {
+        $name = [string] $result.testName
+        if ([string]::IsNullOrWhiteSpace($name)) { $name = '(unknown test)' }
+        $messageNode = $result.SelectSingleNode('./*[local-name()="Output"]/*[local-name()="ErrorInfo"]/*[local-name()="Message"]')
+        $stackNode = $result.SelectSingleNode('./*[local-name()="Output"]/*[local-name()="ErrorInfo"]/*[local-name()="StackTrace"]')
+        $message = if ($messageNode) { $messageNode.InnerText.Trim() } else { '(no failure message)' }
+        $stack = if ($stackNode) { $stackNode.InnerText.Trim() } else { '(no stack trace)' }
+        "FAILED TEST: $name`nMESSAGE: $message`nSTACK:`n$stack"
+    }
+    return ($sections -join "`n---`n")
 }
 
 function Get-RepoRoot {

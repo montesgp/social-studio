@@ -130,4 +130,75 @@ if ($smokeResults.Count -ne 2 -or @($smokeResults | Where-Object { -not $_.Gate 
     throw 'Run-Gates JSON smoke output was not a valid architecture result array.'
 }
 
+$testArgsWithoutCoverage = @(Get-DotNetTestArguments -ProjectPath 'Example.Tests.csproj' -TrxFileName 'Example.Tests.trx' -ResultsDirectory '.gates/test-results')
+$testArgsWithCoverage = @(Get-DotNetTestArguments -ProjectPath 'Example.Tests.csproj' -TrxFileName 'Example.Tests.trx' -ResultsDirectory '.gates/test-results' -CollectCoverage $true)
+foreach ($argumentSet in @($testArgsWithoutCoverage, $testArgsWithCoverage)) {
+    $resultsDirectoryCount = @($argumentSet | Where-Object { $_ -eq '--results-directory' }).Count
+    if ($resultsDirectoryCount -ne 1) { throw 'Dotnet test arguments must contain exactly one results directory.' }
+}
+if ($testArgsWithoutCoverage -contains '--collect:XPlat Code Coverage') { throw 'Coverage flag was added when disabled.' }
+if ($testArgsWithCoverage -notcontains '--collect:XPlat Code Coverage') { throw 'Coverage flag was missing when enabled.' }
+
+$syntheticRepo = Join-Path ([System.IO.Path]::GetTempPath()) 'gate-repo'
+$syntheticCoverage = Join-Path $syntheticRepo '.gates/coverage'
+$withoutCoveragePaths = Get-TestArtifactPaths -RepoRoot $syntheticRepo -CoverageDirectory $syntheticCoverage -ProjectPath 'Example.Tests/Example.Tests.csproj'
+$withCoveragePaths = Get-TestArtifactPaths -RepoRoot $syntheticRepo -CoverageDirectory $syntheticCoverage -ProjectPath 'Example.Tests/Example.Tests.csproj' -CollectCoverage $true
+if ($withoutCoveragePaths.Directory -ne (Join-Path $syntheticRepo '.gates/test-results')) {
+    throw 'Non-coverage test artifacts did not use the normal test-results directory.'
+}
+if ($withCoveragePaths.Directory -ne $syntheticCoverage) {
+    throw 'Coverage producer directory did not match the coverage consumer directory.'
+}
+foreach ($paths in @($withoutCoveragePaths, $withCoveragePaths)) {
+    if ((Split-Path -Parent $paths.TrxPath) -ne $paths.Directory -or
+        (Split-Path -Leaf $paths.TrxPath) -ne 'Example.Tests.trx') {
+        throw 'TRX path was not derived from the effective results directory.'
+    }
+}
+
+$largeFailureDetails = @('STRUCTURED-FAILURE-HEAD') +
+    @($combinedSecret) +
+    @(1..120 | ForEach-Object { "failure-context-$_" }) +
+    @('STRUCTURED-FAILURE-TAIL')
+$largeResult = New-GateResult -Gate 'tests.backend' -Level 'MUST' -Status 'fail' `
+    -Message 'synthetic failure' -Details ($largeFailureDetails -join "`n")
+$largeJson = ConvertTo-SafeGateResultsJson -Results @($largeResult)
+$largeParsed = @($largeJson | ConvertFrom-Json)[0]
+if ($largeParsed.Details.Length -gt 6000 -or @($largeParsed.Details -split "`n").Count -gt 80) {
+    throw 'Safe JSON details exceeded strict diagnostic bounds.'
+}
+if ($largeParsed.Details.Contains('synthetic phrase that must disappear')) {
+    throw 'Safe JSON details leaked a synthetic secret.'
+}
+if ($largeParsed.Details -notmatch 'STRUCTURED-FAILURE-HEAD' -or $largeParsed.Details -notmatch 'STRUCTURED-FAILURE-TAIL') {
+    throw 'Safe JSON details did not preserve structured failure head and tail.'
+}
+
+$trxPath = Join-Path ([System.IO.Path]::GetTempPath()) ("gate-trx-$([Guid]::NewGuid().ToString('N')).trx")
+$syntheticToken = 'token=' + "'fixture phrase'"
+$trxFixture = @"
+<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Results>
+    <UnitTestResult testName="Example.Namespace.FailingTest" outcome="Failed">
+      <Output><ErrorInfo><Message>Expected synthetic failure; $syntheticToken</Message><StackTrace>at Example.Namespace.FailingTest() in Example.cs:line 42</StackTrace></ErrorInfo></Output>
+    </UnitTestResult>
+    <UnitTestResult testName="Example.Namespace.PassingTest" outcome="Passed" />
+  </Results>
+</TestRun>
+"@
+try {
+    [IO.File]::WriteAllText($trxPath, $trxFixture)
+    $trxSummary = Get-TrxFailureSummary -Path $trxPath
+    if ($trxSummary -notmatch 'FAILED TEST: Example.Namespace.FailingTest' -or
+        $trxSummary -notmatch 'Expected synthetic failure' -or
+        $trxSummary -notmatch 'Example.cs:line 42' -or
+        $trxSummary -match 'PassingTest') {
+        throw 'TRX failure parser did not return the expected structured failure only.'
+    }
+    $safeTrxSummary = Protect-GateOutput -Text $trxSummary
+    if ($safeTrxSummary.Contains('fixture phrase')) { throw 'Structured TRX summary was not sanitizable.' }
+} finally {
+    if (Test-Path -LiteralPath $trxPath) { Remove-Item -LiteralPath $trxPath -Force }
+}
+
 Write-Host 'Gate helper tests passed.'

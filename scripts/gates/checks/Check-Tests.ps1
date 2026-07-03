@@ -36,14 +36,23 @@ if ($Config.backend -and $Config.backend.enabled -and $Config.backend.test_proje
                 continue
             }
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
-            $dotnetArgs = @(
-                'test', $projPath,
-                '--nologo',
-                '--logger', 'console;verbosity=normal'
-            )
-            if ($collectCoverage) {
-                $dotnetArgs += @('--collect:XPlat Code Coverage', '--results-directory', $CoverageDir)
+            $testArtifacts = Get-TestArtifactPaths `
+                -RepoRoot $RepoRoot `
+                -CoverageDirectory $CoverageDir `
+                -ProjectPath ([string] $proj) `
+                -CollectCoverage $collectCoverage
+            $trxDirectory = $testArtifacts.Directory
+            if (-not (Test-Path -LiteralPath $trxDirectory)) {
+                New-Item -ItemType Directory -Path $trxDirectory -Force | Out-Null
             }
+            $trxFileName = $testArtifacts.TrxFileName
+            $trxPath = $testArtifacts.TrxPath
+            if (Test-Path -LiteralPath $trxPath) { Remove-Item -LiteralPath $trxPath -Force }
+            $dotnetArgs = Get-DotNetTestArguments `
+                -ProjectPath $projPath `
+                -TrxFileName $trxFileName `
+                -ResultsDirectory $trxDirectory `
+                -CollectCoverage $collectCoverage
             $test = Invoke-External -FilePath 'dotnet' -ArgumentList $dotnetArgs -WorkingDirectory $RepoRoot
             $sw.Stop()
             $stat = 'fail'
@@ -63,7 +72,14 @@ if ($Config.backend -and $Config.backend.enabled -and $Config.backend.test_proje
                 $totals = " (total=$total, passed=$passed, failed=$failed, skipped=$skipped)"
             }
             $details = $null
-            if ($stat -eq 'fail') { $details = $test.StdOut + "`n" + $test.StdErr }
+            if ($stat -eq 'fail') {
+                $failureSummary = Get-TrxFailureSummary -Path $trxPath
+                $details = if ($failureSummary) {
+                    "=== STRUCTURED TEST FAILURES ===`n$failureSummary`n=== CONSOLE CONTEXT ===`n$($test.StdOut)`n$($test.StdErr)"
+                } else {
+                    "=== TRX FAILURE SUMMARY UNAVAILABLE ===`n=== CONSOLE CONTEXT ===`n$($test.StdOut)`n$($test.StdErr)"
+                }
+            }
             $results += New-GateResult -Gate 'tests.backend' -Level $level -Status $stat `
                 -Message ("{0} in {1:N1}s{2}" -f (Split-Path $proj -Leaf), $sw.Elapsed.TotalSeconds, $totals) `
                 -Details $details
