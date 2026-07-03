@@ -183,4 +183,7 @@ file sealed class FakeImageClientFactory : IExternalProviderClientFactory
     {
         return (TClient)(object)_client;
     }
+
+    public bool Supports<TClient>(string providerKey)
+        where TClient : notnull => true;
 }

@@ -23,6 +23,12 @@ public sealed class SystemProcessRunner : IProcessRunner
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
+            // Force UTF-8 when decoding child output. On Windows the redirected-stream default is the
+            // console OEM codepage (CP437/850), which corrupts non-ASCII UTF-8 output into mojibake
+            // (e.g. "¿qué elegís?" -> "Ôö¼ÔöÉquÔö£┬«"). Claude Code emits UTF-8; decode it as UTF-8 on
+            // every platform (no-op on Linux, where UTF-8 is already the default).
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
         };
 
         if (!string.IsNullOrWhiteSpace(request.WorkingDirectory))

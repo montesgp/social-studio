@@ -107,6 +107,23 @@ public sealed class SystemProcessRunnerTests
         Assert.False(result.TimedOut);
     }
 
+    [Fact]
+    public async Task RunAsync_DecodesChildStdoutAsUtf8_NoMojibake()
+    {
+        var runner = new SystemProcessRunner();
+
+        // Child emits UTF-8 bytes for non-ASCII Spanish copy. The runner must decode them as UTF-8;
+        // on Windows the redirected-stream default (OEM codepage) would corrupt this into mojibake.
+        var result = await runner.RunAsync(new ProcessRunRequest(
+            FileName: "pwsh",
+            Arguments: ["-NoProfile", "-Command", "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Write-Output '¿qué elegís?'"],
+            WorkingDirectory: Directory.GetCurrentDirectory(),
+            Timeout: TimeSpan.FromSeconds(30)), CancellationToken.None);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("¿qué elegís?", result.StandardOutput);
+    }
+
     private static async Task WaitForFileAsync(string path)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(5);

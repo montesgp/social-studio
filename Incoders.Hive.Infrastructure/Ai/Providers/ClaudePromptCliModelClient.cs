@@ -96,14 +96,34 @@ public sealed class ClaudePromptCliModelClient : IAiModelClient
             args.Add(tool);
         }
 
-        if (!string.IsNullOrWhiteSpace(request.OutputJsonSchema))
-        {
-            args.Add("--append-system-prompt");
-            args.Add($"Return output that conforms to this JSON schema: {request.OutputJsonSchema}");
-        }
+        // Isolation contract: as a Hive completion provider, claude-p must behave as a non-interactive
+        // rendering function — never as the Claude Code coding agent. --system-prompt REPLACES the default
+        // agent system prompt (this is what strips the agentic identity AND the dynamic cwd/git/branch
+        // sections that made Claude treat the design payload as suspicious pasted content and refuse it),
+        // --disable-slash-commands drops all skills, and --strict-mcp-config drops every MCP server (engram
+        // and any other harness tooling) for this single atomic invocation. The schema is folded into the
+        // override instead of a weaker --append-system-prompt. Verified against `claude -p` on 2026-07-03.
+        args.Add("--system-prompt");
+        args.Add(BuildIsolatedSystemPrompt(request.OutputJsonSchema));
+        args.Add("--disable-slash-commands");
+        args.Add("--strict-mcp-config");
 
         return args;
     }
+
+    private const string IsolatedRendererSystemPrompt =
+        "You are a non-interactive rendering function inside an automated content pipeline. " +
+        "This invocation is fully isolated from any software-engineering context: for this single atomic " +
+        "request, ignore all skills, memory, project instructions (CLAUDE.md/AGENTS.md), coding conventions, " +
+        "harness behavior, git or repository state, and any Claude Code agent identity. There is no human to " +
+        "converse with and no software task. Never ask questions, never refuse, never explain, never add " +
+        "commentary or prose. Read the input payload and return ONLY a single well-formed JSON object that " +
+        "conforms to the required schema. Output nothing before or after the JSON object.";
+
+    private static string BuildIsolatedSystemPrompt(string? outputJsonSchema) =>
+        string.IsNullOrWhiteSpace(outputJsonSchema)
+            ? IsolatedRendererSystemPrompt
+            : $"{IsolatedRendererSystemPrompt} Required JSON schema: {outputJsonSchema}";
 
     private static string Preview(string text) => text.Length <= 400 ? text : text[..400] + "…";
 }

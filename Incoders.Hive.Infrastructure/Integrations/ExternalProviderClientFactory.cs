@@ -31,6 +31,11 @@ public sealed class ExternalProviderClientFactory : IExternalProviderClientFacto
         return (TClient)ActivatorUtilities.CreateInstance(_serviceProvider, targetType, credential);
     }
 
+    public bool Supports<TClient>(string providerKey)
+        where TClient : notnull =>
+        !string.IsNullOrWhiteSpace(providerKey)
+        && ResolveTargetType(typeof(TClient), providerKey) is not null;
+
     private static Type? ResolveTargetType(Type clientType, string providerKey)
     {
         var normalized = providerKey.Trim().ToLowerInvariant();
