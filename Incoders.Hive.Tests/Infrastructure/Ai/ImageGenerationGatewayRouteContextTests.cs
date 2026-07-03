@@ -95,6 +95,7 @@ file sealed class RouteImageClientFactory : IExternalProviderClientFactory
     private readonly IImageModelClient _client;
     public RouteImageClientFactory(IImageModelClient client) => _client = client;
     public TClient Create<TClient>(ResolvedProviderCredential credential) where TClient : notnull => (TClient)_client;
+    public bool Supports<TClient>(string providerKey) where TClient : notnull => true;
 }
 
 file sealed class RouteImageClient : IImageModelClient

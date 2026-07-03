@@ -69,6 +69,86 @@ public sealed class ConfigurableWorkflowIntegrationsTests
     }
 
     [Fact]
+    public async Task SyncOrganizationAiModels_AllowsMediaGenerationProvider_AndMediaCardUsesSyncedCheckpoints()
+    {
+        var organizationId = Guid.NewGuid();
+        var provider = Provider(
+            "comfyui",
+            IntegrationProviderCategory.MediaGeneration,
+            ["v1-5-pruned-emaonly.safetensors"]);
+        var integration = ConnectedIntegration(organizationId, provider.Id, selectedModel: null);
+        var providers = new ProviderCatalog(provider);
+        var integrations = new IntegrationStore(integration);
+        var modelStore = new AiModelStore();
+        var catalogClient = new StaticAiModelCatalogClient(
+            [
+                new AiProviderModel(
+                    "realisticVisionV60B1_v51HyperVAE.safetensors",
+                    "realisticVisionV60B1_v51HyperVAE.safetensors",
+                    new Dictionary<string, string> { ["source"] = "checkpoint" })
+            ]);
+
+        var handler = new SyncOrganizationAiModelsHandler(
+            providers,
+            integrations,
+            new StaticIntegrationResolver(provider.Key),
+            new StaticExternalClientFactory(catalogClient),
+            modelStore,
+            new UnitOfWorkSpy(),
+            new TestClock(Now));
+
+        var sync = await handler.Handle(
+            new SyncOrganizationAiModelsCommand(organizationId, provider.Key),
+            CancellationToken.None);
+
+        Assert.True(sync.IsSuccess);
+        Assert.Equal(
+            ["realisticVisionV60B1_v51HyperVAE.safetensors"],
+            sync.Value.Models.Select(x => x.ModelId));
+
+        var overviewHandler = new GetOrganizationIntegrationsHandler(
+            providers,
+            integrations,
+            new EmptyCredentialStore(),
+            modelStore,
+            new StaticExternalClientFactory(catalogClient));
+
+        var overview = await overviewHandler.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+        var comfy = overview.Value.Integrations.Single(x => x.ProviderKey == "comfyui");
+        Assert.Equal(["realisticVisionV60B1_v51HyperVAE.safetensors"], comfy.AvailableModels);
+        Assert.DoesNotContain("v1-5-pruned-emaonly.safetensors", comfy.AvailableModels);
+        // The Media-generation card (ComfyUI's primary category) must advertise model sync so the UI
+        // renders the "Sync models" affordance.
+        Assert.True(comfy.SupportsModelSync);
+    }
+
+    [Fact]
+    public async Task SyncOrganizationAiModels_RejectsProviderWithoutCatalogClient()
+    {
+        var organizationId = Guid.NewGuid();
+        var provider = Provider("canva", IntegrationProviderCategory.Design, []);
+        var handler = new SyncOrganizationAiModelsHandler(
+            new ProviderCatalog(provider),
+            new IntegrationStore(ConnectedIntegration(organizationId, provider.Id, selectedModel: null)),
+            new StaticIntegrationResolver(provider.Key),
+            new StaticExternalClientFactory(client: null, supports: false),
+            new AiModelStore(),
+            new UnitOfWorkSpy(),
+            new TestClock(Now));
+
+        var result = await handler.Handle(
+            new SyncOrganizationAiModelsCommand(organizationId, provider.Key),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(IntegrationErrors.ExternalProviderUnsupported.Code, result.Error.Code);
+    }
+
+    [Fact]
     public async Task WorkflowConfigurationResolver_ResolvesOnlyCurrentOrganizationAndOrdersActorFallbacks()
     {
         var organizationA = Guid.NewGuid();
@@ -480,13 +560,23 @@ public sealed class ConfigurableWorkflowIntegrationsTests
 
     private sealed class StaticExternalClientFactory : IExternalProviderClientFactory
     {
-        private readonly IAiModelCatalogClient _client;
+        private readonly IAiModelCatalogClient? _client;
+        private readonly bool _supports;
 
-        public StaticExternalClientFactory(IAiModelCatalogClient client) => _client = client;
+        public StaticExternalClientFactory(IAiModelCatalogClient? client, bool supports = true)
+        {
+            _client = client;
+            _supports = supports;
+        }
 
         public TClient Create<TClient>(ResolvedProviderCredential credential)
             where TClient : notnull =>
-            (TClient)_client;
+            _client is TClient typed
+                ? typed
+                : throw new InvalidOperationException($"No client for {typeof(TClient).Name}.");
+
+        public bool Supports<TClient>(string providerKey)
+            where TClient : notnull => _supports;
     }
 
     private sealed class StaticAiModelCatalogClient : IAiModelCatalogClient

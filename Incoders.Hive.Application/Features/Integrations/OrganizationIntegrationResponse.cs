@@ -22,4 +22,8 @@ public sealed record OrganizationIntegrationResponse(
     IReadOnlyList<string> AvailableModels,
     IReadOnlyList<IntegrationCredentialFieldResponse> CredentialFields,
     IReadOnlyList<string> ConfiguredCredentialKeys,
-    IReadOnlyDictionary<string, string> CredentialValues);
+    IReadOnlyDictionary<string, string> CredentialValues,
+    // True only on the provider's PRIMARY-category card when the provider exposes a model catalog
+    // client — i.e. this card can pull its live model list from the provider and cache it (e.g.
+    // OpenAI→AI models, ComfyUI→Media generation). Drives the "Sync models" affordance in the UI.
+    bool SupportsModelSync = false);

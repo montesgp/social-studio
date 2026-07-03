@@ -39,6 +39,55 @@ public sealed class ClaudePromptCliModelClientTests
     }
 
     [Fact]
+    public async Task CompleteAsync_IsolatesClaudeFromEngineeringEcosystem_WithSystemPromptOverrideAndSchema()
+    {
+        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "{\"ok\":true}", "", false));
+        var client = new ClaudePromptCliModelClient(BuildCredential(new Dictionary<string, string>
+        {
+            ["executable_path"] = "claude",
+            ["default_model"] = "claude-default"
+        }), runner, NullLogger<ClaudePromptCliModelClient>.Instance);
+
+        var result = await client.CompleteAsync(new AiCompletionRequest(
+            Guid.NewGuid(), "ai-analysis", "prompt/v1", "hello", "claude-p", "claude-selected", "{\"type\":\"object\"}"), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var args = runner.Request!.Arguments;
+
+        // The default agent system prompt is REPLACED (override), not appended — this is what strips
+        // the Claude Code identity and the dynamic cwd/git sections that caused the refusals.
+        Assert.Contains("--system-prompt", args);
+        Assert.DoesNotContain("--append-system-prompt", args);
+
+        var systemPrompt = args[args.ToList().IndexOf("--system-prompt") + 1];
+        Assert.Contains("non-interactive rendering function", systemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("never refuse", systemPrompt, StringComparison.OrdinalIgnoreCase);
+        // Schema is folded into the override.
+        Assert.Contains("{\"type\":\"object\"}", systemPrompt);
+
+        // Skills and MCP (engram + any harness tooling) are disabled for this atomic invocation.
+        Assert.Contains("--disable-slash-commands", args);
+        Assert.Contains("--strict-mcp-config", args);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_AppliesIsolationEvenWithoutSchema()
+    {
+        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "{}", "", false));
+        var client = new ClaudePromptCliModelClient(BuildCredential(), runner, NullLogger<ClaudePromptCliModelClient>.Instance);
+
+        var result = await client.CompleteAsync(new AiCompletionRequest(
+            Guid.NewGuid(), "ai-analysis", "prompt/v1", "hello", "claude-p", "claude-selected"), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var args = runner.Request!.Arguments;
+        Assert.Contains("--system-prompt", args);
+        Assert.DoesNotContain("--append-system-prompt", args);
+        Assert.Contains("--disable-slash-commands", args);
+        Assert.Contains("--strict-mcp-config", args);
+    }
+
+    [Fact]
     public async Task CompleteAsync_NonZeroExitReturnsProviderFailure()
     {
         var runner = new CapturingProcessRunner(new ProcessRunResult(2, "", "boom", false));

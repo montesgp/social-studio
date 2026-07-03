@@ -2245,7 +2245,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                         <Button variant="outline" size="sm" onClick={() => void runTest(integration)}>
                           <Link2 className="h-4 w-4" /> Test connection
                         </Button>
-                        {integration.category === "AiModel" && integration.status === "Connected" ? (
+                        {integration.supportsModelSync && integration.status === "Connected" ? (
                           <Button
                             variant="outline"
                             size="sm"
@@ -2316,7 +2316,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                 Enabled
               </label>
 
-              {modal.integration.category === "AiModel" ? (
+              {modal.integration.supportsModelSync ? (
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Default model (optional)</label>
                   <ModelSelect

@@ -118,6 +118,56 @@ public sealed class ComfyUiTemplateSubstitutionTests
     }
 
     [Fact]
+    public void EmbeddedDefaultTemplate_WithReferenceImage_SatisfiesInstalledIpAdapterNodeContract()
+    {
+        // Regression for the ComfyUI /prompt validation failure (issue #43): the shipped default
+        // template must produce an IP-Adapter subgraph that matches the installed node contract —
+        // a valid non-empty preset and all IPAdapterAdvanced required inputs, including the
+        // `ipadapter` pipe wired from IPAdapterUnifiedLoader's 2nd output.
+        var template = LoadEmbeddedDefaultTemplate();
+
+        var result = ComfyUiImageModelClient.BuildWorkflowGraph(
+            template,
+            checkpoint: "realisticVisionV60B1_v51HyperVAE.safetensors",
+            positivePrompt: "a vivid botanical background",
+            negativePrompt: "",
+            referenceImageName: "uploaded_ref.png",
+            ipAdapterModel: null,
+            width: 1024,
+            height: 1024,
+            seed: 42,
+            steps: 20,
+            cfg: 7.0);
+
+        Assert.True(result.IsSuccess);
+        using var doc = JsonDocument.Parse(result.Value);
+
+        var unifiedLoader = doc.RootElement.GetProperty("5").GetProperty("inputs");
+        var preset = unifiedLoader.GetProperty("preset").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(preset));
+
+        var ipAdapter = doc.RootElement.GetProperty("6").GetProperty("inputs");
+        var pipe = ipAdapter.GetProperty("ipadapter");
+        Assert.Equal("5", pipe[0].GetString());
+        Assert.Equal(1, pipe[1].GetInt32());
+        foreach (var required in new[] { "weight_type", "combine_embeds", "embeds_scaling", "start_at", "end_at" })
+        {
+            Assert.True(ipAdapter.TryGetProperty(required, out _), $"IPAdapterAdvanced missing '{required}'.");
+        }
+    }
+
+    private static string LoadEmbeddedDefaultTemplate()
+    {
+        const string resourceName =
+            "Incoders.Hive.Infrastructure.Ai.Providers.DefaultComfyUiWorkflowTemplate.json";
+        var assembly = typeof(ComfyUiImageModelClient).Assembly;
+        using var stream = assembly.GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException($"Embedded resource '{resourceName}' not found.");
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
+    [Fact]
     public void BuildWorkflowGraph_NoReferenceImage_StillProducesValidJson()
     {
         var result = ComfyUiImageModelClient.BuildWorkflowGraph(

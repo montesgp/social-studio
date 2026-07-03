@@ -133,5 +133,8 @@ public sealed class AiCompletionGatewayTests
         public TClient Create<TClient>(ResolvedProviderCredential credential)
             where TClient : notnull =>
             (TClient)_client;
+
+        public bool Supports<TClient>(string providerKey)
+            where TClient : notnull => true;
     }
 }

@@ -254,6 +254,9 @@ export interface OrganizationIntegration {
   supportsSystemDefault: boolean;
   systemDefaultReadOnly: boolean;
   availableModels: string[];
+  // True only on the provider's primary-category card when the backend has a model catalog client
+  // for it (e.g. OpenAI→AI models, ComfyUI→Media generation). Drives the "Sync models" affordance.
+  supportsModelSync: boolean;
   credentialFields: IntegrationCredentialField[];
   configuredCredentialKeys: string[];
   credentialValues: Record<string, string>;

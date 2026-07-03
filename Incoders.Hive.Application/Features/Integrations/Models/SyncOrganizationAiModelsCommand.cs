@@ -58,9 +58,11 @@ public sealed class SyncOrganizationAiModelsHandler
             return Result.Failure<OrganizationAiModelsResponse>(IntegrationErrors.ProviderNotFound);
         }
 
-        if (provider.Category != IntegrationProviderCategory.AiModel)
+        // Route by capability, not by category: any provider that exposes a model catalog client
+        // (text AI models OR media-generation backends such as ComfyUI) can sync its live model list.
+        if (!_clientFactory.Supports<IAiModelCatalogClient>(provider.Key))
         {
-            return Result.Failure<OrganizationAiModelsResponse>(IntegrationErrors.DefaultAiProviderInvalidCategory);
+            return Result.Failure<OrganizationAiModelsResponse>(IntegrationErrors.ExternalProviderUnsupported);
         }
 
         var integration = await _integrations.GetByOrganizationAndProviderAsync(

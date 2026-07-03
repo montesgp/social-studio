@@ -13,17 +13,20 @@ public sealed class GetOrganizationIntegrationsHandler
     private readonly IOrganizationIntegrationRepository _integrations;
     private readonly IOrganizationIntegrationCredentialRepository _credentials;
     private readonly IOrganizationAiModelRepository? _models;
+    private readonly IExternalProviderClientFactory? _clientFactory;
 
     public GetOrganizationIntegrationsHandler(
         IIntegrationProviderCatalogRepository providers,
         IOrganizationIntegrationRepository integrations,
         IOrganizationIntegrationCredentialRepository credentials,
-        IOrganizationAiModelRepository? models = null)
+        IOrganizationAiModelRepository? models = null,
+        IExternalProviderClientFactory? clientFactory = null)
     {
         _providers = providers;
         _integrations = integrations;
         _credentials = credentials;
         _models = models;
+        _clientFactory = clientFactory;
     }
 
     public async Task<Result<OrganizationIntegrationsOverviewResponse>> Handle(
@@ -70,13 +73,19 @@ public sealed class GetOrganizationIntegrationsHandler
                     category,
                     cancellationToken);
 
+                // The synced catalog is keyed by provider and maps to its PRIMARY category, so only
+                // that card advertises "Sync models" — and only when a catalog client actually exists.
+                var supportsModelSync = category == provider.Category
+                    && (_clientFactory?.Supports<IAiModelCatalogClient>(provider.Key) ?? false);
+
                 responseIntegrations.Add(IntegrationResponseFactory.From(
                     request.OrganizationId,
                     provider,
                     integration,
                     keys,
                     availableModels: availableModels,
-                    category: category));
+                    category: category,
+                    supportsModelSync: supportsModelSync));
             }
         }
 
@@ -145,9 +154,11 @@ public sealed class GetOrganizationIntegrationsHandler
         IntegrationProviderCategory category,
         CancellationToken cancellationToken)
     {
-        // Only AI model cards pull the org-synced model list; media (and other) categories use the
-        // static catalog menu for that category.
-        if (_models is null || category != IntegrationProviderCategory.AiModel)
+        // A provider's synced catalog is keyed by provider, not category, so it maps to the provider's
+        // PRIMARY category card (e.g. OpenAI→AI models, ComfyUI→Media generation). Secondary-category
+        // cards (e.g. OpenAI under Media generation) keep the static catalog menu so text models never
+        // leak into the image-model selector.
+        if (_models is null || category != provider.Category)
         {
             return provider.ModelsFor(category);
         }

@@ -17,7 +17,8 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Background
 ///
 /// <para>
 /// Applies <see cref="CreativeSlideIndexResolver.MaxCreativeSlidesPerPackage"/> cap,
-/// runs <see cref="Task.WhenAll"/> bounded to ≤2 slides (OQ-4),
+/// processes the ≤2 creative slides SERIALLY (they share a scoped, non-thread-safe EF
+/// DbContext via the prompt-writer's workflow-config resolution; parallelism raced it),
 /// reuses stored backgrounds when the prompt hash is unchanged (OQ-3),
 /// and omits any failed slide from the returned map — degrading that slide to the
 /// existing CSS designer path (CIG-CG-03 resilience contract).
@@ -132,17 +133,22 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
         // CAC-IMG-01: call DescribeAsync ONCE per job, before the per-slide loop.
         var referenceImages = await ResolveReferenceImagesAsync(request, ct);
 
-        // OQ-4: bounded Task.WhenAll across ≤2 slides.
-        var tasks = cappedIndices.Select(
-            slideIndex => BuildSingleSlideAsync(request, slideIndex, referenceImages, ct));
-        var results = await Task.WhenAll(tasks);
-
+        // Serialized per-slide loop (previously Task.WhenAll — OQ-4 "bounded parallel").
+        // The per-slide pipeline transitively resolves workflow config through a scoped EF
+        // DbContext (ImagePromptWriter → WorkflowConfigurationResolver →
+        // EfWorkflowStepConfigurationRepository), and EF Core's DbContext is NOT thread-safe.
+        // Running the ≤2 slides in parallel raced the shared context — "A second operation was
+        // started on this context instance before a previous operation completed" — and the
+        // losing slide degraded to CSS, so ClientAesthetic carousels came out without their
+        // generated photo slides. With the cap at 2 slides (and image generation as the dominant
+        // cost) the parallelism saved nothing meaningful; serial execution is the correct fix.
         var map = new Dictionary<int, BackgroundSelection.ForcedDefault>();
-        foreach (var (slideIndex, forcedDefault) in results)
+        foreach (var slideIndex in cappedIndices)
         {
+            var (index, forcedDefault) = await BuildSingleSlideAsync(request, slideIndex, referenceImages, ct);
             if (forcedDefault is not null)
             {
-                map[slideIndex] = forcedDefault;
+                map[index] = forcedDefault;
             }
         }
 

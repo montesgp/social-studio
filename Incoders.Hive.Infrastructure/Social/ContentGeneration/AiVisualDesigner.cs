@@ -124,7 +124,12 @@ public sealed class AiVisualDesigner : IVisualDesigner
             return Result.Failure<VisualDesignOutput>(gatewayResult.Error);
         }
 
-        var markup = gatewayResult.Value.Payload.Markup;
+        // Defensive extraction (VD-01 boundary): weaker models sometimes ignore the OUTPUT CONTRACT
+        // and return a chatty preamble and/or a ```html code fence AROUND the composition. The
+        // guardrail's FindComposition tolerantly validates the nested composition subtree, but the
+        // RENDERER receives Markup unchanged — so any surrounding prose/fence would render verbatim
+        // onto the slide. Strip the fence and surrounding prose so what renders == what is validated.
+        var markup = ExtractCompositionMarkup(gatewayResult.Value.Payload.Markup);
         if (string.IsNullOrWhiteSpace(markup))
         {
             return Result.Failure<VisualDesignOutput>(
@@ -138,6 +143,54 @@ public sealed class AiVisualDesigner : IVisualDesigner
             IsValid: false);
 
         return Result.Success(output);
+    }
+
+    /// <summary>
+    /// Extracts the composition markup from a raw AI completion, defending against models that
+    /// ignore the OUTPUT CONTRACT and wrap the composition in a chatty preamble and/or a Markdown
+    /// code fence (e.g. <c>"Acá está la composición…\n```html\n&lt;div class=\"composition\"&gt;…"</c>).
+    /// Unwraps the first fenced block when present, then trims any surrounding prose to the markup
+    /// span (first <c>'&lt;'</c> to last <c>'&gt;'</c>). Returns an empty string when no markup is
+    /// present at all, so the caller degrades the slide instead of rendering prose verbatim.
+    /// Public+static for direct unit testing.
+    /// </summary>
+    public static string ExtractCompositionMarkup(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        var text = raw.Trim();
+
+        // 1) Unwrap the first Markdown fenced block, if any. Handles ```html / ```xml / bare ```.
+        //    Everything before the opening fence (prose preamble) and after the closing fence
+        //    (trailing prose) is discarded.
+        var fenceStart = text.IndexOf("```", StringComparison.Ordinal);
+        if (fenceStart >= 0)
+        {
+            var afterOpen = fenceStart + 3;
+            var openLineEnd = text.IndexOf('\n', afterOpen);
+            if (openLineEnd >= 0)
+            {
+                // The remainder of the opening-fence line is an optional language hint (e.g. "html").
+                var contentStart = openLineEnd + 1;
+                var fenceEnd = text.IndexOf("```", contentStart, StringComparison.Ordinal);
+                text = (fenceEnd >= 0 ? text[contentStart..fenceEnd] : text[contentStart..]).Trim();
+            }
+        }
+
+        // 2) Trim any remaining surrounding prose to the markup span (first '<' … last '>').
+        //    When no angle brackets remain, there is no markup to render — return empty so the
+        //    caller degrades the slide instead of printing the model's prose verbatim.
+        var first = text.IndexOf('<');
+        var last = text.LastIndexOf('>');
+        if (first < 0 || last < first)
+        {
+            return string.Empty;
+        }
+
+        return text[first..(last + 1)].Trim();
     }
 
     /// <summary>

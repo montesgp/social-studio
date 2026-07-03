@@ -11,7 +11,8 @@ internal static class IntegrationResponseFactory
         IReadOnlyList<string> configuredCredentialKeys,
         IReadOnlyDictionary<string, string>? credentialValues = null,
         IReadOnlyList<string>? availableModels = null,
-        IntegrationProviderCategory? category = null)
+        IntegrationProviderCategory? category = null,
+        bool supportsModelSync = false)
     {
         var providerResponse = IntegrationProviderResponse.FromDomain(provider);
         var values = credentialValues ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -52,7 +53,8 @@ internal static class IntegrationResponseFactory
                 models,
                 providerResponse.CredentialFields,
                 configuredCredentialKeys,
-                values);
+                values,
+                supportsModelSync);
         }
 
         return new OrganizationIntegrationResponse(
@@ -75,6 +77,7 @@ internal static class IntegrationResponseFactory
             models,
             providerResponse.CredentialFields,
             configuredCredentialKeys,
-            values);
+            values,
+            supportsModelSync);
     }
 }

@@ -211,5 +211,8 @@ public sealed class SocialContentResolverTests
         public TClient Create<TClient>(ResolvedProviderCredential credential)
             where TClient : notnull =>
             (TClient)_extractor;
+
+        public bool Supports<TClient>(string providerKey)
+            where TClient : notnull => true;
     }
 }
