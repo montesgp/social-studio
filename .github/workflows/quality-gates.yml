@@ -7,18 +7,8 @@
 name: Quality Gates
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'LICENSE'
-      - '.github/incoders-ai/gates/**'   # gate definitions are markdown
-      - '.github/incoders-ai/**/*.md'
-      - '.github/project-ai/**/*.md'
-      - '.alt/**'
   pull_request:
-    branches: [main]
+    branches: [dev, main]
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
