@@ -2278,7 +2278,12 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
       ) : null}
 
       <Dialog open={modal !== null} onOpenChange={(open) => !open && setModal(null)}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className={cn(
+            "max-h-[90vh] overflow-y-auto",
+            modal?.integration.providerKey === "apify" ? "sm:max-w-4xl" : "sm:max-w-2xl"
+          )}
+        >
           <DialogHeader>
             <DialogTitle>{modal?.integration.providerDisplayName} integration</DialogTitle>
             <DialogDescription>
@@ -2445,7 +2450,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                     </p>
                   ) : (
                     <div className="space-y-2">
-                      <div className="hidden md:grid gap-2 px-2 md:grid-cols-[1fr_1fr_1fr_auto_auto]">
+                      <div className="hidden md:grid gap-2 px-2 md:grid-cols-[minmax(8rem,1fr)_minmax(10rem,1fr)_minmax(16rem,2fr)_auto_auto]">
                         <span className="text-xs font-medium text-muted-foreground">Red social</span>
                         <span className="text-xs font-medium text-muted-foreground">Workflow / Área</span>
                         <span className="text-xs font-medium text-muted-foreground">Actor ID</span>
@@ -2456,7 +2461,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                         const isKnownNetwork = socialNetworkOptions.some((option) => option.value === mapping.networkKey);
 
                         return (
-                          <div key={mapping.id} className="grid gap-2 rounded-lg border border-border/70 p-2 md:grid-cols-[1fr_1fr_1fr_auto_auto]">
+                          <div key={mapping.id} className="grid gap-2 rounded-lg border border-border/70 p-2 md:grid-cols-[minmax(8rem,1fr)_minmax(10rem,1fr)_minmax(16rem,2fr)_auto_auto]">
                             <Select
                               value={mapping.networkKey}
                               onChange={(event) =>
