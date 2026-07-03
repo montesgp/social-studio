@@ -48,11 +48,18 @@ on:
         type: boolean
         required: false
         default: false
+      frontend-api-base-url:
+        description: 'Non-secret API base URL used only while building/testing the frontend.'
+        type: string
+        required: false
+        default: 'http://localhost:5000'
 
 jobs:
   gates:
     name: Quality Gates
     runs-on: ${{ inputs.runs-on }}
+    env:
+      NEXT_PUBLIC_API_BASE_URL: ${{ inputs.frontend-api-base-url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

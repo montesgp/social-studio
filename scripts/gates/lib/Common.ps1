@@ -55,19 +55,36 @@ function Write-GateResult {
 function Format-GateDetails {
     param(
         [Parameter(Mandatory)] $Details,
-        [int] $MaxLines = 80,
-        [int] $MaxCharacters = 6000
+        [ValidateRange(1, 2147483647)] [int] $MaxLines = 80,
+        [ValidateRange(1, 2147483647)] [int] $MaxCharacters = 6000
     )
     $text = Protect-GateOutput -Text ([string] $Details)
     $lines = @($text -split "`r?`n")
     $truncated = $lines.Count -gt $MaxLines
-    if ($truncated) { $lines = $lines[0..($MaxLines - 1)] }
+    if ($truncated) {
+        if ($MaxLines -le 1) {
+            $lines = @('...')
+        } elseif ($MaxLines -eq 2) {
+            $lines = @($lines[0], $lines[-1])
+        } else {
+            $headCount = [Math]::Floor(($MaxLines - 1) / 2)
+            $tailCount = $MaxLines - 1 - $headCount
+            $lines = @($lines[0..($headCount - 1)]) + @('... details truncated; tail follows ...') + @($lines[($lines.Count - $tailCount)..($lines.Count - 1)])
+        }
+    }
     $formatted = ($lines | ForEach-Object { "    $_" }) -join "`n"
     if ($formatted.Length -gt $MaxCharacters) {
-        $formatted = $formatted.Substring(0, $MaxCharacters)
+        $marker = '...[truncated]...'
+        if ($MaxCharacters -le $marker.Length) {
+            $formatted = $marker.Substring(0, [Math]::Max(0, $MaxCharacters))
+        } else {
+            $available = $MaxCharacters - $marker.Length
+            $headChars = [Math]::Floor($available / 2)
+            $tailChars = $available - $headChars
+            $formatted = $formatted.Substring(0, $headChars) + $marker + $formatted.Substring($formatted.Length - $tailChars)
+        }
         $truncated = $true
     }
-    if ($truncated) { $formatted += "`n    ... details truncated ..." }
     return $formatted
 }
 

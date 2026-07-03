@@ -14,10 +14,54 @@ Assert-Equal 'Incoders.Hive.Domain' `
     (Get-ProjectReferenceName -Include '../Incoders.Hive.Domain/Incoders.Hive.Domain.csproj') `
     'Unix-style ProjectReference must resolve cross-platform'
 
-$details = Format-GateDetails -Details "token=super-sensitive-value`nline2`nline3" -MaxLines 2 -MaxCharacters 500
+$details = Format-GateDetails -Details "token=super-sensitive-value`nline2`nline3`nline4" -MaxLines 3 -MaxCharacters 500
 if ($details -match 'super-sensitive-value') { throw 'Gate details leaked a token value.' }
 if ($details -notmatch '\[REDACTED\]') { throw 'Gate details did not mark the redaction.' }
 if ($details -notmatch 'details truncated') { throw 'Gate details did not report truncation.' }
+
+$longDetails = @('HEAD-DIAGNOSTIC') + @(1..100 | ForEach-Object { "warning-line-$_" }) + @('TAIL-FAILURE-STACK')
+$headTail = Format-GateDetails -Details ($longDetails -join "`n") -MaxLines 10 -MaxCharacters 1000
+if ($headTail -notmatch 'HEAD-DIAGNOSTIC' -or $headTail -notmatch 'TAIL-FAILURE-STACK') {
+    throw 'Gate detail truncation did not preserve both diagnostic head and failure tail.'
+}
+if ($headTail -match 'warning-line-50' -or $headTail -notmatch 'tail follows') {
+    throw 'Gate detail truncation did not remove the middle with a clear marker.'
+}
+if (@($headTail -split "`n").Count -gt 10 -or $headTail.Length -gt 1000) {
+    throw 'Gate detail truncation exceeded its configured bounds.'
+}
+
+foreach ($tiny in @(1, 10, 20)) {
+    $tinyOutput = Format-GateDetails -Details ($longDetails -join "`n") -MaxLines $tiny -MaxCharacters $tiny
+    if (@($tinyOutput -split "`n").Count -gt $tiny -or $tinyOutput.Length -gt $tiny) {
+        throw "Gate detail truncation exceeded tiny bound $tiny."
+    }
+}
+
+foreach ($invalid in @(0, -1)) {
+    $lineRejected = $false
+    try { $null = Format-GateDetails -Details 'synthetic' -MaxLines $invalid -MaxCharacters 20 }
+    catch { $lineRejected = $_.FullyQualifiedErrorId -match 'ParameterArgumentValidationError' }
+    if (-not $lineRejected) { throw "MaxLines accepted invalid bound $invalid." }
+
+    $characterRejected = $false
+    try { $null = Format-GateDetails -Details 'synthetic' -MaxLines 20 -MaxCharacters $invalid }
+    catch { $characterRejected = $_.FullyQualifiedErrorId -match 'ParameterArgumentValidationError' }
+    if (-not $characterRejected) { throw "MaxCharacters accepted invalid bound $invalid." }
+}
+
+$combinedSecret = 'token=' + "'synthetic phrase that must disappear'"
+$combinedInput = @('HEAD-SAFE', $combinedSecret) + @(1..20 | ForEach-Object { "noise-$_" }) + @('TAIL-SAFE')
+$combinedOutput = Format-GateDetails -Details ($combinedInput -join "`n") -MaxLines 20 -MaxCharacters 80
+if ($combinedOutput.Contains('synthetic phrase that must disappear')) {
+    throw 'Character truncation leaked a synthetic secret after sanitization.'
+}
+if ($combinedOutput -notmatch 'HEAD-SAFE' -or $combinedOutput -notmatch 'TAIL-SAFE') {
+    throw 'Character truncation did not preserve diagnostic head and tail when capacity allowed.'
+}
+if (@($combinedOutput -split "`n").Count -gt 20 -or $combinedOutput.Length -gt 80) {
+    throw 'Combined sanitization and character truncation exceeded configured bounds.'
+}
 
 $jwt = ('eyJ' + ('a' * 12)) + '.' + ('eyJ' + ('b' * 12)) + '.' + ('c' * 14)
 $awsAccess = 'AK' + 'IA' + ('A' * 16)
