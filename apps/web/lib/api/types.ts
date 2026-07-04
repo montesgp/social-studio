@@ -748,6 +748,7 @@ export interface ContentGenerationSummary {
   jobId: string;
   status: ContentGenerationJobStatusLabel;
   hasPackage: boolean;
+  packageJobId: string | null;
   completedAt: string | null;
 }
 

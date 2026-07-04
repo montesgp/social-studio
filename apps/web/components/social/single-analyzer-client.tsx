@@ -88,6 +88,11 @@ import { PartialCompletionBanner } from "@/components/social/single-analyzer/par
 import { SupportError } from "@/components/support/support-error";
 import { openWhatsAppSupport } from "@/lib/support/support";
 import { resolveGenerationFailureError } from "@/lib/support/user-facing-errors";
+import {
+  generationHistoryLabels,
+  shouldAutoSwitchToPackage,
+  shouldRefreshTerminalHistory,
+} from "@/lib/single-analyzer-ui-state";
 import { AnalysisOverlay } from "@/components/social/analysis-overlay";
 import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
 import { exportElementToPdf } from "@/lib/export/pdf-export";
@@ -935,13 +940,18 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   // When a package generation finishes, surface the Package tab so the user immediately sees what the
   // conversion produced. Fires once per job; a later manual tab switch by the user is respected.
   const autoSwitchedPackageJobRef = useRef<string | null>(null);
+  const userStartedPackageJobRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!packageJobId) return;
-    if (!(packageGenerationIsCompleted || packageGenerationIsPartial)) return;
-    if (autoSwitchedPackageJobRef.current === packageJobId) return;
+    if (!shouldAutoSwitchToPackage({
+      activeJobId: packageJobId,
+      observedJobId: packageJob.observedJobId,
+      userStartedJobId: userStartedPackageJobRef.current,
+      alreadySwitchedJobId: autoSwitchedPackageJobRef.current,
+      status: packageUiStatus,
+    })) return;
     autoSwitchedPackageJobRef.current = packageJobId;
     setRightPanelTab("package");
-  }, [packageJobId, packageGenerationIsCompleted, packageGenerationIsPartial]);
+  }, [packageJobId, packageJob.observedJobId, packageUiStatus]);
   const organizationSelectionReady = isPlatformAdmin
     ? organizationsInitialized && (organizations.length === 0 || selectedOrganizationId.length > 0)
     : activeOrgInitialized && (activeOrgId === null || selectedOrganizationId === activeOrgId);
@@ -1804,6 +1814,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setGeneratingConversion(mode);
     const formatKey = formatForMutationMode(mode);
     setPackageJobError(null);
+    userStartedPackageJobRef.current = null;
+    setPackageJobId(null);
     // Set the requested-format count BEFORE the await so the progress overlay can never show a
     // stale denominator (e.g. "(1/3)") for a single-format job — it must read 1 from the moment
     // the overlay can appear. A story is one format = one file; >1 only applies to a carousel.
@@ -1819,6 +1831,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         { token: effectiveToken }
       );
       setPackageRequestedFormats([formatKey]);
+      userStartedPackageJobRef.current = response.jobId;
       setPackageJobId(response.jobId);
       setPackageJobClientId(selectedClientId || null);
       setDeletedFormatKeys((prev) => {
@@ -1941,12 +1954,18 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       if (generatedFormatKeys.includes(format)) return true;
       return Boolean(currentPackageJobMatchesSelectedClient && packageJob.perFormatStatus[format]);
     })
-    .map((format) => {
+    .flatMap((format) => {
       const liveStatus = currentPackageJobMatchesSelectedClient
         ? packageJob.perFormatStatus[format]
         : null;
+      if (generatedFormatKeys.includes(format) && liveStatus === "Failed") {
+        return [
+          { format, status: "Generated" },
+          { format, status: "Regeneration failed" },
+        ];
+      }
       const status = liveStatus ?? "Generated";
-      return { format, status };
+      return [{ format, status }];
     });
   // INC-6: hasAnyGeneratedFormat also checks the persisted multi-client workspace.
   const hasAnyGeneratedFormat =
@@ -2090,6 +2109,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         { token: effectiveToken }
       );
       setPackageRequestedFormats(requestedFormats);
+      userStartedPackageJobRef.current = response.jobId;
       setPackageJobId(response.jobId);
       setPackageJobClientId(selectedClientId || null);
       if (regenerationObjection) {
@@ -2172,6 +2192,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   // Keep the "Saved Analyses" row aligned with live package-job polling for the loaded analysis.
   useEffect(() => {
     if (!videoResult?.id || !packageJobId || !packageUiStatus) return;
+    if (packageJob.observedJobId !== packageJobId) return;
 
     const isTerminal =
       packageUiStatus === "Completed" ||
@@ -2207,29 +2228,28 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
           latestContentGeneration: {
             jobId: packageJobId,
             status: packageUiStatus,
-            hasPackage,
+            hasPackage: hasPackage || previous?.hasPackage === true,
+            packageJobId: hasPackage ? packageJobId : previous?.packageJobId ?? null,
             completedAt,
           },
         };
       })
     );
-  }, [videoResult?.id, packageJobId, packageUiStatus]);
+  }, [videoResult?.id, packageJobId, packageJob.observedJobId, packageUiStatus]);
 
   // On terminal transition, refetch once to keep row metadata (timestamps/package flags) exact.
   useEffect(() => {
-    if (!packageJobId || !packageUiStatus) return;
-    const isTerminal =
-      packageUiStatus === "Completed" ||
-      packageUiStatus === "Partial" ||
-      packageUiStatus === "PartialSuccess" ||
-      packageUiStatus === "Failed";
-    if (!isTerminal) return;
+    if (!shouldRefreshTerminalHistory({
+      activeJobId: packageJobId,
+      observedJobId: packageJob.observedJobId,
+      status: packageUiStatus,
+      lastRefreshKey: lastHistoryRefreshKeyRef.current,
+    })) return;
 
     const refreshKey = `${packageJobId}:${packageUiStatus}`;
-    if (lastHistoryRefreshKeyRef.current === refreshKey) return;
     lastHistoryRefreshKeyRef.current = refreshKey;
     void loadHistory({ silent: true });
-  }, [packageJobId, packageUiStatus, loadHistory]);
+  }, [packageJobId, packageJob.observedJobId, packageUiStatus, loadHistory]);
 
   const closeAbandonDialog = useCallback(() => {
     setIsAbandonDialogOpen(false);
@@ -3028,12 +3048,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                           <div className="flex flex-wrap gap-1 pt-1">
                             {convertAllPills.map(({ format: fmt, status: st }) => (
                               <span
-                                key={fmt}
+                                key={`${fmt}-${st}`}
                                 className={cn(
                                   "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] border",
                                   st === "Rendered" || st === "Succeeded" || st === "Generated"
                                     ? "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20"
-                                    : st === "Failed"
+                                    : st === "Failed" || st === "Regeneration failed"
                                     ? "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20"
                                     : "bg-muted/40 text-muted-foreground border-border/30"
                                 )}
@@ -3434,8 +3454,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                   isDeleting={deletingHistoryId === item.id}
                   onOpen={() => void handleLoadFromHistory(item)}
                   onDownload={() =>
-                    item.latestContentGeneration?.jobId &&
-                    void handleHistoryDownload(item.latestContentGeneration.jobId)
+                    item.latestContentGeneration?.packageJobId &&
+                    void handleHistoryDownload(item.latestContentGeneration.packageJobId)
                   }
                   onDelete={() => requestDeleteFromHistory(item)}
                 />
@@ -3931,9 +3951,7 @@ interface SavedAnalysisRowProps {
 
 function SavedAnalysisRow({ item, isActive, isDeleting, onOpen, onDownload, onDelete }: SavedAnalysisRowProps) {
   const gen = item.latestContentGeneration;
-  const canDownload =
-    gen?.hasPackage === true &&
-    (gen.status === "Completed" || gen.status === "Partial" || gen.status === "PartialSuccess");
+  const canDownload = gen?.hasPackage === true && gen.packageJobId !== null;
 
   return (
     <div
@@ -3960,14 +3978,21 @@ function SavedAnalysisRow({ item, isActive, isDeleting, onOpen, onDownload, onDe
         {statusLabel(item.status)}
       </Badge>
 
-      {gen && (() => {
-        const b = generationBadge(gen.status);
+      {gen && generationHistoryLabels(gen.hasPackage, gen.status).map((label, index) => {
+        const baseBadge = generationBadge(gen.status);
+        const variant: BadgeVariant = index === 0 && gen.hasPackage
+          ? "success"
+          : label.includes("failed")
+            ? "destructive"
+            : label.includes("partial")
+              ? "warning"
+              : baseBadge.variant;
         return (
-          <Badge variant={b.variant} className="text-xs shrink-0">
-            {b.label}
+          <Badge key={label} variant={variant} className="text-xs shrink-0">
+            {label}
           </Badge>
         );
-      })()}
+      })}
 
       {canDownload && (
         <Button

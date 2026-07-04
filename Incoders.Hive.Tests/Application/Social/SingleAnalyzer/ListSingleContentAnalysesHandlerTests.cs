@@ -20,6 +20,7 @@ public sealed class ListSingleContentAnalysesHandlerTests
     public async Task Handle_PassesUserAndOrgToRepository_AndReturnsMappedPage()
     {
         var jobId = Guid.NewGuid();
+        var packageJobId = Guid.NewGuid();
         var repo = new SpyRepository(new SingleContentAnalysisHistoryPage(
             [
                 new SingleContentAnalysisHistoryItem(
@@ -37,6 +38,7 @@ public sealed class ListSingleContentAnalysesHandlerTests
                         JobId: jobId,
                         Status: "Completed",
                         HasPackage: true,
+                        PackageJobId: packageJobId,
                         CompletedAt: new DateTime(2026, 5, 27, 9, 6, 0, DateTimeKind.Utc))),
                 new SingleContentAnalysisHistoryItem(
                     Id: Guid.NewGuid(),
@@ -76,6 +78,7 @@ public sealed class ListSingleContentAnalysesHandlerTests
         Assert.Equal(jobId, first.LatestContentGeneration!.JobId);
         Assert.Equal("Completed", first.LatestContentGeneration.Status);
         Assert.True(first.LatestContentGeneration.HasPackage);
+        Assert.Equal(packageJobId, first.LatestContentGeneration.PackageJobId);
 
         // Second item has no generation job → null summary, no download.
         var second = result.Value.Items[1];

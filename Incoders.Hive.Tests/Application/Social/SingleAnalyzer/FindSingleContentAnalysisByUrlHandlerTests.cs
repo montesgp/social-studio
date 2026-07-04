@@ -65,6 +65,7 @@ public sealed class FindSingleContentAnalysisByUrlHandlerTests
                 jobId,
                 "Completed",
                 HasPackage: true,
+                PackageJobId: jobId,
                 CompletedAt: new DateTime(2026, 5, 28, 10, 2, 0, DateTimeKind.Utc)));
     }
 

@@ -66,6 +66,9 @@ public sealed class ClaudePromptCliSettingsTests
     [InlineData("claude.exe")]
     [InlineData("claude.cmd")]
     [InlineData(@"C:\Tools\claude.exe")]
+    [InlineData("/usr/local/bin/claude")]
+    [InlineData(@"/opt/tools\claude.cmd")]
+    [InlineData(@"C:\Tools/claude.exe")]
     public void FromCredential_AcceptsOnlyClaudeCliBasenames(string executable)
     {
         var result = ClaudePromptCliSettings.FromCredential(BuildCredential(new Dictionary<string, string>
@@ -74,6 +77,22 @@ public sealed class ClaudePromptCliSettingsTests
         }));
 
         Assert.True(result.IsSuccess);
+    }
+
+    [Theory]
+    [InlineData("claude.exe.bak")]
+    [InlineData("notclaude")]
+    [InlineData(@"C:\Tools\claude.exe\")]
+    [InlineData("/usr/local/bin/claude/")]
+    [InlineData(@"C:\Tools\not-claude.exe")]
+    public void FromCredential_RejectsLookalikesAndPathsWithoutAllowedBasename(string executable)
+    {
+        var result = ClaudePromptCliSettings.FromCredential(BuildCredential(new Dictionary<string, string>
+        {
+            ["executable_path"] = executable
+        }));
+
+        Assert.True(result.IsFailure);
     }
 
     [Fact]
