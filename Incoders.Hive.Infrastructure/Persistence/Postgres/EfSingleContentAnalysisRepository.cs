@@ -147,6 +147,11 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
                         HasPackage = _dbContext.GeneratedPackages.Any(p => p.JobId == j.Id),
                     })
                     .FirstOrDefault(),
+                PackageJobId = _dbContext.ContentGenerationJobs
+                    .Where(j => j.AnalysisId == a.Id && _dbContext.GeneratedPackages.Any(p => p.JobId == j.Id))
+                    .OrderByDescending(j => j.CreatedAt)
+                    .Select(j => (Guid?)j.Id)
+                    .FirstOrDefault(),
             })
             .ToListAsync(cancellationToken);
 
@@ -167,7 +172,8 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
                     : new ContentGenerationSummary(
                         r.LatestJob.Id,
                         r.LatestJob.Status,
-                        r.LatestJob.HasPackage,
+                        r.PackageJobId != null,
+                        r.PackageJobId,
                         r.LatestJob.CompletedAt)))
             .ToList();
 
@@ -215,6 +221,11 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
                         HasPackage = _dbContext.GeneratedPackages.Any(p => p.JobId == j.Id),
                     })
                     .FirstOrDefault(),
+                PackageJobId = _dbContext.ContentGenerationJobs
+                    .Where(j => j.AnalysisId == a.Id && _dbContext.GeneratedPackages.Any(p => p.JobId == j.Id))
+                    .OrderByDescending(j => j.CreatedAt)
+                    .Select(j => (Guid?)j.Id)
+                    .FirstOrDefault(),
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -236,7 +247,8 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
                     : new ContentGenerationSummary(
                         row.LatestJob.Id,
                         row.LatestJob.Status,
-                        row.LatestJob.HasPackage,
+                        row.PackageJobId != null,
+                        row.PackageJobId,
                         row.LatestJob.CompletedAt));
     }
 

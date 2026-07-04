@@ -408,3 +408,15 @@ remain valid and unchanged. `comfyui` is a second `MediaGeneration` provider add
 same catalog mechanism; no existing requirement block is modified.
 
 *Merged from `openspec/changes/client-aligned-carousel-generation/specs/integrations/spec-delta.md` — change applied 2026-06-28.*
+## Added Requirement: Apify configuration dialog readability (#46)
+
+The Apify integration configuration dialog MUST provide sufficient desktop width for actor routing
+fields while remaining responsive on mobile. The Actor ID column MUST receive more width than the
+network and workflow selectors so configured values remain readable.
+
+#### Scenario: Edit Apify actor mappings on desktop
+
+- GIVEN the Apify integration has actor mappings
+- WHEN an operator opens its configuration dialog on a desktop viewport
+- THEN the dialog is wider than standard provider dialogs
+- AND Actor ID values have a dedicated wide input column

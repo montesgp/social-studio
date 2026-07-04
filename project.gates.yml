@@ -58,7 +58,7 @@ frontend:
       install_args: ["install", "--no-audit", "--no-fund"]
       lint_script: lint
       build_script: build
-      # test_script: test     # uncomment when frontend tests exist
+      test_script: test
 
 gates:
   build:

@@ -1653,3 +1653,30 @@ when the new profile fields are non-null, additive to the existing path.
 instruction MUST still be text-free.
 
 *Merged from `openspec/changes/client-aesthetic-conceptual-detection/specs/content-generation/spec-delta.md` — change applied 2026-07-01.*
+## Added Requirements: Single-Analyzer Generation History UX (#46)
+
+### Requirement: Preserve successful generation state after a failed regeneration
+
+The saved-analysis history MUST preserve the existence and downloadable job id of the newest
+successful package independently from the status of the latest generation attempt. When a later
+regeneration fails, the UI MUST show both `Generated` and `Regeneration failed`, and package
+download MUST target the successful package job rather than the failed attempt.
+
+#### Scenario: Regeneration fails after a successful package
+
+- GIVEN an analysis has a previously generated package
+- WHEN its latest regeneration attempt fails
+- THEN the history row shows a green `Generated` badge and a `Regeneration failed` badge
+- AND downloading uses the job that owns the existing package
+
+### Requirement: Historical hydration does not navigate tabs
+
+Opening a saved analysis MUST preserve the user's current analyzer tab while the historical job is
+reattached. Automatic navigation to Package MAY occur only when a generation initiated by the user
+in the current view completes.
+
+#### Scenario: User opens an analysis with generated content
+
+- GIVEN a saved analysis has a completed generation job
+- WHEN the user opens that saved analysis and its job status is hydrated
+- THEN the active tab does not change without a new user-initiated generation

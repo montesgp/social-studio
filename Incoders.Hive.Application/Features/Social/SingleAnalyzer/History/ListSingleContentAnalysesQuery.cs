@@ -39,6 +39,7 @@ public sealed record ContentGenerationSummaryResponse(
     Guid JobId,
     string Status,
     bool HasPackage,
+    Guid? PackageJobId,
     DateTime? CompletedAt);
 
 public sealed class ListSingleContentAnalysesHandler
@@ -94,5 +95,6 @@ internal static class SingleContentAnalysisHistoryMapping
                     item.LatestContentGeneration.JobId,
                     item.LatestContentGeneration.Status,
                     item.LatestContentGeneration.HasPackage,
+                    item.LatestContentGeneration.PackageJobId,
                     item.LatestContentGeneration.CompletedAt));
 }

@@ -150,7 +150,8 @@ public sealed record ClaudePromptCliSettings(
             return true;
         }
 
-        var basename = Path.GetFileName(normalized);
+        var separatorNormalized = normalized.Replace('\\', '/');
+        var basename = separatorNormalized[(separatorNormalized.LastIndexOf('/') + 1)..];
         return !AllowedExecutables.Contains(basename, StringComparer.OrdinalIgnoreCase);
     }
 

@@ -102,6 +102,7 @@ public sealed record ContentGenerationSummary(
     Guid JobId,
     string Status,
     bool HasPackage,
+    Guid? PackageJobId,
     DateTime? CompletedAt);
 
 public sealed record SingleContentAnalysisHistoryPage(
