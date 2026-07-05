@@ -43,6 +43,16 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     private const double DefaultCfg = 7.0;
 
     /// <summary>
+    /// Default negative prompt. The generated image is used ONLY as a background raster; any text it
+    /// bakes in is not editable in the studio and clashes with the separate editable text layer. The
+    /// reference images conditioning the IP-Adapter are finished posts that contain text, so without
+    /// this the model reproduces garbled pseudo-text. Suppress all typography plus common artifacts.
+    /// </summary>
+    private const string DefaultNegativePrompt =
+        "text, letters, words, typography, watermark, signature, caption, logo, label, subtitles, " +
+        "writing, font, handwriting, numbers, low quality, blurry, deformed, distorted";
+
+    /// <summary>
     /// Exact JSON substring for the KSampler "model" edge wired to the IP-Adapter output (node
     /// "6"). When no reference image resolves, this edge is replaced by
     /// <see cref="PassThroughModelEdge"/> so the graph bypasses the LoadImage/IP-Adapter chain
@@ -163,7 +173,7 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                 template,
                 checkpoint,
                 request.Prompt,
-                negativePrompt: string.Empty,
+                negativePrompt: DefaultNegativePrompt,
                 referenceImageName,
                 settings.IpAdapterModel,
                 request.Width,
