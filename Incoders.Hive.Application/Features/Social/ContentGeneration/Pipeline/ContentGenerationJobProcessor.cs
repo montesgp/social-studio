@@ -628,7 +628,13 @@ public sealed class ContentGenerationJobProcessor
                         string validatedMarkup;
                         if (enforcedBackground is not null)
                         {
-                            validatedMarkup = BuildTemplateBackedMarkup(spec, enforcedBackground, aestheticDesignContext);
+                            // The Chromium renderer sets page content with no base URL, so a bare storage
+                            // path (e.g. the generated background's Supabase object key) cannot be fetched and
+                            // rasterizes to a broken-image/black background. Inline it as a self-contained
+                            // data URI so the hard-enforced background actually renders.
+                            var renderableUrl = await InlineBackgroundUrlAsync(_assetStorage, enforcedBackground.Url, ct);
+                            validatedMarkup = BuildTemplateBackedMarkup(
+                                spec, enforcedBackground with { Url = renderableUrl }, aestheticDesignContext);
                         }
                         else if (aiMarkup is not null)
                         {
@@ -1266,6 +1272,52 @@ public sealed class ContentGenerationJobProcessor
         // For ClientAesthetic: the AI designs freely within aesthetic guidance — return null
         // so the AI markup path is taken (or the gradient fallback if no AI markup).
         return null;
+    }
+
+    /// <summary>
+    /// Resolves a hard-enforced background image reference to a form the HTML renderer can load.
+    /// The Chromium renderer sets page content with no base URL, so a relative storage path (a
+    /// Supabase object key such as <c>{org}/{client}/{analysis}/carousel/slide_1.png</c>) cannot be
+    /// fetched and rasterizes to a broken-image/black background. When the URL is a bare storage
+    /// path, download the bytes via <paramref name="storage"/> and inline them as a self-contained
+    /// <c>data:</c> URI. URLs that are already <c>data:</c> or <c>http(s):</c> are returned as-is.
+    /// Best-effort: on any failure the original URL is returned unchanged (no worse than before).
+    /// </summary>
+    internal static async Task<string> InlineBackgroundUrlAsync(
+        IGeneratedAssetStorage? storage,
+        string url,
+        CancellationToken ct)
+    {
+        if (storage is null || string.IsNullOrWhiteSpace(url))
+        {
+            return url;
+        }
+
+        if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+            || url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return url;
+        }
+
+        try
+        {
+            var opened = await storage.OpenAsync(url, ct);
+            if (opened.IsFailure)
+            {
+                return url;
+            }
+
+            using var stream = opened.Value;
+            using var buffer = new MemoryStream();
+            await stream.Content.CopyToAsync(buffer, ct);
+            var mime = string.IsNullOrWhiteSpace(stream.Mime) ? "image/png" : stream.Mime;
+            return $"data:{mime};base64,{Convert.ToBase64String(buffer.ToArray())}";
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return url;
+        }
     }
 
     private static string BuildTemplateBackedMarkup(
