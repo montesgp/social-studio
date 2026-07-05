@@ -67,6 +67,48 @@ public sealed class ProcessorClientAlignedCarouselTests
     }
 
     // -----------------------------------------------------------------------
+    // CAC-BSP: only Photo slides (per the client's captured BackgroundPattern)
+    // enter the creative set. FlatColor slides must NOT receive AI generation —
+    // they fall through to the CSS/palette path. Regression for the FlatColor-
+    // slide-conditioned-on-a-photo-reference noise bug: the {first,last} default
+    // was kind-blind and pulled a FlatColor slide into image generation.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task BackgroundPattern_FlatColorSlidesExcluded_OnlyPhotoSlidesGenerated()
+    {
+        var captured = new List<ClientAestheticImageRequest>();
+        var imageService = new CAC12CaptureAndReturnService(
+            new Dictionary<int, BackgroundSelection.ForcedDefault>(), captured);
+
+        // 5-slide client whose captured pattern makes slide 5 (the {first,last}
+        // default's "last") a FlatColor slide. Photo slides are 1 and 3.
+        var profile = FullProfile() with
+        {
+            BackgroundPattern =
+            [
+                SlideBackgroundKind.Photo,
+                SlideBackgroundKind.FlatColor,
+                SlideBackgroundKind.Photo,
+                SlideBackgroundKind.FlatColor,
+                SlideBackgroundKind.FlatColor,
+            ],
+        };
+
+        var processor = BuildProcessor(
+            slideCount: 5,
+            profile: profile,
+            imageBackgroundService: imageService);
+
+        var ex = await Record.ExceptionAsync(() => processor.ProcessAsync(JobId, CancellationToken.None));
+
+        Assert.Null(ex);
+        Assert.Single(captured);
+        // Only Photo slides (1, 3) get AI generation; FlatColor slides (2, 4, 5) never do.
+        Assert.Equal(new[] { 1, 3 }, captured[0].CreativeSlideIndices);
+    }
+
+    // -----------------------------------------------------------------------
     // Cold-start parity: all-null profile → CSS path; job completes without error.
     // (CAC-INT-01: no ForcedDefault → all slides use CSS designer path.)
     // -----------------------------------------------------------------------
@@ -257,7 +299,11 @@ public sealed class ProcessorClientAlignedCarouselTests
         var slides = Enumerable.Range(1, slideCount)
             .Select(i => new { title = $"Slide {i}", body = $"Body {i}" })
             .ToArray();
-        return new { slides, coverTitle = "Cover", publicationDescription = "Test" };
+        var payload = new { slides, coverTitle = "Cover", publicationDescription = "Test" };
+        // Serialize to JsonElement so ContentGenerationJobProcessor.TryGetSlideCount reads the real
+        // slide count from the "slides" array (an anonymous object falls back to a count of 1),
+        // matching how the processor receives payloads in production.
+        return JsonSerializer.SerializeToElement(payload, new JsonSerializerOptions(JsonSerializerDefaults.Web));
     }
 }
 

@@ -444,8 +444,13 @@ public sealed class ContentGenerationJobProcessor
                     && FormatCatalog.ResolveForAssembly(formatKey)?.Layout == Layout.Carousel)
                 {
                     var formatSlideCount = TryGetSlideCount(step.Payload, formatKey);
-                    var creativeIndices = CreativeSlideIndexResolver.Resolve(
-                        aestheticProfile.CreativeSlideIndices, formatSlideCount);
+                    // Route AI image generation to the client's Photo slides only, derived from the
+                    // captured BackgroundPattern. FlatColor slides must NOT be conditioned on a
+                    // photographic reference (the two conditionings conflict and the sampler diverges
+                    // to noise) — they fall through to the CSS/palette path (ColorPairings) instead.
+                    // Null/empty pattern → ResolveFromPattern delegates to the {first,last} cold-start default.
+                    var creativeIndices = CreativeSlideIndexResolver.ResolveFromPattern(
+                        aestheticProfile.BackgroundPattern, formatSlideCount);
 
                     if (creativeIndices.Count > 0)
                     {
