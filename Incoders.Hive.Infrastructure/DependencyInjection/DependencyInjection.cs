@@ -195,7 +195,7 @@ public static class DependencyInjection
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.OpenAiModelClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.OpenAiModelCatalogClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.GeminiModelClient),
-            // ComfyUiImageModelClient's own overall Timeout (default 180s) bounds generation via
+            // ComfyUiImageModelClient's own overall Timeout (default 600s) bounds generation via
             // CancellationTokenSource; the underlying HttpClient must not cut the request short first.
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.ComfyUiImageModelClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.ComfyUiModelCatalogClient),

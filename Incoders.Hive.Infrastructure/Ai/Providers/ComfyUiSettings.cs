@@ -35,7 +35,11 @@ public sealed record ComfyUiSettings(
     public const string DefaultOutputNodeId = "9";
     public const int DefaultMaxReferenceImages = 1;
 
-    public static readonly TimeSpan DefaultTimeout = TimeSpan.FromMilliseconds(180_000);
+    // Overall generation budget. Sized for SDXL on non-CUDA hardware (e.g. DirectML/DML),
+    // where a single image can take ~6 min (~15 s/iteration x 20 steps plus model/VAE load).
+    // A lower value silently times out and degrades every slide to CSS; override per-org via
+    // the credential's timeout_ms when running on faster (CUDA) hardware.
+    public static readonly TimeSpan DefaultTimeout = TimeSpan.FromMilliseconds(600_000);
     public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromMilliseconds(1_000);
 
     /// <summary>
