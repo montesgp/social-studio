@@ -27,8 +27,9 @@ namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
 public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExtractor
 {
     private const string CapabilityKey = "ai-aesthetic";
-    // aesthetic-extractor/v2: adds ConceptualMethod + ImageTypeRatio detection + pairs caption-tagging.
-    private const string PromptVersion = "aesthetic-extractor/v2";
+    // aesthetic-extractor/v3: adds brandMark {present,positionHint,colorHex} detection (FFS-PA-01).
+    // Additive/backward-compatible: absent brandMark key on a v2 response still maps cleanly (null).
+    private const string PromptVersion = "aesthetic-extractor/v3";
 
     private readonly IAiCompletionGateway _gateway;
     private readonly IWorkflowConfigurationResolver _workflowResolver;
@@ -150,7 +151,17 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "Count, across ALL attached posts, how many slides are photographic (real photos or staged " +
             "photography), flat-color (solid background with template/text overlays), or decorator " +
             "(purely decorative / graphic dividers) and return `imageTypeCounts` " +
-            "with fields `photo`, `flat`, and `decorator` (integer counts, not proportions).";
+            "with fields `photo`, `flat`, and `decorator` (integer counts, not proportions). " +
+            // FFS-PA-01: recurring brand-mark detection (v3). Only report a mark that RECURS
+            // consistently across the attached images — never invent one from a single occurrence.
+            "Detect whether the SAME identifying mark (logo, emblem, watermark, or signature glyph) " +
+            "recurs consistently across the attached images. Return `brandMark` with `present` " +
+            "(boolean — true ONLY if a mark clearly recurs; otherwise false, do not guess), " +
+            "`positionHint` (its approximate on-slide position, e.g. \"bottom-right\", " +
+            "\"bottom-left\", \"bottom-center\", \"top-right\", \"top-left\", \"top-center\", " +
+            "\"center\" — null when present is false or the position is unclear), and `colorHex` " +
+            "(the mark's color as a hex string — typically the client's text color — null when " +
+            "present is false or no distinct color is identifiable).";
 
         var request = new AiJsonCompletionRequest(
             OrganizationId: organizationId,
@@ -224,6 +235,14 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             }
         }
 
+        // FFS-PA-01: map brandMark DTO → BrandMarkDetection VO. `Present: false` is a valid,
+        // non-fabricated "no recurring mark" result — mapped whenever the model returns the
+        // brandMark object at all. Absent brandMark key (older v2 responses) → null (cold-start
+        // parity; FFS-CG-03-a).
+        BrandMarkDetection? brandMark = dto.BrandMark is { } bm
+            ? new BrandMarkDetection(bm.Present, bm.PositionHint, bm.ColorHex)
+            : null;
+
         return new AestheticExtraction(
             Palette: palette,
             StyleDescriptors: dto.StyleDescriptors ?? [],
@@ -232,7 +251,8 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             BackgroundPattern: backgroundPattern,
             ColorPairings: colorPairings.Count > 0 ? colorPairings : null,
             ConceptualMethod: conceptualMethod,
-            ImageTypeRatio: imageTypeRatio);
+            ImageTypeRatio: imageTypeRatio,
+            BrandMark: brandMark);
     }
 
     private static IReadOnlyList<SlideBackgroundKind>? MapSlideMixPattern(string[]? pattern)
@@ -270,7 +290,9 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         // CACD-PA-01 (OQ-1): conceptual art-direction method (additive nullable; cold-start → null)
         [property: JsonPropertyName("conceptualMethod")] ConceptualMethodDto? ConceptualMethod = null,
         // CACD-PA-02 (OQ-2): aggregate image-type counts (additive nullable; cold-start → null)
-        [property: JsonPropertyName("imageTypeCounts")] ImageTypeCountsDto? ImageTypeCounts = null);
+        [property: JsonPropertyName("imageTypeCounts")] ImageTypeCountsDto? ImageTypeCounts = null,
+        // FFS-PA-01: recurring brand mark (additive nullable; absent on pre-v3 responses → null)
+        [property: JsonPropertyName("brandMark")] BrandMarkDto? BrandMark = null);
 
     private sealed record PaletteEntryDto(
         [property: JsonPropertyName("hex")] string? Hex,
@@ -282,6 +304,12 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         [property: JsonPropertyName("method")] string? Method,
         [property: JsonPropertyName("rationale")] string? Rationale,
         [property: JsonPropertyName("cues")] string[]? Cues);
+
+    // FFS-PA-01: brand-mark sub-DTO (present/positionHint/colorHex — v3)
+    private sealed record BrandMarkDto(
+        [property: JsonPropertyName("present")] bool Present,
+        [property: JsonPropertyName("positionHint")] string? PositionHint,
+        [property: JsonPropertyName("colorHex")] string? ColorHex);
 
     // CACD-PA-02: image-type counts sub-DTO (counts, not proportions — normalization is in Map)
     private sealed record ImageTypeCountsDto(

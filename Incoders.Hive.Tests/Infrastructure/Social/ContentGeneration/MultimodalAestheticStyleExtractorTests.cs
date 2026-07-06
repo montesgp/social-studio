@@ -342,6 +342,65 @@ public sealed class MultimodalAestheticStyleExtractorTests
         Assert.True(gateway.ImageCount > 0, "image must still be sent even when caption is null");
     }
 
+    // ── WU-4 task 2.1/2.5 [RED] — brand-mark detection mapping (FFS-PA-01) ─────
+
+    [Fact]
+    public async Task BrandMark_Detected_MapsPresentPositionHintAndColorHex()
+    {
+        // FFS-PA-01-a: recurring mark detected → present=true with position + color hex
+        const string brandMarkJson = """{"present":true,"positionHint":"bottom-right","colorHex":"#112233"}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.BrandMark);
+        Assert.True(result.BrandMark!.Present);
+        Assert.Equal("bottom-right", result.BrandMark.PositionHint);
+        Assert.Equal("#112233", result.BrandMark.ColorHex);
+    }
+
+    [Fact]
+    public async Task BrandMark_NoRecurringMark_ReportsAbsent_NoFabrication()
+    {
+        // FFS-PA-01-b: no consistent mark across images → present=false; extractor does not fabricate one
+        const string brandMarkJson = """{"present":false,"positionHint":null,"colorHex":null}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.BrandMark);
+        Assert.False(result.BrandMark!.Present);
+        Assert.Null(result.BrandMark.PositionHint);
+        Assert.Null(result.BrandMark.ColorHex);
+    }
+
+    [Fact]
+    public async Task BrandMark_Absent_IsNull_ExtractionSucceeds()
+    {
+        // No brandMark key at all in the model response → null (cold-start parity); no throw
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Null(result.BrandMark);
+        Assert.True(gateway.WasCalled);
+    }
+
+    [Fact]
+    public async Task ExtractorPromptVersion_IsBumpedToV3()
+    {
+        // Extraction prompt/schema version MUST be bumped v2→v3 (FFS-PA-01)
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Equal("aesthetic-extractor/v3", gateway.CapturedPromptVersionKey);
+    }
+
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);
     private static IWorkflowConfigurationResolver CandidateResolver() => new StubResolver(candidate: true);
 }
@@ -383,7 +442,8 @@ file sealed class CaptureGateway(
     string? captionVoice = null,
     string? slideMixPattern = null,
     string? conceptualMethodJson = null,
-    string? imageTypeCountsJson = null)
+    string? imageTypeCountsJson = null,
+    string? brandMarkJson = null)
     : IAiCompletionGateway
 {
     public bool WasCalled { get; private set; }
@@ -391,6 +451,9 @@ file sealed class CaptureGateway(
 
     /// <summary>The full instruction text passed to the AI gateway — used to assert caption tagging.</summary>
     public string? CapturedInstruction { get; private set; }
+
+    /// <summary>The prompt version key sent to the gateway — used to assert the v2→v3 bump.</summary>
+    public string? CapturedPromptVersionKey { get; private set; }
 
     public Task<Result<AiJsonCompletionResponse<TResponse>>> CompleteJsonAsync<TResponse>(
         AiJsonCompletionRequest request,
@@ -400,6 +463,7 @@ file sealed class CaptureGateway(
         WasCalled = true;
         ImageCount = request.Images?.Count ?? 0;
         CapturedInstruction = request.InputJson;
+        CapturedPromptVersionKey = request.PromptVersionKey;
 
         var voice = captionVoice is null ? "null" : $"\"{captionVoice}\"";
         var patternPart = slideMixPattern is null
@@ -411,8 +475,11 @@ file sealed class CaptureGateway(
         var countsPart = imageTypeCountsJson is null
             ? string.Empty
             : $",\"imageTypeCounts\":{imageTypeCountsJson}";
+        var brandMarkPart = brandMarkJson is null
+            ? string.Empty
+            : $",\"brandMark\":{brandMarkJson}";
         var json =
-            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}}""";
+            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}{{brandMarkPart}}}""";
         var payload = JsonSerializer.Deserialize<TResponse>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         return Task.FromResult(Result.Success(new AiJsonCompletionResponse<TResponse>(payload, "claude", "claude-opus-4-8", [], null)));
     }

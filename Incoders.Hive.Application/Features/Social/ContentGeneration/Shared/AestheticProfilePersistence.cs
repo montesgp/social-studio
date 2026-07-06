@@ -46,6 +46,12 @@ public static class AestheticProfilePersistence
                     Flat: extraction.ImageTypeRatio.FlatColor,
                     Decorator: extraction.ImageTypeRatio.Decorator,
                     SampleSize: extraction.ImageTypeRatio.SampleSize),
+            // faithful-flat-slide-rendering: additive key; absent on pre-v3 blobs → null on Read (FFS-PA-02)
+            BrandMark: extraction.BrandMark is null ? null
+                : new StoredBrandMark(
+                    Present: extraction.BrandMark.Present,
+                    PositionHint: extraction.BrandMark.PositionHint,
+                    ColorHex: extraction.BrandMark.ColorHex),
             // Marks blobs written after CACD landed; absent on pre-v2 blobs; read unchanged
             PromptVersion: "aesthetic-extractor/v2");
 
@@ -67,11 +73,12 @@ public static class AestheticProfilePersistence
         int? TypicalSlideCount,
         IReadOnlyList<ColorPairing>? ColorPairings,
         ConceptualMethod? ConceptualMethod,
-        ImageTypeRatio? ImageTypeRatio) Read(string? json)
+        ImageTypeRatio? ImageTypeRatio,
+        BrandMarkDetection? BrandMark) Read(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
-            return (null, null, null, null, null, null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null, null, null, null);
         }
 
         try
@@ -79,7 +86,7 @@ public static class AestheticProfilePersistence
             var dto = JsonSerializer.Deserialize<StoredAestheticProfile>(json, JsonOpts);
             if (dto is null)
             {
-                return (null, null, null, null, null, null, null, null, null, null);
+                return (null, null, null, null, null, null, null, null, null, null, null);
             }
 
             var palette = (dto.Palette ?? [])
@@ -115,13 +122,19 @@ public static class AestheticProfilePersistence
                 Decorator: dto.ImageTypeRatio.Decorator ?? 0.0,
                 SampleSize: dto.ImageTypeRatio.SampleSize ?? 0);
 
+            // faithful-flat-slide-rendering additive field (absent on pre-v3 blobs → null; FFS-PA-02-b)
+            BrandMarkDetection? brandMark = dto.BrandMark is null ? null : new BrandMarkDetection(
+                Present: dto.BrandMark.Present,
+                PositionHint: dto.BrandMark.PositionHint,
+                ColorHex: dto.BrandMark.ColorHex);
+
             return (palette, dto.StyleDescriptors ?? [], dto.Motifs ?? [], dto.CaptionVoice, refs,
                 backgroundPattern, dto.TypicalSlideCount, colorPairings,
-                conceptualMethod, imageTypeRatio);
+                conceptualMethod, imageTypeRatio, brandMark);
         }
         catch
         {
-            return (null, null, null, null, null, null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null, null, null, null);
         }
     }
 
@@ -138,7 +151,9 @@ public static class AestheticProfilePersistence
         // client-aesthetic-conceptual-detection additive keys (nullable; absent on old blobs; OQ-4)
         StoredConceptualMethod? ConceptualMethod = null,
         StoredImageTypeRatio? ImageTypeRatio = null,
-        string? PromptVersion = null);
+        string? PromptVersion = null,
+        // faithful-flat-slide-rendering additive key (nullable; absent on pre-v3 blobs; FFS-PA-02)
+        StoredBrandMark? BrandMark = null);
 
     private sealed record StoredPaletteEntry(string Hex, string? Role, int Rank);
 
@@ -161,4 +176,10 @@ public static class AestheticProfilePersistence
         double? Flat = null,
         double? Decorator = null,
         int? SampleSize = null);
+
+    /// <summary>Stored shape for BrandMarkDetection — a straight field-for-field mirror (FFS-PA-02).</summary>
+    private sealed record StoredBrandMark(
+        bool Present = false,
+        string? PositionHint = null,
+        string? ColorHex = null);
 }

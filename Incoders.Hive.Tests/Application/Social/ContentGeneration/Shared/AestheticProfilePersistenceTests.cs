@@ -261,4 +261,88 @@ public sealed class AestheticProfilePersistenceTests
         Assert.Null(read.ConceptualMethod);
         Assert.Null(read.ImageTypeRatio);
     }
+
+    // ── WU-4 (FFS-PA-02): BrandMark round-trip ───────────────────────────────
+
+    /// <summary>
+    /// FFS-PA-02-a — Serialize with a populated BrandMark, then Read returns the same
+    /// Present/PositionHint/ColorHex with no data loss (task 2.6 RED / 2.7 GREEN).
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_PreservesBrandMark()
+    {
+        var brandMark = new BrandMarkDetection(Present: true, PositionHint: "bottom-right", ColorHex: "#112233");
+
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            BrandMark: brandMark);
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.NotNull(read.BrandMark);
+        Assert.True(read.BrandMark!.Present);
+        Assert.Equal("bottom-right", read.BrandMark.PositionHint);
+        Assert.Equal("#112233", read.BrandMark.ColorHex);
+    }
+
+    /// <summary>
+    /// FFS-PA-02-a — a BrandMark with Present=false round-trips correctly (not fabricated
+    /// as absent-key; the extractor's explicit "no mark" answer is preserved).
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_PreservesBrandMark_WhenPresentIsFalse()
+    {
+        var brandMark = new BrandMarkDetection(Present: false, PositionHint: null, ColorHex: null);
+
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            BrandMark: brandMark);
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.NotNull(read.BrandMark);
+        Assert.False(read.BrandMark!.Present);
+    }
+
+    /// <summary>
+    /// FFS-PA-02-b — A pre-v3 blob with no brandMark key deserializes with BrandMark = null,
+    /// no exception (cold-start parity; task 2.6 RED / 2.7 GREEN).
+    /// </summary>
+    [Fact]
+    public void Read_PreV3Blob_ReturnsNull_ForBrandMark_NoException()
+    {
+        const string preV3Json =
+            """{"palette":[],"styleDescriptors":["editorial"],"motifs":[],"captionVoice":"playful","referenceImages":[]}""";
+
+        var read = AestheticProfilePersistence.Read(preV3Json);
+
+        Assert.Null(read.BrandMark);
+        Assert.NotNull(read.StyleDescriptors);
+        Assert.Contains("editorial", read.StyleDescriptors!);
+    }
+
+    [Fact]
+    public void Serialize_ThenRead_NullBrandMark_RemainsNull()
+    {
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null
+            // BrandMark = null (default)
+        );
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.Null(read.BrandMark);
+    }
 }

@@ -77,9 +77,11 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
         // and ColorPairings; absent keys (old blobs) → null, cold-start parity unchanged (CAC-BSP-04-a).
         // client-aesthetic-conceptual-detection (WU-2): Read now also returns ConceptualMethod and
         // ImageTypeRatio; absent keys (pre-v2 blobs) → null, cold-start parity unchanged (CACD-PA-05-b).
+        // faithful-flat-slide-rendering (WU-4): Read now also returns BrandMark; absent keys
+        // (pre-v3 blobs) → null, cold-start parity unchanged (FFS-PA-02-b).
         var (palette, styleDescriptors, motifs, captionVoice, referenceImages,
                 backgroundPattern, typicalSlideCount, colorPairings,
-                conceptualMethod, imageTypeRatio) =
+                conceptualMethod, imageTypeRatio, brandMark) =
             AestheticProfilePersistence.Read(row.AestheticProfileJson);
 
         return new ClientAestheticProfile(
@@ -96,7 +98,8 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
             TypicalSlideCount: typicalSlideCount,
             ColorPairings: colorPairings,
             ConceptualMethod: conceptualMethod,
-            ImageTypeRatio: imageTypeRatio);
+            ImageTypeRatio: imageTypeRatio,
+            BrandMark: brandMark);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────
