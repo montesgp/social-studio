@@ -665,6 +665,48 @@ when these fields are absent.
 
 ---
 
+## Added Requirements: Faithful Flat-Slide Rendering — Brand-Mark Detection (faithful-flat-slide-rendering, #50)
+
+### Requirement: FFS-PA-01 — Extractor Detects Recurring Brand Mark
+
+`MultimodalAestheticStyleExtractor` MUST detect whether a recurring identifying mark exists across
+analyzed images and, when present, its approximate position and color (typically the text color),
+returned as `brandMark { present, positionHint, colorHex }`. The extraction prompt/schema version
+MUST be bumped (v2→v3), additive and backward-compatible with pre-v3 responses.
+
+#### Scenario: Recurring mark detected (FFS-PA-01-a)
+
+- GIVEN analyzed images consistently show the same mark
+- WHEN extraction runs
+- THEN `brandMark.present = true` with a position hint and color hex
+
+#### Scenario: No recurring mark — extractor reports absent (FFS-PA-01-b)
+
+- GIVEN no consistent mark across analyzed images
+- WHEN extraction runs
+- THEN `brandMark.present = false` and the LLM does not fabricate a mark
+
+### Requirement: FFS-PA-02 — `BrandMark` Persisted as Additive Nullable Field, No EF Migration
+
+`ClientAestheticProfile` MUST carry a nullable `BrandMark` field populated from the extractor
+output, persisted additively as a JSON key inside the existing `aesthetic_profile_json` blob column
+via `AestheticProfilePersistence`. No EF Core migration is required or permitted. Pre-change blobs
+MUST deserialize with `BrandMark = null` and no exception.
+
+#### Scenario: Round-trip preserves BrandMark (FFS-PA-02-a)
+
+- GIVEN a profile with a populated `BrandMark`
+- WHEN persisted and read back
+- THEN `BrandMark` matches with no data loss
+
+#### Scenario: Pre-change blob reads as null (FFS-PA-02-b)
+
+- GIVEN a stored blob with no `brandMark` key (persisted before this change)
+- WHEN deserialized into `ClientAestheticProfile`
+- THEN `BrandMark` is null; no exception is thrown; all pre-existing fields intact
+
+*Merged from SDD change `faithful-flat-slide-rendering` (issue #50) — applied 2026-07-06.*
+
 ## MODIFIED Requirements
 
 None. All requirements above are additive. Pre-existing requirements
