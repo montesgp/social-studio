@@ -466,7 +466,11 @@ public sealed class ContentGenerationJobProcessor
                                 SlideCount: formatSlideCount,
                                 CreativeSlideIndices: creativeIndices,
                                 Aesthetic: aestheticProfile,
-                                PerSlideCopySummaries: []);   // v1: empty; full copy threading is a follow-up
+                                // Thread the per-slide copy so the image prompt writer grounds each
+                                // generated background as a metaphor of THAT slide's actual message
+                                // (the copy is produced before backgrounds run). Empty when the payload
+                                // carries no per-slide copy — the writer then emulates style only.
+                                PerSlideCopySummaries: TryGetPerSlideCopySummaries(step.Payload));
 
                             // FIX-1: open a ProviderCallContext scope so both gateways
                             // (IAiCompletionGateway for the prompt-writer, IImageGenerationGateway for
@@ -1227,6 +1231,58 @@ public sealed class ContentGenerationJobProcessor
 
         return 1;
     }
+
+    /// <summary>
+    /// Extracts a per-slide copy summary (one entry per slide, slide order preserved) from the
+    /// generated content payload so the image prompt writer can ground each background as a metaphor
+    /// of that slide's message. Prefers the copy AI's <c>ImagePromptHint</c>; otherwise falls back to
+    /// title + body. Returns an empty list when the payload carries no recognizable per-slide copy.
+    /// </summary>
+    internal static IReadOnlyList<string> TryGetPerSlideCopySummaries(object? payload)
+    {
+        if (payload is CarouselContent carousel)
+        {
+            return carousel.Slides
+                .Select(s => ComposeSlideCopySummary(s.ImagePromptHint, s.Title, s.Body))
+                .ToList();
+        }
+
+        if (payload is JsonElement element
+            && element.TryGetProperty("slides", out var slidesEl)
+            && slidesEl.ValueKind == JsonValueKind.Array)
+        {
+            var summaries = new List<string>();
+            foreach (var slide in slidesEl.EnumerateArray())
+            {
+                summaries.Add(ComposeSlideCopySummary(
+                    GetJsonString(slide, "imagePromptHint"),
+                    GetJsonString(slide, "title"),
+                    GetJsonString(slide, "body")));
+            }
+
+            return summaries;
+        }
+
+        return [];
+    }
+
+    private static string ComposeSlideCopySummary(string? hint, string? title, string? body)
+    {
+        if (!string.IsNullOrWhiteSpace(hint))
+        {
+            return hint.Trim();
+        }
+
+        var parts = new[] { title, body }
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s!.Trim());
+        return string.Join(". ", parts);
+    }
+
+    private static string? GetJsonString(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     /// <summary>
     /// Resolves an enforced background template from the per-slide <paramref name="selection"/>.

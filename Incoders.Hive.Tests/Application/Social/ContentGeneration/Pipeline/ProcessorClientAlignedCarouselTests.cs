@@ -109,6 +109,33 @@ public sealed class ProcessorClientAlignedCarouselTests
     }
 
     // -----------------------------------------------------------------------
+    // The per-slide copy is threaded into the image request so the prompt writer can ground each
+    // generated background as a metaphor of that slide's message (previously passed empty).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task PerSlideCopySummaries_ThreadedFromPayload_GroundsImageMetaphor()
+    {
+        var captured = new List<ClientAestheticImageRequest>();
+        var imageService = new CAC12CaptureAndReturnService(
+            new Dictionary<int, BackgroundSelection.ForcedDefault>(), captured);
+
+        var processor = BuildProcessor(
+            slideCount: 5,
+            profile: FullProfile(),
+            imageBackgroundService: imageService);
+
+        var ex = await Record.ExceptionAsync(() => processor.ProcessAsync(JobId, CancellationToken.None));
+
+        Assert.Null(ex);
+        Assert.Single(captured);
+        var summaries = captured[0].PerSlideCopySummaries;
+        Assert.Equal(5, summaries.Count);
+        Assert.Contains("Slide 1", summaries[0]);
+        Assert.Contains("Body 1", summaries[0]);
+    }
+
+    // -----------------------------------------------------------------------
     // Cold-start parity: all-null profile → CSS path; job completes without error.
     // (CAC-INT-01: no ForcedDefault → all slides use CSS designer path.)
     // -----------------------------------------------------------------------
