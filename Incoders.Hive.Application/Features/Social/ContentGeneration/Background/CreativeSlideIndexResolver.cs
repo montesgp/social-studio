@@ -89,4 +89,30 @@ public static class CreativeSlideIndexResolver
             .Take(MaxCreativeSlidesPerPackage)
             .ToList();
     }
+
+    /// <summary>
+    /// Resolves the mapped <see cref="SlideBackgroundKind"/> for a SINGLE 1-based slide index,
+    /// using the SAME proportional mapping formula as <see cref="ResolveFromPattern"/>
+    /// (<c>patternIndex = (slideIndex-1) * patternCount / slideCount</c>).
+    /// Refs: design C1; FFS-CG-01.
+    /// </summary>
+    /// <param name="pattern">
+    /// Ordered per-slide background-kind sequence from <c>ClientAestheticProfile.BackgroundPattern</c>.
+    /// Null or empty → <c>null</c> (no mapped kind — caller must NOT short-circuit).
+    /// </param>
+    /// <param name="slideCount">Total number of slides in the carousel (1-based upper bound).</param>
+    /// <param name="slideIndex">The 1-based slide index to resolve.</param>
+    /// <returns>The mapped kind, or <c>null</c> when the pattern is absent.</returns>
+    public static SlideBackgroundKind? ResolveKindForSlide(
+        IReadOnlyList<SlideBackgroundKind>? pattern, int slideCount, int slideIndex)
+    {
+        if (pattern is null || pattern.Count == 0)
+            return null;
+
+        var patternCount = pattern.Count;
+        // Same proportional formula as ResolveFromPattern; integer truncation equals floor here
+        // because slideIndex, patternCount, slideCount are all positive.
+        var patternIndex = (slideIndex - 1) * patternCount / slideCount;
+        return pattern[patternIndex];
+    }
 }
