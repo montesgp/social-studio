@@ -67,7 +67,7 @@ public sealed class ComfyUiSettingsTests
         var result = ComfyUiSettings.FromCredential(BuildCredential(new Dictionary<string, string>()));
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(TimeSpan.FromMilliseconds(180_000), result.Value.Timeout);
+        Assert.Equal(TimeSpan.FromMilliseconds(600_000), result.Value.Timeout);
         Assert.Equal(TimeSpan.FromMilliseconds(1_000), result.Value.PollInterval);
     }
 

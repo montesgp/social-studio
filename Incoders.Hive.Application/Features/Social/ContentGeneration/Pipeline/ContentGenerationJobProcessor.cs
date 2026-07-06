@@ -444,8 +444,13 @@ public sealed class ContentGenerationJobProcessor
                     && FormatCatalog.ResolveForAssembly(formatKey)?.Layout == Layout.Carousel)
                 {
                     var formatSlideCount = TryGetSlideCount(step.Payload, formatKey);
-                    var creativeIndices = CreativeSlideIndexResolver.Resolve(
-                        aestheticProfile.CreativeSlideIndices, formatSlideCount);
+                    // Route AI image generation to the client's Photo slides only, derived from the
+                    // captured BackgroundPattern. FlatColor slides must NOT be conditioned on a
+                    // photographic reference (the two conditionings conflict and the sampler diverges
+                    // to noise) — they fall through to the CSS/palette path (ColorPairings) instead.
+                    // Null/empty pattern → ResolveFromPattern delegates to the {first,last} cold-start default.
+                    var creativeIndices = CreativeSlideIndexResolver.ResolveFromPattern(
+                        aestheticProfile.BackgroundPattern, formatSlideCount);
 
                     if (creativeIndices.Count > 0)
                     {
@@ -461,7 +466,11 @@ public sealed class ContentGenerationJobProcessor
                                 SlideCount: formatSlideCount,
                                 CreativeSlideIndices: creativeIndices,
                                 Aesthetic: aestheticProfile,
-                                PerSlideCopySummaries: []);   // v1: empty; full copy threading is a follow-up
+                                // Thread the per-slide copy so the image prompt writer grounds each
+                                // generated background as a metaphor of THAT slide's actual message
+                                // (the copy is produced before backgrounds run). Empty when the payload
+                                // carries no per-slide copy — the writer then emulates style only.
+                                PerSlideCopySummaries: TryGetPerSlideCopySummaries(step.Payload));
 
                             // FIX-1: open a ProviderCallContext scope so both gateways
                             // (IAiCompletionGateway for the prompt-writer, IImageGenerationGateway for
@@ -623,7 +632,13 @@ public sealed class ContentGenerationJobProcessor
                         string validatedMarkup;
                         if (enforcedBackground is not null)
                         {
-                            validatedMarkup = BuildTemplateBackedMarkup(spec, enforcedBackground, aestheticDesignContext);
+                            // The Chromium renderer sets page content with no base URL, so a bare storage
+                            // path (e.g. the generated background's Supabase object key) cannot be fetched and
+                            // rasterizes to a broken-image/black background. Inline it as a self-contained
+                            // data URI so the hard-enforced background actually renders.
+                            var renderableUrl = await InlineBackgroundUrlAsync(_assetStorage, enforcedBackground.Url, ct);
+                            validatedMarkup = BuildTemplateBackedMarkup(
+                                spec, enforcedBackground with { Url = renderableUrl }, aestheticDesignContext);
                         }
                         else if (aiMarkup is not null)
                         {
@@ -1218,6 +1233,58 @@ public sealed class ContentGenerationJobProcessor
     }
 
     /// <summary>
+    /// Extracts a per-slide copy summary (one entry per slide, slide order preserved) from the
+    /// generated content payload so the image prompt writer can ground each background as a metaphor
+    /// of that slide's message. Prefers the copy AI's <c>ImagePromptHint</c>; otherwise falls back to
+    /// title + body. Returns an empty list when the payload carries no recognizable per-slide copy.
+    /// </summary>
+    internal static IReadOnlyList<string> TryGetPerSlideCopySummaries(object? payload)
+    {
+        if (payload is CarouselContent carousel)
+        {
+            return carousel.Slides
+                .Select(s => ComposeSlideCopySummary(s.ImagePromptHint, s.Title, s.Body))
+                .ToList();
+        }
+
+        if (payload is JsonElement element
+            && element.TryGetProperty("slides", out var slidesEl)
+            && slidesEl.ValueKind == JsonValueKind.Array)
+        {
+            var summaries = new List<string>();
+            foreach (var slide in slidesEl.EnumerateArray())
+            {
+                summaries.Add(ComposeSlideCopySummary(
+                    GetJsonString(slide, "imagePromptHint"),
+                    GetJsonString(slide, "title"),
+                    GetJsonString(slide, "body")));
+            }
+
+            return summaries;
+        }
+
+        return [];
+    }
+
+    private static string ComposeSlideCopySummary(string? hint, string? title, string? body)
+    {
+        if (!string.IsNullOrWhiteSpace(hint))
+        {
+            return hint.Trim();
+        }
+
+        var parts = new[] { title, body }
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s!.Trim());
+        return string.Join(". ", parts);
+    }
+
+    private static string? GetJsonString(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    /// <summary>
     /// Resolves an enforced background template from the per-slide <paramref name="selection"/>.
     ///
     /// WU-4 C6: with the coherence refactor, CASE A puts a single-entry
@@ -1261,6 +1328,52 @@ public sealed class ContentGenerationJobProcessor
         // For ClientAesthetic: the AI designs freely within aesthetic guidance — return null
         // so the AI markup path is taken (or the gradient fallback if no AI markup).
         return null;
+    }
+
+    /// <summary>
+    /// Resolves a hard-enforced background image reference to a form the HTML renderer can load.
+    /// The Chromium renderer sets page content with no base URL, so a relative storage path (a
+    /// Supabase object key such as <c>{org}/{client}/{analysis}/carousel/slide_1.png</c>) cannot be
+    /// fetched and rasterizes to a broken-image/black background. When the URL is a bare storage
+    /// path, download the bytes via <paramref name="storage"/> and inline them as a self-contained
+    /// <c>data:</c> URI. URLs that are already <c>data:</c> or <c>http(s):</c> are returned as-is.
+    /// Best-effort: on any failure the original URL is returned unchanged (no worse than before).
+    /// </summary>
+    internal static async Task<string> InlineBackgroundUrlAsync(
+        IGeneratedAssetStorage? storage,
+        string url,
+        CancellationToken ct)
+    {
+        if (storage is null || string.IsNullOrWhiteSpace(url))
+        {
+            return url;
+        }
+
+        if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+            || url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return url;
+        }
+
+        try
+        {
+            var opened = await storage.OpenAsync(url, ct);
+            if (opened.IsFailure)
+            {
+                return url;
+            }
+
+            using var stream = opened.Value;
+            using var buffer = new MemoryStream();
+            await stream.Content.CopyToAsync(buffer, ct);
+            var mime = string.IsNullOrWhiteSpace(stream.Mime) ? "image/png" : stream.Mime;
+            return $"data:{mime};base64,{Convert.ToBase64String(buffer.ToArray())}";
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return url;
+        }
     }
 
     private static string BuildTemplateBackedMarkup(

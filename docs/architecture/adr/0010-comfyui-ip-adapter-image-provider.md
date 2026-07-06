@@ -130,7 +130,8 @@ transient unavailability is most likely).
 keys `base_url` (default `http://127.0.0.1:8188`), `default_checkpoint`,
 `ipadapter_model`, `workflow_template_json` (empty → bundled default),
 `output_node_id` (default `"9"`), `max_reference_images` (default `1`), `timeout_ms`
-(default `180000`), and `poll_interval_ms` (default `1000`). An invalid or non-absolute
+(default `600000` — sized for SDXL on non-CUDA/DirectML hardware where a single image can
+take ~6 min), and `poll_interval_ms` (default `1000`). An invalid or non-absolute
 `base_url` (and other malformed values) returns
 `Result.Failure(IntegrationErrors.ProviderCredentialUnavailable)`; all other missing keys
 fall back to safe defaults. `ProviderKey = "comfyui"` is a compile-time constant shared by
