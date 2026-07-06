@@ -38,12 +38,12 @@
       "model": ["5", 0],
       "ipadapter": ["5", 1],
       "image": ["4", 0],
-      "weight": 0.5,
+      "weight": 0.4,
       "weight_type": "linear",
       "combine_embeds": "concat",
       "embeds_scaling": "V only",
       "start_at": 0.0,
-      "end_at": 0.6
+      "end_at": 0.5
     }
   },
   "7": {
