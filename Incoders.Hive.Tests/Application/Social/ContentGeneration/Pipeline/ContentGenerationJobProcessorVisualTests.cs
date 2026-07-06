@@ -2,12 +2,14 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ClientBrandManuals;
+using Incoders.Hive.Domain.Social.Clients;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -796,4 +798,561 @@ file sealed class SimplePackageRepository : IGeneratedPackageRepository
 {
     public Task InsertAsync(GeneratedPackage p, CancellationToken ct) => Task.CompletedTask;
     public Task<GeneratedPackage?> GetByJobIdAsync(Guid jobId, Guid organizationId, CancellationToken ct) => Task.FromResult<GeneratedPackage?>(null);
+}
+
+// -----------------------------------------------------------------------
+// FFS-CG-01/02/03 — FlatColor deterministic short-circuit (tasks 1.3, 1.7, 1.9, 1.10).
+// The AI designer is BYPASSED entirely for a ClientAesthetic carousel slide whose mapped
+// kind is FlatColor and whose profile has resolved ColorPairings. Cold-start (no
+// BackgroundPattern/ColorPairings) and Photo-kind slides fall through UNCHANGED to the
+// existing designer+guardrail path (byte-identical — FFS-CG-03-a).
+// -----------------------------------------------------------------------
+
+public sealed class ContentGenerationJobProcessorFlatColorTests
+{
+    private static readonly Guid OrgId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private static readonly Guid ClientId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private static readonly Guid AnalysisId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+    private static readonly Guid JobId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+
+    // -----------------------------------------------------------------------
+    // FFS-CG-01-a: FlatColor + resolved ColorPairings → flat bg/text, no decoration,
+    // AI designer is never invoked.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task FlatColorSlide_RendersFlatBackground_DesignerNeverCalled()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+        var designerSpy = new FC_NeverCalledDesigner();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: designerSpy);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.False(designerSpy.WasCalled,
+            "AiVisualDesigner.ComposeAsync MUST NOT be invoked for a FlatColor slide with resolved ColorPairings.");
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
+        Assert.Contains("color:#EEEEEE", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("linear-gradient", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("box-shadow", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("blob", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("grain", rendererSpy.ReceivedMarkup);
+    }
+
+    // -----------------------------------------------------------------------
+    // FFS-CG-02-a/b: accent is an editable content-layer slot — emitted ONLY when the
+    // profile signals an accent color role; never baked into the rasterized background.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task FlatColorSlide_AccentRoleSignaled_EmitsEditableAccentSlot()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            palette: [new AestheticPaletteEntry("#FF00AA", "Accent", 0)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("data-slot=\"accent\"", rendererSpy.ReceivedMarkup);
+        Assert.Contains("#FF00AA", rendererSpy.ReceivedMarkup);
+
+        // The accent slot lives in the editable content layer, never in the rasterized
+        // background layer — assert the background layer div does not carry the accent color.
+        var backgroundLayerStart = rendererSpy.ReceivedMarkup!.IndexOf("data-layer=\"background\"", StringComparison.Ordinal);
+        var contentLayerStart = rendererSpy.ReceivedMarkup!.IndexOf("data-layer=\"content\"", StringComparison.Ordinal);
+        var accentSlotIndex = rendererSpy.ReceivedMarkup!.IndexOf("data-slot=\"accent\"", StringComparison.Ordinal);
+        Assert.True(accentSlotIndex > contentLayerStart && contentLayerStart > backgroundLayerStart,
+            "Accent slot must appear inside the content layer, after the background layer.");
+    }
+
+    [Fact]
+    public async Task FlatColorSlide_NoAccentRoleSignaled_OmitsAccentSlot()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        // Palette has entries, but none carries the "Accent" role — conservative default: omit.
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            palette: [new AestheticPaletteEntry("#334455", "Primary", 0)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("data-slot=\"accent\"", rendererSpy.ReceivedMarkup);
+    }
+
+    // -----------------------------------------------------------------------
+    // FFS-CG-03-a: cold-start parity — no BackgroundPattern/ColorPairings → designer
+    // path is byte-identical to pre-change behavior (AI markup used, guardrails run).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ColdStart_NoPatternNoColorPairings_DesignerPathUnchanged()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+        var designerSpy = new FC_SucceedingDesigner();
+
+        var profile = FC_Profile(backgroundPattern: null, colorPairings: null);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: designerSpy);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.True(designerSpy.WasCalled,
+            "Cold-start (no BackgroundPattern/ColorPairings) MUST fall through unchanged to the AI designer.");
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("layer-background", rendererSpy.ReceivedMarkup);
+    }
+
+    [Fact]
+    public async Task ColdStart_PatternPresentButNoColorPairings_DesignerPathUnchanged()
+    {
+        // BackgroundPattern maps this slide to FlatColor, but ColorPairings has not resolved yet —
+        // the short-circuit MUST require BOTH signals; a single signal is still cold-start.
+        var rendererSpy = new FC_CapturingRenderer();
+        var designerSpy = new FC_SucceedingDesigner();
+
+        var profile = FC_Profile(backgroundPattern: [SlideBackgroundKind.FlatColor], colorPairings: null);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: designerSpy);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.True(designerSpy.WasCalled);
+        Assert.Contains("layer-background", rendererSpy.ReceivedMarkup);
+    }
+
+    // -----------------------------------------------------------------------
+    // FFS-CG-01-b: a Photo-mapped slide is unaffected — still uses the AI designer path.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task PhotoKindSlide_Unaffected_UsesDesignerPath()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+        var designerSpy = new FC_SucceedingDesigner();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.Photo],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: designerSpy);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.True(designerSpy.WasCalled, "Photo-mapped slides MUST keep using the AI designer path.");
+        Assert.Contains("layer-background", rendererSpy.ReceivedMarkup);
+    }
+
+    // -----------------------------------------------------------------------
+    // FFS-CG-01-c (layout gate): the FlatColor short-circuit only applies to carousel-
+    // layout formats. A single-asset format (e.g. "story") stays on the designer path
+    // even if the profile happens to carry a FlatColor-mapped pattern + ColorPairings.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task NonCarouselFormat_Unaffected_UsesDesignerPath()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+        var designerSpy = new FC_SucceedingDesigner();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: designerSpy,
+            formatKey: "story");
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.True(designerSpy.WasCalled,
+            "A non-carousel format MUST NOT be short-circuited even under ClientAesthetic + FlatColor mapping.");
+        Assert.Contains("layer-background", rendererSpy.ReceivedMarkup);
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    private static ClientAestheticProfile FC_Profile(
+        IReadOnlyList<SlideBackgroundKind>? backgroundPattern,
+        IReadOnlyList<ColorPairing>? colorPairings,
+        IReadOnlyList<AestheticPaletteEntry>? palette = null) =>
+        new(
+            BackgroundDescriptors: [],
+            VoiceTone: null,
+            AverageSlidesPerCarousel: null,
+            AnalyzedAtUtc: DateTime.UtcNow,
+            Palette: palette,
+            BackgroundPattern: backgroundPattern,
+            ColorPairings: colorPairings);
+
+    private ContentGenerationJobProcessor FC_BuildProcessor(
+        int slideCount,
+        ClientAestheticProfile profile,
+        IContentRendererWithGeometry renderer,
+        IVisualDesigner designer,
+        // A real canonical carousel format key ("carousel" is a legacy alias EXCLUDED from
+        // DesignedRasterFormats — see ADR-3.6 — so it never enters the designer+guardrail block
+        // this short-circuit lives inside).
+        string formatKey = "feed-carousel")
+    {
+        var fakeJob = new ContentGenerationJob(
+            Id: JobId,
+            OrganizationId: OrgId,
+            ClientId: ClientId,
+            AnalysisId: AnalysisId,
+            RequestedFormats: [formatKey],
+            Status: "Queued",
+            StatusReason: null,
+            ErrorCode: null,
+            BrandSnapshotJson: "{}",
+            ManifestJson: null,
+            CorrelationId: Guid.NewGuid(),
+            CreatedAt: DateTime.UtcNow,
+            UpdatedAt: DateTime.UtcNow,
+            StartedAt: null,
+            CompletedAt: null);
+
+        var analysis = new SingleAnalyzerAnalysis(
+            Summary: "Test",
+            DetectedHooks: [],
+            LikelyAudience: "SMBs",
+            NarrativeStructure: "problem-solution",
+            Strengths: [],
+            Weaknesses: [],
+            DerivedIdeas: [],
+            ClientAdaptationRecommendations: [],
+            Confidence: 0.9,
+            Warnings: []);
+
+        var analysisJson = JsonSerializer.Serialize(analysis, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var analysisRecord = new SingleContentAnalysisRecord(
+            Id: AnalysisId,
+            OrganizationId: OrgId,
+            ClientId: ClientId,
+            UserId: Guid.NewGuid(),
+            SourceUrl: "https://example.com/test",
+            NormalizedUrl: null,
+            SourcePlatformKey: null,
+            Status: SingleContentAnalysisStatus.Analyzed,
+            ContentSnapshotJson: null,
+            AnalysisJson: analysisJson,
+            ProviderDiagnosticsJson: null,
+            FailureCode: null,
+            FailureMessageKey: null,
+            CreatedAtUtc: DateTime.UtcNow,
+            UpdatedAtUtc: DateTime.UtcNow,
+            CompletedAtUtc: DateTime.UtcNow);
+
+        var payload = FC_BuildPayload(slideCount);
+
+        var brand = BrandSnapshot.FromBrandData(
+            new BrandManualSnapshot(
+                ColorPalette: [],
+                Logos: [],
+                BackgroundTemplates: [],
+                Typography: ["Inter"],
+                VoiceAndTone: null,
+                Notes: null),
+            strategy: null,
+            monthlyObjective: null,
+            client: new Incoders.Hive.Domain.Social.ContentGeneration.ClientProfileSnapshot(
+                "Test Client", null, null, BackgroundSourcingPolicy.ClientAesthetic));
+
+        return new ContentGenerationJobProcessor(
+            jobs: new FC_JobRepository(fakeJob),
+            analyses: new FC_AnalysisRepository(analysisRecord),
+            orchestrator: new FC_Orchestrator(formatKey, payload, brand),
+            formatResults: new FC_FormatResultRepository(),
+            brandLoader: new FC_BrandLoader(brand),
+            composer: new FC_CompositionService(formatKey, slideCount),
+            renderer: renderer,
+            packageBuilder: new FC_PackageBuilder(),
+            packageStorage: new FC_PackageStorage(),
+            packages: new FC_PackageRepository(),
+            assetStorage: null,
+            assetRepository: null,
+            designer: designer,
+            guardrails: new FC_PassingGuardrails(),
+            providerCallContext: new ProviderCallContext(),
+            logger: NullLogger<ContentGenerationJobProcessor>.Instance,
+            backgroundStrategyResolver: new FC_StrategyResolver(formatKey),
+            aestheticDescriptorReader: null,
+            aestheticProfileReader: new FC_FixedProfileReader(profile),
+            aestheticEnsureFreshService: null,
+            imageBackgroundService: null);
+    }
+
+    private static object FC_BuildPayload(int slideCount)
+    {
+        var slides = Enumerable.Range(1, slideCount)
+            .Select(i => new { title = $"Slide title {i}", body = $"Slide subtitle {i}" })
+            .ToArray();
+        var payload = new { slides, coverTitle = "Cover", publicationDescription = "Test" };
+        return JsonSerializer.SerializeToElement(payload, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+}
+
+// -----------------------------------------------------------------------
+// FlatColor test doubles — file-scoped with FC_ prefix to avoid collision
+// -----------------------------------------------------------------------
+
+file sealed class FC_CapturingRenderer : IContentRendererWithGeometry
+{
+    public string? ReceivedMarkup { get; private set; }
+
+    public Task<Result<RenderedAsset>> RenderAsync(VisualCompositionSpec spec, RenderOptions opts, CancellationToken ct)
+    {
+        ReceivedMarkup = spec.DesignerMarkup;
+        var bytes = System.Text.Encoding.UTF8.GetBytes($"fake-{spec.FormatKey}-content");
+        var asset = RenderedAsset.Create(spec.FormatKey, "image/png", $"{spec.FormatKey}.png", bytes);
+        return Task.FromResult(Result<RenderedAsset>.Success(asset));
+    }
+
+    public Task<Result<RenderedAssetWithGeometry>> RenderWithGeometryAsync(
+        VisualCompositionSpec spec, RenderOptions opts, CancellationToken ct)
+    {
+        ReceivedMarkup = spec.DesignerMarkup;
+        var bytes = System.Text.Encoding.UTF8.GetBytes($"fake-{spec.FormatKey}-content");
+        var asset = RenderedAsset.Create(spec.FormatKey, "image/png", $"{spec.FormatKey}.png", bytes);
+        return Task.FromResult(Result.Success(new RenderedAssetWithGeometry(asset, [], null)));
+    }
+}
+
+file sealed class FC_NeverCalledDesigner : IVisualDesigner
+{
+    public bool WasCalled { get; private set; }
+    public bool IsActive => true;
+
+    public Task<Result<VisualDesignOutput>> ComposeAsync(
+        Guid organizationId,
+        VisualCompositionSpec contentPayload,
+        BrandManualSnapshot brandSnapshot,
+        BackgroundSelection backgroundSelection,
+        CancellationToken cancellationToken,
+        ClientAestheticDesignContext? aesthetic = null)
+    {
+        WasCalled = true;
+        return Task.FromResult(
+            Result.Failure<VisualDesignOutput>(
+                Error.Failure("visual-designer.should-not-be-called", "FlatColor short-circuit must skip the designer.")));
+    }
+}
+
+file sealed class FC_SucceedingDesigner : IVisualDesigner
+{
+    public bool WasCalled { get; private set; }
+    public bool IsActive => true;
+
+    public Task<Result<VisualDesignOutput>> ComposeAsync(
+        Guid organizationId,
+        VisualCompositionSpec contentPayload,
+        BrandManualSnapshot brandSnapshot,
+        BackgroundSelection backgroundSelection,
+        CancellationToken cancellationToken,
+        ClientAestheticDesignContext? aesthetic = null)
+    {
+        WasCalled = true;
+        var output = new VisualDesignOutput(
+            Markup: """<div class="composition" data-format="carousel" style="width:1080px;height:1350px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="title" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""",
+            PromptVersionKey: "visual-designer/v1",
+            IsValid: false);
+        return Task.FromResult(Result.Success(output));
+    }
+}
+
+file sealed class FC_PassingGuardrails : IVisualGuardrailValidator
+{
+    public Result<VisualDesignOutput> Validate(VisualDesignOutput output, BrandManualSnapshot brand, VisualCompositionSpec spec) =>
+        Result.Success(output.WithValidated());
+}
+
+file sealed class FC_BrandLoader(BrandSnapshot brand) : IClientBrandSnapshotLoader
+{
+    public Task<BrandSnapshot> LoadAsync(Guid orgId, Guid clientId, CancellationToken ct = default) =>
+        Task.FromResult(brand);
+}
+
+file sealed class FC_FixedProfileReader(ClientAestheticProfile profile) : IClientAestheticProfileReader
+{
+    public Task<ClientAestheticProfile?> GetProfileAsync(Guid orgId, Guid clientId, CancellationToken ct) =>
+        Task.FromResult<ClientAestheticProfile?>(profile);
+}
+
+file sealed class FC_StrategyResolver(string formatKey) : IBackgroundStrategyResolver
+{
+    public IBackgroundSourcingStrategy Resolve(BackgroundSourcingPolicy? policy) =>
+        (IBackgroundSourcingStrategy)(policy == BackgroundSourcingPolicy.ClientAesthetic
+            ? new FC_ClientAestheticStrategy(formatKey)
+            : null!);
+}
+
+file sealed class FC_ClientAestheticStrategy(string formatKey) : IBackgroundSourcingStrategy
+{
+    public BackgroundSourcingPolicy Policy => BackgroundSourcingPolicy.ClientAesthetic;
+
+    public CarouselBackgroundPlan Plan(BackgroundPlanRequest request)
+    {
+        var count = request.SlideCount < 1 ? 1 : request.SlideCount;
+        var perSlide = Enumerable.Range(1, count)
+            .Select(_ => (BackgroundSelection)new BackgroundSelection.ClientAesthetic([]))
+            .ToList();
+        return new CarouselBackgroundPlan(BackgroundSourcingPolicy.ClientAesthetic, perSlide, request.SeedToken);
+    }
+}
+
+file sealed class FC_CompositionService(string designedFormat, int slideCount) : IVisualCompositionService
+{
+    private static readonly CompositionPalette DefaultPalette = new("#333", "#666", "#999", "#FFF", "#EEE");
+    private static readonly CompositionTypography DefaultTypo = new("Inter", 24, "Inter", 14);
+    private static readonly CompositionDimensions DefaultDim = new(1080, 1350, 96);
+
+    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct) =>
+        Task.FromResult(BuildSpec(formatKey));
+
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
+        string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
+    {
+        var specs = Enumerable.Range(1, slideCount).Select(_ => BuildSpec(formatKey)).ToList();
+        return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>(specs);
+    }
+
+    private VisualCompositionSpec BuildSpec(string formatKey)
+    {
+        var outputKind = string.Equals(formatKey, designedFormat, StringComparison.OrdinalIgnoreCase)
+            ? CompositionOutputKind.Raster
+            : CompositionOutputKind.Text;
+        return new VisualCompositionSpec(
+            FormatKey: formatKey,
+            LayoutType: "carousel-carousel",
+            Palette: DefaultPalette,
+            Typography: DefaultTypo,
+            AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+            CopySlots: new Dictionary<string, string> { ["title"] = "Slide title 1", ["subtitle"] = "Slide subtitle 1" },
+            Dimensions: DefaultDim)
+        with { OutputKind = outputKind, TextBody = outputKind == CompositionOutputKind.Text ? "body" : null };
+    }
+
+    public IReadOnlyList<string> GetInferredFields() => [];
+}
+
+file sealed class FC_JobRepository(ContentGenerationJob job) : IContentGenerationJobRepository
+{
+    public Task InsertAsync(ContentGenerationJob j, CancellationToken ct) => Task.CompletedTask;
+    public Task<ContentGenerationJob?> GetByIdAsync(Guid id, Guid orgId, CancellationToken ct) => Task.FromResult<ContentGenerationJob?>(job);
+    public Task<ContentGenerationJob?> GetByIdInternalAsync(Guid id, CancellationToken ct) => Task.FromResult<ContentGenerationJob?>(job);
+    public Task UpdateStatusAsync(Guid id, string status, string? reason, string? code, CancellationToken ct) => Task.CompletedTask;
+    public Task UpdateManifestAsync(Guid id, string json, DateTime completedAt, CancellationToken ct) => Task.CompletedTask;
+    public Task<IReadOnlyList<ContentGenerationJob>> ListPendingOrRunningAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<ContentGenerationJob>>([]);
+    public Task<ContentGenerationJob?> GetLatestByAnalysisAndClientAsync(Guid analysisId, Guid organizationId, Guid clientId, CancellationToken ct) => Task.FromResult<ContentGenerationJob?>(null);
+}
+
+file sealed class FC_AnalysisRepository(SingleContentAnalysisRecord record) : ISingleContentAnalysisRepository
+{
+    public Task AddAsync(SingleContentAnalysisRecord a, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<SingleContentAnalysisRecord?> GetByIdAsync(Guid id, Guid orgId, CancellationToken ct = default) => Task.FromResult<SingleContentAnalysisRecord?>(record);
+    public Task UpdateStatusAsync(Guid id, Guid orgId, SingleContentAnalysisStatus status, DateTime updatedAt, CancellationToken ct = default, string? failCode = null, string? failMsgKey = null) => Task.CompletedTask;
+    public Task UpdateAsync(SingleContentAnalysisRecord a, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<SingleContentAnalysisHistoryPage> ListByUserAsync(Guid orgId, Guid userId, int page, int pageSize, CancellationToken ct = default) =>
+        Task.FromResult(new SingleContentAnalysisHistoryPage([], 0, page, pageSize));
+    public Task<SingleContentAnalysisHistoryItem?> FindLatestByUserAndUrlAsync(Guid orgId, Guid userId, string normalized, string src, CancellationToken ct = default) =>
+        Task.FromResult<SingleContentAnalysisHistoryItem?>(null);
+    public Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(Guid id, Guid orgId, Guid userId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<string>?>([]);
+}
+
+file sealed class FC_Orchestrator(string formatKey, object payload, BrandSnapshot brand) : IContentGenerationOrchestrator
+{
+    public Task<OrchestratorResult> RunAsync(OrchestratorRequest request, CancellationToken ct)
+    {
+        var results = new Dictionary<string, FormatGenerationResult<object>>(StringComparer.OrdinalIgnoreCase)
+        {
+            [formatKey] = FormatGenerationResult<object>.Succeeded(payload, "test.v1", [])
+        };
+        return Task.FromResult(new OrchestratorResult(OrchestratorStatus.Succeeded, results, brand));
+    }
+}
+
+file sealed class FC_FormatResultRepository : IContentGenerationFormatResultRepository
+{
+    private readonly Dictionary<(Guid JobId, string FormatKey), ContentGenerationFormatResult> _store = new();
+
+    public Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult r, CancellationToken ct)
+    {
+        _store[(r.JobId, r.FormatKey)] = r;
+        return Task.FromResult(r);
+    }
+
+    public Task<IReadOnlyList<ContentGenerationFormatResult>> ListByJobAsync(Guid jobId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>([]);
+}
+
+file sealed class FC_PackageBuilder : IGeneratedPackageBuilder
+{
+    public Task<BuiltPackage> BuildAsync(BuildPackageInput input, CancellationToken ct)
+    {
+        var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("fake-zip"));
+        var manifest = new GeneratedPackageManifest(new Dictionary<string, FormatAssetMetadata>(), [], [], 0, "test");
+        return Task.FromResult(new BuiltPackage(stream, stream.Length, manifest, "test.zip"));
+    }
+}
+
+file sealed class FC_PackageStorage : IGeneratedPackageStorage
+{
+    public Task<StoredPackageRef> StoreAsync(Stream content, StorePackageKey key, CancellationToken ct) =>
+        Task.FromResult(new StoredPackageRef("fake://test"));
+    public Task<Stream> OpenAsync(StoredPackageRef refKey, CancellationToken ct) =>
+        Task.FromResult<Stream>(new MemoryStream());
+    public Task DeleteAsync(StoredPackageRef refKey, CancellationToken ct) => Task.CompletedTask;
+}
+
+file sealed class FC_PackageRepository : IGeneratedPackageRepository
+{
+    public Task InsertAsync(GeneratedPackage p, CancellationToken ct) => Task.CompletedTask;
+    public Task<GeneratedPackage?> GetByJobIdAsync(Guid jobId, Guid organizationId, CancellationToken ct) =>
+        Task.FromResult<GeneratedPackage?>(null);
 }
