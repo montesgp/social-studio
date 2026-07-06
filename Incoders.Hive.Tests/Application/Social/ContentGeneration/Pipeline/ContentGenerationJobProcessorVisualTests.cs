@@ -1014,13 +1014,190 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     }
 
     // -----------------------------------------------------------------------
+    // FFS-CG-02/03 — brand-mark placement: a deterministic, editable content-layer
+    // data-slot="brand-mark" element, injected identically for BOTH the FlatColor short-circuit
+    // path (C1) and the AI-designer path. The LLM never draws/places it; absent/ambiguous
+    // signals render NONE (tasks 2.13-2.15).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task FlatColorPath_BrandMarkPresent_EmitsEditableBrandMarkSlot()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(Present: true, PositionHint: "bottom-right", ColorHex: "#445566"));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
+        Assert.Contains("#445566", rendererSpy.ReceivedMarkup);
+    }
+
+    [Fact]
+    public async Task PhotoOrAiPath_BrandMarkPresent_EmitsEditableBrandMarkSlot()
+    {
+        // Designer/AI path (cold-start on FlatColor short-circuit — no ColorPairings) still gets
+        // the brand-mark slot injected into the guardrail-validated markup (FFS-CG-02 — same
+        // injection for both paths).
+        var rendererSpy = new FC_CapturingRenderer();
+        var designerSpy = new FC_SucceedingDesigner();
+
+        var profile = FC_Profile(
+            backgroundPattern: null,
+            colorPairings: null,
+            brandMark: new BrandMarkDetection(Present: true, PositionHint: "bottom-left", ColorHex: "#778899"));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: designerSpy);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.True(designerSpy.WasCalled);
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
+        Assert.Contains("#778899", rendererSpy.ReceivedMarkup);
+    }
+
+    [Fact]
+    public async Task BrandMarkNull_ColdStart_NoBrandMarkSlot_ByteIdenticalParity()
+    {
+        // FFS-CG-03-a: no BrandMark on the profile → no mark rendered at all.
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: null);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
+    }
+
+    [Fact]
+    public async Task BrandMarkPresentFalse_NoBrandMarkSlot()
+    {
+        // FFS-PA-01-b / FFS-CG-02-b: extractor explicitly reported no recurring mark.
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(Present: false));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
+    }
+
+    [Fact]
+    public async Task BrandMark_AmbiguousPositionHint_TreatedAsAbsent_FFS_CG_02_c()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(Present: true, PositionHint: "somewhere-unclear", ColorHex: "#445566"));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
+    }
+
+    [Fact]
+    public async Task BrandMark_AmbiguousColorHex_TreatedAsAbsent_FFS_CG_02_c()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(Present: true, PositionHint: "bottom-right", ColorHex: "not-a-color"));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
+    }
+
+    [Fact]
+    public async Task BrandMark_NullColorHex_DefaultsToSlideTextColor()
+    {
+        // Color-source: null ColorHex means "use the slide's text color", not an explicit hex.
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(Present: true, PositionHint: "bottom-left", ColorHex: null));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
+        // Default color-source is the resolved pairing's text color (#EEEEEE for this slide).
+        var brandMarkIndex = rendererSpy.ReceivedMarkup!.IndexOf("data-slot=\"brand-mark\"", StringComparison.Ordinal);
+        var brandMarkTagEnd = rendererSpy.ReceivedMarkup.IndexOf('>', brandMarkIndex);
+        var brandMarkTag = rendererSpy.ReceivedMarkup[..brandMarkTagEnd];
+        Assert.Contains("#EEEEEE", brandMarkTag);
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
     private static ClientAestheticProfile FC_Profile(
         IReadOnlyList<SlideBackgroundKind>? backgroundPattern,
         IReadOnlyList<ColorPairing>? colorPairings,
-        IReadOnlyList<AestheticPaletteEntry>? palette = null) =>
+        IReadOnlyList<AestheticPaletteEntry>? palette = null,
+        BrandMarkDetection? brandMark = null) =>
         new(
             BackgroundDescriptors: [],
             VoiceTone: null,
@@ -1028,7 +1205,8 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
             AnalyzedAtUtc: DateTime.UtcNow,
             Palette: palette,
             BackgroundPattern: backgroundPattern,
-            ColorPairings: colorPairings);
+            ColorPairings: colorPairings,
+            BrandMark: brandMark);
 
     private ContentGenerationJobProcessor FC_BuildProcessor(
         int slideCount,

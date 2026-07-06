@@ -307,7 +307,10 @@ public sealed class ContentGenerationJobProcessor
                 Palette: aestheticProfile.Palette,
                 StyleDescriptors: aestheticProfile.StyleDescriptors ?? [],
                 Motifs: aestheticProfile.Motifs ?? [],
-                VariationSeed: job.Id.ToString());
+                VariationSeed: job.Id.ToString(),
+                // FFS-CG-02: threaded so the placement stage below can emit the editable
+                // brand-mark slot; null → no mark rendered (cold-start parity, FFS-CG-03-a).
+                BrandMark: aestheticProfile.BrandMark);
         }
 
         // 3. Run the orchestrator only on formats that need fresh AI work.
@@ -570,6 +573,12 @@ public sealed class ContentGenerationJobProcessor
                                 aestheticProfile?.BackgroundPattern, specs.Count, specIndex + 1)
                             : null;
 
+                        // FFS-CG-02: the resolved text color for THIS slide, when known (flat path).
+                        // Used as the brand-mark's default color-source when the extractor gave no
+                        // explicit ColorHex. Left null on the AI/photo path — the placement stage
+                        // below falls back to a profile-level default in that case.
+                        string? slideTextColorHex = null;
+
                         if (preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
                             && mappedFlatKind == SlideBackgroundKind.FlatColor
                             && aestheticProfile?.ColorPairings is { Count: > 0 })
@@ -592,6 +601,7 @@ public sealed class ContentGenerationJobProcessor
 
                             capturedMarkup = flatMarkup;
                             capturedDimensions = spec.Dimensions;
+                            slideTextColorHex = CssColor(flatPalette.Text, CompositionDefaults.Palette.Text);
                         }
                         else
                         {
@@ -704,6 +714,27 @@ public sealed class ContentGenerationJobProcessor
                             // WU-1 D1: capture the validated markup and canvas dimensions for persistence.
                             capturedMarkup = validatedMarkup;
                             capturedDimensions = spec.Dimensions;
+                        }
+
+                        // FFS-CG-02: brand-mark placement. ONE deterministic, editable content-layer
+                        // data-slot="brand-mark" element, injected identically whichever branch above
+                        // resolved the markup (FlatColor short-circuit OR AI/photo designer path) — the
+                        // AI designer NEVER draws/places a mark itself (its prompt explicitly defers
+                        // this to a separately-supplied editable element; see AiVisualDesigner). Absent,
+                        // unrecognised, or ambiguous signals render NONE (FFS-CG-02-b/c;
+                        // FFS-CG-03-a cold-start parity).
+                        if (aestheticDesignContext?.BrandMark is { Present: true } brandMark
+                            && capturedMarkup is not null)
+                        {
+                            var defaultBrandMarkColorHex = slideTextColorHex
+                                ?? CssColor(aestheticProfile?.ColorPairings?.FirstOrDefault()?.TextHex, "#FFFFFF");
+                            var brandMarkSlot = BuildBrandMarkSlot(brandMark, defaultBrandMarkColorHex);
+                            if (brandMarkSlot is not null)
+                            {
+                                var markupWithBrandMark = AppendBrandMarkSlot(capturedMarkup, brandMarkSlot);
+                                spec = spec with { DesignerMarkup = markupWithBrandMark };
+                                capturedMarkup = markupWithBrandMark;
+                            }
                         }
                     }
 
@@ -1692,6 +1723,117 @@ public sealed class ContentGenerationJobProcessor
             2);
 
         return string.Join(Environment.NewLine, slots);
+    }
+
+    /// <summary>
+    /// FFS-CG-02: builds the editable content-layer <c>data-slot="brand-mark"</c> element for a
+    /// detected recurring brand mark. Always bottom-anchored (conservative — never competes with
+    /// title/subtitle content near the top) with a small, fixed-size chip; horizontal placement is
+    /// read from <see cref="BrandMarkDetection.PositionHint"/>. Returns <c>null</c> — meaning
+    /// "render nothing" — when the mark is not present, or when the position hint / color hex is
+    /// unrecognised/malformed (FFS-CG-02-b/c: ambiguous signals are treated as absent, never a
+    /// best-guess fallback).
+    /// </summary>
+    private static string? BuildBrandMarkSlot(BrandMarkDetection brandMark, string defaultColorHex)
+    {
+        if (!brandMark.Present)
+        {
+            return null;
+        }
+
+        if (!TryResolveBrandMarkHorizontalCss(brandMark.PositionHint, out var horizontalCss))
+        {
+            // Ambiguous/unrecognised position hint — treat the WHOLE mark as absent (FFS-CG-02-c).
+            return null;
+        }
+
+        string colorHex;
+        if (brandMark.ColorHex is null)
+        {
+            // Color-source: no explicit hex → use the slide's text color.
+            colorHex = defaultColorHex;
+        }
+        else if (IsSafeCssColor(brandMark.ColorHex))
+        {
+            colorHex = brandMark.ColorHex.Trim();
+        }
+        else
+        {
+            // Ambiguous/malformed explicit color — treat the WHOLE mark as absent (FFS-CG-02-c).
+            return null;
+        }
+
+        return Slot(
+            "div",
+            "brand-mark",
+            string.Empty,
+            $"position:absolute;{horizontalCss}bottom:56px;width:112px;height:36px;" +
+            $"border-radius:8px;background:{colorHex};opacity:0.92;",
+            1);
+    }
+
+    /// <summary>
+    /// Resolves the horizontal placement (left/center/right) of a brand mark from its position
+    /// hint. A generous substring match tolerates hint variance from the vision model (e.g.
+    /// "bottom-left", "top-left", "left" all resolve to the same horizontal offset — vertical
+    /// placement is always conservatively bottom-anchored by the caller). Returns <c>false</c> for
+    /// a null hint's caller-visible default (center) as well as any hint that matches none of the
+    /// known tokens (ambiguous — caller treats the whole mark as absent).
+    /// </summary>
+    private static bool TryResolveBrandMarkHorizontalCss(string? positionHint, out string horizontalCss)
+    {
+        if (positionHint is null)
+        {
+            horizontalCss = "left:50%;transform:translateX(-50%);";
+            return true;
+        }
+
+        var normalized = positionHint.Trim().ToLowerInvariant();
+        if (normalized.Contains("left", StringComparison.Ordinal))
+        {
+            horizontalCss = "left:64px;";
+            return true;
+        }
+
+        if (normalized.Contains("right", StringComparison.Ordinal))
+        {
+            horizontalCss = "right:64px;";
+            return true;
+        }
+
+        if (normalized.Contains("center", StringComparison.Ordinal) || normalized.Contains("centre", StringComparison.Ordinal))
+        {
+            horizontalCss = "left:50%;transform:translateX(-50%);";
+            return true;
+        }
+
+        horizontalCss = string.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// Injects the brand-mark slot as the first child of the resolved markup's
+    /// <c>data-layer="content"</c> element. Works uniformly across every markup source this
+    /// processor produces — the FlatColor builder, the deterministic template-backed builder, and
+    /// guardrail-validated AI markup — because the guardrail schema step (VD-04) HARD-requires
+    /// every composition to carry a <c>data-layer="content"</c> element (FFS-CG-02). Defensive: if
+    /// no content layer is found (should never happen post-guardrail), the markup is returned
+    /// unchanged rather than corrupted.
+    /// </summary>
+    private static string AppendBrandMarkSlot(string markup, string brandMarkSlotHtml)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            markup,
+            "<div[^>]*\\bdata-layer\\s*=\\s*\"content\"[^>]*>",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        if (!match.Success)
+        {
+            return markup;
+        }
+
+        var insertAt = match.Index + match.Length;
+        return markup.Insert(insertAt, Environment.NewLine + brandMarkSlotHtml);
     }
 
     private static void AddSlot(
