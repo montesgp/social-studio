@@ -401,6 +401,10 @@ public sealed class AiVisualDesigner : IVisualDesigner
             "   any extra headline, signature, @handle, username, or watermark — not even one you see in the\n" +
             "   attached reference images. Add a signature/handle ONLY when the client directives explicitly\n" +
             "   require it; then place it as a content slot (data-slot=\"signature\") with the directed text.\n" +
+            "   NO INVENTED MARKS: do NOT draw, trace, approximate, or invent any logo, brand mark, emblem,\n" +
+            "   symbol, icon, or signature glyph in EITHER layer — not even one you see in the attached\n" +
+            "   reference images. A client's real identifying mark is supplied separately as an editable\n" +
+            "   element when available; a hand-drawn guess never matches the real brand, so omit it entirely.\n" +
             "4. Allowed tags ONLY: div, h1, h2, h3, h4, p, span, img, ul, ol, li, br, strong, em, b, i, u, small.\n" +
             "5. Emit well-formed XHTML: self-close void elements (<img ... />, <br />), quote every\n" +
             "   attribute, escape literal & as &amp;, and use numeric entities (&#160;) - never named\n" +
