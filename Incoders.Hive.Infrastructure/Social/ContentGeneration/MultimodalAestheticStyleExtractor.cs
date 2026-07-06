@@ -29,7 +29,9 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     private const string CapabilityKey = "ai-aesthetic";
     // aesthetic-extractor/v3: adds brandMark {present,positionHint,colorHex} detection (FFS-PA-01).
     // Additive/backward-compatible: absent brandMark key on a v2 response still maps cleanly (null).
-    private const string PromptVersion = "aesthetic-extractor/v3";
+    // aesthetic-freshness-versioning: MUST stay equal to AestheticFreshness.CurrentSchemaVersion —
+    // referencing the constant directly (both are compile-time consts) guarantees they never drift.
+    private const string PromptVersion = AestheticFreshness.CurrentSchemaVersion;
 
     private readonly IAiCompletionGateway _gateway;
     private readonly IWorkflowConfigurationResolver _workflowResolver;
@@ -252,7 +254,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             ColorPairings: colorPairings.Count > 0 ? colorPairings : null,
             ConceptualMethod: conceptualMethod,
             ImageTypeRatio: imageTypeRatio,
-            BrandMark: brandMark);
+            BrandMark: brandMark,
+            // aesthetic-freshness-versioning: stamp the extractor's OWN version onto the extraction
+            // so persistence stores the ACTUAL version that produced it, not a hardcoded constant.
+            SchemaVersion: PromptVersion);
     }
 
     private static IReadOnlyList<SlideBackgroundKind>? MapSlideMixPattern(string[]? pattern)

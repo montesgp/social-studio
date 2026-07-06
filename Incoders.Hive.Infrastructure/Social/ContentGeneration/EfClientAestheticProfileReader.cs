@@ -79,9 +79,12 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
         // ImageTypeRatio; absent keys (pre-v2 blobs) → null, cold-start parity unchanged (CACD-PA-05-b).
         // faithful-flat-slide-rendering (WU-4): Read now also returns BrandMark; absent keys
         // (pre-v3 blobs) → null, cold-start parity unchanged (FFS-PA-02-b).
+        // aesthetic-freshness-versioning: Read also returns the stored SchemaVersion (PromptVersion).
+        // Not part of ClientAestheticProfile — it is only reachable for freshness comparisons via
+        // IProfileAnalysisRepository.GetLatestAestheticFreshnessAsync — so it is discarded here.
         var (palette, styleDescriptors, motifs, captionVoice, referenceImages,
                 backgroundPattern, typicalSlideCount, colorPairings,
-                conceptualMethod, imageTypeRatio, brandMark) =
+                conceptualMethod, imageTypeRatio, brandMark, _) =
             AestheticProfilePersistence.Read(row.AestheticProfileJson);
 
         return new ClientAestheticProfile(

@@ -345,4 +345,82 @@ public sealed class AestheticProfilePersistenceTests
 
         Assert.Null(read.BrandMark);
     }
+
+    // ── aesthetic-freshness-versioning: SchemaVersion round-trips the ACTUAL extractor version ──
+
+    /// <summary>
+    /// Serialize MUST stamp the extraction's own <c>SchemaVersion</c> (the extractor that actually
+    /// produced it), NOT a hardcoded constant — otherwise every stored profile would report the
+    /// same version regardless of which extractor ran, permanently breaking schema-version
+    /// comparisons in <c>AestheticFreshness.Evaluate</c>.
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_RoundTripsActualSchemaVersion()
+    {
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            SchemaVersion: "aesthetic-extractor/v3");
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.Equal("aesthetic-extractor/v3", read.SchemaVersion);
+    }
+
+    /// <summary>
+    /// Serialize with a DIFFERENT SchemaVersion than the extractor's other calls stamps that exact
+    /// value — proves the write path is NOT hardcoded to a single constant.
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_DifferentSchemaVersions_EachRoundTripsIndependently()
+    {
+        var v2Extraction = new AestheticExtraction([], [], [], null, SchemaVersion: "aesthetic-extractor/v2");
+        var v3Extraction = new AestheticExtraction([], [], [], null, SchemaVersion: "aesthetic-extractor/v3");
+
+        var v2Read = AestheticProfilePersistence.Read(AestheticProfilePersistence.Serialize(v2Extraction, []));
+        var v3Read = AestheticProfilePersistence.Read(AestheticProfilePersistence.Serialize(v3Extraction, []));
+
+        Assert.Equal("aesthetic-extractor/v2", v2Read.SchemaVersion);
+        Assert.Equal("aesthetic-extractor/v3", v3Read.SchemaVersion);
+    }
+
+    /// <summary>
+    /// When the extraction carries no SchemaVersion (e.g. <c>AestheticExtraction.Empty</c>),
+    /// Serialize falls back to the pre-versioning default for safety — never null/omitted.
+    /// </summary>
+    [Fact]
+    public void Serialize_NullSchemaVersion_FallsBackToDefault()
+    {
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null
+            // SchemaVersion = null (default)
+        );
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.Equal("aesthetic-extractor/v2", read.SchemaVersion);
+    }
+
+    /// <summary>
+    /// An old blob with no <c>promptVersion</c> key at all (pre-versioning) deserializes with
+    /// SchemaVersion = null, no exception (cold-start parity) — treated as the oldest version by
+    /// <c>AestheticFreshness.ParseSchemaVersion</c>.
+    /// </summary>
+    [Fact]
+    public void Read_OldBlobWithoutPromptVersionKey_ReturnsNullSchemaVersion_NoException()
+    {
+        const string oldJson =
+            """{"palette":[],"styleDescriptors":["editorial"],"motifs":[],"captionVoice":"playful","referenceImages":[]}""";
+
+        var read = AestheticProfilePersistence.Read(oldJson);
+
+        Assert.Null(read.SchemaVersion);
+    }
 }

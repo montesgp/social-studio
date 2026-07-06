@@ -52,8 +52,13 @@ public static class AestheticProfilePersistence
                     Present: extraction.BrandMark.Present,
                     PositionHint: extraction.BrandMark.PositionHint,
                     ColorHex: extraction.BrandMark.ColorHex),
-            // Marks blobs written after CACD landed; absent on pre-v2 blobs; read unchanged
-            PromptVersion: "aesthetic-extractor/v2");
+            // aesthetic-freshness-versioning: stamp the extraction's OWN schema version (the
+            // extractor that actually produced it), NOT a hardcoded constant — otherwise every
+            // stored profile would report the same version regardless of which extractor ran,
+            // permanently breaking schema-version comparisons in AestheticFreshness.Evaluate.
+            // Falls back to the pre-versioning default only when the extraction didn't set one
+            // (e.g. AestheticExtraction.Empty).
+            PromptVersion: extraction.SchemaVersion ?? "aesthetic-extractor/v2");
 
         return JsonSerializer.Serialize(dto, JsonOpts);
     }
@@ -74,11 +79,16 @@ public static class AestheticProfilePersistence
         IReadOnlyList<ColorPairing>? ColorPairings,
         ConceptualMethod? ConceptualMethod,
         ImageTypeRatio? ImageTypeRatio,
-        BrandMarkDetection? BrandMark) Read(string? json)
+        BrandMarkDetection? BrandMark,
+        // aesthetic-freshness-versioning (additive trailing element): the stored PromptVersion,
+        // reachable so callers (freshness checks) can compare schema versions. Null on old blobs
+        // that predate the PromptVersion key (malformed/absent → treated as oldest by
+        // AestheticFreshness.ParseSchemaVersion).
+        string? SchemaVersion) Read(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
-            return (null, null, null, null, null, null, null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null, null, null, null, null);
         }
 
         try
@@ -86,7 +96,7 @@ public static class AestheticProfilePersistence
             var dto = JsonSerializer.Deserialize<StoredAestheticProfile>(json, JsonOpts);
             if (dto is null)
             {
-                return (null, null, null, null, null, null, null, null, null, null, null);
+                return (null, null, null, null, null, null, null, null, null, null, null, null);
             }
 
             var palette = (dto.Palette ?? [])
@@ -130,11 +140,11 @@ public static class AestheticProfilePersistence
 
             return (palette, dto.StyleDescriptors ?? [], dto.Motifs ?? [], dto.CaptionVoice, refs,
                 backgroundPattern, dto.TypicalSlideCount, colorPairings,
-                conceptualMethod, imageTypeRatio, brandMark);
+                conceptualMethod, imageTypeRatio, brandMark, dto.PromptVersion);
         }
         catch
         {
-            return (null, null, null, null, null, null, null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null, null, null, null, null);
         }
     }
 

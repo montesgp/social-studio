@@ -401,6 +401,23 @@ public sealed class MultimodalAestheticStyleExtractorTests
         Assert.Equal("aesthetic-extractor/v3", gateway.CapturedPromptVersionKey);
     }
 
+    /// <summary>
+    /// aesthetic-freshness-versioning: the produced extraction MUST carry the extractor's OWN
+    /// schema version (same value sent as PromptVersionKey), so persistence stores the ACTUAL
+    /// version that produced it — not a hardcoded constant.
+    /// </summary>
+    [Fact]
+    public async Task Extract_StampsSchemaVersion_OnProducedExtraction()
+    {
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Equal("aesthetic-extractor/v3", result.SchemaVersion);
+        Assert.Equal(gateway.CapturedPromptVersionKey, result.SchemaVersion);
+    }
+
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);
     private static IWorkflowConfigurationResolver CandidateResolver() => new StubResolver(candidate: true);
 }

@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
@@ -190,6 +191,28 @@ public sealed class EfProfileAnalysisRepository : IProfileAnalysisRepository
             .FirstOrDefaultAsync(cancellationToken);
 
         return !string.IsNullOrWhiteSpace(row);
+    }
+
+    /// <inheritdoc />
+    public async Task<AestheticFreshnessSnapshot> GetLatestAestheticFreshnessAsync(
+        Guid orgId,
+        Guid clientId,
+        CancellationToken cancellationToken = default)
+    {
+        var json = await _dbContext.ProfileAnalyses
+            .AsNoTracking()
+            .Where(x => x.OrganizationId == orgId && x.ClientId == clientId && x.Status == "Analyzed")
+            .OrderByDescending(x => x.CompletedAtUtc)
+            .Select(x => x.AestheticProfileJson)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var read = AestheticProfilePersistence.Read(json);
+
+        return new AestheticFreshnessSnapshot(
+            SchemaVersion: read.SchemaVersion,
+            HasColorPairings: read.ColorPairings is { Count: > 0 },
+            HasBackgroundPattern: read.BackgroundPattern is { Count: > 0 },
+            HasReferenceImages: read.ReferenceImages is { Count: > 0 });
     }
 
     /// <inheritdoc />

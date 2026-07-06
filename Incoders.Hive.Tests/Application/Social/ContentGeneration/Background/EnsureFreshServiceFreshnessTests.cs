@@ -111,13 +111,91 @@ public sealed class EnsureFreshServiceFreshnessTests
         Assert.Single(harness.JobQueue.Enqueued);
     }
 
+    // ── aesthetic-freshness-versioning: schema-version + completeness within the age window ────
+
+    [Fact]
+    public async Task EnsureFresh_AgeFresh_OlderSchemaVersion_ReturnsRefreshEnqueued()
+    {
+        // Age-fresh AND has some aesthetic (LatestAnalyzedHasAestheticAsync defaults true), but the
+        // stored payload was captured with an older extractor schema version — must still refresh
+        // so the newer extractor can populate previously-missing fields (the Atlas bug scenario).
+        var latestAt = Now - TimeSpan.FromDays(5);
+        var harness = BuildHarness(
+            clientThreshold: null,
+            latestAnalyzedAt: latestAt,
+            hasNonTerminal: false,
+            hasOwnAccount: true,
+            freshnessSnapshot: new AestheticFreshnessSnapshot("aesthetic-extractor/v2", true, true, true));
+
+        var outcome = await harness.Service.EnsureFreshAsync(OrgId, ClientId, CancellationToken.None);
+
+        Assert.Equal(EnsureFreshOutcome.RefreshEnqueued, outcome);
+        Assert.Single(harness.JobQueue.Enqueued);
+    }
+
+    [Fact]
+    public async Task EnsureFresh_AgeFresh_CurrentVersionAndComplete_ReturnsFresh()
+    {
+        var latestAt = Now - TimeSpan.FromDays(5);
+        var harness = BuildHarness(
+            clientThreshold: null,
+            latestAnalyzedAt: latestAt,
+            hasNonTerminal: false,
+            hasOwnAccount: true,
+            freshnessSnapshot: new AestheticFreshnessSnapshot(AestheticFreshness.CurrentSchemaVersion, true, true, true));
+
+        var outcome = await harness.Service.EnsureFreshAsync(OrgId, ClientId, CancellationToken.None);
+
+        Assert.Equal(EnsureFreshOutcome.Fresh, outcome);
+        Assert.Empty(harness.JobQueue.Enqueued);
+    }
+
+    [Fact]
+    public async Task EnsureFresh_AgeFresh_CurrentVersionButIncomplete_ReturnsFresh_NoLoop()
+    {
+        // Same version but missing a completeness pillar (e.g. no ColorPairings) — already
+        // analyzed at the current/best extractor version, so refreshing again would loop forever
+        // without new data. Must return Fresh (no refresh), not RefreshEnqueued.
+        var latestAt = Now - TimeSpan.FromDays(5);
+        var harness = BuildHarness(
+            clientThreshold: null,
+            latestAnalyzedAt: latestAt,
+            hasNonTerminal: false,
+            hasOwnAccount: true,
+            freshnessSnapshot: new AestheticFreshnessSnapshot(AestheticFreshness.CurrentSchemaVersion, false, true, true));
+
+        var outcome = await harness.Service.EnsureFreshAsync(OrgId, ClientId, CancellationToken.None);
+
+        Assert.Equal(EnsureFreshOutcome.Fresh, outcome);
+        Assert.Empty(harness.JobQueue.Enqueued);
+    }
+
+    [Fact]
+    public async Task EnsureFresh_AgeFresh_UnknownSchemaVersion_ReturnsRefreshEnqueued()
+    {
+        // null/unknown stored version parses to 0 (oldest) → triggers upgrade refresh.
+        var latestAt = Now - TimeSpan.FromDays(5);
+        var harness = BuildHarness(
+            clientThreshold: null,
+            latestAnalyzedAt: latestAt,
+            hasNonTerminal: false,
+            hasOwnAccount: true,
+            freshnessSnapshot: new AestheticFreshnessSnapshot(null, true, true, true));
+
+        var outcome = await harness.Service.EnsureFreshAsync(OrgId, ClientId, CancellationToken.None);
+
+        Assert.Equal(EnsureFreshOutcome.RefreshEnqueued, outcome);
+        Assert.Single(harness.JobQueue.Enqueued);
+    }
+
     // ── Harness ───────────────────────────────────────────────────────────────
 
     private static ServiceHarness BuildHarness(
         int? clientThreshold,
         DateTime? latestAnalyzedAt,
         bool hasNonTerminal,
-        bool hasOwnAccount) =>
+        bool hasOwnAccount,
+        AestheticFreshnessSnapshot? freshnessSnapshot = null) =>
         BuildHarnessInternal(
             OrgId,
             ClientId,
@@ -126,7 +204,8 @@ public sealed class EnsureFreshServiceFreshnessTests
             clientThreshold,
             latestAnalyzedAt,
             hasNonTerminal,
-            hasOwnAccount);
+            hasOwnAccount,
+            freshnessSnapshot);
 
     /// <summary>
     /// Full-parameter builder shared with debounce and own-account test classes.
@@ -139,9 +218,10 @@ public sealed class EnsureFreshServiceFreshnessTests
         int? clientThreshold,
         DateTime? latestAnalyzedAt,
         bool hasNonTerminal,
-        bool hasOwnAccount)
+        bool hasOwnAccount,
+        AestheticFreshnessSnapshot? freshnessSnapshot = null)
     {
-        var analysisRepo = new FakeAnalysisRepository(latestAnalyzedAt, hasNonTerminal);
+        var analysisRepo = new FakeAnalysisRepository(latestAnalyzedAt, hasNonTerminal, freshnessSnapshot);
         var clientRepo = new FakeClientRepository(clientThreshold);
         var ownAccountAccountRepo = new FakeOwnAccountRepository(hasOwnAccount ? ownAccountId : null);
         var unitOfWork = new FakeUnitOfWork();
@@ -169,12 +249,25 @@ public sealed class EnsureFreshServiceFreshnessTests
     {
         private readonly DateTime? _latestAnalyzedAt;
         private readonly bool _hasNonTerminal;
+        private readonly AestheticFreshnessSnapshot _freshnessSnapshot;
         public List<DomainProfileAnalysis> Added { get; } = [];
 
-        public FakeAnalysisRepository(DateTime? latestAnalyzedAt, bool hasNonTerminal)
+        /// <summary>
+        /// aesthetic-freshness-versioning: defaults to "current schema version + materially
+        /// complete" so pre-existing AGE-only tests (which only exercise the age/threshold branch,
+        /// not schema-version behavior) keep their original Fresh/RefreshEnqueued semantics.
+        /// Pass an explicit <paramref name="freshnessSnapshot"/> to exercise schema-version or
+        /// completeness-specific paths.
+        /// </summary>
+        public FakeAnalysisRepository(
+            DateTime? latestAnalyzedAt,
+            bool hasNonTerminal,
+            AestheticFreshnessSnapshot? freshnessSnapshot = null)
         {
             _latestAnalyzedAt = latestAnalyzedAt;
             _hasNonTerminal = hasNonTerminal;
+            _freshnessSnapshot = freshnessSnapshot
+                ?? new AestheticFreshnessSnapshot(AestheticFreshness.CurrentSchemaVersion, true, true, true);
         }
 
         public Task AddAsync(DomainProfileAnalysis analysis, CancellationToken cancellationToken = default)
@@ -188,6 +281,9 @@ public sealed class EnsureFreshServiceFreshnessTests
 
         public Task<bool> HasNonTerminalAnalysisForClientAsync(Guid orgId, Guid clientId, CancellationToken cancellationToken = default) =>
             Task.FromResult(_hasNonTerminal);
+
+        public Task<AestheticFreshnessSnapshot> GetLatestAestheticFreshnessAsync(Guid orgId, Guid clientId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_freshnessSnapshot);
 
         public Task<DomainProfileAnalysis?> GetByIdAsync(Guid analysisId, Guid organizationId, CancellationToken cancellationToken = default) =>
             Task.FromResult<DomainProfileAnalysis?>(null);
