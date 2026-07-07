@@ -537,6 +537,10 @@ public sealed class ContentGenerationJobProcessor
                     CompositionDimensions? capturedDimensions = null;
                     IReadOnlyList<SlotGeometryEntry> capturedGeometry = [];
                     string? capturedBackgroundDataUri = null;
+                    // Storage-path of the enforced background, when any. The persisted markup keeps this
+                    // lightweight reference; the data URI is inlined transiently for the render pass only,
+                    // so we do not bloat content_generation_format_results / studio drafts with base64.
+                    string? renderBackgroundStoragePath = null;
 
                     // Designer + guardrail stage for designed-raster formats (story, carousel).
                     // Text/markdown formats bypass entirely (spec.OutputKind != Raster means they
@@ -687,13 +691,14 @@ public sealed class ContentGenerationJobProcessor
                             string validatedMarkup;
                             if (enforcedBackground is not null)
                             {
-                                // The Chromium renderer sets page content with no base URL, so a bare storage
-                                // path (e.g. the generated background's Supabase object key) cannot be fetched and
-                                // rasterizes to a broken-image/black background. Inline it as a self-contained
-                                // data URI so the hard-enforced background actually renders.
-                                var renderableUrl = await InlineBackgroundUrlAsync(_assetStorage, enforcedBackground.Url, ct);
+                                // Persist the LIGHTWEIGHT markup that references the background by its storage
+                                // path (not a multi-MB base64 data URI). The Chromium renderer can't fetch a
+                                // bare storage path (no base URL), so the data URI is inlined transiently for
+                                // the render pass only (renderSpec below) — keeping the persisted markup, and
+                                // therefore the DB rows, small.
                                 validatedMarkup = BuildTemplateBackedMarkup(
-                                    spec, enforcedBackground with { Url = renderableUrl }, aestheticDesignContext);
+                                    spec, enforcedBackground, aestheticDesignContext);
+                                renderBackgroundStoragePath = enforcedBackground.Url;
                             }
                             else if (aiMarkup is not null)
                             {
@@ -743,11 +748,28 @@ public sealed class ContentGenerationJobProcessor
                     // per-[data-slot] bounding rects in the same Chromium page session.
                     // Falls back to the base RenderAsync for non-Html specs or legacy renderers.
                     RenderedAsset asset;
+                    // Transiently inline the enforced background as a data URI for the render ONLY. The
+                    // persisted spec/markup keeps the lightweight storage-path reference; only what Chromium
+                    // renders needs the self-contained image (it has no base URL to fetch the path).
+                    var renderSpec = spec;
+                    if (renderBackgroundStoragePath is not null
+                        && spec.OutputKind == CompositionOutputKind.Html
+                        && spec.DesignerMarkup is not null)
+                    {
+                        var bgDataUri = await InlineBackgroundUrlAsync(_assetStorage, renderBackgroundStoragePath, ct);
+                        if (!string.Equals(bgDataUri, renderBackgroundStoragePath, StringComparison.Ordinal))
+                        {
+                            renderSpec = spec with
+                            {
+                                DesignerMarkup = spec.DesignerMarkup.Replace(renderBackgroundStoragePath, bgDataUri),
+                            };
+                        }
+                    }
                     if (spec.OutputKind == CompositionOutputKind.Html
                         && _renderer is IContentRendererWithGeometry geometryRenderer)
                     {
                         var renderedWithGeo = await geometryRenderer.RenderWithGeometryAsync(
-                            spec, new RenderOptions(), ct);
+                            renderSpec, new RenderOptions(), ct);
                         if (!renderedWithGeo.IsSuccess)
                         {
                             var detail = $"{renderedWithGeo.Error.Code}: {renderedWithGeo.Error.MessageKey}";
@@ -765,7 +787,7 @@ public sealed class ContentGenerationJobProcessor
                     }
                     else
                     {
-                        var rendered = await _renderer.RenderAsync(spec, new RenderOptions(), ct);
+                        var rendered = await _renderer.RenderAsync(renderSpec, new RenderOptions(), ct);
                         if (!rendered.IsSuccess)
                         {
                             var detail = $"{rendered.Error.Code}: {rendered.Error.MessageKey}";
