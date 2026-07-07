@@ -1812,6 +1812,12 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   ) {
     if (!videoResult) return;
     setGeneratingConversion(mode);
+    // Drive the blocking generation overlay from the moment the request starts, matching
+    // startRequestedFormatsGeneration. Without this, a single-format (re)generation — including the
+    // "with objections" path — leaves packageGenerationIsRunning false during the requestPackage
+    // await (packageJobId is nulled below and no job is polling yet), so the process modal never
+    // shows for that window.
+    setIsRequestingPackage(true);
     const formatKey = formatForMutationMode(mode);
     setPackageJobError(null);
     userStartedPackageJobRef.current = null;
@@ -1849,6 +1855,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       setPackageJobError({ message: err?.message ?? "Failed to start content generation." });
     } finally {
       setGeneratingConversion(null);
+      // Hand off to job polling (isLoading/isPolling/status keep the overlay up once packageJobId
+      // is set); on failure this clears the overlay so the screen unblocks.
+      setIsRequestingPackage(false);
     }
   }
 
