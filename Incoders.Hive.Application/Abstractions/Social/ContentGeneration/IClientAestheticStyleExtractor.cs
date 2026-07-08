@@ -57,7 +57,19 @@ public sealed record AestheticExtraction(
     ConceptualMethod? ConceptualMethod = null,
     // OQ-2: corpus-grounded image-type distribution (photo/flat/decorator proportions + sample size).
     // Null when the model omits imageTypeCounts or returns zero slides observed (cold-start parity).
-    ImageTypeRatio? ImageTypeRatio = null)
+    ImageTypeRatio? ImageTypeRatio = null,
+    // faithful-flat-slide-rendering (additive trailing nullable — all existing construction sites and
+    // `with` expressions compile unchanged; FFS-PA-01):
+    //
+    // Recurring brand mark detected across the client's corpus. Null when the model omits brandMark
+    // or reports no recurring mark (cold-start parity; FFS-CG-03-a).
+    BrandMarkDetection? BrandMark = null,
+    // aesthetic-freshness-versioning (additive trailing nullable): the extractor's OWN schema/prompt
+    // version, stamped onto the extraction it produces. Persistence stores THIS value (not a
+    // hardcoded constant) so schema-version comparisons in `AestheticFreshness.Evaluate` reflect the
+    // extractor that actually ran. Null on `Empty` / when the extractor didn't set it — Serialize
+    // falls back to a safe default in that case.
+    string? SchemaVersion = null)
 {
     /// <summary>An empty extraction (no signal) — used when extraction is skipped or yields nothing.</summary>
     public static AestheticExtraction Empty { get; } = new([], [], [], null);

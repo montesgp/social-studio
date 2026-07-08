@@ -52,4 +52,37 @@ public sealed class ClientAestheticDesignContextTests
         Assert.Equal(2, ctx.ReferenceImages.Count);
         Assert.Equal("job-42", ctx.VariationSeed);
     }
+
+    // ── WU-4 (FFS-CG-02): the design context carries BrandMark ────────────────
+
+    [Fact]
+    public void CarriesBrandMark_WhenProvided()
+    {
+        var brandMark = new BrandMarkDetection(Present: true, PositionHint: "bottom-right", ColorHex: "#112233");
+
+        var ctx = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: null,
+            StyleDescriptors: [],
+            Motifs: [],
+            VariationSeed: "job-1",
+            BrandMark: brandMark);
+
+        Assert.NotNull(ctx.BrandMark);
+        Assert.True(ctx.BrandMark!.Present);
+        Assert.Equal("bottom-right", ctx.BrandMark.PositionHint);
+    }
+
+    [Fact]
+    public void BrandMark_DefaultsToNull_ExistingConstructionSitesCompileUnchanged()
+    {
+        var ctx = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: null,
+            StyleDescriptors: [],
+            Motifs: [],
+            VariationSeed: "job-1");
+
+        Assert.Null(ctx.BrandMark);
+    }
 }

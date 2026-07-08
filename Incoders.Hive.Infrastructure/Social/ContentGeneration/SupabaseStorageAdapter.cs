@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
@@ -62,7 +61,7 @@ public sealed class SupabaseStorageAdapter : IGeneratedAssetStorage
                 $"Supabase Storage PUT failed for '{storagePath}': {(int)response.StatusCode} — {body}");
         }
 
-        var hash = ComputeSha256(content.Bytes);
+        var hash = AssetContentHasher.ComputeSha256(content.Bytes);
         return new StoredAssetRef(storagePath, content.Mime, content.Bytes.Length, hash);
     }
 
@@ -251,12 +250,6 @@ public sealed class SupabaseStorageAdapter : IGeneratedAssetStorage
     {
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", serviceRoleKey);
         http.DefaultRequestHeaders.Add("apikey", serviceRoleKey);
-    }
-
-    private static string ComputeSha256(byte[] bytes)
-    {
-        var hash = SHA256.HashData(bytes);
-        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 }
 

@@ -222,4 +222,85 @@ public sealed class CreativeSlideIndexResolverTests
         Assert.Equal(1, result[0]);
         Assert.Equal(2, result[1]);
     }
+
+    // -----------------------------------------------------------------------
+    // ResolveKindForSlide — task 1.1 (FFS-CG-01). Same proportional mapping as
+    // ResolveFromPattern (patternIndex = (slideIndex-1)*patternCount/slideCount),
+    // but returns the mapped kind for ONE slide instead of filtering for Photo.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void ResolveKindForSlide_NullPattern_ReturnsNull()
+    {
+        var result = CreativeSlideIndexResolver.ResolveKindForSlide(null, slideCount: 5, slideIndex: 1);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ResolveKindForSlide_EmptyPattern_ReturnsNull()
+    {
+        var result = CreativeSlideIndexResolver.ResolveKindForSlide([], slideCount: 5, slideIndex: 1);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ResolveKindForSlide_EqualLength_ReturnsMappedKindForEachIndex()
+    {
+        // Pattern [Photo,FlatColor,Photo,FlatColor,Photo] (count=5), slideCount=5 → 1:1 mapping.
+        IReadOnlyList<SlideBackgroundKind> pattern =
+        [
+            SlideBackgroundKind.Photo,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.Photo,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.Photo
+        ];
+
+        Assert.Equal(SlideBackgroundKind.Photo, CreativeSlideIndexResolver.ResolveKindForSlide(pattern, 5, 1));
+        Assert.Equal(SlideBackgroundKind.FlatColor, CreativeSlideIndexResolver.ResolveKindForSlide(pattern, 5, 2));
+        Assert.Equal(SlideBackgroundKind.Photo, CreativeSlideIndexResolver.ResolveKindForSlide(pattern, 5, 3));
+        Assert.Equal(SlideBackgroundKind.FlatColor, CreativeSlideIndexResolver.ResolveKindForSlide(pattern, 5, 4));
+        Assert.Equal(SlideBackgroundKind.Photo, CreativeSlideIndexResolver.ResolveKindForSlide(pattern, 5, 5));
+    }
+
+    [Fact]
+    public void ResolveKindForSlide_ShorterPattern_ProportionalMapping_MatchesResolveFromPattern()
+    {
+        // Pattern [Photo,FlatColor,Photo] (count=3), slideCount=5 — same fixture as
+        // ResolveFromPattern_ShorterPattern_ProportionalMapping_CappedToMax above:
+        //   i=1 → patternIndex 0 → Photo
+        //   i=2 → patternIndex 0 → Photo
+        //   i=3 → patternIndex 1 → FlatColor
+        //   i=4 → patternIndex 1 → FlatColor
+        //   i=5 → patternIndex 2 → Photo
+        IReadOnlyList<SlideBackgroundKind> pattern =
+        [
+            SlideBackgroundKind.Photo,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.Photo
+        ];
+
+        Assert.Equal(SlideBackgroundKind.Photo, CreativeSlideIndexResolver.ResolveKindForSlide(pattern, 5, 1));
+        Assert.Equal(SlideBackgroundKind.Photo, CreativeSlideIndexResolver.ResolveKindForSlide(pattern, 5, 2));
+        Assert.Equal(SlideBackgroundKind.FlatColor, CreativeSlideIndexResolver.ResolveKindForSlide(pattern, 5, 3));
+        Assert.Equal(SlideBackgroundKind.FlatColor, CreativeSlideIndexResolver.ResolveKindForSlide(pattern, 5, 4));
+        Assert.Equal(SlideBackgroundKind.Photo, CreativeSlideIndexResolver.ResolveKindForSlide(pattern, 5, 5));
+    }
+
+    [Fact]
+    public void ResolveKindForSlide_AllFlatColorPattern_ReturnsFlatColorForEverySlide()
+    {
+        IReadOnlyList<SlideBackgroundKind> pattern =
+        [
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor
+        ];
+
+        for (var i = 1; i <= 4; i++)
+        {
+            Assert.Equal(SlideBackgroundKind.FlatColor, CreativeSlideIndexResolver.ResolveKindForSlide(pattern, 4, i));
+        }
+    }
 }

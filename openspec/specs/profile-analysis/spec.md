@@ -665,6 +665,48 @@ when these fields are absent.
 
 ---
 
+## Added Requirements: Faithful Flat-Slide Rendering — Brand-Mark Detection (faithful-flat-slide-rendering, #50)
+
+### Requirement: FFS-PA-01 — Extractor Detects Recurring Brand Mark
+
+`MultimodalAestheticStyleExtractor` MUST detect whether a recurring identifying mark exists across
+analyzed images and, when present, its approximate position and color (typically the text color),
+returned as `brandMark { present, positionHint, colorHex }`. The extraction prompt/schema version
+MUST be bumped (v2→v3), additive and backward-compatible with pre-v3 responses.
+
+#### Scenario: Recurring mark detected (FFS-PA-01-a)
+
+- GIVEN analyzed images consistently show the same mark
+- WHEN extraction runs
+- THEN `brandMark.present = true` with a position hint and color hex
+
+#### Scenario: No recurring mark — extractor reports absent (FFS-PA-01-b)
+
+- GIVEN no consistent mark across analyzed images
+- WHEN extraction runs
+- THEN `brandMark.present = false` and the LLM does not fabricate a mark
+
+### Requirement: FFS-PA-02 — `BrandMark` Persisted as Additive Nullable Field, No EF Migration
+
+`ClientAestheticProfile` MUST carry a nullable `BrandMark` field populated from the extractor
+output, persisted additively as a JSON key inside the existing `aesthetic_profile_json` blob column
+via `AestheticProfilePersistence`. No EF Core migration is required or permitted. Pre-change blobs
+MUST deserialize with `BrandMark = null` and no exception.
+
+#### Scenario: Round-trip preserves BrandMark (FFS-PA-02-a)
+
+- GIVEN a profile with a populated `BrandMark`
+- WHEN persisted and read back
+- THEN `BrandMark` matches with no data loss
+
+#### Scenario: Pre-change blob reads as null (FFS-PA-02-b)
+
+- GIVEN a stored blob with no `brandMark` key (persisted before this change)
+- WHEN deserialized into `ClientAestheticProfile`
+- THEN `BrandMark` is null; no exception is thrown; all pre-existing fields intact
+
+*Merged from SDD change `faithful-flat-slide-rendering` (issue #50) — applied 2026-07-06.*
+
 ## MODIFIED Requirements
 
 None. All requirements above are additive. Pre-existing requirements
@@ -673,6 +715,107 @@ The `IClientAestheticStyleExtractor` input change (CACD-PA-03) replaces the loos
 caption block with ordered pairs; the signature shape is a design-level decision
 (OQ-3, ADR 0009) and does not alter any previously specified behavioral guarantee
 for the output contract.
+
+## REMOVED Requirements
+
+None.
+
+---
+
+<!-- Merged from SDD change aesthetic-freshness-versioning (issue: single-analyzer-ui) -->
+
+# Delta: Profile Analysis — Schema-Version and Completeness-Aware Freshness
+
+## Purpose
+
+Fix a freshness bug where a client analyzed BEFORE new extractor fields shipped (e.g.
+`ColorPairing`/`BackgroundPattern`, later `BrandMark`) reads those fields as null, but the
+purely AGE-based freshness check considers the analysis "fresh" — so generation never gets
+the structured aesthetic data until the age threshold expires. This change makes the
+freshness check schema-version-aware AND completeness-aware within the age window.
+
+## ADDED Requirements
+
+### Requirement: AFV-PA-01 — Serialize Stamps the Extraction's Actual Schema Version
+
+`AestheticProfilePersistence.Serialize` MUST stamp `PromptVersion` from the extraction's own
+`SchemaVersion` (the extractor that actually produced it), NOT a hardcoded constant. It falls
+back to `"aesthetic-extractor/v2"` only when the extraction carries no `SchemaVersion`.
+`AestheticProfilePersistence.Read` MUST also return the stored schema version so freshness
+checks can compare it.
+
+#### Scenario: Serialize/Read round-trips the actual schema version (AFV-PA-01-a)
+
+- GIVEN an extraction with `SchemaVersion = "aesthetic-extractor/v3"`
+- WHEN it is serialized then read back
+- THEN the read result's schema version equals `"aesthetic-extractor/v3"`
+
+#### Scenario: Old blob without a promptVersion key reads as null (AFV-PA-01-b)
+
+- GIVEN a stored blob persisted before this change (no `promptVersion` key)
+- WHEN read
+- THEN the schema version is null; no exception is thrown
+
+### Requirement: AFV-PA-02 — Schema-Version-Aware and Completeness-Aware Freshness Evaluation
+
+Within the existing age-fresh window (age-expiry and missing-analysis paths are unchanged and
+always refresh), `ClientAestheticEnsureFreshService` MUST evaluate a pure function
+(`AestheticFreshness.Evaluate`) over the latest completed analysis's stored schema version and
+completeness signal:
+
+- IF the stored schema version is older than the current version (`AestheticFreshness.CurrentSchemaVersion`)
+  → refresh (schema upgrade; the newer extractor may populate previously-missing fields).
+- ELSE IF the analysis is materially complete (`ColorPairings`, `BackgroundPattern`, AND
+  `ReferenceImages` all present) → Fresh, no refresh.
+- ELSE (same version, incomplete) → Fresh, no refresh (already analyzed at the current/best
+  extractor version; refreshing again would loop forever without new data — only age expiry or
+  a future version bump refreshes it).
+
+Unknown, null, or malformed stored versions parse as the oldest possible version and trigger a
+refresh.
+
+#### Scenario: Age-fresh analysis with an older schema version refreshes (AFV-PA-02-a)
+
+- GIVEN a client's latest analysis is within the staleness threshold and carries an aesthetic
+  payload stamped with an older schema version than current
+- WHEN `EnsureFreshAsync` runs
+- THEN a refresh is enqueued (schema upgrade)
+
+#### Scenario: Age-fresh, current version, materially complete → Fresh (AFV-PA-02-b)
+
+- GIVEN the latest analysis is within the staleness threshold, stamped with the current schema
+  version, and has `ColorPairings`, `BackgroundPattern`, and `ReferenceImages` all present
+- WHEN `EnsureFreshAsync` runs
+- THEN the outcome is Fresh; no refresh is enqueued
+
+#### Scenario: Age-fresh, current version, incomplete → Fresh, no loop (AFV-PA-02-c)
+
+- GIVEN the latest analysis is within the staleness threshold, stamped with the current schema
+  version, but missing one or more of `ColorPairings` / `BackgroundPattern` / `ReferenceImages`
+- WHEN `EnsureFreshAsync` runs
+- THEN the outcome is Fresh; no refresh is enqueued (avoids refreshing forever without new data)
+
+### Requirement: AFV-PA-03 — Repository Exposes Latest Aesthetic Freshness Snapshot
+
+`IProfileAnalysisRepository` MUST expose `GetLatestAestheticFreshnessAsync(orgId, clientId, ct)`
+returning the stored schema version and the three completeness pillars for the latest
+`Analyzed` analysis's aesthetic payload. Provider types (EF Core, Npgsql) MUST NOT appear in
+the port signature or return type.
+
+#### Scenario: EF adapter parses the stored aesthetic JSON for the freshness snapshot (AFV-PA-03-a)
+
+- GIVEN the latest `Analyzed` analysis has an `aesthetic_profile_json` blob with
+  `ColorPairings`, `BackgroundPattern`, and `ReferenceImages` all populated, stamped
+  `"aesthetic-extractor/v3"`
+- WHEN the EF adapter is queried
+- THEN it returns `SchemaVersion = "aesthetic-extractor/v3"` and all three `Has*` flags `true`
+
+## MODIFIED Requirements
+
+None. All requirements above are additive; `CAG-PA-04` (age-based freshness exposure) and
+`CAG-PA-05` remain valid and unchanged — this change layers schema-version and completeness
+awareness INSIDE the existing age-fresh window, it does not alter age-expiry or
+missing-analysis behavior.
 
 ## REMOVED Requirements
 

@@ -10,6 +10,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carous
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentFormats;
 using Incoders.Hive.Domain.Social.ContentGeneration;
@@ -307,7 +308,10 @@ public sealed class ContentGenerationJobProcessor
                 Palette: aestheticProfile.Palette,
                 StyleDescriptors: aestheticProfile.StyleDescriptors ?? [],
                 Motifs: aestheticProfile.Motifs ?? [],
-                VariationSeed: job.Id.ToString());
+                VariationSeed: job.Id.ToString(),
+                // FFS-CG-02: threaded so the placement stage below can emit the editable
+                // brand-mark slot; null → no mark rendered (cold-start parity, FFS-CG-03-a).
+                BrandMark: aestheticProfile.BrandMark);
         }
 
         // 3. Run the orchestrator only on formats that need fresh AI work.
@@ -534,6 +538,10 @@ public sealed class ContentGenerationJobProcessor
                     CompositionDimensions? capturedDimensions = null;
                     IReadOnlyList<SlotGeometryEntry> capturedGeometry = [];
                     string? capturedBackgroundDataUri = null;
+                    // Storage-path of the enforced background, when any. The persisted markup keeps this
+                    // lightweight reference; the data URI is inlined transiently for the render pass only,
+                    // so we do not bloat content_generation_format_results / studio drafts with base64.
+                    string? renderBackgroundStoragePath = null;
 
                     // Designer + guardrail stage for designed-raster formats (story, carousel).
                     // Text/markdown formats bypass entirely (spec.OutputKind != Raster means they
@@ -551,115 +559,189 @@ public sealed class ContentGenerationJobProcessor
                         && DesignedRasterFormats.Contains(formatKey)
                         && spec.OutputKind == CompositionOutputKind.Raster)
                     {
-                        // WU-4 C4: use the pre-computed plan for this slide rather than calling
-                        // BackgroundSelector.Select independently per slide. When no resolver is
-                        // registered (legacy path), fall back to the 3-tier selector directly.
-                        BackgroundSelection selection;
-                        if (backgroundPlan is not null)
+                        // FFS-CG-01: deterministic FlatColor short-circuit. For a ClientAesthetic
+                        // carousel slide whose per-slide analyzed kind (mapped from
+                        // ClientAestheticProfile.BackgroundPattern via the SAME proportional formula
+                        // as CreativeSlideIndexResolver.ResolveFromPattern) is FlatColor AND the profile
+                        // has resolved ColorPairings, render a flat background+text pairing from
+                        // CompositionDefaults.ResolvePalette and SKIP the AI designer entirely — no
+                        // gradient/blob/glow/grain, no AI provider call, no usage-ledger event (the
+                        // skipped call correctly emits none). Gated to carousel-layout formats only,
+                        // mirroring the existing carousel-only gate above (WU-8).
+                        //
+                        // Cold-start (BackgroundPattern or ColorPairings absent) falls through
+                        // UNCHANGED to the existing designer+guardrail flow below — byte-identical to
+                        // pre-change behavior (FFS-CG-03-a).
+                        var isCarouselLayout = FormatCatalog.ResolveForAssembly(formatKey)?.Layout == Layout.Carousel;
+                        var mappedFlatKind = isCarouselLayout
+                            ? CreativeSlideIndexResolver.ResolveKindForSlide(
+                                aestheticProfile?.BackgroundPattern, specs.Count, specIndex + 1)
+                            : null;
+
+                        // FFS-CG-02: the resolved text color for THIS slide, when known (flat path).
+                        // Used as the brand-mark's default color-source when the extractor gave no
+                        // explicit ColorHex. Left null on the AI/photo path — the placement stage
+                        // below falls back to a profile-level default in that case.
+                        string? slideTextColorHex = null;
+
+                        if (preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
+                            && mappedFlatKind == SlideBackgroundKind.FlatColor
+                            && aestheticProfile?.ColorPairings is { Count: > 0 })
                         {
-                            selection = backgroundPlan.ForSlide(specIndex + 1);
+                            var paletteInferred = new InferenceAccumulator();
+                            var flatPalette = CompositionDefaults.ResolvePalette(
+                                brand, aestheticProfile, specIndex + 1, paletteInferred);
+                            foreach (var f in paletteInferred.Fields)
+                            {
+                                inferred.Add(f);
+                            }
+
+                            var flatMarkup = BuildFlatColorMarkup(spec, flatPalette, aestheticDesignContext);
+
+                            spec = spec with
+                            {
+                                OutputKind = CompositionOutputKind.Html,
+                                DesignerMarkup = flatMarkup,
+                            };
+
+                            capturedMarkup = flatMarkup;
+                            capturedDimensions = spec.Dimensions;
+                            slideTextColorHex = CssColor(flatPalette.Text, CompositionDefaults.Palette.Text);
                         }
                         else
                         {
-                            var backgroundTemplates = brand.Brand?.BackgroundTemplates
-                                ?? Array.Empty<BrandBackgroundTemplateSnapshot>();
-                            selection = Domain.Social.ContentGeneration.BackgroundSelector.Select(
-                                backgroundTemplates, formatKey);
-                        }
-
-                        // Design stage. OrganizationId is threaded per-job so the designer's AI
-                        // provider call resolves credentials for the correct tenant.
-                        // A ProviderCallContext scope MUST be active around this call: the
-                        // instrumentation decorator reads ProviderCallContext.Current to write the
-                        // usage-ledger event and throws if it is null. The content generators open
-                        // their own scope inside the orchestrator; the designer runs here, in the
-                        // render loop, so the scope must be opened explicitly.
-                        //
-                        // For ClientAesthetic jobs the client's REAL reference creatives are passed to the
-                        // designer as VISION input (see AiVisualDesigner), so it CREATES NEW art in the
-                        // client's visual line. We never composite the client's finished slides verbatim as
-                        // backgrounds — that copies their posts (text-over-text) instead of emulating style.
-                        string? aiMarkup = null;
-                        {
-                            Result<VisualDesignOutput> designed;
-                            using (_providerCallContext.Begin(
-                                job.OrganizationId,
-                                effectiveClientId,
-                                workflowKey: "content-generation",
-                                pipelineStepKey: $"designer:{formatKey}",
-                                promptVersion: "visual-designer/v1",
-                                correlationId: job.CorrelationId))
+                            // WU-4 C4: use the pre-computed plan for this slide rather than calling
+                            // BackgroundSelector.Select independently per slide. When no resolver is
+                            // registered (legacy path), fall back to the 3-tier selector directly.
+                            BackgroundSelection selection;
+                            if (backgroundPlan is not null)
                             {
-                                designed = await _designer.ComposeAsync(
-                                    job.OrganizationId, spec, brand.Brand!, selection, ct, aestheticDesignContext);
+                                selection = backgroundPlan.ForSlide(specIndex + 1);
+                            }
+                            else
+                            {
+                                var backgroundTemplates = brand.Brand?.BackgroundTemplates
+                                    ?? Array.Empty<BrandBackgroundTemplateSnapshot>();
+                                selection = Domain.Social.ContentGeneration.BackgroundSelector.Select(
+                                    backgroundTemplates, formatKey);
                             }
 
-                            // Resilience contract: content generation MUST produce the asset regardless
-                            // of which provider/model the org configured. The copy slots are already
-                            // generated, so a designer error OR a guardrail rejection is ADVISORY here —
-                            // we log it and fall back to a deterministic, brand-bound composition rather
-                            // than failing the format. (AI-art quality is a separate concern from "the
-                            // flow must complete for any model/agent".)
-                            if (designed.IsSuccess)
+                            // Design stage. OrganizationId is threaded per-job so the designer's AI
+                            // provider call resolves credentials for the correct tenant.
+                            // A ProviderCallContext scope MUST be active around this call: the
+                            // instrumentation decorator reads ProviderCallContext.Current to write the
+                            // usage-ledger event and throws if it is null. The content generators open
+                            // their own scope inside the orchestrator; the designer runs here, in the
+                            // render loop, so the scope must be opened explicitly.
+                            //
+                            // For ClientAesthetic jobs the client's REAL reference creatives are passed to the
+                            // designer as VISION input (see AiVisualDesigner), so it CREATES NEW art in the
+                            // client's visual line. We never composite the client's finished slides verbatim as
+                            // backgrounds — that copies their posts (text-over-text) instead of emulating style.
+                            string? aiMarkup = null;
                             {
-                                var guarded = _guardrails.Validate(designed.Value, brand.Brand!, spec);
-                                if (guarded.IsSuccess)
+                                Result<VisualDesignOutput> designed;
+                                using (_providerCallContext.Begin(
+                                    job.OrganizationId,
+                                    effectiveClientId,
+                                    workflowKey: "content-generation",
+                                    pipelineStepKey: $"designer:{formatKey}",
+                                    promptVersion: "visual-designer/v1",
+                                    correlationId: job.CorrelationId))
                                 {
-                                    aiMarkup = guarded.Value.Markup;
+                                    designed = await _designer.ComposeAsync(
+                                        job.OrganizationId, spec, brand.Brand!, selection, ct, aestheticDesignContext);
+                                }
+
+                                // Resilience contract: content generation MUST produce the asset regardless
+                                // of which provider/model the org configured. The copy slots are already
+                                // generated, so a designer error OR a guardrail rejection is ADVISORY here —
+                                // we log it and fall back to a deterministic, brand-bound composition rather
+                                // than failing the format. (AI-art quality is a separate concern from "the
+                                // flow must complete for any model/agent".)
+                                if (designed.IsSuccess)
+                                {
+                                    var guarded = _guardrails.Validate(designed.Value, brand.Brand!, spec);
+                                    if (guarded.IsSuccess)
+                                    {
+                                        aiMarkup = guarded.Value.Markup;
+                                    }
+                                    else
+                                    {
+                                        _logger.LogWarning(
+                                            "ContentGeneration: guardrail rejected AI design for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}. Falling back to a deterministic brand-bound composition.",
+                                            formatKey, specIndex, job.Id, $"{guarded.Error.Code}: {guarded.Error.MessageKey}");
+                                    }
                                 }
                                 else
                                 {
                                     _logger.LogWarning(
-                                        "ContentGeneration: guardrail rejected AI design for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}. Falling back to a deterministic brand-bound composition.",
-                                        formatKey, specIndex, job.Id, $"{guarded.Error.Code}: {guarded.Error.MessageKey}");
+                                        "ContentGeneration: AI designer failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}. Falling back to a deterministic brand-bound composition.",
+                                        formatKey, specIndex, job.Id, $"{designed.Error.Code}: {designed.Error.MessageKey}");
                                 }
+                            }
+
+                            // Resolve the final markup. Priority:
+                            //   1. Enforced brand background → deterministic template (the brand-manual
+                            //      template is hard-enforced over whatever the AI invented).
+                            //   2. AI markup that passed guardrails → use the design.
+                            //   3. Otherwise → deterministic brand-bound composition built from the copy
+                            //      slots (Creative gradient). This is the resilience backstop that
+                            //      guarantees the story/carousel is produced for ANY model.
+                            var enforcedBackground = ResolveEnforcedBackground(selection);
+                            string validatedMarkup;
+                            if (enforcedBackground is not null)
+                            {
+                                // Persist the LIGHTWEIGHT markup that references the background by its storage
+                                // path (not a multi-MB base64 data URI). The Chromium renderer can't fetch a
+                                // bare storage path (no base URL), so the data URI is inlined transiently for
+                                // the render pass only (renderSpec below) — keeping the persisted markup, and
+                                // therefore the DB rows, small.
+                                validatedMarkup = BuildTemplateBackedMarkup(
+                                    spec, enforcedBackground, aestheticDesignContext);
+                                renderBackgroundStoragePath = enforcedBackground.Url;
+                            }
+                            else if (aiMarkup is not null)
+                            {
+                                validatedMarkup = aiMarkup;
                             }
                             else
                             {
-                                _logger.LogWarning(
-                                    "ContentGeneration: AI designer failed for format {FormatKey} spec {SpecIndex} (job {JobId}): {Detail}. Falling back to a deterministic brand-bound composition.",
-                                    formatKey, specIndex, job.Id, $"{designed.Error.Code}: {designed.Error.MessageKey}");
+                                validatedMarkup = BuildTemplateBackedMarkup(spec, background: null, aestheticDesignContext);
+                            }
+
+                            // Promote spec to Html kind with validated/enforced markup.
+                            spec = spec with
+                            {
+                                OutputKind = CompositionOutputKind.Html,
+                                DesignerMarkup = validatedMarkup,
+                            };
+
+                            // WU-1 D1: capture the validated markup and canvas dimensions for persistence.
+                            capturedMarkup = validatedMarkup;
+                            capturedDimensions = spec.Dimensions;
+                        }
+
+                        // FFS-CG-02: brand-mark placement. ONE deterministic, editable content-layer
+                        // data-slot="brand-mark" element, injected identically whichever branch above
+                        // resolved the markup (FlatColor short-circuit OR AI/photo designer path) — the
+                        // AI designer NEVER draws/places a mark itself (its prompt explicitly defers
+                        // this to a separately-supplied editable element; see AiVisualDesigner). Absent,
+                        // unrecognised, or ambiguous signals render NONE (FFS-CG-02-b/c;
+                        // FFS-CG-03-a cold-start parity).
+                        if (aestheticDesignContext?.BrandMark is { Present: true } brandMark
+                            && capturedMarkup is not null)
+                        {
+                            var defaultBrandMarkColorHex = slideTextColorHex
+                                ?? CssColor(aestheticProfile?.ColorPairings?.FirstOrDefault()?.TextHex, "#FFFFFF");
+                            var brandMarkSlot = BuildBrandMarkSlot(brandMark, defaultBrandMarkColorHex);
+                            if (brandMarkSlot is not null)
+                            {
+                                var markupWithBrandMark = AppendBrandMarkSlot(capturedMarkup, brandMarkSlot);
+                                spec = spec with { DesignerMarkup = markupWithBrandMark };
+                                capturedMarkup = markupWithBrandMark;
                             }
                         }
-
-                        // Resolve the final markup. Priority:
-                        //   1. Enforced brand background → deterministic template (the brand-manual
-                        //      template is hard-enforced over whatever the AI invented).
-                        //   2. AI markup that passed guardrails → use the design.
-                        //   3. Otherwise → deterministic brand-bound composition built from the copy
-                        //      slots (Creative gradient). This is the resilience backstop that
-                        //      guarantees the story/carousel is produced for ANY model.
-                        var enforcedBackground = ResolveEnforcedBackground(selection);
-                        string validatedMarkup;
-                        if (enforcedBackground is not null)
-                        {
-                            // The Chromium renderer sets page content with no base URL, so a bare storage
-                            // path (e.g. the generated background's Supabase object key) cannot be fetched and
-                            // rasterizes to a broken-image/black background. Inline it as a self-contained
-                            // data URI so the hard-enforced background actually renders.
-                            var renderableUrl = await InlineBackgroundUrlAsync(_assetStorage, enforcedBackground.Url, ct);
-                            validatedMarkup = BuildTemplateBackedMarkup(
-                                spec, enforcedBackground with { Url = renderableUrl }, aestheticDesignContext);
-                        }
-                        else if (aiMarkup is not null)
-                        {
-                            validatedMarkup = aiMarkup;
-                        }
-                        else
-                        {
-                            validatedMarkup = BuildTemplateBackedMarkup(spec, background: null, aestheticDesignContext);
-                        }
-
-                        // Promote spec to Html kind with validated/enforced markup.
-                        spec = spec with
-                        {
-                            OutputKind = CompositionOutputKind.Html,
-                            DesignerMarkup = validatedMarkup,
-                        };
-
-                        // WU-1 D1: capture the validated markup and canvas dimensions for persistence.
-                        capturedMarkup = validatedMarkup;
-                        capturedDimensions = spec.Dimensions;
                     }
 
                     // WU-1 D3: when the renderer supports geometry capture (IContentRendererWithGeometry)
@@ -667,11 +749,28 @@ public sealed class ContentGenerationJobProcessor
                     // per-[data-slot] bounding rects in the same Chromium page session.
                     // Falls back to the base RenderAsync for non-Html specs or legacy renderers.
                     RenderedAsset asset;
+                    // Transiently inline the enforced background as a data URI for the render ONLY. The
+                    // persisted spec/markup keeps the lightweight storage-path reference; only what Chromium
+                    // renders needs the self-contained image (it has no base URL to fetch the path).
+                    var renderSpec = spec;
+                    if (renderBackgroundStoragePath is not null
+                        && spec.OutputKind == CompositionOutputKind.Html
+                        && spec.DesignerMarkup is not null)
+                    {
+                        var bgDataUri = await InlineBackgroundUrlAsync(_assetStorage, renderBackgroundStoragePath, ct);
+                        if (!string.Equals(bgDataUri, renderBackgroundStoragePath, StringComparison.Ordinal))
+                        {
+                            renderSpec = spec with
+                            {
+                                DesignerMarkup = spec.DesignerMarkup.Replace(renderBackgroundStoragePath, bgDataUri),
+                            };
+                        }
+                    }
                     if (spec.OutputKind == CompositionOutputKind.Html
                         && _renderer is IContentRendererWithGeometry geometryRenderer)
                     {
                         var renderedWithGeo = await geometryRenderer.RenderWithGeometryAsync(
-                            spec, new RenderOptions(), ct);
+                            renderSpec, new RenderOptions(), ct);
                         if (!renderedWithGeo.IsSuccess)
                         {
                             var detail = $"{renderedWithGeo.Error.Code}: {renderedWithGeo.Error.MessageKey}";
@@ -689,7 +788,7 @@ public sealed class ContentGenerationJobProcessor
                     }
                     else
                     {
-                        var rendered = await _renderer.RenderAsync(spec, new RenderOptions(), ct);
+                        var rendered = await _renderer.RenderAsync(renderSpec, new RenderOptions(), ct);
                         if (!rendered.IsSuccess)
                         {
                             var detail = $"{rendered.Error.Code}: {rendered.Error.MessageKey}";
@@ -1639,6 +1738,214 @@ public sealed class ContentGenerationJobProcessor
         return string.Join(Environment.NewLine, slots);
     }
 
+    /// <summary>
+    /// FFS-CG-01/02: deterministic FlatColor carousel markup. A SOLID background from the
+    /// resolved <see cref="CompositionPalette"/> — NO gradient, NO dark legibility overlay, NO
+    /// <c>backgroundDecor</c> — with title/subtitle/cta rendered in the palette's text colour and
+    /// NO text-shadow (a flat background needs none). Any signaled accent is emitted as an
+    /// editable content-layer <c>data-slot="accent"</c> element (Story precedent), never baked
+    /// into the rasterized background layer.
+    /// </summary>
+    private static string BuildFlatColorMarkup(
+        VisualCompositionSpec spec,
+        CompositionPalette palette,
+        ClientAestheticDesignContext? aesthetic)
+    {
+        var width = spec.Dimensions.Width;
+        var height = spec.Dimensions.Height;
+        var headingFont = CssString(spec.Typography.HeadingFamily);
+        var bodyFont = CssString(spec.Typography.BodyFamily);
+
+        var title = FirstSlot(spec.CopySlots, ["title", "headline"]) ?? "Carousel";
+        var subtitle = FirstSlot(spec.CopySlots, ["subtitle", "body", "text"]);
+        var cta = FirstSlot(spec.CopySlots, ["cta"]);
+
+        var safeBackground = CssColor(palette.Background, CompositionDefaults.Palette.Background);
+        var safeText = CssColor(palette.Text, CompositionDefaults.Palette.Text);
+
+        // Conservative accent heuristic (design open question resolved): only emit the editable
+        // accent slot when the profile explicitly signals an "Accent" role entry; otherwise omit.
+        var accentHex = aesthetic?.Palette?
+            .FirstOrDefault(p => string.Equals(p.Role, "Accent", StringComparison.OrdinalIgnoreCase))
+            ?.Hex;
+        var safeAccent = IsSafeCssColor(accentHex) ? accentHex!.Trim() : null;
+
+        var content = BuildFlatCarouselSlots(title, subtitle, cta, headingFont, bodyFont, safeText, safeAccent);
+
+        return $$"""
+            <div class="composition" data-format="{{Html(spec.FormatKey)}}" style="position:relative;width:{{width}}px;height:{{height}}px;overflow:hidden;background:{{safeBackground}};">
+              <div data-layer="background" style="position:absolute;inset:0;width:100%;height:100%;background:{{safeBackground}};"></div>
+              <div data-layer="content" style="position:absolute;inset:0;width:100%;height:100%;">
+                {{content}}
+              </div>
+            </div>
+            """;
+    }
+
+    /// <summary>
+    /// Sibling of <see cref="BuildCarouselTemplateSlots"/> — dedicated so the photo path's
+    /// hardcoded white text + text-shadow is NOT regressed. Title/subtitle/cta render in the
+    /// resolved flat-palette text colour with no shadow. The optional accent slot (when
+    /// <paramref name="accentColor"/> is non-null) reuses the Story accent-pill precedent
+    /// (<see cref="BuildStoryTemplateSlots"/>) — an editable content-layer element, never rasterized.
+    /// </summary>
+    private static string BuildFlatCarouselSlots(
+        string title,
+        string? subtitle,
+        string? cta,
+        string headingFont,
+        string bodyFont,
+        string textColor,
+        string? accentColor)
+    {
+        var slots = new List<string>();
+
+        if (accentColor is not null)
+        {
+            slots.Add(Slot(
+                "div",
+                "accent",
+                string.Empty,
+                "position:absolute;left:104px;top:180px;width:168px;height:10px;" +
+                $"border-radius:999px;background:{accentColor};",
+                1));
+        }
+
+        slots.Add(Slot(
+            "h1",
+            "title",
+            title,
+            "position:absolute;left:104px;top:235px;width:872px;min-height:230px;" +
+            $"font-family:{headingFont},system-ui,sans-serif;font-size:74px;line-height:1.02;" +
+            $"font-weight:900;letter-spacing:-1.8px;color:{textColor};text-align:left;",
+            3));
+
+        AddSlot(slots, "p", "subtitle", subtitle,
+            "position:absolute;left:108px;top:540px;width:815px;min-height:310px;" +
+            $"font-family:{bodyFont},system-ui,sans-serif;font-size:38px;line-height:1.22;" +
+            $"font-weight:500;color:{textColor};text-align:left;",
+            6);
+
+        AddSlot(slots, "p", "cta", cta,
+            "position:absolute;left:108px;bottom:220px;width:760px;min-height:58px;" +
+            $"font-family:{bodyFont},system-ui,sans-serif;font-size:28px;line-height:1.1;" +
+            $"font-weight:800;color:{textColor};text-transform:uppercase;letter-spacing:1.1px;",
+            2);
+
+        return string.Join(Environment.NewLine, slots);
+    }
+
+    /// <summary>
+    /// FFS-CG-02: builds the editable content-layer <c>data-slot="brand-mark"</c> element for a
+    /// detected recurring brand mark. Always bottom-anchored (conservative — never competes with
+    /// title/subtitle content near the top) with a small, fixed-size chip; horizontal placement is
+    /// read from <see cref="BrandMarkDetection.PositionHint"/>. Returns <c>null</c> — meaning
+    /// "render nothing" — when the mark is not present, or when the position hint / color hex is
+    /// unrecognised/malformed (FFS-CG-02-b/c: ambiguous signals are treated as absent, never a
+    /// best-guess fallback).
+    /// </summary>
+    private static string? BuildBrandMarkSlot(BrandMarkDetection brandMark, string defaultColorHex)
+    {
+        if (!brandMark.Present)
+        {
+            return null;
+        }
+
+        if (!TryResolveBrandMarkHorizontalCss(brandMark.PositionHint, out var horizontalCss))
+        {
+            // Ambiguous/unrecognised position hint — treat the WHOLE mark as absent (FFS-CG-02-c).
+            return null;
+        }
+
+        string colorHex;
+        if (brandMark.ColorHex is null)
+        {
+            // Color-source: no explicit hex → use the slide's text color.
+            colorHex = defaultColorHex;
+        }
+        else if (IsSafeCssColor(brandMark.ColorHex))
+        {
+            colorHex = brandMark.ColorHex.Trim();
+        }
+        else
+        {
+            // Ambiguous/malformed explicit color — treat the WHOLE mark as absent (FFS-CG-02-c).
+            return null;
+        }
+
+        return Slot(
+            "div",
+            "brand-mark",
+            string.Empty,
+            $"position:absolute;{horizontalCss}bottom:56px;width:112px;height:36px;" +
+            $"border-radius:8px;background:{colorHex};opacity:0.92;",
+            1);
+    }
+
+    /// <summary>
+    /// Resolves the horizontal placement (left/center/right) of a brand mark from its position
+    /// hint. A generous substring match tolerates hint variance from the vision model (e.g.
+    /// "bottom-left", "top-left", "left" all resolve to the same horizontal offset — vertical
+    /// placement is always conservatively bottom-anchored by the caller). Returns <c>false</c> for
+    /// a null hint's caller-visible default (center) as well as any hint that matches none of the
+    /// known tokens (ambiguous — caller treats the whole mark as absent).
+    /// </summary>
+    private static bool TryResolveBrandMarkHorizontalCss(string? positionHint, out string horizontalCss)
+    {
+        if (positionHint is null)
+        {
+            horizontalCss = "left:50%;transform:translateX(-50%);";
+            return true;
+        }
+
+        var normalized = positionHint.Trim().ToLowerInvariant();
+        if (normalized.Contains("left", StringComparison.Ordinal))
+        {
+            horizontalCss = "left:64px;";
+            return true;
+        }
+
+        if (normalized.Contains("right", StringComparison.Ordinal))
+        {
+            horizontalCss = "right:64px;";
+            return true;
+        }
+
+        if (normalized.Contains("center", StringComparison.Ordinal) || normalized.Contains("centre", StringComparison.Ordinal))
+        {
+            horizontalCss = "left:50%;transform:translateX(-50%);";
+            return true;
+        }
+
+        horizontalCss = string.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// Injects the brand-mark slot as the first child of the resolved markup's
+    /// <c>data-layer="content"</c> element. Works uniformly across every markup source this
+    /// processor produces — the FlatColor builder, the deterministic template-backed builder, and
+    /// guardrail-validated AI markup — because the guardrail schema step (VD-04) HARD-requires
+    /// every composition to carry a <c>data-layer="content"</c> element (FFS-CG-02). Defensive: if
+    /// no content layer is found (should never happen post-guardrail), the markup is returned
+    /// unchanged rather than corrupted.
+    /// </summary>
+    private static string AppendBrandMarkSlot(string markup, string brandMarkSlotHtml)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            markup,
+            "<div[^>]*\\bdata-layer\\s*=\\s*\"content\"[^>]*>",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        if (!match.Success)
+        {
+            return markup;
+        }
+
+        var insertAt = match.Index + match.Length;
+        return markup.Insert(insertAt, Environment.NewLine + brandMarkSlotHtml);
+    }
+
     private static void AddSlot(
         ICollection<string> slots,
         string tag,
@@ -1681,28 +1988,36 @@ public sealed class ContentGenerationJobProcessor
     /// otherwise <paramref name="fallback"/>. Guards the deterministic fallback markup from injecting
     /// arbitrary brand-config strings into an inline <c>style</c> attribute.
     /// </summary>
-    private static string CssColor(string? value, string fallback)
+    private static string CssColor(string? value, string fallback) =>
+        IsSafeCssColor(value) ? value!.Trim() : fallback;
+
+    /// <summary>
+    /// True when <paramref name="value"/> is a safe CSS hex color (#RGB / #RRGGBB / #RRGGBBAA).
+    /// Extracted from <see cref="CssColor"/> (task 1.11 dedupe) so callers that need an
+    /// omit-if-unsafe decision (e.g. the FlatColor accent slot) don't need a throwaway fallback.
+    /// </summary>
+    private static bool IsSafeCssColor(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            return fallback;
+            return false;
         }
 
         var v = value.Trim();
         if (v[0] != '#' || v.Length is not (4 or 7 or 9))
         {
-            return fallback;
+            return false;
         }
 
         for (var i = 1; i < v.Length; i++)
         {
             if (!Uri.IsHexDigit(v[i]))
             {
-                return fallback;
+                return false;
             }
         }
 
-        return v;
+        return true;
     }
 
     private static string FormatException(Exception ex)
