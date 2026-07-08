@@ -137,9 +137,9 @@ public sealed class BackgroundAssetStorageUploadTests
     // Helpers
     // -----------------------------------------------------------------------
 
-    private static CompositionSpecEnvelope? DeserializeSingleEnvelope(CapturingFormatResultRepository formatResults)
+    private static CompositionSpecEnvelope? DeserializeSingleEnvelope(IContentGenerationFormatResultRepository formatResults)
     {
-        var persisted = formatResults.LastUpserted;
+        var persisted = ((CapturingFormatResultRepository)formatResults).LastUpserted;
         Assert.NotNull(persisted);
         Assert.NotNull(persisted!.CompositionSpecJson);
 
