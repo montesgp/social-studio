@@ -120,6 +120,88 @@ public sealed class EfProfileAnalysisRepositoryFreshnessTests
     }
 
     // -----------------------------------------------------------------------
+    // GetLatestAestheticFreshnessAsync — parses the latest Analyzed row's aesthetic JSON
+    // (aesthetic-freshness-versioning)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task GetLatestAestheticFreshnessAsync_CompleteV3Blob_ReturnsAllPillarsTrue()
+    {
+        const string json =
+            """
+            {"palette":[],"styleDescriptors":[],"motifs":[],"captionVoice":null,
+             "referenceImages":[{"sourcePostId":"p1","assetIndex":0,"storagePath":"org/c/p1.jpg","contentHash":"h1"}],
+             "backgroundPattern":["Photo","FlatColor"],
+             "colorPairings":[{"backgroundHex":"#111","textHex":"#FFF","rank":1}],
+             "promptVersion":"aesthetic-extractor/v3"}
+            """;
+        await using var db = CreateDb();
+        SeedWithAesthetic(db, _orgId, _clientId, "Analyzed", DateTime.UtcNow, json);
+        await db.SaveChangesAsync();
+
+        var repo = new EfProfileAnalysisRepository(db);
+        var snapshot = await repo.GetLatestAestheticFreshnessAsync(_orgId, _clientId, CancellationToken.None);
+
+        Assert.Equal("aesthetic-extractor/v3", snapshot.SchemaVersion);
+        Assert.True(snapshot.HasColorPairings);
+        Assert.True(snapshot.HasBackgroundPattern);
+        Assert.True(snapshot.HasReferenceImages);
+    }
+
+    [Fact]
+    public async Task GetLatestAestheticFreshnessAsync_OldV2BlobMissingPillars_ReturnsFalsePillarsAndStoredVersion()
+    {
+        // Pre-v3 blob captured before ColorPairings/BackgroundPattern shipped: no aesthetic
+        // signal for those keys, and no reference images either (the Atlas bug scenario).
+        const string json =
+            """{"palette":[],"styleDescriptors":["editorial"],"motifs":[],"captionVoice":"playful","referenceImages":[],"promptVersion":"aesthetic-extractor/v2"}""";
+        await using var db = CreateDb();
+        SeedWithAesthetic(db, _orgId, _clientId, "Analyzed", DateTime.UtcNow, json);
+        await db.SaveChangesAsync();
+
+        var repo = new EfProfileAnalysisRepository(db);
+        var snapshot = await repo.GetLatestAestheticFreshnessAsync(_orgId, _clientId, CancellationToken.None);
+
+        Assert.Equal("aesthetic-extractor/v2", snapshot.SchemaVersion);
+        Assert.False(snapshot.HasColorPairings);
+        Assert.False(snapshot.HasBackgroundPattern);
+        Assert.False(snapshot.HasReferenceImages);
+    }
+
+    [Fact]
+    public async Task GetLatestAestheticFreshnessAsync_NoAnalyzedRow_ReturnsNullVersionAndFalsePillars()
+    {
+        await using var db = CreateDb();
+
+        var repo = new EfProfileAnalysisRepository(db);
+        var snapshot = await repo.GetLatestAestheticFreshnessAsync(_orgId, _clientId, CancellationToken.None);
+
+        Assert.Null(snapshot.SchemaVersion);
+        Assert.False(snapshot.HasColorPairings);
+        Assert.False(snapshot.HasBackgroundPattern);
+        Assert.False(snapshot.HasReferenceImages);
+    }
+
+    [Fact]
+    public async Task GetLatestAestheticFreshnessAsync_PicksMostRecentAnalyzedRow()
+    {
+        var older = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
+        var newer = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+        const string olderJson = """{"palette":[],"styleDescriptors":[],"motifs":[],"captionVoice":null,"referenceImages":[],"promptVersion":"aesthetic-extractor/v2"}""";
+        const string newerJson = """{"palette":[],"styleDescriptors":[],"motifs":[],"captionVoice":null,"referenceImages":[],"promptVersion":"aesthetic-extractor/v3"}""";
+
+        await using var db = CreateDb();
+        SeedWithAesthetic(db, _orgId, _clientId, "Analyzed", older, olderJson);
+        SeedWithAesthetic(db, _orgId, _clientId, "Analyzed", newer, newerJson);
+        await db.SaveChangesAsync();
+
+        var repo = new EfProfileAnalysisRepository(db);
+        var snapshot = await repo.GetLatestAestheticFreshnessAsync(_orgId, _clientId, CancellationToken.None);
+
+        Assert.Equal("aesthetic-extractor/v3", snapshot.SchemaVersion);
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
@@ -145,6 +227,28 @@ public sealed class EfProfileAnalysisRepositoryFreshnessTests
             ClientId = clientId,
             ProfileUrlOrHandle = "@handle",
             Status = status,
+            CompletedAtUtc = completedAt,
+            CreatedAtUtc = completedAt?.AddHours(-2) ?? DateTime.UtcNow.AddHours(-3),
+            UpdatedAtUtc = completedAt ?? DateTime.UtcNow.AddHours(-2),
+        });
+    }
+
+    private static void SeedWithAesthetic(
+        AppIdentityDbContext db,
+        Guid orgId,
+        Guid clientId,
+        string status,
+        DateTime? completedAt,
+        string aestheticProfileJson)
+    {
+        db.ProfileAnalyses.Add(new ProfileAnalysisData
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = orgId,
+            ClientId = clientId,
+            ProfileUrlOrHandle = "@handle",
+            Status = status,
+            AestheticProfileJson = aestheticProfileJson,
             CompletedAtUtc = completedAt,
             CreatedAtUtc = completedAt?.AddHours(-2) ?? DateTime.UtcNow.AddHours(-3),
             UpdatedAtUtc = completedAt ?? DateTime.UtcNow.AddHours(-2),

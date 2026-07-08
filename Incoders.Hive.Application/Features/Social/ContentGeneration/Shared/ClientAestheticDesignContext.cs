@@ -18,12 +18,19 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 /// <param name="StyleDescriptors">Visual style/mood/composition descriptors.</param>
 /// <param name="Motifs">Recurring visual motifs.</param>
 /// <param name="VariationSeed">Stable seed for reproducible composition variety within the client's style.</param>
+/// <param name="BrandMark">
+/// Recurring brand mark detected across the client's corpus (faithful-flat-slide-rendering;
+/// FFS-CG-02). Additive trailing nullable — null when no mark was reliably detected (cold-start
+/// parity; FFS-CG-03-a). The AI designer MUST NEVER draw/place a mark itself — it is placed
+/// deterministically by the renderer as a separate editable element.
+/// </param>
 public sealed record ClientAestheticDesignContext(
     IReadOnlyList<ProfilePostImageRef> ReferenceImages,
     IReadOnlyList<AestheticPaletteEntry>? Palette,
     IReadOnlyList<string> StyleDescriptors,
     IReadOnlyList<string> Motifs,
-    string VariationSeed)
+    string VariationSeed,
+    BrandMarkDetection? BrandMark = null)
 {
     /// <summary>True when an actual colour palette is available; false when the client has none (free-derive colour).</summary>
     public bool HasPalette => Palette is { Count: > 0 };

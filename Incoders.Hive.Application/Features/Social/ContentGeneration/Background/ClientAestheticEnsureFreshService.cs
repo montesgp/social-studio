@@ -74,13 +74,32 @@ public sealed class ClientAestheticEnsureFreshService : IClientAestheticEnsureFr
             var hasAesthetic = await _analysisRepository.LatestAnalyzedHasAestheticAsync(orgId, clientId, ct);
             if (hasAesthetic)
             {
-                return EnsureFreshOutcome.Fresh;
-            }
+                // aesthetic-freshness-versioning: a recent analysis with SOME aesthetic payload can
+                // still be stale in a way age alone can't see — captured by an older extractor
+                // schema version (missing fields that only a newer extractor populates), or never
+                // materially complete. AestheticFreshness.Evaluate decides; Incomplete is treated
+                // the same as Fresh (no refresh) to avoid looping forever without new data.
+                var freshnessSnapshot = await _analysisRepository.GetLatestAestheticFreshnessAsync(orgId, clientId, ct);
+                var verdict = AestheticFreshness.Evaluate(freshnessSnapshot);
+                if (verdict != AestheticFreshnessVerdict.Refresh)
+                {
+                    return EnsureFreshOutcome.Fresh;
+                }
 
-            _logger.LogInformation(
-                "ClientAestheticEnsureFresh: latest analysis for client {ClientId} (org {OrgId}) is within the " +
-                "freshness window but has NO captured aesthetic — refreshing so generation can use it.",
-                clientId, orgId);
+                _logger.LogInformation(
+                    "ClientAestheticEnsureFresh: latest analysis for client {ClientId} (org {OrgId}) is within " +
+                    "the freshness window but was captured with an older extractor schema version " +
+                    "({StoredVersion}) than the current one ({CurrentVersion}) — refreshing so the newer " +
+                    "extractor can populate any previously-missing fields.",
+                    clientId, orgId, freshnessSnapshot.SchemaVersion ?? "(none)", AestheticFreshness.CurrentSchemaVersion);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "ClientAestheticEnsureFresh: latest analysis for client {ClientId} (org {OrgId}) is within the " +
+                    "freshness window but has NO captured aesthetic — refreshing so generation can use it.",
+                    clientId, orgId);
+            }
         }
 
         // ── 3. Debounce: skip if a non-terminal analysis is already in flight ─

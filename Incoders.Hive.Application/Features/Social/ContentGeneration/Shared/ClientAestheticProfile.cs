@@ -73,4 +73,10 @@ public sealed record ClientAestheticProfile(
     ConceptualMethod? ConceptualMethod = null,
     // OQ-2: corpus-grounded image-type distribution (photo/flat/decorator proportions + sample size).
     // Null → photo-vs-flat assignment uses BackgroundPattern / current defaults (cold-start parity).
-    ImageTypeRatio? ImageTypeRatio = null);
+    ImageTypeRatio? ImageTypeRatio = null,
+    // faithful-flat-slide-rendering (additive trailing nullable — all existing construction sites
+    // and `with` expressions compile unchanged; FFS-PA-02):
+    //
+    // Recurring brand mark detected across the client's corpus. Null → no mark is rendered
+    // (cold-start parity; FFS-CG-03-a).
+    BrandMarkDetection? BrandMark = null);

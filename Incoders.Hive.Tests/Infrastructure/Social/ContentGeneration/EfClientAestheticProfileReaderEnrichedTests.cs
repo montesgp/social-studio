@@ -201,4 +201,85 @@ public sealed class EfClientAestheticProfileReaderEnrichedTests
         Assert.NotNull(profile.StyleDescriptors);
         Assert.Contains("editorial", profile.StyleDescriptors!);
     }
+
+    // ── WU-4 (FFS-PA-02): BrandMark threading ──────────────────────────────
+
+    /// <summary>
+    /// FFS-PA-02-a — when the stored blob carries a BrandMark, GetProfileAsync returns a
+    /// ClientAestheticProfile with the same BrandMark (task 2.9 RED / 2.10 GREEN).
+    /// </summary>
+    [Fact]
+    public async Task SurfacesBrandMark_WhenPresentInBlob()
+    {
+        var org = Guid.NewGuid();
+        var client = Guid.NewGuid();
+
+        var brandMark = new BrandMarkDetection(Present: true, PositionHint: "bottom-right", ColorHex: "#112233");
+
+        var json = AestheticProfilePersistence.Serialize(
+            new AestheticExtraction(
+                Palette: [],
+                StyleDescriptors: ["editorial"],
+                Motifs: [],
+                CaptionVoice: "playful",
+                BrandMark: brandMark),
+            referenceImages: []);
+
+        await using var db = CreateDb();
+        db.ProfileAnalyses.Add(new ProfileAnalysisData
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = org,
+            ClientId = client,
+            ProfileUrlOrHandle = "@client",
+            Status = "Analyzed",
+            AestheticProfileJson = json,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+            CompletedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var profile = await new EfClientAestheticProfileReader(db).GetProfileAsync(org, client, CancellationToken.None);
+
+        Assert.NotNull(profile);
+        Assert.NotNull(profile!.BrandMark);
+        Assert.True(profile.BrandMark!.Present);
+        Assert.Equal("bottom-right", profile.BrandMark.PositionHint);
+        Assert.Equal("#112233", profile.BrandMark.ColorHex);
+    }
+
+    /// <summary>
+    /// FFS-PA-02-b — when the stored blob is pre-v3 (no brandMark key), GetProfileAsync returns
+    /// a profile with BrandMark null and no exception (cold-start parity; task 2.9 RED / 2.10 GREEN).
+    /// </summary>
+    [Fact]
+    public async Task BrandMarkNull_WhenPreV3Blob_NoException()
+    {
+        var org = Guid.NewGuid();
+        var client = Guid.NewGuid();
+
+        const string preV3Json =
+            """{"palette":[],"styleDescriptors":["editorial"],"motifs":[],"captionVoice":"playful","referenceImages":[]}""";
+
+        await using var db = CreateDb();
+        db.ProfileAnalyses.Add(new ProfileAnalysisData
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = org,
+            ClientId = client,
+            ProfileUrlOrHandle = "@client",
+            Status = "Analyzed",
+            AestheticProfileJson = preV3Json,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+            CompletedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var profile = await new EfClientAestheticProfileReader(db).GetProfileAsync(org, client, CancellationToken.None);
+
+        Assert.NotNull(profile);
+        Assert.Null(profile!.BrandMark);
+    }
 }

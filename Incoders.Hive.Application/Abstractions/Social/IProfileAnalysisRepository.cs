@@ -88,7 +88,38 @@ public interface IProfileAnalysisRepository
         Guid organizationId,
         string aestheticProfileJson,
         CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    /// <summary>
+    /// aesthetic-freshness-versioning: returns the schema-version + completeness signal for the
+    /// latest completed (<c>Analyzed</c>) analysis's aesthetic payload. Used by
+    /// <c>ClientAestheticEnsureFreshService</c> (via <c>AestheticFreshness.Evaluate</c>) to decide
+    /// whether an AGE-fresh analysis still needs a refresh — either because it was captured with an
+    /// older extractor schema version, or because it never became materially complete.
+    /// <para>
+    /// Default returns an empty/oldest snapshot (null version, all pillars false) so existing test
+    /// fakes compile unchanged; the real EF adapter parses the actual stored value via
+    /// <c>AestheticProfilePersistence.Read</c>.
+    /// </para>
+    /// </summary>
+    Task<AestheticFreshnessSnapshot> GetLatestAestheticFreshnessAsync(
+        Guid orgId,
+        Guid clientId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new AestheticFreshnessSnapshot(null, false, false, false));
 }
+
+/// <summary>
+/// Freshness signal for the latest completed analysis's aesthetic payload
+/// (aesthetic-freshness-versioning). <see cref="SchemaVersion"/> is the stored
+/// <c>"aesthetic-extractor/vN"</c> token (null on old/missing blobs). The three <c>Has*</c> flags
+/// mark the "materially complete" pillars — the client's registered color combinations, the
+/// image/flat background mix, and the visual references — the must-haves for faithful generation.
+/// </summary>
+public sealed record AestheticFreshnessSnapshot(
+    string? SchemaVersion,
+    bool HasColorPairings,
+    bool HasBackgroundPattern,
+    bool HasReferenceImages);
 
 /// <summary>A single row in the profile-analysis history list.</summary>
 public sealed record ProfileAnalysisHistoryItem(

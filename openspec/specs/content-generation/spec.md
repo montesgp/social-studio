@@ -1680,3 +1680,73 @@ in the current view completes.
 - GIVEN a saved analysis has a completed generation job
 - WHEN the user opens that saved analysis and its job status is hydrated
 - THEN the active tab does not change without a new user-initiated generation
+
+## Added Requirements: Faithful Flat-Slide Rendering + Brand-Mark Placement (faithful-flat-slide-rendering, #50)
+
+### Requirement: FFS-CG-01 — FlatColor Slides Render Deterministic Flat Background, Bypassing the AI Designer
+
+For a `ClientAesthetic` carousel, when the per-slide analyzed kind (mapped via `CreativeSlideIndexResolver`
+from `ClientAestheticProfile.BackgroundPattern`) is `SlideBackgroundKind.FlatColor` AND `ColorPairings`
+resolves a pairing, the slide MUST render a flat background+text pairing from
+`CompositionDefaults.ResolvePalette()` with NO gradient, blob, glow, grain, or baked decoration, and
+MUST NOT call `AiVisualDesigner.ComposeAsync`.
+
+#### Scenario: FlatColor with resolved pairing renders flat, designer skipped (FFS-CG-01-a)
+
+- GIVEN a ClientAesthetic slide mapped to FlatColor with a resolved `ColorPairings` entry
+- WHEN the slide renders
+- THEN background/text colors match the pairing, rank/rotation preserved
+- AND no gradient/blob/glow/grain is present and `ComposeAsync` is not invoked
+
+#### Scenario: Photo slide unaffected (FFS-CG-01-b)
+
+- GIVEN a slide mapped to a Photo kind
+- WHEN it renders
+- THEN it still uses the AI-generated background path unchanged
+
+#### Scenario: Non-ClientAesthetic format unaffected (FFS-CG-01-c)
+
+- GIVEN a carousel job whose policy is not ClientAesthetic
+- WHEN it renders
+- THEN output is byte-identical to pre-change behavior
+
+### Requirement: FFS-CG-02 — Accent and Brand-Mark Elements Are Editable Content-Layer Slots, Never Baked
+
+Any accent element or brand-mark element on a rendered slide MUST be emitted as an editable
+content-layer element (`data-slot="accent"` / `data-slot="brand-mark"`) and MUST NOT be rasterized
+into the background image. The brand-mark injection is identical whichever markup path produced the
+slide (the FlatColor short-circuit or the AI/photo designer path) — the AI designer MUST NEVER draw,
+trace, or place a brand mark itself.
+
+#### Scenario: Brand mark rendered as editable slot (FFS-CG-02-a)
+
+- GIVEN `BrandMark.Present = true` with a position hint and the pairing's text color
+- WHEN the slide renders (flat or AI/photo path)
+- THEN a `data-slot="brand-mark"` element appears at the detected position in the text color, conservative size
+- AND it is not part of the rasterized background
+
+#### Scenario: No brand mark detected — no slot rendered (FFS-CG-02-b)
+
+- GIVEN `BrandMark` is null or `BrandMark.Present = false`
+- WHEN the slide renders
+- THEN no brand-mark element is emitted and the slide is otherwise unaffected
+
+#### Scenario: Ambiguous/unknown mark fields treated as absent (FFS-CG-02-c)
+
+- GIVEN extraction produced an unknown/ambiguous position or color
+- WHEN the persisted `BrandMark` is evaluated at render
+- THEN it is treated as not present; no mark is rendered
+
+### Requirement: FFS-CG-03 — Cold-Start Parity for Flat Rendering and Brand Mark
+
+When `ColorPairings`/`BackgroundPattern` do not resolve a FlatColor decision, OR `BrandMark` is
+absent, rendering MUST be byte-identical to pre-change behavior. No palette or mark MAY be
+fabricated.
+
+#### Scenario: Cold-start client renders unchanged (FFS-CG-03-a)
+
+- GIVEN a profile with no `ColorPairings`/`BackgroundPattern`/`BrandMark` (Phase-1-only or unanalyzed)
+- WHEN the carousel renders
+- THEN output matches pre-change output exactly, including AI-designer usage where it previously applied
+
+*Merged from SDD change `faithful-flat-slide-rendering` (issue #50) — applied 2026-07-06.*
