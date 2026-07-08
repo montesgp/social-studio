@@ -327,18 +327,33 @@ public static class DependencyInjection
             ?? Path.Combine(AppContext.BaseDirectory, "App_Data", "generated-packages");
         services.AddSingleton<IGeneratedPackageStorage>(_ => new LocalGeneratedPackageStorage(rootPath));
 
-        // Supabase Storage adapter — durable per-asset storage.
-        // ServiceRoleKey comes from user-secrets (dev) or environment (prod) — NEVER from appsettings.
-        services.AddOptions<SupabaseStorageOptions>()
-            .Bind(configuration.GetSection(SupabaseStorageOptions.SectionName))
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
-        services.AddHttpClient<IGeneratedAssetStorage, SupabaseStorageAdapter>((sp, client) =>
+        // Generated-asset storage provider — config key Storage:AssetProvider (default "Supabase").
+        // "Local" routes all generated-asset traffic to the local filesystem (dev-only) so
+        // iteration consumes ZERO Supabase Storage egress/quota. Anything else keeps the
+        // existing Supabase Storage adapter registered exactly as-is.
+        var assetProvider = configuration["Storage:AssetProvider"] ?? "Supabase";
+        if (string.Equals(assetProvider, "Local", StringComparison.OrdinalIgnoreCase))
         {
-            var opts = sp.GetRequiredService<IOptions<SupabaseStorageOptions>>().Value;
-            client.BaseAddress = new Uri(opts.Url);
-        });
+            var assetStorageRoot = configuration["Storage:AssetStorageRoot"]
+                ?? Path.Combine(AppContext.BaseDirectory, "App_Data", "generated-assets");
+            services.AddSingleton<IGeneratedAssetStorage>(
+                _ => new LocalFileGeneratedAssetStorage(assetStorageRoot));
+        }
+        else
+        {
+            // Supabase Storage adapter — durable per-asset storage.
+            // ServiceRoleKey comes from user-secrets (dev) or environment (prod) — NEVER from appsettings.
+            services.AddOptions<SupabaseStorageOptions>()
+                .Bind(configuration.GetSection(SupabaseStorageOptions.SectionName))
+                .ValidateDataAnnotations()
+                .ValidateOnStart();
+
+            services.AddHttpClient<IGeneratedAssetStorage, SupabaseStorageAdapter>((sp, client) =>
+            {
+                var opts = sp.GetRequiredService<IOptions<SupabaseStorageOptions>>().Value;
+                client.BaseAddress = new Uri(opts.Url);
+            });
+        }
 
         return services;
     }
