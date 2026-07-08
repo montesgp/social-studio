@@ -773,6 +773,50 @@ public sealed class ContentGenerationJobProcessor
                     // carousel slide editable on PPTX/Canva export.
                     if (capturedMarkup is not null)
                     {
+                        // BGREF-01 (studio-background-asset-ref, Slice 1): when storage is wired,
+                        // upload the captured background PNG as its own object and persist a storage
+                        // path in BackgroundImageRef instead of the base64 data-URI — the data-URI
+                        // was bloating composition_spec_json by the full PNG payload per slide.
+                        // NO FormatAssetRow is created for it (see design: content_generation_format_assets
+                        // has multiple consumers beyond materialize that are not kind-aware and would
+                        // double-count/double-ship it). Storage-not-wired keeps the legacy inline
+                        // data-URI unchanged (back-compat for local/dev and existing rows).
+                        var backgroundImageRef = capturedBackgroundDataUri;
+                        if (_assetStorage is not null && !string.IsNullOrWhiteSpace(capturedBackgroundDataUri))
+                        {
+                            var decodedBackground = TryDecodeBackgroundDataUri(capturedBackgroundDataUri);
+                            if (decodedBackground is not null)
+                            {
+                                var backgroundRelativePath = formatDef?.IsMultiAsset == true && specs.Count > 1
+                                    ? $"{formatDef.StorageFolder}/slide_{specIndex + 1}_bg.png"
+                                    : $"{Path.GetFileNameWithoutExtension(asset.Filename)}_bg.png";
+
+                                try
+                                {
+                                    var backgroundStorageKey = new StoredAssetKey(
+                                        job.OrganizationId,
+                                        effectiveClientId.Value,
+                                        job.AnalysisId,
+                                        backgroundRelativePath);
+
+                                    var storedBackgroundRef = await _assetStorage.PutAssetAsync(
+                                        backgroundStorageKey,
+                                        new StoredAssetContent(decodedBackground.Value.Bytes, decodedBackground.Value.Mime),
+                                        ct);
+
+                                    backgroundImageRef = storedBackgroundRef.StoragePath;
+                                }
+                                catch (GeneratedAssetStorageException ex)
+                                {
+                                    // Non-fatal: the slide's primary asset already uploaded successfully.
+                                    // Keep the inline data-URI so the slide still exports/renders.
+                                    _logger.LogWarning(ex,
+                                        "ContentGeneration: background asset upload failed for format {FormatKey} spec {SpecIndex} (job {JobId}). Keeping inline data-URI.",
+                                        formatKey, specIndex, job.Id);
+                                }
+                            }
+                        }
+
                         var canvas = capturedDimensions is not null
                             ? new CanvasDimensions(capturedDimensions.Width, capturedDimensions.Height, capturedDimensions.Dpi)
                             : new CanvasDimensions(0, 0, 96);
@@ -781,7 +825,7 @@ public sealed class ContentGenerationJobProcessor
                             capturedMarkup,
                             canvas,
                             capturedGeometry,
-                            capturedBackgroundDataUri));
+                            backgroundImageRef));
                     }
                 }
 

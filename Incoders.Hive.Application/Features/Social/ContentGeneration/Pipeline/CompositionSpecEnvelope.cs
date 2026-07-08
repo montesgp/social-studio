@@ -98,7 +98,11 @@ public static class CompositionSpecJson
 /// Empty list when geometry capture was not available (e.g. fallback renderer).
 /// </param>
 /// <param name="BackgroundImageRef">
-/// Storage reference for the background-only PNG (future WU-2+). Null until captured.
+/// Reference to the background-only PNG. For new generations (studio-background-asset-ref,
+/// Slice 1 / BGREF-01) this is a storage path resolved via <c>IGeneratedAssetStorage</c> once
+/// storage is wired. Rows persisted before that change may still carry a legacy
+/// <c>data:image/...;base64,...</c> URI — export/render consumers MUST resolve both forms
+/// (BGREF-03). Null until a background is captured.
 /// </param>
 /// <param name="FlattenedImageRef">
 /// Data-URI for the FULL flattened render (background + decorations + text) produced when the
