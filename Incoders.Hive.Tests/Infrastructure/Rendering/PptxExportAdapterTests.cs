@@ -1,6 +1,8 @@
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
+using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Infrastructure.Rendering;
 using A = DocumentFormat.OpenXml.Drawing;
 
@@ -19,7 +21,10 @@ namespace Incoders.Hive.Tests.Infrastructure.Rendering;
 /// </summary>
 public sealed class PptxExportAdapterTests
 {
-    private static readonly PptxExportAdapter Adapter = new();
+    // Never touched by these tests: every envelope's BackgroundImageRef is either a data: URI
+    // (decoded inline, no storage call) or null (no picture layer). BGREF-03/04 storage-path
+    // resolution is covered separately below.
+    private static readonly PptxExportAdapter Adapter = new(new StubAssetStorage(bytes: null, mime: "image/png"));
 
     // ------------------------------------------------------------------
     // Slide count
@@ -401,6 +406,63 @@ public sealed class PptxExportAdapterTests
     }
 
     // ------------------------------------------------------------------
+    // Background reference resolution (BGREF-03 / BGREF-04)
+    // studio-background-asset-ref, Slice 1, Work Unit 3 — TDD RED before implementation.
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task BuildAsync_StoragePathBackgroundRef_OpensViaStorage_AndEmbedsPicture()
+    {
+        // A NEW-form envelope: BackgroundImageRef is a storage path (not a data: URI). The adapter
+        // must resolve it via IGeneratedAssetStorage.OpenAsync and still produce a Picture layer.
+        var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x03 };
+        var storage = new StubAssetStorage(pngBytes, "image/png");
+        var adapter = new PptxExportAdapter(storage);
+
+        var envelope = new CompositionSpecEnvelope(
+            SchemaVersion: CompositionSpecEnvelope.CurrentSchemaVersion,
+            Markup: """<div class="composition" style="width:1080px;height:1920px;"><div data-layer="background"></div><div data-layer="content"><h1 data-slot="headline">Hi</h1></div></div>""",
+            Canvas: new CanvasDimensions(1080, 1920, 96),
+            SlotGeometry: [],
+            BackgroundImageRef: "org/client/analysis/story_bg.png");
+
+        var result = await adapter.BuildAsync(envelope, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
+        Assert.Equal("org/client/analysis/story_bg.png", storage.LastOpenedPath);
+        Assert.True(HasBackgroundPicture(result.Value), "Expected a Picture part for the storage-path background.");
+    }
+
+    [Fact]
+    public async Task BuildAsync_StoragePathBackgroundRef_OpenAsyncFails_ExportsWithoutBackground()
+    {
+        // BGREF-04: OpenAsync failure MUST NOT throw and MUST NOT abort export. The slide exports
+        // without a background layer while text content is still present.
+        var storage = new StubAssetStorage(bytes: null, mime: "image/png"); // OpenAsync -> NotFound
+        var adapter = new PptxExportAdapter(storage);
+
+        var envelope = new CompositionSpecEnvelope(
+            SchemaVersion: CompositionSpecEnvelope.CurrentSchemaVersion,
+            Markup: """<div class="composition" style="width:1080px;height:1920px;"><div data-layer="background"></div><div data-layer="content"><h1 data-slot="headline">Still here</h1></div></div>""",
+            Canvas: new CanvasDimensions(1080, 1920, 96),
+            SlotGeometry:
+            [
+                new SlotGeometryEntry(
+                    Slot: "headline", X: 30, Y: 200, Width: 900, Height: 80,
+                    FontFamily: "Inter", FontSizePx: 48, Color: "#000000", TextAlign: "left"),
+            ],
+            BackgroundImageRef: "org/client/analysis/missing_bg.png");
+
+        var result = await adapter.BuildAsync(envelope, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
+        Assert.False(HasBackgroundPicture(result.Value), "Expected no Picture part when the storage open fails.");
+
+        var texts = GetTextShapes(result.Value).Select(ExtractText).ToList();
+        Assert.Contains(texts, t => t!.Contains("Still here", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
@@ -434,5 +496,36 @@ public sealed class PptxExportAdapterTests
         var runs = shape.TextBody?.Descendants<A.Run>() ?? [];
         var text = string.Concat(runs.Select(r => r.Text?.Text ?? string.Empty));
         return string.IsNullOrEmpty(text) ? null : text;
+    }
+
+    // Stub: OpenAsync returns the configured bytes, or NotFound when bytes is null. Other members
+    // are never exercised by the adapter (it only ever calls OpenAsync).
+    private sealed class StubAssetStorage(byte[]? bytes, string mime) : IGeneratedAssetStorage
+    {
+        public string? LastOpenedPath { get; private set; }
+
+        public Task<Result<StoredAssetStream>> OpenAsync(string storagePath, CancellationToken ct)
+        {
+            LastOpenedPath = storagePath;
+            if (bytes is null)
+            {
+                return Task.FromResult(Result.Failure<StoredAssetStream>(StorageErrors.NotFound));
+            }
+
+            var stream = new StoredAssetStream(new MemoryStream(bytes), mime, bytes.Length);
+            return Task.FromResult(Result.Success(stream));
+        }
+
+        public Task<StoredAssetRef> PutAssetAsync(StoredAssetKey key, StoredAssetContent content, CancellationToken ct) =>
+            throw new NotSupportedException();
+
+        public Task PutFolderPlaceholderAsync(string folderPath, CancellationToken ct) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<StoredAssetEntry>> ListAsync(string prefix, CancellationToken ct) =>
+            throw new NotSupportedException();
+
+        public Task DeleteAsync(string storagePath, CancellationToken ct) =>
+            throw new NotSupportedException();
     }
 }

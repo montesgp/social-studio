@@ -22,17 +22,26 @@ namespace Incoders.Hive.Infrastructure.Rendering;
 /// Mapping rules:
 /// <list type="bullet">
 ///   <item><description><c>[data-slot]</c> → editable text box positioned from persisted geometry (EMU).</description></item>
-///   <item><description><c>backgroundImageRef</c> (data-URI) → full-bleed <c>Picture</c> behind text boxes.</description></item>
+///   <item><description><c>backgroundImageRef</c> → full-bleed <c>Picture</c> behind text boxes. Resolved at
+///   build time: a <c>data:</c> URI (legacy rows) is decoded inline; a storage path
+///   (studio-background-asset-ref, BGREF-01) is opened via <see cref="IGeneratedAssetStorage"/>.</description></item>
 ///   <item><description>Slide size from <c>canvas.Width × canvas.Height</c> at <c>canvas.Dpi</c>.</description></item>
 ///   <item><description>Slots without geometry fall back to a deterministic stacked layout.</description></item>
 /// </list>
 /// </para>
 /// </summary>
-public sealed class PptxExportAdapter : IPptxExportAdapter
+/// <param name="assetStorage">
+/// Storage port used to resolve a <c>BackgroundImageRef</c>/<c>FlattenedImageRef</c> that is a
+/// storage path rather than a legacy <c>data:</c> URI (BGREF-03). A failed/missing open degrades
+/// gracefully — the slide exports without a background layer (BGREF-04); it never throws.
+/// </param>
+public sealed class PptxExportAdapter(IGeneratedAssetStorage assetStorage) : IPptxExportAdapter
 {
     // EMU per pixel at 96 dpi (9525 = 914400 / 96).
     // We read the actual dpi from the envelope canvas and compute at build time.
     private const int EmuPerInch = 914400;
+
+    private readonly IGeneratedAssetStorage _assetStorage = assetStorage;
 
     private static readonly Regex DataUriRegex = new(
         @"^data:(?<mime>[^;]+);base64,(?<data>.+)$",
@@ -46,34 +55,82 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
     }
 
     /// <inheritdoc />
-    public Task<Result<byte[]>> BuildManyAsync(IReadOnlyList<CompositionSpecEnvelope> envelopes, CancellationToken ct)
+    public async Task<Result<byte[]>> BuildManyAsync(IReadOnlyList<CompositionSpecEnvelope> envelopes, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(envelopes);
 
         if (envelopes.Count == 0)
         {
-            return Task.FromResult(Result.Failure<byte[]>(
-                PptxExportErrors.BuildFailed("No composition specs to export.")));
+            return Result.Failure<byte[]>(
+                PptxExportErrors.BuildFailed("No composition specs to export."));
         }
 
         foreach (var envelope in envelopes)
         {
             if (envelope.SchemaVersion != CompositionSpecEnvelope.CurrentSchemaVersion)
             {
-                return Task.FromResult(Result.Failure<byte[]>(
-                    PptxExportErrors.UnsupportedSchemaVersion(envelope.SchemaVersion)));
+                return Result.Failure<byte[]>(
+                    PptxExportErrors.UnsupportedSchemaVersion(envelope.SchemaVersion));
             }
         }
 
         try
         {
-            var bytes = BuildPptx(envelopes);
-            return Task.FromResult(Result.Success(bytes));
+            // Pre-resolve each slide's picture reference to raw bytes BEFORE the OpenXML build loop
+            // so AddSlide stays synchronous — OpenXML's SDK types are not async-friendly.
+            var backgroundBytesPerEnvelope = new byte[]?[envelopes.Count];
+            for (var i = 0; i < envelopes.Count; i++)
+            {
+                var envelope = envelopes[i];
+                var flattened = !string.IsNullOrWhiteSpace(envelope.FlattenedImageRef);
+                var pictureRef = flattened ? envelope.FlattenedImageRef : envelope.BackgroundImageRef;
+                backgroundBytesPerEnvelope[i] = await ResolvePictureBytesAsync(pictureRef, ct);
+            }
+
+            var bytes = BuildPptx(envelopes, backgroundBytesPerEnvelope);
+            return Result.Success(bytes);
         }
         catch (Exception ex)
         {
-            return Task.FromResult(Result.Failure<byte[]>(
-                PptxExportErrors.BuildFailed(ex.Message)));
+            return Result.Failure<byte[]>(
+                PptxExportErrors.BuildFailed(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Resolves a picture reference (background or flattened) to raw bytes. A <c>data:</c> URI is
+    /// decoded inline (legacy, back-compat). A storage path is opened via <see cref="_assetStorage"/>.
+    /// Returns null for a blank ref or when resolution fails — callers MUST treat null as "no
+    /// picture layer for this slide", never as a fatal build error (BGREF-04).
+    /// </summary>
+    private async Task<byte[]?> ResolvePictureBytesAsync(string? pictureRef, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(pictureRef))
+        {
+            return null;
+        }
+
+        if (pictureRef.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            return TryDecodeDataUri(pictureRef);
+        }
+
+        try
+        {
+            var opened = await _assetStorage.OpenAsync(pictureRef, ct);
+            if (opened.IsFailure)
+            {
+                return null;
+            }
+
+            using var stream = opened.Value;
+            using var buffer = new MemoryStream();
+            await stream.Content.CopyToAsync(buffer, ct);
+            return buffer.ToArray();
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return null;
         }
     }
 
@@ -81,7 +138,9 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
     // Core builder
     // -----------------------------------------------------------------------
 
-    private static byte[] BuildPptx(IReadOnlyList<CompositionSpecEnvelope> envelopes)
+    private static byte[] BuildPptx(
+        IReadOnlyList<CompositionSpecEnvelope> envelopes,
+        IReadOnlyList<byte[]?> backgroundBytesPerEnvelope)
     {
         using var ms = new MemoryStream();
         using (var prs = PresentationDocument.Create(ms, PresentationDocumentType.Presentation))
@@ -115,7 +174,9 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
             {
                 var relationshipId = $"rIdSlide{i + 1}";
                 var slidePart = presentationPart.AddNewPart<SlidePart>(relationshipId);
-                AddSlide(slidePart, slideLayoutPart, envelopes[i], emuPerPx, slideWidthEmu, slideHeightEmu);
+                AddSlide(
+                    slidePart, slideLayoutPart, envelopes[i], backgroundBytesPerEnvelope[i],
+                    emuPerPx, slideWidthEmu, slideHeightEmu);
 
                 presentationPart.Presentation.SlideIdList!.AppendChild(
                     new P.SlideId { Id = 256U + (uint)i, RelationshipId = relationshipId });
@@ -148,6 +209,7 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
         SlidePart slidePart,
         SlideLayoutPart slideLayoutPart,
         CompositionSpecEnvelope envelope,
+        byte[]? backgroundBytes,
         double emuPerPx,
         long slideWidthEmu,
         long slideHeightEmu)
@@ -163,19 +225,17 @@ public sealed class PptxExportAdapter : IPptxExportAdapter
         // A flattened render (Content Studio "save design") is the full WYSIWYG PNG of the edited
         // markup — background + decorations + text. When present it IS the slide, and the editable
         // text boxes below are skipped, so the export is pixel-faithful to whatever the studio shows.
+        // backgroundBytes is pre-resolved by BuildManyAsync (data-URI decoded inline, or storage path
+        // opened via IGeneratedAssetStorage). Null means "no picture layer" — a blank/failed ref
+        // degrades gracefully (BGREF-04): the slide still exports, just without a background.
         var flattened = !string.IsNullOrWhiteSpace(envelope.FlattenedImageRef);
-        var pictureRef = flattened ? envelope.FlattenedImageRef : envelope.BackgroundImageRef;
-        if (!string.IsNullOrWhiteSpace(pictureRef))
+        if (backgroundBytes is not null)
         {
-            var bgBytes = TryDecodeDataUri(pictureRef);
-            if (bgBytes is not null)
-            {
-                var imagePart = slidePart.AddNewPart<ImagePart>("image/png", "rIdBg");
-                using var imgMs = new MemoryStream(bgBytes);
-                imagePart.FeedData(imgMs);
+            var imagePart = slidePart.AddNewPart<ImagePart>("image/png", "rIdBg");
+            using var imgMs = new MemoryStream(backgroundBytes);
+            imagePart.FeedData(imgMs);
 
-                spTree.AppendChild(BuildBackgroundPicture(slideWidthEmu, slideHeightEmu));
-            }
+            spTree.AppendChild(BuildBackgroundPicture(slideWidthEmu, slideHeightEmu));
         }
 
         // ---- 2. Text boxes from slot geometry (skipped for a flattened render) ----

@@ -111,6 +111,10 @@ public static class InfrastructureContentGenerationExtensions
         }
 
         // Register the PPTX export adapter (B3 WU-2 — provider-neutral port, OpenXML adapter).
+        // studio-background-asset-ref (Slice 1, BGREF-03): the adapter now takes IGeneratedAssetStorage
+        // as a ctor dependency to resolve a storage-path BackgroundImageRef/FlattenedImageRef.
+        // IGeneratedAssetStorage is registered by AddInfrastructure (SupabaseStorageAdapter via
+        // AddHttpClient) — no additional registration is needed here; DI resolves the ctor param.
         services.AddScoped<IPptxExportAdapter, PptxExportAdapter>();
 
         // ── Background sourcing strategy family (WU-5 §5.5/5.6) ──────────────
