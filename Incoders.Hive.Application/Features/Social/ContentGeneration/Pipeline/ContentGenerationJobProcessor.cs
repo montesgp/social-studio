@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
@@ -1373,6 +1374,49 @@ public sealed class ContentGenerationJobProcessor
         catch (Exception) when (!ct.IsCancellationRequested)
         {
             return url;
+        }
+    }
+
+    /// <summary>
+    /// Regex for a <c>data:&lt;mime&gt;;base64,&lt;data&gt;</c> URI. Mirrors
+    /// <c>PptxExportAdapter.DataUriRegex</c> — there is intentionally no shared Application-layer
+    /// decoder yet, so each consumer owns its own copy until a third use case justifies extraction.
+    /// </summary>
+    private static readonly Regex BackgroundDataUriRegex = new(
+        @"^data:(?<mime>[^;]+);base64,(?<data>.+)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// Decodes a captured background data-URI (<c>data:image/png;base64,...</c>) into raw bytes
+    /// and its MIME type. Returns null for a non-data-URI string, malformed base64, or blank input.
+    ///
+    /// <para>
+    /// BGREF-01 (studio-background-asset-ref, Slice 1): used to upload the captured background PNG
+    /// via <see cref="IGeneratedAssetStorage"/> instead of persisting the base64 payload inline in
+    /// <c>composition_spec_json</c>.
+    /// </para>
+    /// </summary>
+    internal static (byte[] Bytes, string Mime)? TryDecodeBackgroundDataUri(string? dataUri)
+    {
+        if (string.IsNullOrWhiteSpace(dataUri))
+        {
+            return null;
+        }
+
+        var match = BackgroundDataUriRegex.Match(dataUri);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        try
+        {
+            var bytes = Convert.FromBase64String(match.Groups["data"].Value);
+            return (bytes, match.Groups["mime"].Value);
+        }
+        catch (FormatException)
+        {
+            return null;
         }
     }
 
