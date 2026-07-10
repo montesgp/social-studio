@@ -66,3 +66,49 @@
 ## Explicit Non-Goals (this iteration)
 - No Redis/cache provider additions
 - No direct SQL script workflow when EF migrations can model schema changes
+
+## Migration Delivery Pipeline (issue #57)
+
+### Local development database
+- `docker-compose.dev.yml` runs a disposable, plain `postgres:16` container (no Supabase
+  image/extensions — none are used). Exposed on host port `5433` to avoid clashing with any
+  locally-installed Postgres.
+- Start it with `docker compose -f docker-compose.dev.yml up -d`; stop with `down` (keeps the
+  named volume) or `down -v` (wipes data).
+- `Incoders.Hive.ApiService/appsettings.Development.json` points `ConnectionStrings:Postgres`
+  at that local container. `dotnet run`/F5 in `Development` auto-applies pending migrations and
+  runs `SeedData` against the local DB only — it never touches the shared cloud database.
+- Optional, nice-to-have: `scripts/db/dump-restore.ps1` can `pg_dump` the cloud `identity` /
+  `platform` / `social` schemas and `pg_restore` them into the local container for
+  realistic-data testing (not required for day-to-day dev).
+
+### CI: migration-drift gate (Slice 1, secret-free)
+- `scripts/gates/checks/Check-MigrationDrift.ps1`, registered in `scripts/gates/Run-Gates.ps1`
+  and configured in `project.gates.yml` (`gates.migration-drift`, level `SHOULD` initially).
+- Detects when the EF Core model diverges from the last committed migration using
+  `dotnet ef migrations has-pending-model-changes` (falls back to a scratch
+  `migrations add`-then-diff if that verb is ever unavailable). No DB connection or secret is
+  used — the design-time factory only needs a syntactically-valid connection string to build
+  `DbContextOptions`, never dials it.
+- Run locally: `pwsh scripts/gates/Run-Gates.ps1 -Only migration-drift`.
+- See `.github/incoders-ai/gates/migration-drift.gate.md` for the full gate definition.
+
+### CI: ephemeral-verify job (Slice 1, secret-free)
+- `.github/workflows/quality-gates.yml` job `ephemeral-verify` runs alongside the reusable gate
+  runner (it needs a `services:` Postgres container, so it cannot live inside the reusable
+  workflow).
+- Applies the entire migration chain to a fresh `postgres:16` service container, publishes
+  `dotnet ef migrations script --idempotent` as the `migrate.sql` build artifact (the reviewable
+  PR artifact), then performs an `Up → Down → Up` round-trip against the previous migration for
+  rollback confidence.
+- `Down()` across the migration history is not audited or guaranteed as a production rollback
+  path — the round-trip only builds confidence that the immediately-previous step reverts
+  cleanly. Real rollback safety comes from the pre-apply backup in the apply-on-merge job
+  (Slice 2).
+
+### Apply-on-merge to the cloud DB (Slice 2 — not yet shipped)
+Documented separately once `.github/workflows/db-apply.yml` ships. It is blocked on Docker/VT-x
+being available locally for end-to-end dry-runs and on a user-provisioned `dev` GitHub
+Environment + `POSTGRES_CONNECTION_STRING` secret. Local dev stays on `StartupTasks:ApplyMigrations`
+defaulting to `true` only in `Development`; non-dev environments must set
+`StartupTasks__ApplyMigrations=false` explicitly once they point at a shared/cloud database.
