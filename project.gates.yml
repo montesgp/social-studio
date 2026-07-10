@@ -86,6 +86,9 @@ gates:
     level: SHOULD            # Phase 1: warn-only.
     minimum: 0               # set > 0 to enforce a hard floor
     target: 70               # informational target for trend reporting
+  migration-drift:
+    level: SHOULD            # Ship warn-first (issue #57, Slice 1); promote to MUST once the
+                              # `has-pending-model-changes` verb is confirmed green on a few PRs.
 
 secrets:
   scan_paths:

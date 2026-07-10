@@ -34,6 +34,7 @@ Editing isolated documentation outside of `docs/`, `AGENTS.md`, manifests, or sp
 | Security baseline | MUST | `security-baseline.gate.md` |
 | Dependency vulnerabilities | SHOULD | `vulnerabilities.gate.md` |
 | Test coverage | SHOULD (warn-only initially) | `coverage.gate.md` |
+| Migration drift | SHOULD (warn-only initially) | `migration-drift.gate.md` |
 | AI agent workflow | MUST | `ai-agent.gate.md` |
 
 ## Output Expectations
