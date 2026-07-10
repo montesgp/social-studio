@@ -73,14 +73,39 @@
 - `docker-compose.dev.yml` runs a disposable, plain `postgres:16` container (no Supabase
   image/extensions — none are used). Exposed on host port `5433` to avoid clashing with any
   locally-installed Postgres.
-- Start it with `docker compose -f docker-compose.dev.yml up -d`; stop with `down` (keeps the
-  named volume) or `down -v` (wipes data).
+- **Turnkey start:** `pwsh -File scripts/dev/Start-LocalDb.ps1` brings the container up, waits
+  for health, and runs the safety check below. (`-Recreate` wipes the volume for a truly empty
+  start.) Or manually: `docker compose -f docker-compose.dev.yml up -d` (`down` keeps the named
+  volume, `down -v` wipes data).
 - `Incoders.Hive.ApiService/appsettings.Development.json` points `ConnectionStrings:Postgres`
-  at that local container. `dotnet run`/F5 in `Development` auto-applies pending migrations and
-  runs `SeedData` against the local DB only — it never touches the shared cloud database.
-- Optional, nice-to-have: `scripts/db/dump-restore.ps1` can `pg_dump` the cloud `identity` /
-  `platform` / `social` schemas and `pg_restore` them into the local container for
-  realistic-data testing (not required for day-to-day dev).
+  at that local container. `dotnet run`/F5 in `Development` auto-applies pending migrations from
+  empty and runs `SeedData` against the local DB only — it never touches the shared cloud database.
+
+#### Connection-string source per environment
+`ConnectionStrings:Postgres` is resolved by standard .NET config precedence. Keep each tier's
+value in its own source so production is never tied to a dev value:
+
+| Environment | Source | Committed? |
+|-------------|--------|-----------|
+| Local dev | `appsettings.Development.json` (local Docker) or root `.env.local` → env var | value is local-only/gitignored |
+| CI verify/apply | GitHub Environment secret → `ConnectionStrings__Postgres` env var | no |
+| Production runtime | host secret store → `ConnectionStrings__Postgres` env var | no |
+
+- **Never put the shared/cloud DB connection in `dotnet user-secrets`.** user-secrets override
+  `appsettings.Development.json` and are invisible, so a cloud value there makes "local" runs
+  silently hit that database (issue #62). Reserve user-secrets for personal API keys only.
+  `Start-LocalDb.ps1` refuses to continue if it finds a non-local Postgres user-secret.
+- user-secrets and `appsettings.Development.json` load **only** in `Development`, so they can
+  never leak into production.
+
+#### Reproducing a bug with the same code + same data
+1. `git checkout` the branch of the tier you want to reproduce (e.g. `main` for prod).
+2. `pwsh -File scripts/dev/Start-LocalDb.ps1` then boot the API once — the schema is rebuilt from
+   that branch's migrations (this is why migrations must be replayable from empty).
+3. `pwsh -File scripts/db/Sync-LocalDbFromTier.ps1 -SourceConnection "postgresql://…"` loads that
+   tier's data (schemas `identity`/`platform`/`social`) into the local DB, keeping the branch's
+   schema. **This pulls real/possibly-PII data and uses egress on the source — a deliberate,
+   occasional debugging action, not routine dev.**
 
 ### CI: migration-drift gate (Slice 1, secret-free)
 - `scripts/gates/checks/Check-MigrationDrift.ps1`, registered in `scripts/gates/Run-Gates.ps1`
@@ -107,8 +132,11 @@
   (Slice 2).
 
 ### Apply-on-merge to the cloud DB (Slice 2 — not yet shipped)
-Documented separately once `.github/workflows/db-apply.yml` ships. It is blocked on Docker/VT-x
-being available locally for end-to-end dry-runs and on a user-provisioned `dev` GitHub
-Environment + `POSTGRES_CONNECTION_STRING` secret. Local dev stays on `StartupTasks:ApplyMigrations`
-defaulting to `true` only in `Development`; non-dev environments must set
-`StartupTasks__ApplyMigrations=false` explicitly once they point at a shared/cloud database.
+Documented in full once `.github/workflows/db-apply.yml` ships. Design decisions to date:
+- **Apply runs only on merge to `main`** (→ Supabase `main`/prod), via the `production` GitHub
+  Environment holding `POSTGRES_CONNECTION_STRING`. Merges to `dev` are verified (ephemeral,
+  secret-free) but never applied to a real DB, until a Supabase `dev`/`staging` branch exists.
+- Docker/VT-x is enabled and the `production` Environment + secret are provisioned.
+- Local dev keeps `StartupTasks:ApplyMigrations` defaulting to `true` only in `Development`;
+  non-dev environments must set `StartupTasks__ApplyMigrations=false` explicitly once they point
+  at a shared/cloud database, so the pipeline is the sole apply authority there.
