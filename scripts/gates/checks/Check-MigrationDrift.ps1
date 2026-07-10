@@ -23,6 +23,7 @@ param(
 )
 
 . (Join-Path $PSScriptRoot '..\lib\Common.ps1')
+. (Join-Path $PSScriptRoot '..\lib\MigrationDrift.ps1')
 
 $results = @()
 $gateCfg = $Config.gates.'migration-drift'
@@ -83,29 +84,30 @@ if ($restore.ExitCode -ne 0) {
 $primaryArgs = @('migrations', 'has-pending-model-changes') + $efProjectArgs
 $primary = Invoke-DotnetEf -Arguments $primaryArgs -WorkingDirectory $RepoRoot
 
-$verbUnsupported = $primary.StdOut -match '(?i)(unrecognized command or argument|no such command|is not a dotnet command|unknown command|unknown option)'
-$buildFailed = $primary.StdOut -match '(?i)Build failed\.'
+$classification = Get-MigrationDriftClassification -ExitCode $primary.ExitCode -StdOut $primary.StdOut
 
-if ($buildFailed) {
-    # The underlying `dotnet build` that dotnet-ef performs before diffing the model failed for
-    # a reason unrelated to schema drift (compile error, local toolchain issue, etc.). Report it
-    # distinctly instead of mislabeling a build failure as "pending model changes".
-    $results += New-GateResult -Gate 'migration-drift' -Level $level -Status 'fail' `
-        -Message 'could not evaluate drift: dotnet-ef build failed before comparing the model' `
-        -Details $primary.StdOut
-    return ,$results
-}
-
-if (-not $verbUnsupported) {
-    if ($primary.ExitCode -eq 0) {
+switch ($classification) {
+    'no-drift' {
         $results += New-GateResult -Gate 'migration-drift' -Level $level -Status 'pass' `
             -Message 'EF model matches committed migrations (has-pending-model-changes)'
-    } else {
+        return ,$results
+    }
+    'drift' {
         $status = if ($level -eq 'MUST') { 'fail' } else { 'warn' }
         $results += New-GateResult -Gate 'migration-drift' -Level $level -Status $status `
             -Message 'EF model has pending changes not captured by a migration' -Details $primary.StdOut
+        return ,$results
     }
-    return ,$results
+    'tooling-error' {
+        # Any non-zero exit that is NOT the confirmed pending-changes phrase (build failure,
+        # AppIdentityDbContextFactory throwing, an unrelated crash, etc.) is inconclusive - it is
+        # never reported as drift.
+        $results += New-GateResult -Gate 'migration-drift' -Level $level -Status 'fail' `
+            -Message 'could not evaluate drift: dotnet-ef exited with an unrelated tooling/config error' `
+            -Details $primary.StdOut
+        return ,$results
+    }
+    # 'verb-unsupported' falls through to the scratch-add fallback below.
 }
 
 # ---- Fallback: scratch-add-then-diff ----
