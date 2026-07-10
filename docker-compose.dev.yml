@@ -1,0 +1,37 @@
+# Local disposable Postgres for development (issue #57 — DB migration delivery pipeline).
+#
+# Plain `postgres:16` — no Supabase image or extensions are used, since the app does not
+# depend on any Supabase-specific SQL feature.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml down          # stop, keep data (named volume)
+#   docker compose -f docker-compose.dev.yml down -v       # stop and wipe data
+#
+# Connection string for Incoders.Hive.ApiService/appsettings.Development.json:
+#   Host=localhost;Port=5433;Database=incoders_hive_dev;Username=incoders;Password=incoders_dev_only
+#
+# Port 5433 (not the default 5432) avoids clashing with any Postgres already installed/running
+# on the host machine.
+services:
+  postgres:
+    image: postgres:16
+    container_name: incoders-hive-dev-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: incoders_hive_dev
+      POSTGRES_USER: incoders
+      POSTGRES_PASSWORD: incoders_dev_only
+    ports:
+      - "5433:5432"
+    volumes:
+      - incoders-hive-dev-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U incoders -d incoders_hive_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  incoders-hive-dev-postgres-data:
+    name: incoders-hive-dev-postgres-data
