@@ -70,9 +70,9 @@
 ## Migration Delivery Pipeline (issue #57)
 
 ### Local development database
-- `docker-compose.dev.yml` runs a disposable, plain `postgres:16` container (no Supabase
-  image/extensions — none are used). Exposed on host port `5433` to avoid clashing with any
-  locally-installed Postgres.
+- `docker-compose.dev.yml` runs a disposable, plain `postgres:17` container (matches the
+  Supabase prod major version for parity; no Supabase image/extensions — none are used). Exposed
+  on host port `5433` to avoid clashing with any locally-installed Postgres.
 - **Turnkey start:** `pwsh -File scripts/dev/Start-LocalDb.ps1` brings the container up, waits
   for health, and runs the safety check below. (`-Recreate` wipes the volume for a truly empty
   start.) Or manually: `docker compose -f docker-compose.dev.yml up -d` (`down` keeps the named
@@ -122,7 +122,7 @@ value in its own source so production is never tied to a dev value:
 - `.github/workflows/quality-gates.yml` job `ephemeral-verify` runs alongside the reusable gate
   runner (it needs a `services:` Postgres container, so it cannot live inside the reusable
   workflow).
-- Applies the entire migration chain to a fresh `postgres:16` service container, publishes
+- Applies the entire migration chain to a fresh `postgres:17` service container, publishes
   `dotnet ef migrations script --idempotent` as the `migrate.sql` build artifact (the reviewable
   PR artifact), then performs an `Up → Down → Up` round-trip against the previous migration for
   rollback confidence.

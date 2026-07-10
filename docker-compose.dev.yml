@@ -1,6 +1,6 @@
 # Local disposable Postgres for development (issue #57 — DB migration delivery pipeline).
 #
-# Plain `postgres:16` — no Supabase image or extensions are used, since the app does not
+# Plain `postgres:17` (matches Supabase prod major version) — no Supabase image or extensions, since the app does not
 # depend on any Supabase-specific SQL feature.
 #
 # Usage:
@@ -16,7 +16,7 @@
 # credentials and must never be reachable from the LAN.
 services:
   postgres:
-    image: postgres:16
+    image: postgres:17
     container_name: incoders-hive-dev-postgres
     restart: unless-stopped
     environment:
