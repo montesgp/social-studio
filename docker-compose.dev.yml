@@ -12,7 +12,8 @@
 #   Host=localhost;Port=5433;Database=incoders_hive_dev;Username=incoders;Password=incoders_dev_only
 #
 # Port 5433 (not the default 5432) avoids clashing with any Postgres already installed/running
-# on the host machine.
+# on the host machine. Bound to 127.0.0.1 only - this container ships trivial dev-only
+# credentials and must never be reachable from the LAN.
 services:
   postgres:
     image: postgres:16
@@ -23,7 +24,7 @@ services:
       POSTGRES_USER: incoders
       POSTGRES_PASSWORD: incoders_dev_only
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - incoders-hive-dev-postgres-data:/var/lib/postgresql/data
     healthcheck:
