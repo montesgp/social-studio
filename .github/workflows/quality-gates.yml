@@ -109,13 +109,22 @@ jobs:
       - name: Round-trip - Down to previous migration
         run: |
           set -euo pipefail
-          previous=$(dotnet ef migrations list \
+          migrations=$(dotnet ef migrations list \
             --project Incoders.Hive.Infrastructure \
             --startup-project Incoders.Hive.ApiService \
             --configuration Release \
-            --no-color | tail -n 2 | head -n 1 | tr -d '[:space:]')
+            --no-color | tr -d '\r')
+          latest=$(echo "$migrations" | tail -n 1 | tr -d '[:space:]')
+          previous=$(echo "$migrations" | tail -n 2 | head -n 1 | tr -d '[:space:]')
           if [ -z "$previous" ]; then
             echo "::error::could not determine the previous migration for the Down step"
+            exit 1
+          fi
+          # With only a single migration in the chain, "previous" == "latest" and applying it
+          # would be a silent no-op that never exercises Down() at all. Fail loudly instead of
+          # letting the round-trip pass green without rolling anything back.
+          if [ "$previous" = "$latest" ]; then
+            echo "::error::only one migration exists (${latest}); the Down round-trip would be a no-op. Add a second migration or special-case the empty-history round-trip explicitly."
             exit 1
           fi
           echo "Rolling back to: $previous"
