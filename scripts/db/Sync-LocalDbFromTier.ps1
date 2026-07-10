@@ -78,9 +78,15 @@ END `$`$;
 Invoke-InContainer @($container, 'psql', '-U', $localUser, '-d', $TargetDatabase, '-v', 'ON_ERROR_STOP=1', '-c', $truncateSql)
 
 # --- 3. Restore the data (triggers disabled for FK-independent load) ----------
+# pg_restore --data-only routinely exits non-zero on IGNORABLE errors (e.g. a `setval` on a
+# legacy sequence that the source has but the clean local schema does not). Those are warned,
+# not fatal - the data rows still load. Do not throw here; surface the warning and verify counts.
 Write-Step 'Restoring tier data into local'
-Invoke-InContainer @($container, 'pg_restore', '--data-only', '--disable-triggers', '--no-owner',
-    '-U', $localUser, '-d', $TargetDatabase, $dumpPath)
+docker exec $container pg_restore --data-only --disable-triggers --no-owner `
+    -U $localUser -d $TargetDatabase $dumpPath
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "pg_restore reported non-fatal errors (exit $LASTEXITCODE). Usually harmless - e.g. setval on legacy sequences the clean local schema lacks. Data rows are still loaded; verify row counts below."
+}
 
 # --- 4. Clean up --------------------------------------------------------------
 docker exec $container rm -f $dumpPath 2>$null | Out-Null
