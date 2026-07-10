@@ -90,6 +90,12 @@ var clientAssetStorageOptions = app.Services.GetRequiredService<IOptions<ClientA
 var clientAssetStorageRootPath = clientAssetStorageOptions.ResolveRootPath(app.Environment.ContentRootPath);
 Directory.CreateDirectory(clientAssetStorageRootPath);
 
+// Slice 1 (issue #57): default stays IsDevelopment(), but "Development" now targets the local
+// Docker Postgres from docker-compose.dev.yml (see appsettings.Development.json), never the
+// shared cloud DB. Any environment that is not local dev MUST set
+// StartupTasks__ApplyMigrations=false explicitly once it points at a shared/cloud database, so
+// the migration-delivery CI pipeline (not app startup) is the sole apply authority there.
+// Slice 2 (issue #57) enforces this default at the config level for every non-dev environment.
 if (app.Configuration.GetValue("StartupTasks:ApplyMigrations", app.Environment.IsDevelopment()))
 {
     using var scope = app.Services.CreateScope();
