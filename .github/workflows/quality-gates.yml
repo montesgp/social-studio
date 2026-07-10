@@ -84,6 +84,9 @@ jobs:
       - name: Restore dotnet-ef tool
         run: dotnet tool restore
 
+      - name: Restore NuGet packages
+        run: dotnet restore Incoders.Hive.slnx
+
       - name: Apply full migration chain from empty
         run: >-
           dotnet ef database update
