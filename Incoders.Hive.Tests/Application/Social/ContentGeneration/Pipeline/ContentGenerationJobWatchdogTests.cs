@@ -53,6 +53,36 @@ public sealed class ContentGenerationJobWatchdogTests
     }
 
     [Fact]
+    public async Task FailStuckRunningJobs_AnalyzingProfilePastThreshold_IsFailedWithWatchdogReason()
+    {
+        // issue #67 (Design Decision 4): AnalyzingProfile must be covered by the same stuck-sweep
+        // as Running so a stranded first-time aesthetic wait doesn't strand the job forever.
+        var stuck = MakeJob(status: "AnalyzingProfile",
+            startedAt: Now - ContentGenerationJobWatchdog.StuckJobThreshold - TimeSpan.FromMinutes(5));
+        var repo = new FakeJobRepo([stuck]);
+
+        var failed = await ContentGenerationJobWatchdog.FailStuckRunningJobsAsync(repo, Now, CancellationToken.None);
+
+        Assert.Equal(1, failed);
+        Assert.Single(repo.StatusUpdates);
+        Assert.Equal((stuck.Id, "Failed", "watchdog-timeout"), repo.StatusUpdates[0]);
+    }
+
+    [Fact]
+    public async Task MarkOrphanedRunningJobs_FailsStrandedAnalyzingProfileJob()
+    {
+        // issue #67 (Design Decision 4): a process crash mid-AnalyzingProfile must be caught by
+        // startup orphan recovery, same as a crash mid-Running.
+        var stranded = MakeJob(status: "AnalyzingProfile", startedAt: Now - TimeSpan.FromMinutes(1));
+        var repo = new FakeJobRepo([stranded]);
+
+        var failed = await ContentGenerationJobWatchdog.MarkOrphanedRunningJobsAsync(repo, CancellationToken.None);
+
+        Assert.Equal(1, failed);
+        Assert.Equal((stranded.Id, "Failed", "restart-detected"), repo.StatusUpdates[0]);
+    }
+
+    [Fact]
     public async Task MarkOrphanedRunningJobs_FailsEveryRunningJob_RegardlessOfAge()
     {
         // Startup recovery: any Running job is an orphan (no worker owns it after a crash).

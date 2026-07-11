@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
@@ -81,6 +82,86 @@ public sealed class ProcessorEnsureFreshIsolationTests
 
         // Even after EnsureFreshAsync throws, GetProfileAsync MUST still be called (pipeline continues)
         Assert.Equal(1, profileReader.CallCount);
+    }
+
+    // ── Blocking branch (issue #67, BAPA-CG-01/BAPA-CG-02) ──────────────────────
+
+    [Fact]
+    public async Task ProcessAsync_NoUsableAesthetic_Ready_TransitionsThroughAnalyzingProfileThenCompletes()
+    {
+        var blockingService = new BlockingEnsureFreshService(EnsureAvailableOutcome.Ready);
+        var profileReader = new IsolationStubProfileReader(null);
+        var statusTracker = new StatusTracker();
+        var processor = BuildProcessorWithStatusTracker(
+            statusTracker: statusTracker,
+            ensureFreshService: blockingService,
+            profileReader: profileReader);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.Equal(1, blockingService.OnWaitStartedCallCount);
+        var statuses = statusTracker.StatusHistory.Select(s => s.Status).ToList();
+        Assert.Contains("AnalyzingProfile", statuses);
+        Assert.True(
+            statuses.IndexOf("AnalyzingProfile") < statuses.LastIndexOf("Running"),
+            "AnalyzingProfile must be written before the resume-to-Running transition.");
+        Assert.DoesNotContain("Failed", statuses);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_NoOwnAccount_FailsImmediately_WithActionableCode()
+    {
+        var blockingService = new BlockingEnsureFreshService(EnsureAvailableOutcome.NoOwnAccount);
+        var profileReader = new IsolationStubProfileReader(null);
+        var statusTracker = new StatusTracker();
+        var processor = BuildProcessorWithStatusTracker(
+            statusTracker: statusTracker,
+            ensureFreshService: blockingService,
+            profileReader: profileReader);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.Equal(0, blockingService.OnWaitStartedCallCount);
+        Assert.DoesNotContain("AnalyzingProfile", statusTracker.StatusHistory.Select(s => s.Status));
+        var (status, _, code) = statusTracker.StatusHistory[^1];
+        Assert.Equal("Failed", status);
+        Assert.Equal("aesthetic-own-account-required", code);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_TimedOut_FailsWithActionableCode()
+    {
+        var blockingService = new BlockingEnsureFreshService(EnsureAvailableOutcome.TimedOut);
+        var profileReader = new IsolationStubProfileReader(null);
+        var statusTracker = new StatusTracker();
+        var processor = BuildProcessorWithStatusTracker(
+            statusTracker: statusTracker,
+            ensureFreshService: blockingService,
+            profileReader: profileReader);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        var (status, _, code) = statusTracker.StatusHistory[^1];
+        Assert.Equal("Failed", status);
+        Assert.Equal("aesthetic-analysis-timeout", code);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_AnalysisFailed_FailsWithActionableCode()
+    {
+        var blockingService = new BlockingEnsureFreshService(EnsureAvailableOutcome.AnalysisFailed);
+        var profileReader = new IsolationStubProfileReader(null);
+        var statusTracker = new StatusTracker();
+        var processor = BuildProcessorWithStatusTracker(
+            statusTracker: statusTracker,
+            ensureFreshService: blockingService,
+            profileReader: profileReader);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        var (status, _, code) = statusTracker.StatusHistory[^1];
+        Assert.Equal("Failed", status);
+        Assert.Equal("aesthetic-analysis-failed", code);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
@@ -213,19 +294,67 @@ public sealed class ProcessorEnsureFreshIsolationTests
     }
 }
 
-/// <summary>Tracks final job status — shared state passed by reference.</summary>
+/// <summary>
+/// Tracks every status write in order — shared state passed by reference. Extended from
+/// last-status-only to a status LIST (issue #67 reconciliation) so tests can assert transition
+/// sequences such as <c>AnalyzingProfile → Running</c> or <c>AnalyzingProfile → Failed</c>.
+/// </summary>
 public sealed class StatusTracker
 {
-    public string? FinalStatus { get; set; }
+    public List<(string Status, string? Reason, string? Code)> StatusHistory { get; } = [];
+
+    public string? FinalStatus => StatusHistory.Count > 0 ? StatusHistory[^1].Status : null;
+
+    public void Record(string status, string? reason, string? code) => StatusHistory.Add((status, reason, code));
 }
 
 // ── Fakes / doubles ──────────────────────────────────────────────────────────
 
-/// <summary>EnsureFreshAsync always throws — simulates a catastrophic failure in the refresh path.</summary>
+/// <summary>
+/// EnsureFreshAsync always throws — simulates a catastrophic failure in the refresh path.
+/// Reports the aesthetic as already usable (present) so the processor takes the fire-and-forget
+/// EnsureFreshAsync branch instead of the new blocking branch (issue #67 reconciliation — this
+/// fake exercises CAG-CG-04 isolation on the stale/present branch specifically).
+/// </summary>
 file sealed class ThrowingEnsureFreshService : IClientAestheticEnsureFreshService
 {
     public Task<EnsureFreshOutcome> EnsureFreshAsync(Guid orgId, Guid clientId, CancellationToken ct) =>
         throw new InvalidOperationException("Simulated EnsureFreshAsync failure for processor isolation test.");
+
+    public Task<bool> LatestUsableAestheticPresentAsync(Guid orgId, Guid clientId, CancellationToken ct) =>
+        Task.FromResult(true);
+
+    public Task<EnsureAvailableOutcome> EnsureAvailableBlockingAsync(
+        Guid orgId, Guid clientId, TimeSpan maxWait, Func<CancellationToken, Task>? onWaitStarted, CancellationToken ct) =>
+        throw new NotSupportedException("Not exercised — this fake reports the aesthetic as already usable.");
+}
+
+/// <summary>
+/// Reports no usable aesthetic (absent) and returns a fixed <see cref="EnsureAvailableOutcome"/>
+/// from <see cref="EnsureAvailableBlockingAsync"/> — drives the new blocking-branch tests
+/// (issue #67, BAPA-CG-01/02). Records whether/how many times <c>onWaitStarted</c> fired.
+/// </summary>
+file sealed class BlockingEnsureFreshService(EnsureAvailableOutcome outcome) : IClientAestheticEnsureFreshService
+{
+    public int OnWaitStartedCallCount { get; private set; }
+
+    public Task<EnsureFreshOutcome> EnsureFreshAsync(Guid orgId, Guid clientId, CancellationToken ct) =>
+        throw new InvalidOperationException("Not exercised — this fake reports the aesthetic as absent (blocking branch).");
+
+    public Task<bool> LatestUsableAestheticPresentAsync(Guid orgId, Guid clientId, CancellationToken ct) =>
+        Task.FromResult(false);
+
+    public async Task<EnsureAvailableOutcome> EnsureAvailableBlockingAsync(
+        Guid orgId, Guid clientId, TimeSpan maxWait, Func<CancellationToken, Task>? onWaitStarted, CancellationToken ct)
+    {
+        if (outcome != EnsureAvailableOutcome.NoOwnAccount && onWaitStarted is not null)
+        {
+            OnWaitStartedCallCount++;
+            await onWaitStarted(ct);
+        }
+
+        return outcome;
+    }
 }
 
 file sealed class IsolationStubProfileReader(ClientAestheticProfile? profile) : IClientAestheticProfileReader
@@ -262,7 +391,7 @@ file sealed class IsolationTrackingJobRepository(ContentGenerationJob job, Statu
     public Task<ContentGenerationJob?> GetByIdInternalAsync(Guid id, CancellationToken ct) => Task.FromResult<ContentGenerationJob?>(job);
     public Task UpdateStatusAsync(Guid id, string status, string? reason, string? code, CancellationToken ct)
     {
-        tracker.FinalStatus = status;
+        tracker.Record(status, reason, code);
         return Task.CompletedTask;
     }
     public Task UpdateManifestAsync(Guid id, string json, DateTime completedAt, CancellationToken ct) => Task.CompletedTask;

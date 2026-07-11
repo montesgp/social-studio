@@ -29,7 +29,10 @@ public static class ContentGenerationJobWatchdog
         var jobs = await jobRepo.ListPendingOrRunningAsync(ct);
         var failed = 0;
 
-        foreach (var orphan in jobs.Where(j => j.Status == "Running"))
+        // issue #67 (Design Decision 4): AnalyzingProfile is a non-terminal status parked between
+        // Running and generation resuming. Without this, a hard crash mid-AnalyzingProfile would
+        // strand the job — invisible to orphan recovery.
+        foreach (var orphan in jobs.Where(j => j.Status == "Running" || j.Status == "AnalyzingProfile"))
         {
             await jobRepo.UpdateStatusAsync(orphan.Id, "Failed", "restart-detected", "restart-detected", ct);
             failed++;
@@ -51,7 +54,9 @@ public static class ContentGenerationJobWatchdog
         var jobs = await jobRepo.ListPendingOrRunningAsync(ct);
         var failed = 0;
 
-        foreach (var job in jobs.Where(j => j.Status == "Running"))
+        // issue #67 (Design Decision 4): include AnalyzingProfile so a stuck first-time aesthetic
+        // wait that never self-heals via the outer per-job CancelAfter still gets swept.
+        foreach (var job in jobs.Where(j => j.Status == "Running" || j.Status == "AnalyzingProfile"))
         {
             // StartedAt is set when the job transitions to Running; fall back to UpdatedAt.
             var startedAt = job.StartedAt ?? job.UpdatedAt;
