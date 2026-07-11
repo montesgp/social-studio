@@ -9,10 +9,12 @@ import type {
 } from "@/lib/api/types";
 
 const DEFAULT_INTERVAL_MS = 2500;
-// Client-side safety net so the overlay can never poll forever. The backend force-fails a hung
-// job (per-job timeout ~15 min, watchdog ~16 min), so by this point a terminal status should
-// already have arrived; if it hasn't, the status endpoint is unreachable and we stop gracefully.
-const DEFAULT_TIMEOUT_MS = 16 * 60 * 1000;
+// Client-side safety net so the overlay can never poll forever. Sized just past the backend
+// budget so a real (slow) job resolves in the UI instead of falsely surfacing "taking longer
+// than expected": per-job timeout is 30 min and the watchdog force-fails at 32 min, so by 33 min
+// a terminal status has always arrived; if it hasn't, the status endpoint is unreachable and we
+// stop gracefully. Keep this ABOVE ContentGenerationJobWatchdog.StuckJobThreshold (32 min).
+const DEFAULT_TIMEOUT_MS = 33 * 60 * 1000;
 
 /**
  * Terminal statuses where polling should stop.
