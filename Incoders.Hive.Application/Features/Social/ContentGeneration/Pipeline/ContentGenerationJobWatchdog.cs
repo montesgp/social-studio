@@ -16,7 +16,9 @@ public static class ContentGenerationJobWatchdog
     /// <summary>A "Running" job older than this is considered stuck and is force-failed by the
     /// periodic sweep. Set above the worker's per-job timeout so the per-job timeout always gets
     /// first chance to record an accurate terminal status.</summary>
-    public static readonly TimeSpan StuckJobThreshold = TimeSpan.FromMinutes(16);
+    // Kept strictly above ContentGenerationBackgroundWorker.JobTimeout (30 min) so the per-job
+    // CancelAfter self-heals first; this is the backstop for a worker that died mid-job.
+    public static readonly TimeSpan StuckJobThreshold = TimeSpan.FromMinutes(32);
 
     /// <summary>
     /// Startup recovery: fail EVERY job still in "Running". These are orphans from a previous

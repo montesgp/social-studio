@@ -28,7 +28,11 @@ internal sealed class ContentGenerationBackgroundWorker : BackgroundService
 
     /// <summary>Per-job wall-clock backstop. Generous: a multi-format job legitimately makes several
     /// bounded (120 s) AI calls plus renders. This only fires for a genuine hang, never normal work.</summary>
-    internal static readonly TimeSpan JobTimeout = TimeSpan.FromMinutes(15);
+    // Raised from 15 to 30 min: a real carousel combines 3+ ComfyUI background images (~6-7 min each
+    // on non-CUDA local hardware) with CSS/PPTX slide rendering, which exceeded the old 15-min budget
+    // and timed jobs out. Must stay below ContentGenerationJobWatchdog.StuckJobThreshold and above
+    // ContentGeneration:AestheticGating:MaxWaitSeconds (600s).
+    internal static readonly TimeSpan JobTimeout = TimeSpan.FromMinutes(30);
 
     /// <summary>How often the watchdog sweeps for stuck "Running" jobs.</summary>
     internal static readonly TimeSpan WatchdogInterval = TimeSpan.FromMinutes(2);
