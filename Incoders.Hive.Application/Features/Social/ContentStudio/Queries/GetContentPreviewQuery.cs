@@ -1,4 +1,6 @@
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Social.ContentStudio;
+using Incoders.Hive.Application.Features.Social.ContentStudio.Shared;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentStudio;
 using MediatR;
@@ -31,10 +33,12 @@ public sealed class GetContentPreviewQueryHandler
     : IRequestHandler<GetContentPreviewQuery, Result<ContentPreviewProjection>>
 {
     private readonly IContentItemRepository _items;
+    private readonly IGeneratedAssetStorage? _assetStorage;
 
-    public GetContentPreviewQueryHandler(IContentItemRepository items)
+    public GetContentPreviewQueryHandler(IContentItemRepository items, IGeneratedAssetStorage? assetStorage = null)
     {
         _items = items;
+        _assetStorage = assetStorage;
     }
 
     public async Task<Result<ContentPreviewProjection>> Handle(GetContentPreviewQuery request, CancellationToken ct)
@@ -46,13 +50,19 @@ public sealed class GetContentPreviewQueryHandler
         }
 
         var channel = item.Draft.TargetChannel;
+
+        // Issue #58 (LEAN fix, read-only): inline any storage-path background reference in the
+        // returned markup as a data-URI so the destination emulator preview renders it again.
+        var resolvedMarkup = await StudioVisualMarkupResolver.ResolveBackgroundRefsAsync(
+            item.Draft.VisualSpecMarkup, _assetStorage, ct);
+
         var projection = new ContentPreviewProjection(
             item.Id.Value,
             item.Kind.Medium.ToString(),
             channel.Network,
             channel.Placement,
             item.Draft.Text,
-            item.Draft.VisualSpecMarkup,
+            resolvedMarkup,
             item.Draft.Assets.Select(ContentAssetDto.FromDomain).ToList(),
             ConstraintsFor(channel));
 

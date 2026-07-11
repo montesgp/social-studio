@@ -1,4 +1,6 @@
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Social.ContentStudio;
+using Incoders.Hive.Application.Features.Social.ContentStudio.Shared;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentStudio;
 using MediatR;
@@ -15,10 +17,12 @@ public sealed class ListContentItemsQueryHandler
     : IRequestHandler<ListContentItemsQuery, Result<IReadOnlyList<ContentItemResponse>>>
 {
     private readonly IContentItemRepository _items;
+    private readonly IGeneratedAssetStorage? _assetStorage;
 
-    public ListContentItemsQueryHandler(IContentItemRepository items)
+    public ListContentItemsQueryHandler(IContentItemRepository items, IGeneratedAssetStorage? assetStorage = null)
     {
         _items = items;
+        _assetStorage = assetStorage;
     }
 
     public async Task<Result<IReadOnlyList<ContentItemResponse>>> Handle(ListContentItemsQuery request, CancellationToken ct)
@@ -32,7 +36,19 @@ public sealed class ListContentItemsQueryHandler
             filtered = rows.Where(i => i.State == state);
         }
 
-        IReadOnlyList<ContentItemResponse> response = filtered.Select(ContentItemResponse.FromDomain).ToList();
+        var mapped = filtered.Select(ContentItemResponse.FromDomain).ToList();
+
+        // Issue #58 (LEAN fix, read-only): inline any storage-path background reference in each
+        // item's returned markup as a data-URI so the studio list/package preview renders it again.
+        var resolved = new List<ContentItemResponse>(mapped.Count);
+        foreach (var item in mapped)
+        {
+            var resolvedMarkup = await StudioVisualMarkupResolver.ResolveBackgroundRefsAsync(
+                item.VisualSpecMarkup, _assetStorage, ct);
+            resolved.Add(item with { VisualSpecMarkup = resolvedMarkup });
+        }
+
+        IReadOnlyList<ContentItemResponse> response = resolved;
         return Result.Success(response);
     }
 }
