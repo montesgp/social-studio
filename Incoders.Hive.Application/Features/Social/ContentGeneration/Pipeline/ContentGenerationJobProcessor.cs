@@ -310,11 +310,16 @@ public sealed class ContentGenerationJobProcessor
 
                     switch (outcome)
                     {
+                        // The three codes are also embedded as a "code: message" prefix in the
+                        // StatusReason text (mirrors the existing render_failed[...] convention)
+                        // because ContentGenerationJobStatusResponse does NOT surface a separate
+                        // ErrorCode field to the frontend — resolveGenerationFailureError matches
+                        // codes by substring inside statusReason (design Decision 5).
                         case EnsureAvailableOutcome.NoOwnAccount:
                             await _jobs.UpdateStatusAsync(
                                 job.Id,
                                 "Failed",
-                                "This client uses the Client Aesthetic modality but has no own account configured. Add the client's own Instagram account to generate in this modality.",
+                                "aesthetic-own-account-required: This client uses the Client Aesthetic modality but has no own account configured. Add the client's own Instagram account to generate in this modality.",
                                 "aesthetic-own-account-required",
                                 CancellationToken.None);
                             return;
@@ -322,7 +327,7 @@ public sealed class ContentGenerationJobProcessor
                             await _jobs.UpdateStatusAsync(
                                 job.Id,
                                 "Failed",
-                                "Profile aesthetic analysis did not finish in time. Please try again in a few minutes.",
+                                "aesthetic-analysis-timeout: Profile aesthetic analysis did not finish in time. Please try again in a few minutes.",
                                 "aesthetic-analysis-timeout",
                                 CancellationToken.None);
                             return;
@@ -330,7 +335,7 @@ public sealed class ContentGenerationJobProcessor
                             await _jobs.UpdateStatusAsync(
                                 job.Id,
                                 "Failed",
-                                "Profile aesthetic analysis could not be completed for this client. Check the client's own account and try again.",
+                                "aesthetic-analysis-failed: Profile aesthetic analysis could not be completed for this client. Check the client's own account and try again.",
                                 "aesthetic-analysis-failed",
                                 CancellationToken.None);
                             return;
