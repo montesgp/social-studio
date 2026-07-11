@@ -92,6 +92,7 @@ import {
   generationHistoryLabels,
   shouldAutoSwitchToPackage,
   shouldRefreshTerminalHistory,
+  packageProgressState,
 } from "@/lib/single-analyzer-ui-state";
 import { AnalysisOverlay } from "@/components/social/analysis-overlay";
 import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
@@ -146,112 +147,9 @@ const PACKAGE_STEPS = [
   { key: "zip", label: "Building package.zip" },
 ] as const;
 
-function isAiCheckpointStatus(status: string): boolean {
-  return (
-    status === "AiSucceeded" ||
-    status === "AiFailed" ||
-    status === "Rendered" ||
-    status === "RenderFailed" ||
-    status === "Succeeded" ||
-    status === "Failed"
-  );
-}
-
-function isRenderCheckpointStatus(status: string): boolean {
-  return (
-    status === "Rendered" ||
-    status === "RenderFailed" ||
-    status === "Succeeded" ||
-    status === "Failed"
-  );
-}
-
-function packageProgressState(
-  status: ContentGenerationJobStatus | null,
-  perFormatStatus: Partial<Record<ContentFormatKey, string>>,
-  totalFormats: number
-): { percent: number; label: string; currentStep: number; completedFormats: number } {
-  const total = Math.max(totalFormats, 1);
-  const statuses = Object.values(perFormatStatus);
-  const aiDone = statuses.filter(isAiCheckpointStatus).length;
-  const renderDone = statuses.filter(isRenderCheckpointStatus).length;
-
-  if (!status) {
-    return {
-      percent: 12,
-      label: "Initializing generation request",
-      currentStep: 1,
-      completedFormats: 0,
-    };
-  }
-
-  if (status === "Queued") {
-    return { percent: 8, label: "Queued", currentStep: 0, completedFormats: 0 };
-  }
-
-  if (status === "Running") {
-    if (aiDone === 0 && renderDone === 0) {
-      return {
-        percent: 18,
-        label: "Preparing analysis context",
-        currentStep: 1,
-        completedFormats: 0,
-      };
-    }
-
-    if (renderDone === 0) {
-      const percent = Math.round(22 + (Math.min(aiDone, total) / total) * 36);
-      return {
-        percent,
-        label: `Generating formats with AI (${Math.min(aiDone, total)}/${total})`,
-        currentStep: 2,
-        completedFormats: 0,
-      };
-    }
-
-    if (renderDone < total) {
-      const percent = Math.round(60 + (renderDone / total) * 30);
-      return {
-        percent,
-        label: `Rendering assets (${renderDone}/${total})`,
-        currentStep: 3,
-        completedFormats: renderDone,
-      };
-    }
-
-    return {
-      percent: 95,
-      label: "Building package.zip",
-      currentStep: 4,
-      completedFormats: total,
-    };
-  }
-
-  if (status === "Completed") {
-    return {
-      percent: 100,
-      label: "Requested formats generated",
-      currentStep: PACKAGE_STEPS.length,
-      completedFormats: total,
-    };
-  }
-
-  if (status === "Partial" || status === "PartialSuccess") {
-    return {
-      percent: 100,
-      label: "Completed with partial results",
-      currentStep: PACKAGE_STEPS.length,
-      completedFormats: Math.min(renderDone, total),
-    };
-  }
-
-  return {
-    percent: 100,
-    label: "Generation failed",
-    currentStep: Math.min(4, PACKAGE_STEPS.length - 1),
-    completedFormats: Math.min(renderDone, total),
-  };
-}
+// packageProgressState lives in @/lib/single-analyzer-ui-state (issue #67, BAPA-STATUS-03) so it
+// is unit-testable via the tsx --test runner. PACKAGE_STEPS.length MUST stay in sync with
+// PACKAGE_STEP_COUNT there.
 
 // ── URL → social platform detector ────────────────────────────────────────────
 // Mirrors Domain.SingleAnalyzerSourceUrl.DetectPlatform so we can show the user the detected

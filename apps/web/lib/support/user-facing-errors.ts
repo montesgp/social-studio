@@ -132,6 +132,24 @@ const ERROR_COPY: Record<string, UserFacingError> = {
       "The design step returned nothing usable. Contact support if you need this content — we can look into it without you burning more credits.",
     isConfigIssue: false,
   },
+  // ── First-time ClientAesthetic profile-analysis gating (issue #67, BAPA-CG-01/02) ──────────
+  "aesthetic-own-account-required": {
+    title: "No own account configured",
+    message:
+      "This client uses the Client Aesthetic modality but has no own account configured. Add the client's own Instagram account to generate in this modality.",
+    isConfigIssue: true,
+  },
+  "aesthetic-analysis-timeout": {
+    title: "Profile analysis timed out",
+    message: "Profile aesthetic analysis did not finish in time. Please try again in a few minutes.",
+    isConfigIssue: false,
+  },
+  "aesthetic-analysis-failed": {
+    title: "Profile analysis failed",
+    message:
+      "Profile aesthetic analysis could not be completed for this client. Check the client's own account and try again.",
+    isConfigIssue: false,
+  },
 };
 
 // Specific failure codes the backend embeds inside a job's aggregate status_reason
@@ -141,6 +159,11 @@ const GENERATION_FAILURE_CODES: readonly string[] = [
   "visual-guardrail.off-palette",
   "visual-guardrail.off-font",
   "visual-designer.empty-markup",
+  // issue #67 (BAPA-CG-01/02): embedded as a "code: message" prefix in StatusReason by
+  // ContentGenerationJobProcessor (see design Decision 5).
+  "aesthetic-own-account-required",
+  "aesthetic-analysis-timeout",
+  "aesthetic-analysis-failed",
 ];
 
 /**

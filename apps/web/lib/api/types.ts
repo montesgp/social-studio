@@ -737,6 +737,9 @@ export interface SingleContentAnalysisResponse {
 export type ContentGenerationJobStatusLabel =
   | "Pending"
   | "Running"
+  // issue #67 (BAPA-STATUS-01): non-terminal phase for the first-time ClientAesthetic blocking
+  // wait — parked between Running and generation resuming/failing.
+  | "AnalyzingProfile"
   | "Completed"
   | "Partial"
   | "Failed"
@@ -880,6 +883,11 @@ export interface GeneratePackageResponse {
 export type ContentGenerationJobStatus =
   | "Queued"
   | "Running"
+  // issue #67 (BAPA-STATUS-01): first-time ClientAesthetic generation with no usable aesthetic
+  // blocks on the enqueued/in-flight ProfileAnalysisJob; the job reports this status while
+  // waiting. Non-terminal — the poller keeps polling through it (see TERMINAL_STATUSES in
+  // use-content-generation-job.ts).
+  | "AnalyzingProfile"
   | "Completed"
   | "Partial"
   | "PartialSuccess"
