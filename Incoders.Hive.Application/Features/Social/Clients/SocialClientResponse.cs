@@ -16,7 +16,10 @@ public sealed record SocialClientResponse(
     BackgroundSourcingPolicy? BackgroundSourcingPolicy = null,
     // WU-7 (CAG-CS-02): expose per-client aesthetic refresh threshold.
     // Null = use system default (30 days).
-    int? AestheticRefreshThresholdDays = null)
+    int? AestheticRefreshThresholdDays = null,
+    // Issue #70: expose the client's opt-in for @handle signature on generated slides.
+    // Plain boolean; default false = not signed.
+    bool SignsOwnSlides = false)
 {
     public static SocialClientResponse FromDomain(Client client) =>
         new(
@@ -29,5 +32,6 @@ public sealed record SocialClientResponse(
             client.CreatedAtUtc,
             client.UpdatedAtUtc,
             client.BackgroundSourcingPolicy,
-            client.AestheticRefreshThresholdDays);
+            client.AestheticRefreshThresholdDays,
+            client.SignsOwnSlides);
 }

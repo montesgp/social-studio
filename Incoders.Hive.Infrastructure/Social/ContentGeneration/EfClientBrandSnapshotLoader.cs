@@ -111,7 +111,8 @@ public sealed class EfClientBrandSnapshotLoader : IClientBrandSnapshotLoader
                 BackgroundSourcingPolicy: clientRow.BackgroundSourcingPolicy.HasValue
                     ? (Domain.Social.Clients.BackgroundSourcingPolicy)clientRow.BackgroundSourcingPolicy.Value
                     : null,
-                Handle: ownAccountRow?.Handle);
+                Handle: ownAccountRow?.Handle,
+                SignsOwnSlides: clientRow.SignsOwnSlides);
 
         BrandManualSnapshot? brandSnapshot = brandRow is null
             ? null

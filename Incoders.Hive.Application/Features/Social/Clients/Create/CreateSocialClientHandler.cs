@@ -57,6 +57,12 @@ public sealed class CreateSocialClientHandler
             }
         }
 
+        // Issue #70: set the client's opt-in for @handle signature on creation.
+        if (request.SignsOwnSlides)
+        {
+            created.Value.SetSignsOwnSlides(true, _clock.UtcNow);
+        }
+
         await _clients.AddAsync(created.Value, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 

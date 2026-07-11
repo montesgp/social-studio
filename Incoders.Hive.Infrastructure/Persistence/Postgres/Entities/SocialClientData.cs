@@ -37,6 +37,13 @@ public sealed class SocialClientData
     /// </summary>
     public short? MaxPostsToAnalyze { get; set; }
 
+    /// <summary>
+    /// Whether the client signs their own slides with an @handle attribution (issue #70). Maps to
+    /// the <c>signs_own_slides</c> <c>boolean NOT NULL DEFAULT false</c> column on
+    /// <c>social.clients</c>. Plain boolean — no tri-state.
+    /// </summary>
+    public bool SignsOwnSlides { get; set; }
+
     public bool IsActive { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }

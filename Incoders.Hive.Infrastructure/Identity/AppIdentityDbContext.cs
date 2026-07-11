@@ -259,6 +259,13 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .HasColumnType("smallint")
                 .IsRequired(false);
 
+            // Issue #70: plain boolean opt-in for @handle signature on generated slides.
+            // NOT NULL DEFAULT false — existing clients default to not-signed (intended change).
+            entity.Property(x => x.SignsOwnSlides)
+                .HasColumnName("signs_own_slides")
+                .HasDefaultValue(false)
+                .IsRequired();
+
             entity.HasIndex(x => new { x.OrganizationId, x.Name });
             entity.HasOne(x => x.Organization)
                 .WithMany()

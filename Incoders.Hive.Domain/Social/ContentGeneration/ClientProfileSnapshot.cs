@@ -14,4 +14,8 @@ public sealed record ClientProfileSnapshot(
     BackgroundSourcingPolicy? BackgroundSourcingPolicy = null,
     // WU-5: client own-account handle loaded by the brand-snapshot loader (CAC-CG-04).
     // Null when no own account is registered. Additive — all existing construction sites unchanged.
-    string? Handle = null);
+    string? Handle = null,
+    // Issue #70: whether the client signs their own slides with an @handle attribution.
+    // Plain boolean, default false. Gates AttributionPolicy.ResolveSignature — additive, all
+    // existing construction sites unchanged (default false = not signed).
+    bool SignsOwnSlides = false);

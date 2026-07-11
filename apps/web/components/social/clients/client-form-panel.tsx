@@ -48,6 +48,7 @@ interface ClientFormPanelProps {
   sectorOrNiche: string | null;
   backgroundSourcingPolicy: BackgroundSourcingPolicy;
   aestheticRefreshThresholdDays: number | null;
+  signsOwnSlides: boolean;
   fieldErrors: ClientFormFieldErrors;
   referentAccounts: ClientReferentAccount[];
   referentAccountsLoading: boolean;
@@ -61,6 +62,7 @@ interface ClientFormPanelProps {
   onSectorOrNicheChange: (value: string | null) => void;
   onBackgroundSourcingPolicyChange: (value: BackgroundSourcingPolicy) => void;
   onAestheticRefreshThresholdDaysChange: (value: number | null) => void;
+  onSignsOwnSlidesChange: (value: boolean) => void;
   onReferentAccountsChange: (value: ClientReferentAccount[]) => void;
   onCompetitorAccountsChange: (value: ClientCompetitorAccount[]) => void;
   onOwnAccountsChange: (value: ClientOwnAccount[]) => void;
@@ -77,6 +79,7 @@ export function ClientFormPanel({
   sectorOrNiche,
   backgroundSourcingPolicy,
   aestheticRefreshThresholdDays,
+  signsOwnSlides,
   fieldErrors,
   referentAccounts,
   referentAccountsLoading,
@@ -90,6 +93,7 @@ export function ClientFormPanel({
   onSectorOrNicheChange,
   onBackgroundSourcingPolicyChange,
   onAestheticRefreshThresholdDaysChange,
+  onSignsOwnSlidesChange,
   onReferentAccountsChange,
   onCompetitorAccountsChange,
   onOwnAccountsChange,
@@ -211,6 +215,25 @@ export function ClientFormPanel({
         <p className="text-xs text-muted-foreground">
           How many days before the AI aesthetic profile is refreshed for this client. Leave empty to use the system default of 30 days.
         </p>
+      </div>
+
+      <div className="flex items-start gap-2">
+        <input
+          id="panel-signs-own-slides"
+          type="checkbox"
+          className="mt-1 h-4 w-4"
+          checked={signsOwnSlides}
+          onChange={(e) => onSignsOwnSlidesChange(e.target.checked)}
+        />
+        <div className="space-y-1">
+          <label htmlFor="panel-signs-own-slides" className="text-sm font-medium">
+            Signs own slides
+          </label>
+          <p className="text-xs text-muted-foreground">
+            When enabled, generated slides include an @handle attribution signature for this
+            client. Disabled by default (no signature).
+          </p>
+        </div>
       </div>
     </div>
   );

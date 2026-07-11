@@ -60,7 +60,9 @@ public sealed class AttributionPolicyVisualComposerTests
             VoiceAndTone: null,
             Notes: includeTargetHandle ? "Official brand account: @target_brand" : null);
 
-        var client = new ClientProfileSnapshot("Target Brand", null, null);
+        // Issue #70: signature is opt-in per client — SignsOwnSlides must be true for
+        // AttributionPolicy.ResolveSignature to emit an attribution.
+        var client = new ClientProfileSnapshot("Target Brand", null, null, SignsOwnSlides: true);
         var competitor = new ClientAccountSnapshot(
             NetworkCode: "instagram",
             NetworkName: "Instagram",

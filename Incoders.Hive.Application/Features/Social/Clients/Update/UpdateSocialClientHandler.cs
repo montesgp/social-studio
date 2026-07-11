@@ -62,6 +62,10 @@ public sealed class UpdateSocialClientHandler
             }
         }
 
+        // Issue #70: always-explicit opt-in for @handle signature — plain boolean, every update
+        // sets the flag (no "leave unchanged" sentinel, unlike the nullable-override fields above).
+        client.SetSignsOwnSlides(request.SignsOwnSlides, _clock.UtcNow);
+
         _clients.Update(client);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 

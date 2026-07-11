@@ -299,6 +299,61 @@ public sealed class ClientLifecycleTests
         Assert.Equal("social.clients.already_active", result.Error.Code);
     }
 
+    // --- Issue #70: SignsOwnSlides opt-in (plain boolean, client-field-only) ---
+
+    [Fact]
+    public async Task Create_WithSignsOwnSlidesTrue_PersistsFlag()
+    {
+        var harness = new SocialClientHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        var created = await harness.Create.Handle(
+            new CreateSocialClientCommand(organizationId, "Acme Social", null, SignsOwnSlides: true),
+            CancellationToken.None);
+
+        Assert.True(created.IsSuccess);
+        Assert.True(created.Value.SignsOwnSlides);
+
+        var fetched = await harness.GetById.Handle(
+            new GetSocialClientByIdQuery(created.Value.Id, organizationId),
+            CancellationToken.None);
+
+        Assert.True(fetched.Value.SignsOwnSlides);
+    }
+
+    [Fact]
+    public async Task Create_WithoutSignsOwnSlides_DefaultsToFalse()
+    {
+        var harness = new SocialClientHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        var created = await harness.Create.Handle(
+            new CreateSocialClientCommand(organizationId, "Acme Social", null),
+            CancellationToken.None);
+
+        Assert.False(created.Value.SignsOwnSlides);
+    }
+
+    [Fact]
+    public async Task Update_CanToggleSignsOwnSlides_TrueThenFalse()
+    {
+        var harness = new SocialClientHarness(Now);
+        var organizationId = Guid.NewGuid();
+        var created = await harness.Create.Handle(
+            new CreateSocialClientCommand(organizationId, "Acme Social", null),
+            CancellationToken.None);
+
+        var enabled = await harness.Update.Handle(
+            new UpdateSocialClientCommand(created.Value.Id, organizationId, "Acme Social", null, SignsOwnSlides: true),
+            CancellationToken.None);
+        Assert.True(enabled.Value.SignsOwnSlides);
+
+        var disabled = await harness.Update.Handle(
+            new UpdateSocialClientCommand(created.Value.Id, organizationId, "Acme Social", null, SignsOwnSlides: false),
+            CancellationToken.None);
+        Assert.False(disabled.Value.SignsOwnSlides);
+    }
+
     // --- List after lifecycle ---
 
     [Fact]

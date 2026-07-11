@@ -44,6 +44,7 @@ interface UseClientFormReturn {
   sectorOrNiche: string | null;
   backgroundSourcingPolicy: BackgroundSourcingPolicy;
   aestheticRefreshThresholdDays: number | null;
+  signsOwnSlides: boolean;
   fieldErrors: ClientFormFieldErrors;
   referentAccounts: ClientReferentAccount[];
   referentAccountsLoading: boolean;
@@ -57,6 +58,7 @@ interface UseClientFormReturn {
   setSectorOrNiche: (value: string | null) => void;
   setBackgroundSourcingPolicy: (value: BackgroundSourcingPolicy) => void;
   setAestheticRefreshThresholdDays: (value: number | null) => void;
+  setSignsOwnSlides: (value: boolean) => void;
   setReferentAccounts: (value: ClientReferentAccount[]) => void;
   setCompetitorAccounts: (value: ClientCompetitorAccount[]) => void;
   setOwnAccounts: (value: ClientOwnAccount[]) => void;
@@ -131,6 +133,7 @@ export function useClientForm({
   const [sectorOrNiche, setSectorOrNiche] = useState<string | null>(null);
   const [backgroundSourcingPolicy, setBackgroundSourcingPolicyState] = useState<BackgroundSourcingPolicy>(null);
   const [aestheticRefreshThresholdDays, setAestheticRefreshThresholdDaysState] = useState<number | null>(null);
+  const [signsOwnSlides, setSignsOwnSlidesState] = useState<boolean>(false);
   const [fieldErrors, setFieldErrors] = useState<ClientFormFieldErrors>({});
   const [referentAccounts, setReferentAccountsState] = useState<ClientReferentAccount[]>([]);
   const [referentAccountsLoading, setReferentAccountsLoading] = useState(false);
@@ -185,6 +188,7 @@ export function useClientForm({
     setSectorOrNiche(null);
     setBackgroundSourcingPolicyState(null);
     setAestheticRefreshThresholdDaysState(null);
+    setSignsOwnSlidesState(false);
     setFieldErrors({});
     setReferentAccountsState([]);
     setCompetitorAccountsState([]);
@@ -202,6 +206,7 @@ export function useClientForm({
     setSectorOrNiche(item.sectorOrNiche ?? null);
     setBackgroundSourcingPolicyState(item.backgroundSourcingPolicy ?? null);
     setAestheticRefreshThresholdDaysState(item.aestheticRefreshThresholdDays ?? null);
+    setSignsOwnSlidesState(item.signsOwnSlides ?? false);
     setFieldErrors({});
     setReferentAccountsState([]);
     setCompetitorAccountsState([]);
@@ -330,6 +335,7 @@ export function useClientForm({
         sectorOrNiche: sectorOrNiche?.trim() || null,
         backgroundSourcingPolicy: backgroundSourcingPolicy ?? undefined,
         aestheticRefreshThresholdDays: aestheticRefreshThresholdDays,
+        signsOwnSlides,
       };
 
       const saved =
@@ -371,6 +377,7 @@ export function useClientForm({
       setSectorOrNiche(null);
       setBackgroundSourcingPolicyState(null);
       setAestheticRefreshThresholdDaysState(null);
+      setSignsOwnSlidesState(false);
       setFieldErrors({});
       setReferentAccountsState([]);
       setCompetitorAccountsState([]);
@@ -398,6 +405,7 @@ export function useClientForm({
     sectorOrNiche,
     backgroundSourcingPolicy,
     aestheticRefreshThresholdDays,
+    signsOwnSlides,
     fieldErrors,
     referentAccounts,
     referentAccountsLoading,
@@ -411,6 +419,7 @@ export function useClientForm({
     setSectorOrNiche: updateSectorOrNiche,
     setBackgroundSourcingPolicy: setBackgroundSourcingPolicyState,
     setAestheticRefreshThresholdDays: setAestheticRefreshThresholdDaysState,
+    setSignsOwnSlides: setSignsOwnSlidesState,
     setReferentAccounts,
     setCompetitorAccounts,
     setOwnAccounts,

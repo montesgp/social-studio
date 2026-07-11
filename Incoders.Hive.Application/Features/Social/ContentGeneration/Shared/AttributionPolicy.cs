@@ -21,6 +21,16 @@ internal static class AttributionPolicy
     {
         ArgumentNullException.ThrowIfNull(brand);
 
+        // Issue #70: conditional @handle signature, client-field-only. No attribution/signature
+        // (deterministic Handle/notes/name, nor an AI-authored model signature) is ever emitted
+        // unless the client explicitly opted in via Client.SignsOwnSlides. Plain boolean gate —
+        // no tri-state, no profile-analysis detection. Existing clients default to false = not
+        // signed (intended behavior change from the previous always-attempt-attribution default).
+        if (brand.Client?.SignsOwnSlides != true)
+        {
+            return null;
+        }
+
         // WU-5: ClientProfileSnapshot.Handle (from ClientOwnAccount) is the highest-priority
         // deterministic attribution — it is the client's own explicitly-registered handle,
         // which supersedes any handle extracted from brand notes or the client name.

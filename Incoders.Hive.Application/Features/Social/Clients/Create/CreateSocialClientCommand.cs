@@ -12,4 +12,7 @@ public sealed record CreateSocialClientCommand(
     // WU-8 (BSP-08b): optional policy on creation; null = Unset = legacy 3-tier default.
     BackgroundSourcingPolicy? BackgroundSourcingPolicy = null,
     // WU-7 (CAG-CS-02): optional per-client aesthetic refresh threshold; null = system default (30 days).
-    int? AestheticRefreshThresholdDays = null) : IRequest<Result<SocialClientResponse>>;
+    int? AestheticRefreshThresholdDays = null,
+    // Issue #70: optional opt-in for @handle signature on generated slides; null/omitted = false
+    // (not signed). Plain boolean — no tri-state.
+    bool SignsOwnSlides = false) : IRequest<Result<SocialClientResponse>>;

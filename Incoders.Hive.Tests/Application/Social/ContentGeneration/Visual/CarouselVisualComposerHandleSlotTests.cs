@@ -31,7 +31,7 @@ public sealed class CarouselVisualComposerHandleSlotTests
     public void ComposeMany_WithHandlePresent_AddsAtHandleSlotToEverySlide()
     {
         // Arrange
-        var client = new ClientProfileSnapshot("Client Brand", null, null, Handle: "@clientbrand");
+        var client = new ClientProfileSnapshot("Client Brand", null, null, Handle: "@clientbrand", SignsOwnSlides: true);
         var brand = BrandSnapshot.FromBrandData(EmptyBrand, null, null, client: client);
         var payload = BuildCarouselPayload(3);
         var composer = new CarouselVisualComposer();
@@ -104,7 +104,7 @@ public sealed class CarouselVisualComposerHandleSlotTests
     [Fact]
     public void ComposeMany_WithPlanAndHandlePresent_AddsAtHandleSlot()
     {
-        var client = new ClientProfileSnapshot("Plan Brand", null, null, Handle: "@planbrand");
+        var client = new ClientProfileSnapshot("Plan Brand", null, null, Handle: "@planbrand", SignsOwnSlides: true);
         var brand = BrandSnapshot.FromBrandData(EmptyBrand, null, null, client: client);
         var payload = BuildCarouselPayload(2);
         var composer = new CarouselVisualComposer();

@@ -61,7 +61,14 @@ public sealed class VisualCompositionServiceTests
     public async Task ComposeAsync_Story_FullBrand_ProducesStoryLayout()
     {
         var service = CreateService();
-        var brand = BuildFullBrand();
+        // Issue #70: the @handle/model signature is opt-in — SignsOwnSlides must be true for
+        // AttributionPolicy.ResolveSignature to emit the payload-provided "@client" signature.
+        // Name/Handle left blank so the deterministic fallback chain doesn't shadow the
+        // payload-provided model signature this test exercises.
+        var brand = BuildFullBrand() with
+        {
+            Client = new ClientProfileSnapshot(" ", null, null, SignsOwnSlides: true),
+        };
         var payload = new StoryContent(
             "Grand Opening",
             "This week only",

@@ -148,7 +148,8 @@ public static class SocialClientsEndpointsExtensions
                 body.Description,
                 body.SectorOrNiche,
                 body.BackgroundSourcingPolicy,
-                body.AestheticRefreshThresholdDays),
+                body.AestheticRefreshThresholdDays,
+                body.SignsOwnSlides),
             cancellationToken);
 
         return result.Match(client => TypedResults.Created($"/api/social/clients/{client.Id}", client));
@@ -174,7 +175,8 @@ public static class SocialClientsEndpointsExtensions
                 body.Description,
                 body.SectorOrNiche,
                 body.BackgroundSourcingPolicy,
-                body.AestheticRefreshThresholdDays),
+                body.AestheticRefreshThresholdDays,
+                body.SignsOwnSlides),
             cancellationToken);
 
         return result.Match(client => (IResult)TypedResults.Ok(client));
@@ -236,7 +238,10 @@ public sealed record CreateSocialClientRequest(
     // WU-8 (BSP-08): optional background sourcing policy. Null = Unset = legacy 3-tier default.
     Domain.Social.Clients.BackgroundSourcingPolicy? BackgroundSourcingPolicy = null,
     // WU-7 (CAG-CS-02): optional aesthetic refresh threshold in days. Null = system default (30 days).
-    int? AestheticRefreshThresholdDays = null);
+    int? AestheticRefreshThresholdDays = null,
+    // Issue #70: optional opt-in for @handle signature on generated slides. Plain boolean,
+    // default false = not signed.
+    bool SignsOwnSlides = false);
 
 public sealed record UpdateSocialClientRequest(
     string Name,
@@ -245,4 +250,6 @@ public sealed record UpdateSocialClientRequest(
     // WU-8 (BSP-08b): optional policy update. Null = leave current policy unchanged.
     Domain.Social.Clients.BackgroundSourcingPolicy? BackgroundSourcingPolicy = null,
     // WU-7 (CAG-CS-02): optional threshold update in days. Null = leave current threshold unchanged.
-    int? AestheticRefreshThresholdDays = null);
+    int? AestheticRefreshThresholdDays = null,
+    // Issue #70: always-explicit opt-in for @handle signature on generated slides. Plain boolean.
+    bool SignsOwnSlides = false);

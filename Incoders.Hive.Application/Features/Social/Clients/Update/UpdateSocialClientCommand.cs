@@ -17,4 +17,7 @@ public sealed record UpdateSocialClientCommand(
     // WU-7 (CAG-CS-02): optional threshold update; null = leave current threshold unchanged.
     // To explicitly clear to null (system default), the caller must use a sentinel or a dedicated
     // clear endpoint; for now null means "no change" (mirrors policy pattern).
-    int? AestheticRefreshThresholdDays = null) : IRequest<Result<SocialClientResponse>>;
+    int? AestheticRefreshThresholdDays = null,
+    // Issue #70: always-explicit opt-in for @handle signature on generated slides. Plain boolean —
+    // no tri-state, no "leave unchanged" sentinel; every update sets the flag explicitly.
+    bool SignsOwnSlides = false) : IRequest<Result<SocialClientResponse>>;

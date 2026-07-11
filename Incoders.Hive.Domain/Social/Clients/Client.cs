@@ -30,7 +30,8 @@ public sealed class Client : Entity<ClientId>
         string? sectorOrNiche,
         BackgroundSourcingPolicy? policy = null,
         int? aestheticRefreshThresholdDays = null,
-        int? maxPostsToAnalyze = null)
+        int? maxPostsToAnalyze = null,
+        bool signsOwnSlides = false)
         : base(id)
     {
         OrganizationId = organizationId;
@@ -43,6 +44,7 @@ public sealed class Client : Entity<ClientId>
         BackgroundSourcingPolicy = policy;
         AestheticRefreshThresholdDays = aestheticRefreshThresholdDays;
         MaxPostsToAnalyze = maxPostsToAnalyze;
+        SignsOwnSlides = signsOwnSlides;
     }
 
     public Guid OrganizationId { get; private set; }
@@ -78,6 +80,14 @@ public sealed class Client : Entity<ClientId>
     /// Valid range when set: 1–50. Higher values capture a richer aesthetic sample at more Apify cost.
     /// </summary>
     public int? MaxPostsToAnalyze { get; private set; }
+
+    /// <summary>
+    /// Whether the client signs their own slides with an @handle attribution (issue #70).
+    /// Plain boolean, no tri-state/detection. Defaults to <c>false</c> (not signed) for both
+    /// new and existing clients — an intended behavior change: clients that previously received
+    /// an inferred/deterministic signature now get none until explicitly opted in.
+    /// </summary>
+    public bool SignsOwnSlides { get; private set; }
 
     public static Result<Client> Create(
         ClientId id,
@@ -116,12 +126,13 @@ public sealed class Client : Entity<ClientId>
         string? sectorOrNiche = null,
         BackgroundSourcingPolicy? policy = null,
         int? aestheticRefreshThresholdDays = null,
-        int? maxPostsToAnalyze = null)
+        int? maxPostsToAnalyze = null,
+        bool signsOwnSlides = false)
     {
         return new Client(
             id, organizationId, name, description, isActive,
             createdAtUtc, updatedAtUtc, sectorOrNiche, policy,
-            aestheticRefreshThresholdDays, maxPostsToAnalyze);
+            aestheticRefreshThresholdDays, maxPostsToAnalyze, signsOwnSlides);
     }
 
     public Result Rename(string name, string? description, DateTime nowUtc, string? sectorOrNiche = null)
@@ -212,6 +223,16 @@ public sealed class Client : Entity<ClientId>
 
     /// <summary>Effective posts-to-analyze for this client (override or the system default).</summary>
     public int EffectivePostsToAnalyze => MaxPostsToAnalyze ?? DefaultPostsToAnalyze;
+
+    /// <summary>
+    /// Sets whether this client signs their own slides with an @handle attribution (issue #70).
+    /// Plain boolean toggle — no tri-state, no profile-analysis detection.
+    /// </summary>
+    public void SetSignsOwnSlides(bool signsOwnSlides, DateTime nowUtc)
+    {
+        SignsOwnSlides = signsOwnSlides;
+        UpdatedAtUtc = nowUtc;
+    }
 
     private static Result Validate(Guid organizationId, string name, string? description, string? sectorOrNiche = null)
     {

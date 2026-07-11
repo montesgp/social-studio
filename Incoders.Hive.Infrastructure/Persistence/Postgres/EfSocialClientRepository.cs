@@ -83,6 +83,7 @@ public sealed class EfSocialClientRepository : ISocialClientRepository, ISocialC
         // CAG-CS-01: explicit assignment required — the predecessor bug was a silent drop here.
         entity.AestheticRefreshThresholdDays = client.AestheticRefreshThresholdDays is { } t ? (short)t : null;
         entity.MaxPostsToAnalyze = client.MaxPostsToAnalyze is { } mp ? (short)mp : null;
+        entity.SignsOwnSlides = client.SignsOwnSlides;
     }
 
     public async Task<SocialClientHardDeleteResult?> HardDeleteAsync(
@@ -277,7 +278,8 @@ public sealed class EfSocialClientRepository : ISocialClientRepository, ISocialC
             row.SectorOrNiche,
             row.BackgroundSourcingPolicy is { } policy ? (BackgroundSourcingPolicy)policy : null,
             row.AestheticRefreshThresholdDays is { } t ? (int)t : null,
-            row.MaxPostsToAnalyze is { } mp ? (int)mp : null);
+            row.MaxPostsToAnalyze is { } mp ? (int)mp : null,
+            row.SignsOwnSlides);
 
     private static SocialClientData ToData(Client client) =>
         new()
@@ -293,5 +295,6 @@ public sealed class EfSocialClientRepository : ISocialClientRepository, ISocialC
             BackgroundSourcingPolicy = client.BackgroundSourcingPolicy is { } policy ? (short)policy : null,
             AestheticRefreshThresholdDays = client.AestheticRefreshThresholdDays is { } t ? (short)t : null,
             MaxPostsToAnalyze = client.MaxPostsToAnalyze is { } mp ? (short)mp : null,
+            SignsOwnSlides = client.SignsOwnSlides,
         };
 }
