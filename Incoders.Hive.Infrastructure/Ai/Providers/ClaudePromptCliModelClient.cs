@@ -42,7 +42,10 @@ public sealed class ClaudePromptCliModelClient : IAiModelClient
             settings.Value.ExecutablePath,
             BuildArguments(request, settings.Value, model),
             settings.Value.WorkingDirectory,
-            settings.Value.Timeout), cancellationToken);
+            settings.Value.Timeout,
+            // The prompt is delivered via stdin (not as a `-p <prompt>` argument) so large prompts
+            // don't blow the Windows ~32 KB command-line limit (Win32 206). See issue #69.
+            StandardInput: request.Input), cancellationToken);
 
         if (result.TimedOut)
         {
@@ -71,7 +74,10 @@ public sealed class ClaudePromptCliModelClient : IAiModelClient
 
     internal static IReadOnlyList<string> BuildArguments(AiCompletionRequest request, ClaudePromptCliSettings settings, string model)
     {
-        var args = new List<string> { "-p", request.Input };
+        // Print mode. The prompt itself is NOT passed here — it is delivered via stdin by the caller
+        // (ProcessRunRequest.StandardInput) so large prompts don't exceed the Windows command-line
+        // limit (Win32 206 "filename or extension too long"). See issue #69.
+        var args = new List<string> { "-p" };
         if (!string.IsNullOrWhiteSpace(model))
         {
             args.Add("--model");

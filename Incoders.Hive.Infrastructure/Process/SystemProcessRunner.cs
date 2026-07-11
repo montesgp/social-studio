@@ -31,6 +31,13 @@ public sealed class SystemProcessRunner : IProcessRunner
             StandardErrorEncoding = Encoding.UTF8,
         };
 
+        var hasStandardInput = request.StandardInput is not null;
+        if (hasStandardInput)
+        {
+            startInfo.RedirectStandardInput = true;
+            startInfo.StandardInputEncoding = Encoding.UTF8;
+        }
+
         if (!string.IsNullOrWhiteSpace(request.WorkingDirectory))
         {
             startInfo.WorkingDirectory = request.WorkingDirectory;
@@ -51,6 +58,20 @@ public sealed class SystemProcessRunner : IProcessRunner
 
         using var process = new System.Diagnostics.Process { StartInfo = startInfo, EnableRaisingEvents = true };
         process.Start();
+
+        if (hasStandardInput)
+        {
+            // Write the payload to stdin and close it so the child sees EOF and proceeds. Isolated in
+            // its own try so a broken pipe (child exited early) never masks the real stdout/stderr.
+            try
+            {
+                await process.StandardInput.WriteAsync(request.StandardInput.AsMemory(), linkedCts.Token);
+                process.StandardInput.Close();
+            }
+            catch (IOException)
+            {
+            }
+        }
 
         var stdoutTask = CaptureOutputAsync(process.StandardOutput, request.MaxStandardOutputBytes, linkedCts.Token);
         var stderrTask = CaptureOutputAsync(process.StandardError, request.MaxStandardErrorBytes, linkedCts.Token);

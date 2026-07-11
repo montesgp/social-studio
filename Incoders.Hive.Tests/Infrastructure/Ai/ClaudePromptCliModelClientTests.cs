@@ -31,7 +31,10 @@ public sealed class ClaudePromptCliModelClientTests
         Assert.Equal("claude-selected", result.Value.Model);
         Assert.Equal("claude", runner.Request!.FileName);
         Assert.Equal("-p", runner.Request.Arguments[0]);
-        Assert.Equal("hello", runner.Request.Arguments[1]);
+        // Issue #69: the prompt is delivered via stdin, NOT as a command-line argument, so large
+        // prompts can't exceed the Windows ~32 KB command-line limit (Win32 206).
+        Assert.Equal("hello", runner.Request.StandardInput);
+        Assert.DoesNotContain("hello", runner.Request.Arguments);
         Assert.Contains("--model", runner.Request.Arguments);
         Assert.Contains("claude-selected", runner.Request.Arguments);
         Assert.Contains("--output-format", runner.Request.Arguments);
