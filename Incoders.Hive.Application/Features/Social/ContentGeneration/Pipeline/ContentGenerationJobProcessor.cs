@@ -17,6 +17,7 @@ using Incoders.Hive.Domain.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 
@@ -80,6 +81,7 @@ public sealed class ContentGenerationJobProcessor
     private readonly IClientAestheticProfileReader? _aestheticProfileReader;
     private readonly IClientAestheticEnsureFreshService? _aestheticEnsureFreshService;
     private readonly IClientAestheticImageBackgroundService? _imageBackgroundService;
+    private readonly ContentGenerationAestheticGatingOptions _aestheticGatingOptions;
 
     public ContentGenerationJobProcessor(
         IContentGenerationJobRepository jobs,
@@ -116,7 +118,11 @@ public sealed class ContentGenerationJobProcessor
         // WU-8 (CIG-CG-01..04, IMG-05, IMG-06): creative-background producer for ClientAesthetic carousels.
         // NULLABLE: when null (no IMAGE route, policy ≠ ClientAesthetic, or service not registered) the
         // existing CSS designer path runs unchanged — rollback-safe. See design §4.1.
-        IClientAestheticImageBackgroundService? imageBackgroundService = null)
+        IClientAestheticImageBackgroundService? imageBackgroundService = null,
+        // issue #67 (BAPA-CG-01/02): aesthetic-gating config (max wait, feature toggle).
+        // Injected optionally so existing unit tests and DI registrations compile without change.
+        // When null, falls back to the documented defaults (BlockOnFirstTime=true, MaxWaitSeconds=600).
+        IOptions<ContentGenerationAestheticGatingOptions>? aestheticGatingOptions = null)
     {
         _jobs = jobs;
         _analyses = analyses;
@@ -144,6 +150,7 @@ public sealed class ContentGenerationJobProcessor
         _aestheticProfileReader = aestheticProfileReader;
         _aestheticEnsureFreshService = aestheticEnsureFreshService;
         _imageBackgroundService = imageBackgroundService;
+        _aestheticGatingOptions = aestheticGatingOptions?.Value ?? new ContentGenerationAestheticGatingOptions();
     }
 
     public async Task ProcessAsync(Guid jobId, CancellationToken ct)
@@ -253,26 +260,92 @@ public sealed class ContentGenerationJobProcessor
         if (preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
             && effectiveClientId.HasValue)
         {
-            // Step 1: ensure-fresh — fire-and-forget; failure MUST NOT fail the job (CAG-CG-04).
+            // Step 1 (issue #67, BAPA-CG-01/02, design Decision 1): branch on whether a usable
+            // aesthetic is present RIGHT NOW.
+            //   - Present (fresh or stale-but-present): unchanged CAG-CG-04 fire-and-forget branch.
+            //   - Absent (first-time/empty) AND gating enabled: blocking branch — the job transitions
+            //     to AnalyzingProfile and waits, bounded by MaxWaitSeconds, for the just-enqueued/
+            //     in-flight analysis. NoOwnAccount/TimedOut/AnalysisFailed end the job Failed
+            //     immediately; Ready resumes generation with the freshly analyzed aesthetic.
             if (_aestheticEnsureFreshService is not null)
             {
-                try
+                var usablePresent = !_aestheticGatingOptions.BlockOnFirstTime
+                    || await _aestheticEnsureFreshService.LatestUsableAestheticPresentAsync(
+                        job.OrganizationId, effectiveClientId.Value, ct);
+
+                if (usablePresent)
                 {
-                    var ensureFreshOutcome = await _aestheticEnsureFreshService.EnsureFreshAsync(
+                    // Fire-and-forget; failure MUST NOT fail the job (CAG-CG-04).
+                    try
+                    {
+                        var ensureFreshOutcome = await _aestheticEnsureFreshService.EnsureFreshAsync(
+                            job.OrganizationId,
+                            effectiveClientId.Value,
+                            ct);
+                        _logger.LogDebug(
+                            "ContentGeneration: EnsureFreshAsync for client {ClientId} (job {JobId}) → {Outcome}.",
+                            effectiveClientId.Value, job.Id, ensureFreshOutcome);
+                    }
+                    catch (Exception ex)
+                    {
+                        // CAG-CG-04: isolation contract — exception swallowed + logged; generation continues.
+                        _logger.LogWarning(ex,
+                            "ContentGeneration: EnsureFreshAsync failed for client {ClientId} (job {JobId}). " +
+                            "Generation continues with best-available aesthetic data.",
+                            effectiveClientId.Value, job.Id);
+                    }
+                }
+                else
+                {
+                    // No usable aesthetic — block (BAPA-CG-01/02). The job status is written to
+                    // AnalyzingProfile ONLY if a real wait begins (onWaitStarted), never for the
+                    // NoOwnAccount immediate-fail path.
+                    var maxWait = TimeSpan.FromSeconds(_aestheticGatingOptions.MaxWaitSeconds);
+                    var outcome = await _aestheticEnsureFreshService.EnsureAvailableBlockingAsync(
                         job.OrganizationId,
                         effectiveClientId.Value,
+                        maxWait,
+                        onWaitStarted: waitCt => _jobs.UpdateStatusAsync(job.Id, "AnalyzingProfile", null, null, waitCt),
                         ct);
-                    _logger.LogDebug(
-                        "ContentGeneration: EnsureFreshAsync for client {ClientId} (job {JobId}) → {Outcome}.",
-                        effectiveClientId.Value, job.Id, ensureFreshOutcome);
-                }
-                catch (Exception ex)
-                {
-                    // CAG-CG-04: isolation contract — exception swallowed + logged; generation continues.
-                    _logger.LogWarning(ex,
-                        "ContentGeneration: EnsureFreshAsync failed for client {ClientId} (job {JobId}). " +
-                        "Generation continues with best-available aesthetic data.",
-                        effectiveClientId.Value, job.Id);
+
+                    switch (outcome)
+                    {
+                        // The three codes are also embedded as a "code: message" prefix in the
+                        // StatusReason text (mirrors the existing render_failed[...] convention)
+                        // because ContentGenerationJobStatusResponse does NOT surface a separate
+                        // ErrorCode field to the frontend — resolveGenerationFailureError matches
+                        // codes by substring inside statusReason (design Decision 5).
+                        case EnsureAvailableOutcome.NoOwnAccount:
+                            await _jobs.UpdateStatusAsync(
+                                job.Id,
+                                "Failed",
+                                "aesthetic-own-account-required: This client uses the Client Aesthetic modality but has no own account configured. Add the client's own Instagram account to generate in this modality.",
+                                "aesthetic-own-account-required",
+                                CancellationToken.None);
+                            return;
+                        case EnsureAvailableOutcome.TimedOut:
+                            await _jobs.UpdateStatusAsync(
+                                job.Id,
+                                "Failed",
+                                "aesthetic-analysis-timeout: Profile aesthetic analysis did not finish in time. Please try again in a few minutes.",
+                                "aesthetic-analysis-timeout",
+                                CancellationToken.None);
+                            return;
+                        case EnsureAvailableOutcome.AnalysisFailed:
+                            await _jobs.UpdateStatusAsync(
+                                job.Id,
+                                "Failed",
+                                "aesthetic-analysis-failed: Profile aesthetic analysis could not be completed for this client. Check the client's own account and try again.",
+                                "aesthetic-analysis-failed",
+                                CancellationToken.None);
+                            return;
+                        case EnsureAvailableOutcome.Ready:
+                        default:
+                            // Resume: write Running (out of AnalyzingProfile) and proceed to read
+                            // the now-usable profile below exactly as today.
+                            await _jobs.UpdateStatusAsync(job.Id, "Running", null, null, ct);
+                            break;
+                    }
                 }
             }
 

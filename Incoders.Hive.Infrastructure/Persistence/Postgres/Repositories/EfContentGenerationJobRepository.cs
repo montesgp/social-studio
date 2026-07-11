@@ -84,9 +84,14 @@ public sealed class EfContentGenerationJobRepository : IContentGenerationJobRepo
 
     public async Task<IReadOnlyList<ContentGenerationJob>> ListPendingOrRunningAsync(CancellationToken ct)
     {
+        // issue #67 follow-up: AnalyzingProfile (first-time ClientAesthetic blocking wait) is a
+        // non-terminal, in-progress status just like Running/Queued. It MUST be included here or
+        // ContentGenerationJobWatchdog's orphan-recovery and stuck-sweep filters never see rows in
+        // that status — the watchdog's own "AnalyzingProfile" filter becomes dead code in
+        // production even though it passes with in-memory fakes.
         var entities = await _db.ContentGenerationJobs
             .AsNoTracking()
-            .Where(x => x.Status == "Queued" || x.Status == "Running")
+            .Where(x => x.Status == "Queued" || x.Status == "Running" || x.Status == "AnalyzingProfile")
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(ct);
 

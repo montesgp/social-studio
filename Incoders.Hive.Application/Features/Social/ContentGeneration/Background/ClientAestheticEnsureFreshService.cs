@@ -3,9 +3,11 @@ using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
+using Incoders.Hive.Domain.Social.ClientOwnAccounts;
 using Incoders.Hive.Domain.Social.Clients;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 
@@ -36,6 +38,7 @@ public sealed class ClientAestheticEnsureFreshService : IClientAestheticEnsureFr
     private readonly IClock _clock;
     private readonly IProfileAnalysisJobQueue _queue;
     private readonly ILogger<ClientAestheticEnsureFreshService> _logger;
+    private readonly TimeSpan _pollInterval;
 
     public ClientAestheticEnsureFreshService(
         IProfileAnalysisRepository analysisRepository,
@@ -44,7 +47,11 @@ public sealed class ClientAestheticEnsureFreshService : IClientAestheticEnsureFr
         IUnitOfWork unitOfWork,
         IClock clock,
         IProfileAnalysisJobQueue queue,
-        ILogger<ClientAestheticEnsureFreshService>? logger = null)
+        ILogger<ClientAestheticEnsureFreshService>? logger = null,
+        // issue #67 (Design Decision 2): optional so existing tests/DI registrations compile
+        // unchanged. When null, defaults to the documented 2s default
+        // (ContentGeneration:AestheticGating:PollIntervalSeconds).
+        IOptions<ContentGenerationAestheticGatingOptions>? gatingOptions = null)
     {
         _analysisRepository = analysisRepository;
         _clientRepository = clientRepository;
@@ -53,6 +60,8 @@ public sealed class ClientAestheticEnsureFreshService : IClientAestheticEnsureFr
         _clock = clock;
         _queue = queue;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ClientAestheticEnsureFreshService>.Instance;
+        _pollInterval = TimeSpan.FromSeconds(
+            gatingOptions?.Value.PollIntervalSeconds ?? ContentGenerationAestheticGatingOptions.DefaultPollIntervalSeconds);
     }
 
     /// <inheritdoc/>
@@ -155,6 +164,163 @@ public sealed class ClientAestheticEnsureFreshService : IClientAestheticEnsureFr
                 clientId, orgId);
             // Per CAG-CG-04: swallow and log — never propagate into the generation path.
             return EnsureFreshOutcome.RefreshEnqueued;
+        }
+    }
+
+    /// <inheritdoc/>
+    public Task<bool> LatestUsableAestheticPresentAsync(Guid orgId, Guid clientId, CancellationToken ct) =>
+        _analysisRepository.LatestAnalyzedHasAestheticAsync(orgId, clientId, ct);
+
+    /// <inheritdoc/>
+    public async Task<EnsureAvailableOutcome> EnsureAvailableBlockingAsync(
+        Guid orgId,
+        Guid clientId,
+        TimeSpan maxWait,
+        Func<CancellationToken, Task>? onWaitStarted,
+        CancellationToken ct)
+    {
+        // ── 1. Resolve own account — no wait, no enqueue when absent (BAPA-CG-02) ──────────────
+        // Reliability review follow-up (issue #67): the interface doc promises this method never
+        // throws for non-cancellation reasons. Own-account resolution and the in-flight probe
+        // below both hit the repository BEFORE the poll loop's own try/catch begins, so a
+        // transient repo error here must be caught explicitly too, or it escapes uncaught into
+        // the processor and surfaces as a generic "unhandled:{Type}" job failure instead of the
+        // actionable aesthetic-analysis-failed code. A real cancellation of the caller's ct still
+        // propagates — only non-cancellation exceptions are mapped to AnalysisFailed.
+        IReadOnlyList<ClientOwnAccount> ownAccounts;
+        bool hasInFlight;
+        try
+        {
+            ownAccounts = await _ownAccountRepository.GetAllByClientAsync(new ClientId(clientId), orgId, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "ClientAestheticEnsureFresh: EnsureAvailableBlockingAsync — own-account resolution failed for client {ClientId} (org {OrgId}).",
+                clientId, orgId);
+            return EnsureAvailableOutcome.AnalysisFailed;
+        }
+
+        var primaryAccount = ownAccounts.FirstOrDefault(a => a.IsActive) ?? ownAccounts.FirstOrDefault();
+        if (primaryAccount is null)
+        {
+            _logger.LogWarning(
+                "ClientAestheticEnsureFresh: EnsureAvailableBlockingAsync — no own account found for client {ClientId} (org {OrgId}); failing immediately (BAPA-CG-02).",
+                clientId, orgId);
+            return EnsureAvailableOutcome.NoOwnAccount;
+        }
+
+        // ── 2. Ensure an analysis is in flight — reuse the enqueue path unless one already exists ──
+        try
+        {
+            hasInFlight = await _analysisRepository.HasNonTerminalAnalysisForClientAsync(orgId, clientId, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "ClientAestheticEnsureFresh: EnsureAvailableBlockingAsync — in-flight probe failed for client {ClientId} (org {OrgId}).",
+                clientId, orgId);
+            return EnsureAvailableOutcome.AnalysisFailed;
+        }
+
+        if (!hasInFlight)
+        {
+            var target = InstagramProfileTargetNormalizer.Normalize(primaryAccount.Handle ?? primaryAccount.ProfileUrl);
+            var analysis = ProfileAnalysis.CreateFromClient(orgId, clientId, primaryAccount.Id.Value, target, _clock.UtcNow);
+
+            try
+            {
+                await _analysisRepository.AddAsync(analysis, ct);
+                await _unitOfWork.SaveChangesAsync(ct);
+                await _queue.EnqueueAsync(new ProfileAnalysisJob(analysis.Id, orgId), ct);
+
+                _logger.LogInformation(
+                    "ClientAestheticEnsureFresh: EnsureAvailableBlockingAsync — enqueued analysis {AnalysisId} for client {ClientId} (org {OrgId}), target {Target}.",
+                    analysis.Id, clientId, orgId, target);
+            }
+            catch (Exception ex)
+            {
+                // Enqueue is still fire-and-forget (CAG-CG-04) even on the blocking path — swallow
+                // and fall through to the poll loop below. The poll's own terminal-state check
+                // (no aesthetic + nothing in flight) resolves this to AnalysisFailed if nothing
+                // ever appears, or TimedOut if maxWait elapses first.
+                _logger.LogWarning(ex,
+                    "ClientAestheticEnsureFresh: EnsureAvailableBlockingAsync — failed to enqueue analysis for client {ClientId} (org {OrgId}).",
+                    clientId, orgId);
+            }
+        }
+
+        // ── 3. A real wait begins now — notify the caller exactly once (Design Decision 1) ─────
+        if (onWaitStarted is not null)
+        {
+            await onWaitStarted(ct);
+        }
+
+        // ── 4. Poll under a linked CTS bounded by maxWait (Design Decision 6) ──────────────────
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        linkedCts.CancelAfter(maxWait);
+
+        try
+        {
+            while (true)
+            {
+                try
+                {
+                    var hasAesthetic = await _analysisRepository.LatestAnalyzedHasAestheticAsync(orgId, clientId, linkedCts.Token);
+                    if (hasAesthetic)
+                    {
+                        return EnsureAvailableOutcome.Ready;
+                    }
+
+                    var stillInFlight = await _analysisRepository.HasNonTerminalAnalysisForClientAsync(orgId, clientId, linkedCts.Token);
+                    if (!stillInFlight)
+                    {
+                        // The analysis reached a terminal state without producing a usable aesthetic.
+                        _logger.LogWarning(
+                            "ClientAestheticEnsureFresh: EnsureAvailableBlockingAsync — analysis for client {ClientId} (org {OrgId}) reached a terminal state with no usable aesthetic.",
+                            clientId, orgId);
+                        return EnsureAvailableOutcome.AnalysisFailed;
+                    }
+                }
+                catch (OperationCanceledException) when (linkedCts.IsCancellationRequested)
+                {
+                    // Re-thrown below by the outer catch — distinguishes maxWait vs. job ct.
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // Repo/probe exceptions inside the loop are never allowed to propagate
+                    // uncaught (Design Decision 6) — log and keep polling up to the bound.
+                    _logger.LogWarning(ex,
+                        "ClientAestheticEnsureFresh: EnsureAvailableBlockingAsync — probe failed for client {ClientId} (org {OrgId}); continuing to poll.",
+                        clientId, orgId);
+                }
+
+                await Task.Delay(_pollInterval, linkedCts.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (ct.IsCancellationRequested)
+            {
+                // Real per-job cancellation / shutdown — propagate so the caller's outer handler
+                // records the cancellation-specific terminal status.
+                throw;
+            }
+
+            // Only the maxWait ceiling fired — never throw for this case (Design Decision 6).
+            _logger.LogWarning(
+                "ClientAestheticEnsureFresh: EnsureAvailableBlockingAsync — timed out waiting for client {ClientId} (org {OrgId}) after {MaxWait}.",
+                clientId, orgId, maxWait);
+            return EnsureAvailableOutcome.TimedOut;
         }
     }
 }

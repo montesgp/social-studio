@@ -14,7 +14,14 @@ const DEFAULT_INTERVAL_MS = 2500;
 // already have arrived; if it hasn't, the status endpoint is unreachable and we stop gracefully.
 const DEFAULT_TIMEOUT_MS = 16 * 60 * 1000;
 
-/** Terminal statuses where polling should stop. */
+/**
+ * Terminal statuses where polling should stop.
+ *
+ * NOTE (issue #67, BAPA-STATUS-01/02): "AnalyzingProfile" is deliberately ABSENT here — it is a
+ * non-terminal phase (the first-time ClientAesthetic blocking wait), and the poller MUST keep
+ * polling through it so the overlay eventually observes the transition to Running/Completed/
+ * Partial/Failed. Do not "fix" this by adding it.
+ */
 const TERMINAL_STATUSES = new Set<ContentGenerationJobStatus>([
   "Completed",
   "Partial",

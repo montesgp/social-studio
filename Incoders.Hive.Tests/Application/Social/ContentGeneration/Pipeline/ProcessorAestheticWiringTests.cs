@@ -275,6 +275,15 @@ file sealed class CountingEnsureFreshService(EnsureFreshOutcome outcome) : IClie
         CallCount++;
         return Task.FromResult(outcome);
     }
+
+    // Usable-present branch: keeps this fake exercising the fire-and-forget EnsureFreshAsync path
+    // (design Decision 1) rather than the new blocking branch.
+    public Task<bool> LatestUsableAestheticPresentAsync(Guid orgId, Guid clientId, CancellationToken ct) =>
+        Task.FromResult(true);
+
+    public Task<EnsureAvailableOutcome> EnsureAvailableBlockingAsync(
+        Guid orgId, Guid clientId, TimeSpan maxWait, Func<CancellationToken, Task>? onWaitStarted, CancellationToken ct) =>
+        throw new NotSupportedException("Not exercised — this fake reports the aesthetic as already usable.");
 }
 
 file sealed class StubAestheticProfileReader(ClientAestheticProfile? profile) : IClientAestheticProfileReader

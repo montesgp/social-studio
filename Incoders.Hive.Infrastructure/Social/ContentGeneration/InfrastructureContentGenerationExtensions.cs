@@ -63,6 +63,13 @@ public static class InfrastructureContentGenerationExtensions
         configuration.GetSection(RenderingOptions.SectionName).Bind(options);
         services.AddSingleton(options);
 
+        // issue #67 (BAPA-CG-01/02): bind the first-time aesthetic-gating options so both
+        // ClientAestheticEnsureFreshService (poll interval) and ContentGenerationJobProcessor
+        // (max wait, feature toggle) resolve them via IOptions<T> — see design.md Decision 2.
+        services.AddOptions<Application.Features.Social.ContentGeneration.Shared.ContentGenerationAestheticGatingOptions>()
+            .Bind(configuration.GetSection(
+                Application.Features.Social.ContentGeneration.Shared.ContentGenerationAestheticGatingOptions.SectionName));
+
         return services.AddB1bRenderingAndDesigner(options);
     }
 
