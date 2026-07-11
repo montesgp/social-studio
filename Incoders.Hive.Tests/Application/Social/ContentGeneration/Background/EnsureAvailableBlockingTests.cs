@@ -126,7 +126,10 @@ public sealed class EnsureAvailableBlockingTests
         using var cts = new CancellationTokenSource();
         cts.CancelAfter(TimeSpan.FromMilliseconds(20));
 
-        await Assert.ThrowsAsync<OperationCanceledException>(() => service.EnsureAvailableBlockingAsync(
+        // Task.Delay's cancellation surfaces as TaskCanceledException (a subclass of
+        // OperationCanceledException) — use ThrowsAnyAsync so either the base or derived type
+        // satisfies the "propagates a real cancellation" contract (Design Decision 6).
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.EnsureAvailableBlockingAsync(
             OrgId, ClientId, TimeSpan.FromSeconds(30), // maxWait long enough that only job ct fires first
             onWaitStarted: null,
             cts.Token));
@@ -256,7 +259,17 @@ public sealed class EnsureAvailableBlockingTests
         public Task<bool> HasNonTerminalAnalysisForClientAsync(Guid orgId, Guid clientId, CancellationToken cancellationToken = default)
         {
             _hasNonTerminalCalls++;
-            var stillInFlight = goesTerminalAfterPolls is null || _hasNonTerminalCalls <= goesTerminalAfterPolls.Value;
+
+            // Call #1 happens in EnsureAvailableBlockingAsync step 2 (BEFORE the enqueue decision):
+            // nothing is in flight yet, so it must return false to trigger the enqueue path.
+            // From call #2 onward (inside the poll loop) the just-enqueued analysis IS in flight,
+            // unless goesTerminalAfterPolls says it reached a terminal state.
+            if (_hasNonTerminalCalls == 1)
+            {
+                return Task.FromResult(false);
+            }
+
+            var stillInFlight = goesTerminalAfterPolls is null || _hasNonTerminalCalls <= goesTerminalAfterPolls.Value + 1;
             return Task.FromResult(stillInFlight);
         }
 
