@@ -19,7 +19,7 @@ unless marked `[P]`.
 ### WU1 — Contract: `EnsureAvailableOutcome` enum + `EnsureAvailableBlockingAsync`/`LatestUsableAestheticPresentAsync` signatures [P]
 **Satisfies:** Design Decision 1 (contract shape) — foundation for BAPA-CG-01, BAPA-CG-02.
 
-- [ ] Modify `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticEnsureFreshService.cs`:
+- [x] Modify `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticEnsureFreshService.cs`:
       add `EnsureAvailableOutcome { Ready, NoOwnAccount, TimedOut, AnalysisFailed }`, add
       `Task<EnsureAvailableOutcome> EnsureAvailableBlockingAsync(Guid orgId, Guid clientId,
       TimeSpan maxWait, Func<CancellationToken, Task>? onWaitStarted, CancellationToken ct)`, add
@@ -34,7 +34,7 @@ unless marked `[P]`.
 (no-own-account immediate failure), Design Decisions 2, 3, 6 (poll mechanism, predicate,
 cancellation safety).
 
-- [ ] TDD: add new test file `Incoders.Hive.Tests/.../Background/EnsureAvailableBlockingTests.cs`
+- [x] TDD: add new test file `Incoders.Hive.Tests/.../Background/EnsureAvailableBlockingTests.cs`
       (or sibling suite in `EnsureFreshServiceIsolationTests.cs`) with failing tests for all five
       scenarios from design's Reconciled Test Contract:
       own-account-absent → `NoOwnAccount` (no wait, no enqueue); fake repo flips
@@ -43,10 +43,10 @@ cancellation safety).
       `false` → `AnalysisFailed`; repo stays no-aesthetic + in-flight forever with tiny `maxWait`
       → `TimedOut` (no throw); job `ct` cancelled mid-wait → `OperationCanceledException`
       propagates.
-- [ ] Implement `LatestUsableAestheticPresentAsync` in
+- [x] Implement `LatestUsableAestheticPresentAsync` in
       `Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ClientAestheticEnsureFreshService.cs`
       delegating to `IProfileAnalysisRepository.LatestAnalyzedHasAestheticAsync`.
-- [ ] Implement `EnsureAvailableBlockingAsync`: resolve own account (reuse existing resolution) →
+- [x] Implement `EnsureAvailableBlockingAsync`: resolve own account (reuse existing resolution) →
       `NoOwnAccount` if absent; ensure an in-flight/enqueued analysis exists (reuse existing
       enqueue path, debounce via `HasNonTerminalAnalysisForClientAsync`); invoke `onWaitStarted`
       exactly once when a real wait begins; poll on `PollInterval` under a linked CTS
@@ -55,7 +55,7 @@ cancellation safety).
       `AnalysisFailed`, `maxWait` token fired → `TimedOut` (never throw), job `ct` fired → let
       `OperationCanceledException` propagate. Repo/probe exceptions inside the loop are caught and
       mapped to continued polling or `AnalysisFailed`, never propagate uncaught.
-- [ ] Confirm `EnsureFreshAsync` body is untouched (diff review, not just tests).
+- [x] Confirm `EnsureFreshAsync` body is untouched (diff review, not just tests).
 - **Verify:** all 5 new tests GREEN locally if possible, else CI dispatch;
   `EnsureFreshServiceIsolationTests` (existing) still pass unmodified.
 - **Depends on:** WU1.
@@ -67,7 +67,7 @@ fire-and-forget), MODIFIED CAG-CG-02 (own-account degrade only when usable-prese
 CAG-CG-04 (enqueue stays fire-and-forget; wait is a distinct, scoped concern), REMOVED
 CAG-CG-01-c (no more silent Creative degradation on empty aesthetic).
 
-- [ ] TDD: reconcile `Incoders.Hive.Tests/.../Pipeline/ProcessorEnsureFreshIsolationTests.cs` —
+- [x] TDD: reconcile `Incoders.Hive.Tests/.../Pipeline/ProcessorEnsureFreshIsolationTests.cs` —
       re-scope the existing "throwing `EnsureFreshAsync` service → job not Failed" tests to the
       stale/present branch (fake `LatestUsableAestheticPresentAsync` returns `true`), extend the
       `StatusTracker` fake from last-status-only to a status LIST so `AnalyzingProfile → Running`
@@ -76,7 +76,7 @@ CAG-CG-01-c (no more silent Creative degradation on empty aesthetic).
       `AnalyzingProfile` then completes; `NoOwnAccount` → `Failed` +
       `aesthetic-own-account-required`; `TimedOut` → `Failed` + `aesthetic-analysis-timeout`;
       `AnalysisFailed` → `Failed` + `aesthetic-analysis-failed`.
-- [ ] Modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
+- [x] Modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
       (~253-295): replace the unconditional `EnsureFreshAsync` fire-and-forget with the branch —
       `LatestUsableAestheticPresentAsync` true → unchanged fire-and-forget `EnsureFreshAsync` +
       read profile (existing CAG-CG-04 isolation, now scoped to this branch); false → call
@@ -86,7 +86,7 @@ CAG-CG-01-c (no more silent Creative degradation on empty aesthetic).
       `CancellationToken.None` and the matching error code/message from Design Decision 5, return;
       `Ready` → write `Running` and resume, then read profile + build design context exactly as
       today.
-- [ ] Read `maxWait` from the new config key (see WU4) instead of a hardcoded value.
+- [x] Read `maxWait` from the new config key (see WU4) instead of a hardcoded value.
 - **Verify:** all reconciled + new `ProcessorEnsureFreshIsolationTests` GREEN locally if possible,
   else CI dispatch. No regression on non-`ClientAesthetic` policies.
 - **Depends on:** WU2.
@@ -95,12 +95,12 @@ CAG-CG-01-c (no more silent Creative degradation on empty aesthetic).
 **Satisfies:** Design Decision 2 config table; Timeout/Budget Alignment invariant
 (`MaxWaitSeconds < JobTimeout`).
 
-- [ ] Add/modify the content-generation options binding class with
+- [x] Add/modify the content-generation options binding class with
       `BlockOnFirstTime` (default `true`), `PollIntervalSeconds` (default `2`),
       `MaxWaitSeconds` (default `600`).
-- [ ] Modify `appsettings*.json` to register the new `ContentGeneration:AestheticGating` section
+- [x] Modify `appsettings*.json` to register the new `ContentGeneration:AestheticGating` section
       with the documented defaults.
-- [ ] Add a code comment or config-doc note (see WU9) that `MaxWaitSeconds` MUST stay strictly
+- [x] Add a code comment or config-doc note (see WU9) that `MaxWaitSeconds` MUST stay strictly
       below `ContentGenerationBackgroundWorker.JobTimeout` (900s).
 - **Verify:** options bind correctly (unit test or manual `IOptions<T>` resolution check); no
   runtime behavior change until WU3 consumes the values.
@@ -110,10 +110,10 @@ CAG-CG-01-c (no more silent Creative degradation on empty aesthetic).
 **Satisfies:** Design Decision 4 grounded gotcha (watchdog reconciliation); prevents stranded jobs
 in `AnalyzingProfile` on crash/orphan.
 
-- [ ] TDD: add a new watchdog test asserting an `AnalyzingProfile` job older than
+- [x] TDD: add a new watchdog test asserting an `AnalyzingProfile` job older than
       `StuckJobThreshold` is force-failed by `FailStuckRunningJobsAsync`, and a stranded
       `AnalyzingProfile` job is caught by `MarkOrphanedRunningJobsAsync` startup recovery.
-- [ ] Modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobWatchdog.cs`:
+- [x] Modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobWatchdog.cs`:
       change the `j.Status == "Running"` filter to `j.Status == "Running" || j.Status ==
       "AnalyzingProfile"` in BOTH `MarkOrphanedRunningJobsAsync` and
       `FailStuckRunningJobsAsync`.
@@ -130,10 +130,10 @@ in `AnalyzingProfile` on crash/orphan.
 **Satisfies:** BAPA-STATUS-01 (vocabulary gains `AnalyzingProfile`), BAPA-STATUS-02 (status DTO
 round-trips without serialization errors / no fallback-to-unknown).
 
-- [ ] Modify `apps/web/lib/api/types.ts`: add `"AnalyzingProfile"` to the
+- [x] Modify `apps/web/lib/api/types.ts`: add `"AnalyzingProfile"` to the
       `ContentGenerationJobStatus` union (~`:880-886`) and to `ContentGenerationJobStatusLabel`
       (~`:737-743`).
-- [ ] Confirm `TERMINAL_STATUSES` in `apps/web/lib/hooks/use-content-generation-job.ts`
+- [x] Confirm `TERMINAL_STATUSES` in `apps/web/lib/hooks/use-content-generation-job.ts`
       (`:18-23`) deliberately does NOT include `AnalyzingProfile` (no change needed — poller keeps
       polling through the phase); add a code comment noting this is intentional so a future editor
       doesn't "fix" it.
@@ -146,15 +146,15 @@ round-trips without serialization errors / no fallback-to-unknown).
 **Satisfies:** BAPA-STATUS-03 (overlay renders distinct phase, later steps blocked, resumes on
 status change).
 
-- [ ] Modify `apps/web/components/social/single-analyzer-client.tsx`
+- [x] Modify `apps/web/components/social/single-analyzer-client.tsx`
       (`packageProgressState`, `:169-254`): add an `AnalyzingProfile` branch placed BEFORE the
       `Running` branch — `{ percent: 14, label: "Analyzing profile aesthetic", currentStep: 1,
       completedFormats: 0 }` — with all later `PACKAGE_STEPS` rendered pending/blocked.
-- [ ] Resolve the design's Open Question: decide whether to add a dedicated
+- [x] Resolve the design's Open Question: decide whether to add a dedicated
       `PACKAGE_STEPS` entry (`{ key: "analyze", label: "Analyzing profile" }`) before `"prepare"`
       or fold the phase into the existing "Preparing context" step. If a step is added, bump
       `currentStep` indices in the existing branches by one.
-- [ ] Add a component/unit test asserting the overlay shows the "Analyzing profile" phase when
+- [x] Add a component/unit test asserting the overlay shows the "Analyzing profile" phase when
       status is `AnalyzingProfile`, and transitions out (later steps unblock) when status changes
       to `Running`/`Completed`/`Partial`/`Failed`.
 - **Verify:** new overlay/hook unit test GREEN; manual overlay check against a mocked
@@ -164,7 +164,7 @@ status change).
 ### WU8 — User-facing error copy for the three new failure codes [P]
 **Satisfies:** Design Decision 5 (actionable failure messages surfaced via `StatusReason`).
 
-- [ ] Modify `apps/web/lib/support/user-facing-errors.ts`: add entries for
+- [x] Modify `apps/web/lib/support/user-facing-errors.ts`: add entries for
       `aesthetic-own-account-required`, `aesthetic-analysis-timeout`, `aesthetic-analysis-failed`
       with the copy from the Design Decision 5 table.
 - **Verify:** mapping unit test (if the file has existing coverage) or manual check that the three
@@ -178,11 +178,11 @@ status change).
 ### WU9 — Config docs: budget invariant + rollback toggle
 **Satisfies:** cross-cutting documentation for BAPA-CG-01/02, Timeout/Budget Alignment.
 
-- [ ] Document `ContentGeneration:AestheticGating:{BlockOnFirstTime,PollIntervalSeconds,
+- [x] Document `ContentGeneration:AestheticGating:{BlockOnFirstTime,PollIntervalSeconds,
       MaxWaitSeconds}` in the relevant config docs, calling out the
       `MaxWaitSeconds < JobTimeout (900s) < StuckJobThreshold (960s)` invariant so a future bump to
       `MaxWaitSeconds` doesn't cross the 15-minute line.
-- [ ] Note `BlockOnFirstTime=false` as a temporary rollback safety valve (legacy fire-and-forget
+- [x] Note `BlockOnFirstTime=false` as a temporary rollback safety valve (legacy fire-and-forget
       everywhere), not a permanent mode, per design's Residual Risks.
 - **Verify:** doc reviewed against the actually-shipped config keys and defaults from WU4.
 - **Depends on:** WU4, WU3 (needs final config keys + error codes to document correctly).
