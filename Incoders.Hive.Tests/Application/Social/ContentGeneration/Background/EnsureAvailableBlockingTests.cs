@@ -135,6 +135,63 @@ public sealed class EnsureAvailableBlockingTests
             cts.Token));
     }
 
+    // ── Reliability review follow-up: own-account resolution must be exception-safe ────────────
+    // (issue #67) — the interface doc promises "never throws for non-cancellation reasons", but
+    // step 1 (own-account resolution) originally had no try/catch, so a transient repo error
+    // surfaced as an unhandled exception -> a generic "unhandled:{Type}" job failure instead of
+    // the actionable aesthetic-analysis-failed code.
+
+    [Fact]
+    public async Task EnsureAvailableBlocking_OwnAccountRepoThrows_ReturnsAnalysisFailed_NoThrow()
+    {
+        var analysisRepo = new FlippingAnalysisRepository(flipAfterPolls: -1, hasAestheticFromStart: false);
+        var ownAccountRepo = new ThrowingOwnAccountRepository();
+        var jobQueue = new EnsureFreshServiceFreshnessTests.FakeJobQueue();
+        var service = BuildService(analysisRepo, ownAccountRepo, jobQueue);
+
+        var exception = await Record.ExceptionAsync(() => service.EnsureAvailableBlockingAsync(
+            OrgId, ClientId, TimeSpan.FromSeconds(5),
+            onWaitStarted: null,
+            CancellationToken.None));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task EnsureAvailableBlocking_OwnAccountRepoThrows_OutcomeIsAnalysisFailed()
+    {
+        var analysisRepo = new FlippingAnalysisRepository(flipAfterPolls: -1, hasAestheticFromStart: false);
+        var ownAccountRepo = new ThrowingOwnAccountRepository();
+        var jobQueue = new EnsureFreshServiceFreshnessTests.FakeJobQueue();
+        var service = BuildService(analysisRepo, ownAccountRepo, jobQueue);
+
+        var outcome = await service.EnsureAvailableBlockingAsync(
+            OrgId, ClientId, TimeSpan.FromSeconds(5),
+            onWaitStarted: null,
+            CancellationToken.None);
+
+        Assert.Equal(EnsureAvailableOutcome.AnalysisFailed, outcome);
+    }
+
+    [Fact]
+    public async Task EnsureAvailableBlocking_JobCtAlreadyCancelled_OwnAccountRepoNotReached_PropagatesCancellation()
+    {
+        // Real per-job cancellation must still win even during the own-account resolution step —
+        // the exception-safety fix for the WARNING must not swallow OperationCanceledException.
+        var analysisRepo = new FlippingAnalysisRepository(flipAfterPolls: -1, hasAestheticFromStart: false);
+        var ownAccountRepo = new CancellationThrowingOwnAccountRepository();
+        var jobQueue = new EnsureFreshServiceFreshnessTests.FakeJobQueue();
+        var service = BuildService(analysisRepo, ownAccountRepo, jobQueue);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.EnsureAvailableBlockingAsync(
+            OrgId, ClientId, TimeSpan.FromSeconds(5),
+            onWaitStarted: null,
+            cts.Token));
+    }
+
     [Fact]
     public async Task LatestUsableAestheticPresentAsync_DelegatesToRepository()
     {
@@ -182,6 +239,51 @@ public sealed class EnsureAvailableBlockingTests
     {
         public Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ContentGenerationAestheticGatingOptions Value { get; } =
             new() { PollIntervalSeconds = 0 };
+    }
+
+    /// <summary>Simulates a transient repository failure while resolving the own account.</summary>
+    private sealed class ThrowingOwnAccountRepository : IClientOwnAccountRepository
+    {
+        public Task<IReadOnlyList<ClientOwnAccount>> GetAllByClientAsync(ClientId clientId, Guid organizationId, CancellationToken ct) =>
+            throw new InvalidOperationException("Simulated own-account repository failure.");
+        public Task<ClientOwnAccount?> GetByIdAsync(ClientOwnAccountId id, Guid organizationId, CancellationToken ct) =>
+            Task.FromResult<ClientOwnAccount?>(null);
+        public Task<(IReadOnlyList<ClientOwnAccount> Items, int TotalCount)> ListByClientAsync(
+            ClientId clientId, Guid organizationId, bool includeInactive, int page, int pageSize, CancellationToken ct) =>
+            Task.FromResult<(IReadOnlyList<ClientOwnAccount>, int)>(([], 0));
+        public Task<bool> ExistsByProfileUrlAsync(ClientId clientId, SocialNetworkId socialNetworkId, string profileUrl,
+            ClientOwnAccountId? excludeId, CancellationToken ct) => Task.FromResult(false);
+        public Task AddAsync(ClientOwnAccount ownAccount, CancellationToken ct) => Task.CompletedTask;
+        public void Update(ClientOwnAccount account) { }
+        public Task ReorderAsync(ClientId clientId, Guid organizationId, IReadOnlyList<Guid> orderedIds, CancellationToken ct) =>
+            Task.CompletedTask;
+        public Task SaveChangesAsync(CancellationToken ct) => Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Simulates the real per-job <c>ct</c> firing during own-account resolution — throws the
+    /// SAME <see cref="OperationCanceledException"/>-derived exception a cancelled repo call would
+    /// naturally produce, honoring the passed-in token like a well-behaved adapter.
+    /// </summary>
+    private sealed class CancellationThrowingOwnAccountRepository : IClientOwnAccountRepository
+    {
+        public Task<IReadOnlyList<ClientOwnAccount>> GetAllByClientAsync(ClientId clientId, Guid organizationId, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<ClientOwnAccount>>([]);
+        }
+        public Task<ClientOwnAccount?> GetByIdAsync(ClientOwnAccountId id, Guid organizationId, CancellationToken ct) =>
+            Task.FromResult<ClientOwnAccount?>(null);
+        public Task<(IReadOnlyList<ClientOwnAccount> Items, int TotalCount)> ListByClientAsync(
+            ClientId clientId, Guid organizationId, bool includeInactive, int page, int pageSize, CancellationToken ct) =>
+            Task.FromResult<(IReadOnlyList<ClientOwnAccount>, int)>(([], 0));
+        public Task<bool> ExistsByProfileUrlAsync(ClientId clientId, SocialNetworkId socialNetworkId, string profileUrl,
+            ClientOwnAccountId? excludeId, CancellationToken ct) => Task.FromResult(false);
+        public Task AddAsync(ClientOwnAccount ownAccount, CancellationToken ct) => Task.CompletedTask;
+        public void Update(ClientOwnAccount account) { }
+        public Task ReorderAsync(ClientId clientId, Guid organizationId, IReadOnlyList<Guid> orderedIds, CancellationToken ct) =>
+            Task.CompletedTask;
+        public Task SaveChangesAsync(CancellationToken ct) => Task.CompletedTask;
     }
 
     /// <summary>No own account configured for the client.</summary>

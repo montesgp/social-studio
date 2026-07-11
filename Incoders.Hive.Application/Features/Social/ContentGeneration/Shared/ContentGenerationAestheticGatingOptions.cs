@@ -13,6 +13,14 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 /// See design.md "Timeout / Budget Alignment". A future bump to <see cref="MaxWaitSeconds"/> MUST
 /// NOT cross the 15-minute line.
 /// </para>
+/// <para>
+/// The <see cref="MaxWaitSeconds"/> clock starts when
+/// <c>EnsureAvailableBlockingAsync</c>'s poll loop begins (own account resolved, analysis
+/// enqueued/in-flight) — NOT at job start. The job's own <c>JobTimeout</c> clock, by contrast,
+/// starts at job start and already covers the brand-load / analysis-fetch / own-account pre-loop
+/// work that runs BEFORE the wait begins. Leave real headroom below <c>JobTimeout</c> when tuning
+/// this value — the pre-loop time is not "free" budget on top of it.
+/// </para>
 /// </summary>
 public sealed class ContentGenerationAestheticGatingOptions
 {

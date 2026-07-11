@@ -3,6 +3,7 @@ using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
+using Incoders.Hive.Domain.Social.ClientOwnAccounts;
 using Incoders.Hive.Domain.Social.Clients;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
 using Microsoft.Extensions.Logging;
@@ -179,7 +180,31 @@ public sealed class ClientAestheticEnsureFreshService : IClientAestheticEnsureFr
         CancellationToken ct)
     {
         // ── 1. Resolve own account — no wait, no enqueue when absent (BAPA-CG-02) ──────────────
-        var ownAccounts = await _ownAccountRepository.GetAllByClientAsync(new ClientId(clientId), orgId, ct);
+        // Reliability review follow-up (issue #67): the interface doc promises this method never
+        // throws for non-cancellation reasons. Own-account resolution and the in-flight probe
+        // below both hit the repository BEFORE the poll loop's own try/catch begins, so a
+        // transient repo error here must be caught explicitly too, or it escapes uncaught into
+        // the processor and surfaces as a generic "unhandled:{Type}" job failure instead of the
+        // actionable aesthetic-analysis-failed code. A real cancellation of the caller's ct still
+        // propagates — only non-cancellation exceptions are mapped to AnalysisFailed.
+        IReadOnlyList<ClientOwnAccount> ownAccounts;
+        bool hasInFlight;
+        try
+        {
+            ownAccounts = await _ownAccountRepository.GetAllByClientAsync(new ClientId(clientId), orgId, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "ClientAestheticEnsureFresh: EnsureAvailableBlockingAsync — own-account resolution failed for client {ClientId} (org {OrgId}).",
+                clientId, orgId);
+            return EnsureAvailableOutcome.AnalysisFailed;
+        }
+
         var primaryAccount = ownAccounts.FirstOrDefault(a => a.IsActive) ?? ownAccounts.FirstOrDefault();
         if (primaryAccount is null)
         {
@@ -190,7 +215,22 @@ public sealed class ClientAestheticEnsureFreshService : IClientAestheticEnsureFr
         }
 
         // ── 2. Ensure an analysis is in flight — reuse the enqueue path unless one already exists ──
-        var hasInFlight = await _analysisRepository.HasNonTerminalAnalysisForClientAsync(orgId, clientId, ct);
+        try
+        {
+            hasInFlight = await _analysisRepository.HasNonTerminalAnalysisForClientAsync(orgId, clientId, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "ClientAestheticEnsureFresh: EnsureAvailableBlockingAsync — in-flight probe failed for client {ClientId} (org {OrgId}).",
+                clientId, orgId);
+            return EnsureAvailableOutcome.AnalysisFailed;
+        }
+
         if (!hasInFlight)
         {
             var target = InstagramProfileTargetNormalizer.Normalize(primaryAccount.Handle ?? primaryAccount.ProfileUrl);
