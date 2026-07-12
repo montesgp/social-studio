@@ -59,28 +59,21 @@ public sealed class SystemProcessRunner : IProcessRunner
         using var process = new System.Diagnostics.Process { StartInfo = startInfo, EnableRaisingEvents = true };
         process.Start();
 
-        if (hasStandardInput)
-        {
-            // Write the payload to stdin and close it so the child sees EOF and proceeds. Isolated in
-            // its own try so a broken pipe (child exited early) never masks the real stdout/stderr.
-            try
-            {
-                await process.StandardInput.WriteAsync(request.StandardInput.AsMemory(), linkedCts.Token);
-                process.StandardInput.Close();
-            }
-            catch (IOException)
-            {
-            }
-        }
-
+        // Start draining stdout/stderr BEFORE writing stdin. Writing a large stdin payload first would
+        // deadlock: the child blocks writing stdout (its pipe buffer full, nobody reading) while we
+        // block writing stdin (the child's stdin buffer full because it stopped reading to flush stdout).
+        // Small payloads fit the OS pipe buffer and hid this; a large prompt hangs until timeout. (#69)
         var stdoutTask = CaptureOutputAsync(process.StandardOutput, request.MaxStandardOutputBytes, linkedCts.Token);
         var stderrTask = CaptureOutputAsync(process.StandardError, request.MaxStandardErrorBytes, linkedCts.Token);
+        var stdinTask = hasStandardInput
+            ? WriteStandardInputAsync(process, request.StandardInput!, linkedCts.Token)
+            : Task.CompletedTask;
         var waitTask = process.WaitForExitAsync(linkedCts.Token);
         var timedOut = false;
 
         try
         {
-            await AwaitProcessAndOutputAsync(waitTask, stdoutTask, stderrTask);
+            await AwaitProcessAndOutputAsync(waitTask, stdoutTask, stderrTask, stdinTask);
             return new ProcessRunResult(process.ExitCode, await stdoutTask, await stderrTask, TimedOut: false);
         }
         catch (OutputLimitExceededException)
@@ -118,9 +111,22 @@ public sealed class SystemProcessRunner : IProcessRunner
         }
     }
 
-    private static async Task AwaitProcessAndOutputAsync(Task waitTask, Task<string> stdoutTask, Task<string> stderrTask)
+    private static async Task WriteStandardInputAsync(System.Diagnostics.Process process, string input, CancellationToken ct)
     {
-        var pending = new HashSet<Task> { waitTask, stdoutTask, stderrTask };
+        try
+        {
+            await process.StandardInput.WriteAsync(input.AsMemory(), ct);
+            process.StandardInput.Close();
+        }
+        catch (IOException)
+        {
+            // Broken pipe: the child exited before consuming all stdin. Benign — never mask stdout/stderr.
+        }
+    }
+
+    private static async Task AwaitProcessAndOutputAsync(Task waitTask, Task<string> stdoutTask, Task<string> stderrTask, Task stdinTask)
+    {
+        var pending = new HashSet<Task> { waitTask, stdoutTask, stderrTask, stdinTask };
         while (pending.Count > 0)
         {
             var completed = await Task.WhenAny(pending);

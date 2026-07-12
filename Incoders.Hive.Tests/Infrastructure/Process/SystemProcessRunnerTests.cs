@@ -124,6 +124,29 @@ public sealed class SystemProcessRunnerTests
         Assert.Contains("¿qué elegís?", result.StandardOutput);
     }
 
+    [Fact]
+    public async Task RunAsync_LargeStandardInput_RoundTripsWithoutDeadlock()
+    {
+        var runner = new SystemProcessRunner();
+        // 300 KB — well past the ~64 KB OS pipe buffer, so writing ALL of stdin before starting to
+        // drain stdout would deadlock (the child blocks writing stdout while we block writing stdin).
+        // The child echoes stdin straight to stdout, stressing both directions. Regression for #69.
+        var payload = new string('x', 300_000);
+
+        var result = await runner.RunAsync(new ProcessRunRequest(
+            FileName: "pwsh",
+            Arguments: ["-NoProfile", "-Command", "[Console]::Out.Write([Console]::In.ReadToEnd())"],
+            WorkingDirectory: Directory.GetCurrentDirectory(),
+            Timeout: TimeSpan.FromSeconds(30),
+            MaxStandardOutputBytes: 4_194_304,
+            StandardInput: payload), CancellationToken.None);
+
+        Assert.False(result.TimedOut);
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.StandardOutput.Length >= payload.Length,
+            $"Expected the child to echo back the full {payload.Length}-char payload; got {result.StandardOutput.Length}.");
+    }
+
     private static async Task WaitForFileAsync(string path)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
