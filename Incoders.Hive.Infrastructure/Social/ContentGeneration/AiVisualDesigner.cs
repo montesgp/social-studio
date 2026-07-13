@@ -384,10 +384,16 @@ public sealed class AiVisualDesigner : IVisualDesigner
 
         return
             "You are a SENIOR ART DIRECTOR designing premium social-media graphics (Instagram stories\n" +
-            "and feed carousels). Produce ONE self-contained, brand-bound HTML/CSS composition.\n" +
+            "and feed carousels). Produce ONE self-contained, brand-bound HTML composition styled with\n" +
+            "INLINE CSS only.\n" +
             "\n" +
             "OUTPUT CONTRACT (non-negotiable - the rendering/export pipeline depends on it):\n" +
             "1. Output ONLY valid HTML. No markdown, no comments, no code fences, no explanation.\n" +
+            "1b. ALL styling MUST be inline `style=\"...\"` attributes on the elements. Do NOT emit a\n" +
+            "    <style> element, a <head>/<html>/<body> wrapper, <link>, <script>, or any CSS class\n" +
+            "    rules — the validator allows ONLY these tags and REJECTS anything else: div, h1, h2, h3,\n" +
+            "    h4, p, span, img, ul, ol, li, br, strong, em, b, i, u, small. A <style> block is the #1\n" +
+            "    cause of rejection; put every rule inline instead.\n" +
             "2. Root element: <div class=\"composition\"> sized EXACTLY to the canvas (width/height in px).\n" +
             "3. Exactly TWO layers, in this order:\n" +
             "   - <div data-layer=\"background\"> = the full-bleed ART: background color/gradient/image AND\n" +

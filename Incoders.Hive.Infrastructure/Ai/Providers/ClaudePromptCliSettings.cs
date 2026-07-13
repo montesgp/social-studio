@@ -20,7 +20,11 @@ public sealed record ClaudePromptCliSettings(
 {
     public const string ProviderKey = "claude-p";
     public const string DefaultExecutable = "claude";
-    public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(120);
+    // Raised 120 -> 240s: the visual-designer prompt (full brand-bound slide composition) via the
+    // claude-p CLI legitimately runs past 120s on some slides, timing out into the deterministic
+    // fallback. Override per-integration with the credential's timeout_ms. Stays well under the
+    // content-generation per-job budget (30 min).
+    public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(240);
     public const int DefaultMaxImageFileBytes = 10 * 1024 * 1024;
 
     /// <summary>
