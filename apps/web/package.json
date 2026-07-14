@@ -8,7 +8,7 @@
     "build": "node -e \"process.env.NEXT_DIST_DIR='.next-build'; const result = require('child_process').spawnSync('next', ['build'], { env: process.env, shell: true, stdio: 'inherit' }); process.exit(result.status ?? 1)\"",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsx --test lib/single-analyzer-ui-state.test.ts"
+    "test": "tsx --test \"lib/**/*.test.ts\""
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

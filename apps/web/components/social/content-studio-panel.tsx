@@ -15,6 +15,8 @@ import {
   AlignCenter,
   AlignLeft,
   AlignRight,
+  ArrowDown,
+  ArrowUp,
   BadgeCheck,
   Bold,
   Bookmark,
@@ -25,11 +27,15 @@ import {
   MoreHorizontal,
   Plus,
   Send,
+  Square,
+  Trash2,
+  Type,
   Underline,
 } from "lucide-react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { hasVisibleBorder, pickRecolorProperty } from "@/lib/studio/decoration-edit";
 import {
   approveItem,
   bulkOperation,
@@ -1986,10 +1992,16 @@ const DesignCanvas = forwardRef<
         d.el.style.right = "auto";
         d.el.style.bottom = "auto";
       } else {
-        const nw = Math.max(24, d.w + (e.clientX - d.sx) / sc);
-        const nh = Math.max(16, d.h + (e.clientY - d.sy) / sc);
+        const nw = Math.max(8, d.w + (e.clientX - d.sx) / sc);
+        const nh = Math.max(8, d.h + (e.clientY - d.sy) / sc);
         d.el.style.width = `${Math.round(nw)}px`;
-        d.el.style.fontSize = `${Math.max(8, Math.round(d.fs * (nh / d.h)))}px`;
+        // Text keeps content-driven height and scales its font; decorative shapes/lines get an explicit
+        // height so a bar's thickness or a shape's proportions can be resized (not only its width).
+        if ((d.el.textContent ?? "").trim().length > 0) {
+          d.el.style.fontSize = `${Math.max(8, Math.round(d.fs * (nh / d.h)))}px`;
+        } else {
+          d.el.style.height = `${Math.round(nh)}px`;
+        }
       }
       d.moved = true;
       positionToolbar(d.el);
@@ -2075,8 +2087,75 @@ const DesignCanvas = forwardRef<
     positionToolbar(el);
   };
 
+  /** Removes the selected element (never a structural wrapper / the background art layer). */
+  const deleteSelected = () => {
+    const el = selectedRef.current;
+    if (!el || isBackgroundLayer(el)) return;
+    el.remove();
+    select(null);
+    onDirty();
+  };
+
+  /** Reorders the selected element among its siblings (later in DOM paints on top). */
+  const reorderSelected = (direction: "forward" | "backward") => {
+    const el = selectedRef.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return;
+    if (direction === "forward") {
+      const next = el.nextElementSibling;
+      if (next) parent.insertBefore(next, el);
+    } else {
+      const prev = el.previousElementSibling;
+      if (prev) parent.insertBefore(el, prev);
+    }
+    onDirty();
+    positionToolbar(el);
+  };
+
+  /** Adds a new editable text box (content layer) or decorative bar (background layer), then selects it. */
+  const addElement = (kind: "text" | "shape") => {
+    const root = designRef.current;
+    if (!root) return;
+    const el = document.createElement("div");
+    if (kind === "text") {
+      el.setAttribute("data-slot", `custom-${Date.now()}`);
+      el.textContent = "Texto";
+      el.style.cssText =
+        `position:absolute;left:${Math.round(width / 2 - 120)}px;top:${Math.round(height / 2 - 24)}px;` +
+        "width:240px;min-height:1em;color:#FFFFFF;font-size:40px;font-weight:700;line-height:1.1;text-align:center;";
+      (root.querySelector<HTMLElement>('[data-layer="content"]') ?? root).appendChild(el);
+    } else {
+      el.style.cssText =
+        `position:absolute;left:${Math.round(width / 2 - 100)}px;top:${Math.round(height / 2 - 4)}px;` +
+        "width:200px;height:8px;background:#8C6A45;border-radius:4px;";
+      (root.querySelector<HTMLElement>('[data-layer="background"]') ?? root).appendChild(el);
+    }
+    select(el);
+    onDirty();
+  };
+
   return (
     <div ref={measureRef} className="w-full">
+    {canEdit ? (
+      <div data-cs-add className="mb-2 flex items-center gap-1">
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => addElement("text")}
+          className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted"
+        >
+          <Type className="h-3.5 w-3.5" /> Texto
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => addElement("shape")}
+          className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted"
+        >
+          <Square className="h-3.5 w-3.5" /> Forma
+        </button>
+      </div>
+    ) : null}
     <div
       data-cs-canvas
       ref={containerRef}
@@ -2204,17 +2283,30 @@ const DesignCanvas = forwardRef<
             onChange={(e) =>
               apply((el) => {
                 const value = e.target.value;
-                // Text elements recolor their glyphs; decorative shapes/lines (no text content)
-                // recolor their fill, so a divider/line bar can actually change color.
-                if ((el.textContent ?? "").trim().length > 0) {
-                  el.style.color = value;
-                } else {
-                  el.style.backgroundColor = value;
-                }
+                // Text → glyph color; border-only decorations (thin lines/rings) → borderColor
+                // (setting backgroundColor on a border-drawn line was a no-op); filled shapes → fill.
+                const cs = getComputedStyle(el);
+                const property = pickRecolorProperty({
+                  hasText: (el.textContent ?? "").trim().length > 0,
+                  hasVisibleBorder: hasVisibleBorder(cs.borderStyle, parseFloat(cs.borderWidth) || 0),
+                });
+                el.style[property] = value;
               })
             }
             className="h-6 w-6 cursor-pointer rounded border border-border bg-transparent p-0"
           />
+          <div className="mx-0.5 h-5 w-px bg-border" aria-hidden="true" />
+          <ToolbarButton label="Send backward" onClick={() => reorderSelected("backward")}>
+            <ArrowDown className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton label="Bring forward" onClick={() => reorderSelected("forward")}>
+            <ArrowUp className="h-4 w-4" />
+          </ToolbarButton>
+          {selIsBackground ? null : (
+            <ToolbarButton label="Delete" onClick={deleteSelected}>
+              <Trash2 className="h-4 w-4" />
+            </ToolbarButton>
+          )}
         </div>
         </>
       ) : null}
