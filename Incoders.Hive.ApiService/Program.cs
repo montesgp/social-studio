@@ -153,6 +153,7 @@ app.MapSocialNetworksEndpoints();
 app.MapClientReferentAccountsEndpoints();
 app.MapClientCompetitorAccountsEndpoints();
 app.MapClientOwnAccountsEndpoints();
+app.MapClientAestheticProfileEndpoints();
 app.MapClientAssetEndpoints();
 app.MapClientBrandManualsEndpoints();
 app.MapGeneralStrategyEndpoints();

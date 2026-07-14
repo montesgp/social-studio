@@ -51,4 +51,27 @@ public static class ProfileAnalysisErrors
     public static readonly Error NotResumable = Error.Validation(
         "social.profile_analysis.not_resumable",
         "social.profile_analysis.errors.not_resumable");
+
+    /// <summary>
+    /// client-analysis-data admin panel: no completed (<c>Analyzed</c>) analysis exists for the
+    /// client, so there is nothing to display/edit in the aesthetic profile admin panel.
+    /// </summary>
+    public static readonly Error NoCompletedAnalysis = Error.Validation(
+        "social.profile_analysis.no_completed_analysis",
+        "social.profile_analysis.errors.no_completed_analysis");
+
+    /// <summary>
+    /// client-analysis-data admin panel: the supplied background pattern list is empty.
+    /// </summary>
+    public static readonly Error BackgroundPatternEmpty = Error.Validation(
+        "social.profile_analysis.background_pattern_empty",
+        "social.profile_analysis.errors.background_pattern_empty");
+
+    /// <summary>
+    /// client-analysis-data admin panel: one or more supplied background pattern values are not
+    /// a recognized <c>SlideBackgroundKind</c> ("Photo" / "FlatColor" / "Decorator").
+    /// </summary>
+    public static readonly Error InvalidBackgroundPatternValue = Error.Validation(
+        "social.profile_analysis.invalid_background_pattern_value",
+        "social.profile_analysis.errors.invalid_background_pattern_value");
 }

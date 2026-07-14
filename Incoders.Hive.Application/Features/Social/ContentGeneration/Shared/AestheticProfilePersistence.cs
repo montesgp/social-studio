@@ -148,6 +148,49 @@ public static class AestheticProfilePersistence
         }
     }
 
+    /// <summary>
+    /// client-analysis-data admin panel: patches ONLY the <c>BackgroundPattern</c> (and its
+    /// derived <c>TypicalSlideCount</c>) on an existing stored aesthetic profile, round-tripping
+    /// every other field unchanged. Used by the admin edit flow so a manual correction never
+    /// corrupts palette/motifs/reference-images/etc. captured by the extractor.
+    /// <para>
+    /// When <paramref name="existingJson"/> is null, empty, or malformed, starts from an empty
+    /// payload (all other fields null) rather than throwing — same graceful-degrade contract as
+    /// <see cref="Read"/>.
+    /// </para>
+    /// </summary>
+    public static string WithBackgroundPattern(
+        string? existingJson,
+        IReadOnlyList<SlideBackgroundKind> backgroundPattern)
+    {
+        StoredAestheticProfile dto;
+        try
+        {
+            dto = string.IsNullOrWhiteSpace(existingJson)
+                ? EmptyStoredProfile
+                : JsonSerializer.Deserialize<StoredAestheticProfile>(existingJson, JsonOpts) ?? EmptyStoredProfile;
+        }
+        catch
+        {
+            dto = EmptyStoredProfile;
+        }
+
+        var patched = dto with
+        {
+            BackgroundPattern = backgroundPattern.Select(k => k.ToString()).ToArray(),
+            TypicalSlideCount = backgroundPattern.Count,
+        };
+
+        return JsonSerializer.Serialize(patched, JsonOpts);
+    }
+
+    private static readonly StoredAestheticProfile EmptyStoredProfile = new(
+        Palette: null,
+        StyleDescriptors: null,
+        Motifs: null,
+        CaptionVoice: null,
+        ReferenceImages: null);
+
     private sealed record StoredAestheticProfile(
         IReadOnlyList<StoredPaletteEntry>? Palette,
         IReadOnlyList<string>? StyleDescriptors,

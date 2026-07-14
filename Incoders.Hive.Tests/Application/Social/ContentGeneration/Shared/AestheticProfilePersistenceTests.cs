@@ -423,4 +423,65 @@ public sealed class AestheticProfilePersistenceTests
 
         Assert.Null(read.SchemaVersion);
     }
+
+    // ── client-analysis-data admin panel: WithBackgroundPattern patches ONLY the
+    // BackgroundPattern (+ derived TypicalSlideCount) fields, round-tripping every other
+    // stored field untouched (must-not-corrupt-other-fields constraint) ──────────────────
+
+    [Fact]
+    public void WithBackgroundPattern_PatchesOnlyBackgroundPatternAndTypicalSlideCount()
+    {
+        var extraction = new AestheticExtraction(
+            Palette: [new AestheticPaletteEntry("#C0FFEE", "Primary", 1)],
+            StyleDescriptors: ["airy"],
+            Motifs: ["film grain"],
+            CaptionVoice: "playful",
+            BackgroundPattern: [SlideBackgroundKind.FlatColor, SlideBackgroundKind.FlatColor]);
+        var existingJson = AestheticProfilePersistence.Serialize(extraction, []);
+
+        var patchedJson = AestheticProfilePersistence.WithBackgroundPattern(
+            existingJson,
+            [SlideBackgroundKind.Photo, SlideBackgroundKind.FlatColor, SlideBackgroundKind.Photo]);
+        var read = AestheticProfilePersistence.Read(patchedJson);
+
+        Assert.Equal(3, read.BackgroundPattern!.Count);
+        Assert.Equal(SlideBackgroundKind.Photo, read.BackgroundPattern[0]);
+        Assert.Equal(SlideBackgroundKind.FlatColor, read.BackgroundPattern[1]);
+        Assert.Equal(SlideBackgroundKind.Photo, read.BackgroundPattern[2]);
+        Assert.Equal(3, read.TypicalSlideCount);
+
+        // Untouched fields preserved
+        Assert.Equal("airy", read.StyleDescriptors?[0]);
+        Assert.Equal("playful", read.CaptionVoice);
+        Assert.Equal("#C0FFEE", read.Palette![0].Hex);
+        Assert.Single(read.Motifs!);
+    }
+
+    [Fact]
+    public void WithBackgroundPattern_NullExistingJson_CreatesNewPayload_WithOnlyBackgroundPatternSet()
+    {
+        var patchedJson = AestheticProfilePersistence.WithBackgroundPattern(
+            null,
+            [SlideBackgroundKind.Photo, SlideBackgroundKind.Photo]);
+        var read = AestheticProfilePersistence.Read(patchedJson);
+
+        Assert.Equal(2, read.BackgroundPattern!.Count);
+        Assert.Equal(2, read.TypicalSlideCount);
+        Assert.True(read.Palette is null or { Count: 0 });
+    }
+
+    [Fact]
+    public void WithBackgroundPattern_MalformedExistingJson_CreatesNewPayload_NoException()
+    {
+        const string malformed = "{not valid json";
+
+        var patchedJson = AestheticProfilePersistence.WithBackgroundPattern(
+            malformed,
+            [SlideBackgroundKind.FlatColor]);
+        var read = AestheticProfilePersistence.Read(patchedJson);
+
+        Assert.Single(read.BackgroundPattern!);
+        Assert.Equal(SlideBackgroundKind.FlatColor, read.BackgroundPattern![0]);
+        Assert.Equal(1, read.TypicalSlideCount);
+    }
 }

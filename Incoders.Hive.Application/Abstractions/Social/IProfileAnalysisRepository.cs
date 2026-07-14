@@ -106,7 +106,36 @@ public interface IProfileAnalysisRepository
         Guid clientId,
         CancellationToken cancellationToken = default) =>
         Task.FromResult(new AestheticFreshnessSnapshot(null, false, false, false));
+
+    /// <summary>
+    /// client-analysis-data admin panel: returns a lightweight summary of the client's most
+    /// recent profile analysis (any status, newest by <c>CreatedAtUtc</c> first) — the analysis
+    /// id, status, completion timestamp, scrape target, and raw stored aesthetic payload. Used by
+    /// the admin panel to show "what was captured last" and, when Analyzed, to locate the row to
+    /// patch on edit. Returns <c>null</c> when the client has no analysis at all.
+    /// <para>
+    /// Default returns <c>null</c> so existing test fakes compile unchanged; the real EF adapter
+    /// overrides it.
+    /// </para>
+    /// </summary>
+    Task<LatestProfileAnalysisSummary?> GetLatestForClientAsync(
+        Guid orgId,
+        Guid clientId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<LatestProfileAnalysisSummary?>(null);
 }
+
+/// <summary>
+/// client-analysis-data admin panel: lightweight projection of the client's most recent
+/// profile analysis row, used to drive the admin read/edit panel without loading the full
+/// <c>ProfileAnalysis</c> aggregate.
+/// </summary>
+public sealed record LatestProfileAnalysisSummary(
+    Guid AnalysisId,
+    string Status,
+    DateTime? CompletedAtUtc,
+    string ProfileUrlOrHandle,
+    string? AestheticProfileJson);
 
 /// <summary>
 /// Freshness signal for the latest completed analysis's aesthetic payload

@@ -236,6 +236,25 @@ public sealed class EfProfileAnalysisRepository : IProfileAnalysisRepository
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<LatestProfileAnalysisSummary?> GetLatestForClientAsync(
+        Guid orgId,
+        Guid clientId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.ProfileAnalyses
+            .AsNoTracking()
+            .Where(x => x.OrganizationId == orgId && x.ClientId == clientId)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Select(x => new LatestProfileAnalysisSummary(
+                x.Id,
+                x.Status,
+                x.CompletedAtUtc,
+                x.ProfileUrlOrHandle,
+                x.AestheticProfileJson))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     // ── Mapping helpers ────────────────────────────────────────────────────────
 
     private static ProfileAnalysisData ToData(ProfileAnalysis analysis) => new()
