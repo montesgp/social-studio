@@ -162,6 +162,11 @@ public static class InfrastructureContentGenerationExtensions
         services.AddScoped<IClientPostMediaArchiver, SupabasePostMediaArchiver>();
         services.AddScoped<IClientAestheticStyleExtractor, MultimodalAestheticStyleExtractor>();
 
+        // CAC-IMG-03: production image guardrail. Registered so ClientAestheticImageBackgroundService
+        // resolves a real validator (its ctor param is optional/null by default) and the retry/degrade
+        // path activates — rejects near-black/flat generated backgrounds instead of shipping them.
+        services.AddScoped<IImageGuardrailValidator, DegenerateImageGuardrailValidator>();
+
         return services;
     }
 }
