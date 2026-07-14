@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 
@@ -62,31 +63,78 @@ public static class StudioVisualMarkupResolver
 
         foreach (var envelope in envelopes)
         {
-            var reference = envelope.BackgroundImageRef;
-            if (string.IsNullOrWhiteSpace(reference) || IsAlreadyFetchable(reference))
-            {
-                resolved.Add(envelope);
-                continue;
-            }
-
-            // Reuses the exact storage-path -> data-URI resolution already used for this same
-            // BackgroundImageRef field by the PPTX export path (best-effort; original value is
-            // returned unchanged on any failure — never throws).
-            var dataUri = await ContentGenerationJobProcessor.InlineBackgroundUrlAsync(storage, reference, ct);
-            if (string.Equals(dataUri, reference, StringComparison.Ordinal))
-            {
-                // Resolution failed or was a no-op — leave this envelope unchanged (BGREF-04).
-                resolved.Add(envelope);
-                continue;
-            }
-
-            changed = true;
-            var updatedMarkup = envelope.Markup.Replace(reference, dataUri, StringComparison.Ordinal);
-            resolved.Add(envelope with { Markup = updatedMarkup, BackgroundImageRef = dataUri });
+            var (updated, envelopeChanged) = await ResolveEnvelopeAsync(envelope, storage, ct);
+            resolved.Add(updated);
+            changed |= envelopeChanged;
         }
 
         return changed ? CompositionSpecJson.Serialize(resolved) : visualSpecMarkup;
     }
+
+    private static async Task<(CompositionSpecEnvelope Envelope, bool Changed)> ResolveEnvelopeAsync(
+        CompositionSpecEnvelope envelope,
+        IGeneratedAssetStorage storage,
+        CancellationToken ct)
+    {
+        // The browser renders the persisted <c>Markup</c>, which carries the AI background as a raw
+        // storage-path <c>&lt;img src&gt;</c> (the render pipeline inlines it only transiently). Resolving
+        // just the separate <c>BackgroundImageRef</c> field is not enough: in real jobs that field points
+        // at a DIFFERENT storage path than the markup's img src, so the image stays unfetchable. Collect
+        // every storage-path reference — the field AND each <c>src="..."</c> in the markup — and inline it.
+        var references = new HashSet<string>(StringComparer.Ordinal);
+        if (!string.IsNullOrWhiteSpace(envelope.BackgroundImageRef) && !IsAlreadyFetchable(envelope.BackgroundImageRef))
+        {
+            references.Add(envelope.BackgroundImageRef);
+        }
+
+        foreach (Match match in SrcAttribute.Matches(envelope.Markup))
+        {
+            var value = match.Groups[1].Value;
+            if (!string.IsNullOrWhiteSpace(value) && !IsAlreadyFetchable(value))
+            {
+                references.Add(value);
+            }
+        }
+
+        if (references.Count == 0)
+        {
+            return (envelope, false);
+        }
+
+        var markup = envelope.Markup;
+        var backgroundImageRef = envelope.BackgroundImageRef;
+        var changed = false;
+
+        foreach (var reference in references)
+        {
+            // Reuses the exact storage-path -> data-URI resolution already used by the render/PPTX-export
+            // paths (best-effort; original value is returned unchanged on any failure — never throws,
+            // BGREF-04 semantics).
+            var dataUri = await ContentGenerationJobProcessor.InlineBackgroundUrlAsync(storage, reference, ct);
+            if (string.Equals(dataUri, reference, StringComparison.Ordinal))
+            {
+                // Resolution failed or was a no-op — leave this reference as-is.
+                continue;
+            }
+
+            markup = markup.Replace(reference, dataUri, StringComparison.Ordinal);
+            if (string.Equals(reference, backgroundImageRef, StringComparison.Ordinal))
+            {
+                backgroundImageRef = dataUri;
+            }
+
+            changed = true;
+        }
+
+        return changed
+            ? (envelope with { Markup = markup, BackgroundImageRef = backgroundImageRef }, true)
+            : (envelope, false);
+    }
+
+    // Matches the value of an HTML src attribute: src="...". The persisted composition markup embeds
+    // the AI background as <img src="<storage-path>">, so this captures the reference the browser needs.
+    private static readonly Regex SrcAttribute =
+        new("src\\s*=\\s*\"([^\"]*)\"", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static bool IsAlreadyFetchable(string reference) =>
         reference.StartsWith("data:", StringComparison.OrdinalIgnoreCase)

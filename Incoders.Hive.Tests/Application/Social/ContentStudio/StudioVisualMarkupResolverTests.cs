@@ -30,6 +30,28 @@ public sealed class StudioVisualMarkupResolverTests
     }
 
     [Fact]
+    public async Task ResolveBackgroundRefsAsync_MarkupImgSrcStoragePath_DiffersFromBackgroundImageRef_InlinesImgSrc()
+    {
+        // Real production shape (job 8d03e5e3): the persisted markup embeds the AI background as a
+        // raw storage-path <img src>, while the separate backgroundImageRef field points at a
+        // DIFFERENT storage path (a different format result). The browser renders the markup, so the
+        // <img src> is what must be inlined — resolving only backgroundImageRef leaves the image
+        // unfetchable and the studio shows no background.
+        const string imgSrcPath = "org/run/fmtA/carousel/slide_1.png";
+        const string bgRefPath = "org/run/fmtB/feed-carousel/slide_1_bg.png";
+        var markup =
+            "{\"schemaVersion\":1,\"markup\":\"<img src=\\\"" + imgSrcPath + "\\\" alt=\\\"ai-generated-background\\\" />\",\"canvas\":{\"width\":1080,\"height\":1080,\"dpi\":96},\"slotGeometry\":[],\"backgroundImageRef\":\"" + bgRefPath + "\"}";
+
+        var storage = new FakeGeneratedAssetStorage(imgSrcPath, new byte[] { 9, 8, 7 }, "image/png");
+
+        var resolved = await StudioVisualMarkupResolver.ResolveBackgroundRefsAsync(markup, storage, CancellationToken.None);
+
+        Assert.NotNull(resolved);
+        Assert.Contains("data:image/png;base64,", resolved);
+        Assert.DoesNotContain(imgSrcPath, resolved);
+    }
+
+    [Fact]
     public async Task ResolveBackgroundRefsAsync_LegacyDataUriBackground_LeftUnchanged()
     {
         const string dataUri = "data:image/png;base64,AAAA";
