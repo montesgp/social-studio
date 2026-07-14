@@ -86,29 +86,29 @@ public sealed class CreativeSlideIndexResolverTests
     }
 
     // -----------------------------------------------------------------------
-    // OQ-2 cap: MaxCreativeSlidesPerPackage = 2
+    // OQ-2 cap: MaxCreativeSlidesPerPackage = 3
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void MaxCreativeSlidesPerPackage_IsTwo()
+    public void MaxCreativeSlidesPerPackage_IsThree()
     {
-        Assert.Equal(2, CreativeSlideIndexResolver.MaxCreativeSlidesPerPackage);
+        Assert.Equal(3, CreativeSlideIndexResolver.MaxCreativeSlidesPerPackage);
     }
 
     [Fact]
-    public void Resolve_MoreThanCap_CappedToFirstTwo()
+    public void Resolve_MoreThanCap_CappedToFirstThree()
     {
-        var result = CreativeSlideIndexResolver.Resolve([1, 2, 3], slideCount: 5);
+        var result = CreativeSlideIndexResolver.Resolve([1, 2, 3, 4], slideCount: 5);
 
-        // Capped to first MaxCreativeSlidesPerPackage = 2
-        Assert.Equal([1, 2], result);
+        // Capped to first MaxCreativeSlidesPerPackage = 3
+        Assert.Equal([1, 2, 3], result);
     }
 
     [Fact]
-    public void Resolve_ThreeIndices_TakesOnlyFirstTwo()
+    public void Resolve_MoreThanCapIndices_TakesOnlyFirstCap()
     {
-        // After dedup and range filter, [1, 2, 3] → take 2
-        var result = CreativeSlideIndexResolver.Resolve([1, 2, 3], slideCount: 5);
+        // After dedup and range filter, [1, 2, 3, 4] → take 3
+        var result = CreativeSlideIndexResolver.Resolve([1, 2, 3, 4], slideCount: 5);
 
         Assert.Equal(CreativeSlideIndexResolver.MaxCreativeSlidesPerPackage, result.Count);
     }
@@ -133,12 +133,13 @@ public sealed class CreativeSlideIndexResolverTests
     public void Resolve_UnsortedInput_DedupsAndPreservesFirstOccurrence()
     {
         // The resolver applies dedup; order is input-order stable
-        var result = CreativeSlideIndexResolver.Resolve([3, 1, 3, 2], slideCount: 5);
+        var result = CreativeSlideIndexResolver.Resolve([3, 1, 4, 3, 2], slideCount: 5);
 
-        // After dedup: [3, 1, 2] — take first 2 → [3, 1]
-        Assert.Equal(2, result.Count);
+        // After dedup: [3, 1, 4, 2] — take first MaxCreativeSlidesPerPackage = 3 → [3, 1, 4]
+        Assert.Equal(3, result.Count);
         Assert.Equal(3, result[0]);
         Assert.Equal(1, result[1]);
+        Assert.Equal(4, result[2]);
     }
 
     // -----------------------------------------------------------------------
@@ -167,7 +168,7 @@ public sealed class CreativeSlideIndexResolverTests
     public void ResolveFromPattern_EqualLength_PhotoFlatColorInterleaved_ReturnsPhotoPositionsCapped()
     {
         // Pattern [Photo,FlatColor,Photo,FlatColor,Photo] (count=5), slideCount=5 → 1:1 mapping.
-        // Photo positions (0-based): 0,2,4 → 1-based slides: 1,3,5 → capped to [1,3] (MaxCreativeSlidesPerPackage=2).
+        // Photo positions (0-based): 0,2,4 → 1-based slides: 1,3,5 → within cap (MaxCreativeSlidesPerPackage=3).
         IReadOnlyList<SlideBackgroundKind> pattern =
         [
             SlideBackgroundKind.Photo,
@@ -179,7 +180,7 @@ public sealed class CreativeSlideIndexResolverTests
 
         var result = CreativeSlideIndexResolver.ResolveFromPattern(pattern, slideCount: 5);
 
-        Assert.Equal([1, 3], result);
+        Assert.Equal([1, 3, 5], result);
     }
 
     [Fact]
@@ -192,7 +193,7 @@ public sealed class CreativeSlideIndexResolverTests
         //   i=3 → 1 → FlatColor → skip
         //   i=4 → 1 → FlatColor → skip
         //   i=5 → 2 → Photo  → creative
-        // Photo slides [1,2,5], capped to first MaxCreativeSlidesPerPackage=2 → [1,2].
+        // Photo slides [1,2,5], within MaxCreativeSlidesPerPackage=3 → [1,2,5].
         IReadOnlyList<SlideBackgroundKind> pattern =
         [
             SlideBackgroundKind.Photo,
@@ -202,7 +203,7 @@ public sealed class CreativeSlideIndexResolverTests
 
         var result = CreativeSlideIndexResolver.ResolveFromPattern(pattern, slideCount: 5);
 
-        Assert.Equal([1, 2], result);
+        Assert.Equal([1, 2, 5], result);
     }
 
     [Fact]
@@ -221,6 +222,7 @@ public sealed class CreativeSlideIndexResolverTests
         Assert.Equal(CreativeSlideIndexResolver.MaxCreativeSlidesPerPackage, result.Count);
         Assert.Equal(1, result[0]);
         Assert.Equal(2, result[1]);
+        Assert.Equal(3, result[2]);
     }
 
     // -----------------------------------------------------------------------

@@ -12,10 +12,11 @@ public static class CreativeSlideIndexResolver
 {
     /// <summary>
     /// Maximum number of creative slides that will receive a generated raster background per package.
-    /// DECISION-NEEDED (OQ-2): confirm this value and 1024×1024 resolution with the owner before GA.
-    /// Proposed default ships; this constant is the sole authoritative cap.
+    /// Owner-confirmed value (OQ-2): 3 — covers carousels whose captured pattern has up to three Photo
+    /// slides (e.g. [Photo, Photo, FlatColor, FlatColor, Photo] → slides 1, 2, 5) without unbounded
+    /// generation time/GPU cost. This constant is the sole authoritative cap.
     /// </summary>
-    public const int MaxCreativeSlidesPerPackage = 2;
+    public const int MaxCreativeSlidesPerPackage = 3;
 
     /// <summary>
     /// Resolves the final set of creative slide indices for <paramref name="slideCount"/> slides.

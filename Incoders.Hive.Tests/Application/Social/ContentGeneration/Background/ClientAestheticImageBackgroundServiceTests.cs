@@ -78,11 +78,11 @@ public sealed class ClientAestheticImageBackgroundServiceTests
     }
 
     // -----------------------------------------------------------------------
-    // Cap enforcement (OQ-2): 3 indices → only first 2 processed (capped to MaxCreativeSlidesPerPackage=2)
+    // Cap enforcement (OQ-2): 4 indices → only first 3 processed (capped to MaxCreativeSlidesPerPackage=3)
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task BuildCreativeBackgroundsAsync_CapEnforcement_OnlyProcessesFirstTwo()
+    public async Task BuildCreativeBackgroundsAsync_CapEnforcement_OnlyProcessesFirstThree()
     {
         var callTracker = new List<int>();
         var promptWriter = new TrackingPromptWriter(callTracker, prompt: "background prompt");
@@ -91,17 +91,18 @@ public sealed class ClientAestheticImageBackgroundServiceTests
 
         var sut = BuildSut(promptWriter, imageGateway, storage);
 
-        // 3 indices supplied — only first 2 should be processed (cap=2)
-        var result = await sut.BuildCreativeBackgroundsAsync(BuildRequest([1, 2, 3]), CancellationToken.None);
+        // 4 indices supplied — only first 3 should be processed (cap=3)
+        var result = await sut.BuildCreativeBackgroundsAsync(BuildRequest([1, 2, 3, 4]), CancellationToken.None);
 
-        // Slide 3 must NOT be in the result
-        Assert.DoesNotContain(3, result.Keys);
-        // First 2 must be present
+        // Slide 4 must NOT be in the result
+        Assert.DoesNotContain(4, result.Keys);
+        // First 3 must be present
         Assert.Contains(1, result.Keys);
         Assert.Contains(2, result.Keys);
-        // Prompt writer called exactly 2 times
-        Assert.Equal(2, callTracker.Count);
-        Assert.DoesNotContain(3, callTracker);
+        Assert.Contains(3, result.Keys);
+        // Prompt writer called exactly 3 times
+        Assert.Equal(3, callTracker.Count);
+        Assert.DoesNotContain(4, callTracker);
     }
 
     // -----------------------------------------------------------------------

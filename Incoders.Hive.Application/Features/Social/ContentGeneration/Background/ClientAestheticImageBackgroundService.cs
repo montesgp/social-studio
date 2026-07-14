@@ -17,7 +17,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Background
 ///
 /// <para>
 /// Applies <see cref="CreativeSlideIndexResolver.MaxCreativeSlidesPerPackage"/> cap,
-/// processes the ≤2 creative slides SERIALLY (they share a scoped, non-thread-safe EF
+/// processes the ≤3 creative slides SERIALLY (they share a scoped, non-thread-safe EF
 /// DbContext via the prompt-writer's workflow-config resolution; parallelism raced it),
 /// reuses stored backgrounds when the prompt hash is unchanged (OQ-3),
 /// and omits any failed slide from the returned map — degrading that slide to the
