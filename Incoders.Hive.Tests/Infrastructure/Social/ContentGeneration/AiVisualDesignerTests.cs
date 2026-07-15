@@ -56,7 +56,7 @@ public sealed class AiVisualDesignerTests
 
         var output = result.Value;
         Assert.False(string.IsNullOrWhiteSpace(output.Markup), "Markup must be non-empty.");
-        Assert.Equal("visual-designer/v1", output.PromptVersionKey);
+        Assert.Equal("visual-designer/v2", output.PromptVersionKey);
         Assert.False(output.IsValid, "IsValid must be false — guardrails have not run yet.");
     }
 
@@ -72,7 +72,7 @@ public sealed class AiVisualDesignerTests
             OrgId, BuildSpec(), BuildBrand(), new BackgroundSelection.Creative(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal("visual-designer/v1", result.Value.PromptVersionKey);
+        Assert.Equal("visual-designer/v2", result.Value.PromptVersionKey);
     }
 
     // -----------------------------------------------------------------------
@@ -142,6 +142,56 @@ public sealed class AiVisualDesignerTests
         Assert.True(result.IsSuccess,
             "Tier-2 References must succeed with text-only fallback. " +
             "FOLLOW-UP: Add vision image blocks when IAiCompletionGateway supports multimodal input.");
+    }
+
+    // -----------------------------------------------------------------------
+    // Overlay fix: image-background tiers must forbid the full-bleed scrim/overlay
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ComposeAsync_Tier1ForcedDefault_PromptForbidsFullBleedScrim()
+    {
+        var gatewaySpy = new SpyAiGateway(BuildSuccessMarkup());
+        var designer = BuildDesigner(gatewaySpy);
+        var forcedDefault = new BackgroundSelection.ForcedDefault(
+            Url: "https://cdn.example.com/forced-bg.png", Name: "forced-bg");
+
+        await designer.ComposeAsync(OrgId, BuildSpec(), BuildBrand(), forcedDefault, CancellationToken.None);
+
+        Assert.NotNull(gatewaySpy.CapturedInput);
+        Assert.Contains("DO NOT lay a full-bleed translucent scrim", gatewaySpy.CapturedInput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ComposeAsync_Tier2References_PromptForbidsFullBleedScrim()
+    {
+        var gatewaySpy = new SpyAiGateway(BuildSuccessMarkup());
+        var designer = BuildDesigner(gatewaySpy);
+        var references = new BackgroundSelection.References(new[]
+        {
+            new BrandBackgroundTemplateSnapshot(
+                "ref-bg-1", "https://cdn.example.com/ref1.png", null,
+                BackgroundTier.Reference, "story", false)
+        });
+
+        await designer.ComposeAsync(OrgId, BuildSpec(), BuildBrand(), references, CancellationToken.None);
+
+        Assert.NotNull(gatewaySpy.CapturedInput);
+        Assert.Contains("DO NOT lay a full-bleed translucent scrim", gatewaySpy.CapturedInput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ComposeAsync_CreativeTier_DoesNotForbidScrim()
+    {
+        // The no-scrim rule is scoped to real image backgrounds; the creative tier generates its own
+        // background and may legitimately use overlays, so the directive must not leak into it.
+        var gatewaySpy = new SpyAiGateway(BuildSuccessMarkup());
+        var designer = BuildDesigner(gatewaySpy);
+
+        await designer.ComposeAsync(OrgId, BuildSpec(), BuildBrand(), new BackgroundSelection.Creative(), CancellationToken.None);
+
+        Assert.NotNull(gatewaySpy.CapturedInput);
+        Assert.DoesNotContain("DO NOT lay a full-bleed translucent scrim", gatewaySpy.CapturedInput, StringComparison.Ordinal);
     }
 
     // -----------------------------------------------------------------------
