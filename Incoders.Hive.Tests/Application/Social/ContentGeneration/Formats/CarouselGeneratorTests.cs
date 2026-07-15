@@ -38,8 +38,8 @@ public sealed class CarouselGeneratorTests
         Assert.Equal(FormatGenerationStatus.Succeeded, result.Status);
         Assert.NotNull(result.Payload);
         Assert.Equal(carousel.CoverTitle, result.Payload.CoverTitle);
-        // Latest: client-directive precedence (particular→general).
-        Assert.Equal("carousel.v6", result.PromptVersion);
+        // Latest: in-call post caption — mandatory publicationDescription + hashtags[].
+        Assert.Equal("carousel.v7", result.PromptVersion);
         Assert.Empty(result.InferredFields);
     }
 
@@ -136,6 +136,8 @@ public sealed class CarouselGeneratorTests
         Assert.Contains("@competitor", prompt);
         Assert.Contains("Educational Series", prompt);
         Assert.Contains("publicationDescription", prompt);
+        // In-call post caption: the carousel call also asks for hashtags so the studio post carries them.
+        Assert.Contains("hashtags", prompt);
     }
 
     [Fact]

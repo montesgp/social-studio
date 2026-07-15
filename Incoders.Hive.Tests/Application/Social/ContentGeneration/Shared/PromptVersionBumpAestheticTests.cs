@@ -21,22 +21,22 @@ public sealed class PromptVersionBumpAestheticTests
     [Fact]
     public void CarouselPromptVersion_BumpedAfterAestheticGuidanceAdded()
     {
-        // Bumped through: aesthetic guidance (v4), conditional CTA (v5), client-directive precedence (v6).
-        Assert.Equal("carousel.v6", ContentGenerationPromptVersions.Carousel);
+        // Bumped through: aesthetic (v4), CTA (v5), client-directive precedence (v6), in-call caption (v7).
+        Assert.Equal("carousel.v7", ContentGenerationPromptVersions.Carousel);
     }
 
     [Fact]
     public void StoryPromptVersion_BumpedAfterAestheticGuidanceAdded()
     {
-        // Bumped through: aesthetic guidance (v3), client-directive precedence + CTA/signature rules (v4).
-        Assert.Equal("story-single.v4", ContentGenerationPromptVersions.Story);
+        // Bumped through: aesthetic (v3), client-directive precedence (v4), in-call caption (v5).
+        Assert.Equal("story-single.v5", ContentGenerationPromptVersions.Story);
     }
 
     [Fact]
     public void FeedPostPromptVersion_BumpedAfterAestheticGuidanceAdded()
     {
-        // Bumped through: aesthetic guidance (v3), conditional CTA (v4), client-directive precedence (v5).
-        Assert.Equal("feed-single.v5", ContentGenerationPromptVersions.FeedPost);
+        // Bumped through: aesthetic (v3), CTA (v4), client-directive precedence (v5), in-call caption (v6).
+        Assert.Equal("feed-single.v6", ContentGenerationPromptVersions.FeedPost);
     }
 
     [Fact]

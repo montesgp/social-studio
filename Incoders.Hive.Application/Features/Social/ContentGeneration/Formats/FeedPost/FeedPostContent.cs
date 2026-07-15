@@ -10,4 +10,5 @@ public sealed record FeedPostContent(
     string? BackgroundPrompt,
     string? SignatureText,
     string? LayoutHint,
-    string? PublicationDescription = null);
+    string? PublicationDescription = null,
+    IReadOnlyList<string>? Hashtags = null);

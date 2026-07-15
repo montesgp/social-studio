@@ -63,7 +63,8 @@ public sealed class StoryGenerator : FormatContentGeneratorBase<StoryContent>
                 backgroundPrompt = "string|null - visual background direction when no brand template exists",
                 signatureText = "string|null - signature/handle ONLY when client directives require it or the client consistently signs; null otherwise",
                 layoutHint = "string|null - layout suggestion e.g. grid, hero, split",
-                publicationDescription = "string|null - social post copy to publish with this story"
+                publicationDescription = "string - ready-to-publish caption/post copy for this story; ALWAYS provide it, never null",
+                hashtags = "array of string - relevant hashtags for the post caption (without duplicates); [] if none apply"
             }
         };
         return JsonSerializer.Serialize(input, JsonOptions);

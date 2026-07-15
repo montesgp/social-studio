@@ -18,22 +18,22 @@ public sealed class PromptVersionBumpTests
     [Fact]
     public void ContentGenerationPromptVersions_Carousel_IsV3()
     {
-        // Latest: client-directive precedence (particular→general) over CTA/signature defaults.
-        Assert.Equal("carousel.v6", ContentGenerationPromptVersions.Carousel);
+        // Latest: in-call post caption — mandatory publicationDescription + hashtags[].
+        Assert.Equal("carousel.v7", ContentGenerationPromptVersions.Carousel);
     }
 
     [Fact]
     public void ContentGenerationPromptVersions_Story_IsV2()
     {
-        // Latest: client-directive precedence + CTA/signature rules.
-        Assert.Equal("story-single.v4", ContentGenerationPromptVersions.Story);
+        // Latest: in-call post caption — mandatory publicationDescription + hashtags[].
+        Assert.Equal("story-single.v5", ContentGenerationPromptVersions.Story);
     }
 
     [Fact]
     public void ContentGenerationPromptVersions_FeedPost_IsV2()
     {
-        // Latest: client-directive precedence over CTA/signature defaults.
-        Assert.Equal("feed-single.v5", ContentGenerationPromptVersions.FeedPost);
+        // Latest: in-call post caption — mandatory publicationDescription + hashtags[].
+        Assert.Equal("feed-single.v6", ContentGenerationPromptVersions.FeedPost);
     }
 
     // ─── Untouched formats must not change ────────────────────────────────────
