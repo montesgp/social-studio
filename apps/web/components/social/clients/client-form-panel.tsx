@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ClientReferentAccountsSection } from "@/components/social/clients/client-referent-accounts-section";
 import { ClientCompetitorAccountsSection } from "@/components/social/clients/client-competitor-accounts-section";
 import { ClientOwnAccountsSection } from "@/components/social/clients/client-own-accounts-section";
+import { ClientAestheticProfileSection } from "@/components/social/clients/client-aesthetic-profile-section";
 import { ClientBrandManualSection } from "@/components/social/clients/client-brand-manual-section";
 import { ClientStrategySection } from "@/components/social/clients/client-strategy-section";
 import { ClientContentPlanSection } from "@/components/social/clients/client-content-plan-section";
@@ -250,6 +251,7 @@ export function ClientFormPanel({
             <TabsTrigger value="strategy">General Strategy</TabsTrigger>
             <TabsTrigger value="content-plan">Content Plan</TabsTrigger>
             <TabsTrigger value="accounts">Accounts</TabsTrigger>
+            <TabsTrigger value="analysis-data">Analysis Data</TabsTrigger>
           </TabsList>
 
           <TabsContent value="info">
@@ -306,6 +308,10 @@ export function ClientFormPanel({
                 />
               </TabsContent>
             </Tabs>
+          </TabsContent>
+
+          <TabsContent value="analysis-data" className="pt-4">
+            <ClientAestheticProfileSection clientId={clientId} token={token} />
           </TabsContent>
         </Tabs>
       )}

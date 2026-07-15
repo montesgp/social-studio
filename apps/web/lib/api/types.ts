@@ -532,6 +532,87 @@ export interface PagedClientOwnAccounts {
   totalCount: number;
 }
 
+// ── client-analysis-data admin panel ─────────────────────────────────────────
+
+export type SlideBackgroundKind = "Photo" | "FlatColor" | "Decorator";
+
+export interface AestheticPaletteEntry {
+  hex: string;
+  role: string | null;
+  rank: number;
+}
+
+export interface ColorPairing {
+  backgroundHex: string;
+  textHex: string;
+  rank: number;
+}
+
+export interface ConceptualMethod {
+  method: string;
+  rationale: string;
+  cues: string[];
+}
+
+export interface ImageTypeRatio {
+  photo: number;
+  flatColor: number;
+  decorator: number;
+  sampleSize: number;
+}
+
+export interface BrandMarkDetection {
+  present: boolean;
+  positionHint: string | null;
+  colorHex: string | null;
+}
+
+export interface ProfilePostImageRef {
+  sourcePostId: string;
+  assetIndex: number;
+  storagePath: string;
+  contentHash: string;
+}
+
+/** Full decoded aesthetic profile, exactly as captured by the extractor — includes gaps as null/empty. */
+export interface ClientAestheticProfile {
+  backgroundDescriptors: string[];
+  voiceTone: string | null;
+  averageSlidesPerCarousel: number | null;
+  analyzedAtUtc: string | null;
+  palette: AestheticPaletteEntry[] | null;
+  styleDescriptors: string[] | null;
+  motifs: string[] | null;
+  captionVoice: string | null;
+  referenceImages: ProfilePostImageRef[] | null;
+  creativeSlideIndices: number[] | null;
+  backgroundPattern: SlideBackgroundKind[] | null;
+  typicalSlideCount: number | null;
+  colorPairings: ColorPairing[] | null;
+  conceptualMethod: ConceptualMethod | null;
+  imageTypeRatio: ImageTypeRatio | null;
+  brandMark: BrandMarkDetection | null;
+}
+
+export interface ClientAestheticProfileAdmin {
+  hasAnalysis: boolean;
+  analysisId: string | null;
+  status: string | null;
+  completedAtUtc: string | null;
+  profileUrlOrHandle: string | null;
+  profile: ClientAestheticProfile | null;
+}
+
+export interface UpdateClientAestheticProfileBackgroundPatternPayload {
+  backgroundPattern: SlideBackgroundKind[];
+}
+
+export interface UpdateClientAestheticProfileBackgroundPatternResult {
+  analysisId: string;
+  backgroundPattern: SlideBackgroundKind[];
+  typicalSlideCount: number;
+}
+
 export type BackgroundSourcingPolicy = "ClientDefinedSet" | "AiPalette" | "ClientAesthetic" | null;
 
 export interface ColorEntry {
