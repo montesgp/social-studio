@@ -24,7 +24,7 @@ namespace Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
 /// 4. Set status → ProfileScraped|ProfileScrapedPartial. Persist raw posts + stats.
 /// 5. Select AI provider via IDefaultAiSelector.
 /// 6. Set status → Analyzing. Call IAiCompletionGateway.CompleteJsonAsync&lt;ProfileAnalysisResult&gt;.
-/// 7. Set status → Analyzed. Persist AI analysis JSON + diagnostics.
+/// 7. Persist AI analysis JSON + diagnostics, enrich client aesthetic while non-terminal, then set status → Analyzed.
 /// On any failure → Set status → Failed. Persist failure code + diagnostics.
 ///
 /// Mirrors SingleContentAnalyzer structure. Strict hexagonal — no EF/Npgsql/AspNetCore/Supabase types.
@@ -674,16 +674,20 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         };
 
         var aiAnalysis = MapAiAnalysis(aiResult.Value.Payload);
-        var completedAt = _clock.UtcNow;
-        analysis.CompleteAnalysis(aiAnalysis, completedAt);
         analysis.SetAiAnalysis(
             aiAnalysisJson: JsonSerializer.Serialize(aiResult.Value.Payload, JsonOptions),
             diagnosticsJson: JsonSerializer.Serialize(finalDiagnostics, JsonOptions));
         await PersistAsync(analysis, cancellationToken);
 
-        // Phase 2 (CAG2-PA-02/03): best-effort aesthetic enrichment AFTER the analysis is durably
-        // Analyzed. Never fails or rolls back the completed analysis.
+        // Phase 2 (CAG2-PA-02/03): best-effort aesthetic enrichment while the analysis is still
+        // non-terminal. Content generation treats Analyzed as terminal; publishing that status before
+        // aesthetic_profile_json exists creates a race where first-time ClientAesthetic jobs stop
+        // waiting and fail with no usable aesthetic.
         await TryEnrichClientAestheticAsync(analysis, ownerPosts, cancellationToken);
+
+        var completedAt = _clock.UtcNow;
+        analysis.CompleteAnalysis(aiAnalysis, completedAt);
+        await PersistAsync(analysis, cancellationToken);
 
         _logger.LogInformation(
             "WorkflowCompleted OrganizationId={OrganizationId} WorkflowKey={WorkflowKey} AnalysisType={AnalysisType} AnalysisId={AnalysisId} ActorId={ActorId} AiProviderKey={AiProviderKey} AiModel={AiModel} AiPriority={AiPriority} AiFallbackUsed={AiFallbackUsed}",
@@ -728,7 +732,8 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
     /// configured the OPTIONAL <c>extract-aesthetic</c> (multimodal) route — so orgs that don't use
     /// ClientAesthetic pay nothing (no image download, no vision call). Captures the client's real
     /// post images durably, distils a multi-signal aesthetic via the multimodal extractor, and
-    /// persists it on the analysis. NEVER fails or rolls back the already-Analyzed record.
+    /// persists it on the analysis before the terminal <see cref="ProfileAnalysisStatus.Analyzed"/>
+    /// status is published. NEVER fails or rolls back the AI analysis result.
     /// </summary>
     private async Task TryEnrichClientAestheticAsync(
         ProfileAnalysis analysis,
@@ -749,7 +754,9 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
         }
 
         // Hard time budget so a slow/stalled provider CDN download or vision call can NEVER hang the
-        // analysis worker. The analysis is already persisted as Analyzed; enrichment is best-effort.
+        // analysis worker. The analysis remains non-terminal while enrichment runs; after this method
+        // returns, the caller publishes the terminal Analyzed status whether enrichment succeeded or
+        // was skipped/failed.
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(TimeSpan.FromSeconds(EnrichmentBudgetSeconds));
         var ct = budget.Token;
