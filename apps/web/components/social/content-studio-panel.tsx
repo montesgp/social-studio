@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -20,11 +21,14 @@ import {
   BadgeCheck,
   Bold,
   Bookmark,
+  GripVertical,
   Heart,
   Italic,
   MessageCircle,
   Minus,
   MoreHorizontal,
+  Pin,
+  PinOff,
   Plus,
   Send,
   Square,
@@ -1871,6 +1875,12 @@ const DesignCanvas = forwardRef<
   const selectedRef = useRef<HTMLElement | null>(null);
   const [selIsBackground, setSelIsBackground] = useState(false);
   const [selRect, setSelRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  // The edit toolbar is a floating, viewport-fixed panel (not pinned onto the component) so it never
+  // covers the element being edited nor hides behind sibling components. The user can drag it anywhere
+  // and pin it to lock the position. `toolbarPos` is viewport (fixed) coordinates; null = use the
+  // default left dock, computed from the canvas so it sits between the studio sidebar and the slide.
+  const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number } | null>(null);
+  const [toolbarPinned, setToolbarPinned] = useState(false);
   const dragRef = useRef<
     | { mode: "move"; el: HTMLElement; sx: number; sy: number; left: number; top: number; moved: boolean }
     | { mode: "resize"; el: HTMLElement; sx: number; sy: number; w: number; h: number; fs: number; moved: boolean }
@@ -2134,6 +2144,37 @@ const DesignCanvas = forwardRef<
     onDirty();
   };
 
+  // The floating toolbar lives in viewport (fixed) space. Default dock: just left of the slide, in the
+  // gap between the studio sidebar and the canvas — so it never overlaps the component being edited.
+  const effectiveToolbarPos =
+    toolbarPos ??
+    (() => {
+      const cr = containerRef.current?.getBoundingClientRect();
+      if (!cr) return { x: 16, y: 120 };
+      return { x: Math.max(12, Math.round(cr.left - 260)), y: Math.max(64, Math.round(cr.top)) };
+    })();
+
+  // Drag the whole panel by its header. Disabled while pinned so a pinned toolbar stays put.
+  const onToolbarDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (toolbarPinned) return;
+    const start = { x: e.clientX, y: e.clientY };
+    const origin = effectiveToolbarPos;
+    const move = (ev: PointerEvent) => {
+      setToolbarPos({
+        x: Math.max(4, origin.x + (ev.clientX - start.x)),
+        y: Math.max(4, origin.y + (ev.clientY - start.y)),
+      });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   return (
     <div ref={measureRef} className="w-full">
     {canEdit ? (
@@ -2180,9 +2221,7 @@ const DesignCanvas = forwardRef<
           }}
         />
       ) : null}
-      {selRect ? (
-        <>
-        {!selIsBackground ? (
+      {selRect && !selIsBackground ? (
         <div
           data-cs-handle
           onPointerDown={(e) => {
@@ -2204,15 +2243,40 @@ const DesignCanvas = forwardRef<
           className="absolute z-20 h-3.5 w-3.5 cursor-nwse-resize rounded-sm border-2 border-white bg-indigo-500 shadow"
           style={{ top: selRect.top + selRect.height - 7, left: selRect.left + selRect.width - 7 }}
         />
-        ) : null}
+      ) : null}
+    </div>
+    {selRect ? (
         <div
           data-cs-toolbar
-          className="absolute z-10 flex items-center gap-0.5 rounded-md border border-border bg-background p-1 shadow-lg"
-          style={{
-            top: Math.max(2, selRect.top - 40),
-            left: Math.min(Math.max(2, selRect.left), (containerRef.current?.clientWidth ?? 360) - 320),
-          }}
+          className="fixed z-[60] w-max rounded-md border border-border bg-background shadow-2xl"
+          style={{ top: effectiveToolbarPos.y, left: effectiveToolbarPos.x }}
         >
+          {/* Draggable header — move the panel anywhere; pin to lock it in place. */}
+          <div
+            onPointerDown={onToolbarDragStart}
+            className={cn(
+              "flex items-center gap-1 rounded-t-md border-b border-border bg-muted/60 px-1.5 py-1",
+              toolbarPinned ? "cursor-default" : "cursor-grab active:cursor-grabbing",
+            )}
+          >
+            <GripVertical className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+            <span className="mr-1 select-none text-[11px] font-medium text-muted-foreground">Edit</span>
+            <button
+              type="button"
+              aria-label={toolbarPinned ? "Unpin toolbar" : "Pin toolbar"}
+              aria-pressed={toolbarPinned}
+              title={toolbarPinned ? "Unpin toolbar" : "Pin toolbar in place"}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => setToolbarPinned((p) => !p)}
+              className={cn(
+                "ml-auto grid h-6 w-6 place-items-center rounded hover:bg-muted",
+                toolbarPinned ? "text-primary" : "text-muted-foreground",
+              )}
+            >
+              {toolbarPinned ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+          <div className="flex items-center gap-0.5 p-1">
           <ToolbarButton
             label="Smaller"
             onClick={() =>
@@ -2307,10 +2371,9 @@ const DesignCanvas = forwardRef<
               <Trash2 className="h-4 w-4" />
             </ToolbarButton>
           )}
+          </div>
         </div>
-        </>
       ) : null}
-    </div>
     </div>
   );
 });
