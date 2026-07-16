@@ -42,7 +42,11 @@ jobs:
     with:
       runs-on: ubuntu-latest
       dotnet-version: '10.0.x'
-      node-version: '20'
+      # Node 22 (current LTS) matches the local dev runtime. On Node 20 the frontend test command
+      # `tsx --test "lib/**/*.test.ts"` cannot expand the `**` globstar (Node added test-runner glob
+      # support in v21), so the gate failed with "Could not find .../lib/**/*.test.ts" on every PR
+      # even though it passed locally. GitHub also deprecated Node 20 on the runners.
+      node-version: '22'
       config-path: 'project.gates.yml'
       only: ${{ inputs.only || '' }}
       skip: ${{ inputs.skip || '' }}
