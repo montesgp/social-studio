@@ -515,11 +515,35 @@ public sealed class ContentGenerationJobProcessor
                 // Resilience (IMG-05): any non-cancellation exception from the service is caught, logged
                 // as a warning, and results in an empty map — all slides degrade to the CSS designer path.
                 // The CSS path MUST remain byte-for-byte unchanged when service is null or policy ≠ ClientAesthetic.
-                if (preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
+                //
+                // Observability: every reason this block is skipped is otherwise SILENT — a ClientAesthetic
+                // carousel then finishes looking like a normal success but with zero AI image backgrounds,
+                // which is indistinguishable in the logs from "worked as intended". Emit one explicit line
+                // per skip so a support/forensic pass sees WHY no photo backgrounds were generated.
+                var isClientAestheticCarousel =
+                    preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
+                    && FormatCatalog.ResolveForAssembly(formatKey)?.Layout == Layout.Carousel;
+
+                // Single source of truth for "this slide received a generated image background". The
+                // per-slide FlatColor short-circuit below MUST NOT override these slides with flat CSS
+                // (that discarded the generated image and produced the all-flat carousel we observed).
+                var slidesWithGeneratedImage = new HashSet<int>();
+
+                if (isClientAestheticCarousel
+                    && (_imageBackgroundService is null || backgroundPlan is null || aestheticProfile is null))
+                {
+                    _logger.LogWarning(
+                        "ContentGeneration: AI image backgrounds skipped for ClientAesthetic carousel {FormatKey} " +
+                        "(job {JobId}) — missing precondition: imageService={HasService} backgroundPlan={HasPlan} " +
+                        "aestheticProfile={HasProfile}. All slides use the CSS background path.",
+                        formatKey, job.Id,
+                        _imageBackgroundService is not null, backgroundPlan is not null, aestheticProfile is not null);
+                }
+
+                if (isClientAestheticCarousel
                     && _imageBackgroundService is not null
                     && backgroundPlan is not null
-                    && aestheticProfile is not null
-                    && FormatCatalog.ResolveForAssembly(formatKey)?.Layout == Layout.Carousel)
+                    && aestheticProfile is not null)
                 {
                     var formatSlideCount = TryGetSlideCount(step.Payload, formatKey);
                     // Route AI image generation to the client's Photo slides only, derived from the
@@ -527,8 +551,11 @@ public sealed class ContentGenerationJobProcessor
                     // photographic reference (the two conditionings conflict and the sampler diverges
                     // to noise) — they fall through to the CSS/palette path (ColorPairings) instead.
                     // Null/empty pattern → ResolveFromPattern delegates to the {first,last} cold-start default.
+                    // Photo ratio floors the set: an all-flat pattern from an image-heavy client (the
+                    // classifier under-counts image backgrounds) still yields >= 1 generated-image slide, so
+                    // the carousel does not silently fall back to flat CSS that looks nothing like the client.
                     var creativeIndices = CreativeSlideIndexResolver.ResolveFromPattern(
-                        aestheticProfile.BackgroundPattern, formatSlideCount);
+                        aestheticProfile.BackgroundPattern, formatSlideCount, aestheticProfile.ImageTypeRatio?.Photo);
 
                     if (creativeIndices.Count > 0)
                     {
@@ -587,7 +614,24 @@ public sealed class ContentGenerationJobProcessor
                             // FIX-2: overlay applied to backgroundPlan BEFORE ComposeManyAsync runs
                             // so the composer receives AI URLs, not the stale CSS plan (CG-COH-02).
                             backgroundPlan = backgroundPlan.WithForcedDefaults(creativeMap);
+                            foreach (var slide in creativeMap.Keys)
+                            {
+                                slidesWithGeneratedImage.Add(slide);
+                            }
                         }
+                    }
+                    else
+                    {
+                        // Observability: the ClientAesthetic BackgroundPattern classified every slide as
+                        // non-photo (e.g. all FlatColor), so NO AI image background is requested and the whole
+                        // carousel uses the CSS/flat path. This is the most common silent "no image backgrounds"
+                        // outcome (see memory clientaesthetic-image-gate-skipped): the profile can carry many
+                        // reference images and a high photo ratio yet still resolve a flat-only per-slide pattern.
+                        _logger.LogInformation(
+                            "ContentGeneration: AI image backgrounds skipped for ClientAesthetic carousel {FormatKey} " +
+                            "(job {JobId}) — BackgroundPattern resolved 0 photo slides (SlideCount={SlideCount}); " +
+                            "every slide uses the CSS background path.",
+                            formatKey, job.Id, formatSlideCount);
                     }
                 }
 
@@ -657,8 +701,13 @@ public sealed class ContentGenerationJobProcessor
                         // below falls back to a profile-level default in that case.
                         string? slideTextColorHex = null;
 
+                        // A slide that received a generated image background must keep it: the ratio floor
+                        // can mark an all-flat-pattern slide as creative, and ResolveKindForSlide (pattern-
+                        // only) would still map it to FlatColor. Without this guard the short-circuit would
+                        // overwrite the generated image with flat CSS — the exact all-flat carousel observed.
                         if (preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
                             && mappedFlatKind == SlideBackgroundKind.FlatColor
+                            && !slidesWithGeneratedImage.Contains(specIndex + 1)
                             && aestheticProfile?.ColorPairings is { Count: > 0 })
                         {
                             var paletteInferred = new InferenceAccumulator();

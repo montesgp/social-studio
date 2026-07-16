@@ -237,6 +237,13 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             }
         }
 
+        // Root-cause reconciliation: the ordered slideMixPattern (which slides look photographic) and the
+        // imageTypeCounts (how many, statistically) are produced independently and can contradict — an
+        // image-heavy client can still get an all-flat pattern that suppresses ALL image generation. The
+        // counts are the reliable magnitude signal, so when the pattern under-represents photos, inject the
+        // proportional number of photo slides. Only adds; never drops a pattern-derived photo slide.
+        backgroundPattern = BackgroundPatternReconciler.Reconcile(backgroundPattern, imageTypeRatio);
+
         // FFS-PA-01: map brandMark DTO → BrandMarkDetection VO. `Present: false` is a valid,
         // non-fabricated "no recurring mark" result — mapped whenever the model returns the
         // brandMark object at all. Absent brandMark key (older v2 responses) → null (cold-start
