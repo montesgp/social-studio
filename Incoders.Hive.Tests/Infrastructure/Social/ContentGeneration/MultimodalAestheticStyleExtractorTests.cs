@@ -112,6 +112,43 @@ public sealed class MultimodalAestheticStyleExtractorTests
     }
 
     [Fact]
+    public async Task SlideMixPattern_AllFlat_ButPhotoRatioMeaningful_ReconcilesToIncludePhoto()
+    {
+        // Root-cause fix: the model emitted an all-flat ordered pattern while its own counts say ~36% of
+        // the client's slides are photographic. The persisted BackgroundPattern must NOT contradict the
+        // counts — reconciliation injects a photo slide so image generation is not silently suppressed.
+        var gateway = new CaptureGateway(
+            paletteJson: "[]",
+            descriptors: "[]",
+            slideMixPattern: """["flat","flat","flat"]""",
+            imageTypeCountsJson: """{"photo":10,"flat":16,"decorator":2}""");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.BackgroundPattern);
+        Assert.Equal(3, result.BackgroundPattern!.Count);
+        Assert.Contains(SlideBackgroundKind.Photo, result.BackgroundPattern);
+    }
+
+    [Fact]
+    public async Task SlideMixPattern_AllFlat_LowPhotoRatio_StaysAllFlat()
+    {
+        // Genuinely flat-dominant client (photo ratio below threshold) → pattern left untouched.
+        var gateway = new CaptureGateway(
+            paletteJson: "[]",
+            descriptors: "[]",
+            slideMixPattern: """["flat","flat","flat"]""",
+            imageTypeCountsJson: """{"photo":1,"flat":24,"decorator":3}""");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.BackgroundPattern);
+        Assert.DoesNotContain(SlideBackgroundKind.Photo, result.BackgroundPattern!);
+    }
+
+    [Fact]
     public async Task SlideMixPattern_Absent_BackgroundPatternIsNull_ExtractionCompletes()
     {
         // CAC-BSP-01-b: no slideMixPattern → BackgroundPattern null; completes successfully
