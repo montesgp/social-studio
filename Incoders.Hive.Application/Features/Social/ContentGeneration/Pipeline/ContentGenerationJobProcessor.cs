@@ -523,6 +523,12 @@ public sealed class ContentGenerationJobProcessor
                 var isClientAestheticCarousel =
                     preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
                     && FormatCatalog.ResolveForAssembly(formatKey)?.Layout == Layout.Carousel;
+
+                // Single source of truth for "this slide received a generated image background". The
+                // per-slide FlatColor short-circuit below MUST NOT override these slides with flat CSS
+                // (that discarded the generated image and produced the all-flat carousel we observed).
+                var slidesWithGeneratedImage = new HashSet<int>();
+
                 if (isClientAestheticCarousel
                     && (_imageBackgroundService is null || backgroundPlan is null || aestheticProfile is null))
                 {
@@ -545,8 +551,11 @@ public sealed class ContentGenerationJobProcessor
                     // photographic reference (the two conditionings conflict and the sampler diverges
                     // to noise) — they fall through to the CSS/palette path (ColorPairings) instead.
                     // Null/empty pattern → ResolveFromPattern delegates to the {first,last} cold-start default.
+                    // Photo ratio floors the set: an all-flat pattern from an image-heavy client (the
+                    // classifier under-counts image backgrounds) still yields >= 1 generated-image slide, so
+                    // the carousel does not silently fall back to flat CSS that looks nothing like the client.
                     var creativeIndices = CreativeSlideIndexResolver.ResolveFromPattern(
-                        aestheticProfile.BackgroundPattern, formatSlideCount);
+                        aestheticProfile.BackgroundPattern, formatSlideCount, aestheticProfile.ImageTypeRatio?.Photo);
 
                     if (creativeIndices.Count > 0)
                     {
@@ -605,6 +614,10 @@ public sealed class ContentGenerationJobProcessor
                             // FIX-2: overlay applied to backgroundPlan BEFORE ComposeManyAsync runs
                             // so the composer receives AI URLs, not the stale CSS plan (CG-COH-02).
                             backgroundPlan = backgroundPlan.WithForcedDefaults(creativeMap);
+                            foreach (var slide in creativeMap.Keys)
+                            {
+                                slidesWithGeneratedImage.Add(slide);
+                            }
                         }
                     }
                     else
@@ -688,8 +701,13 @@ public sealed class ContentGenerationJobProcessor
                         // below falls back to a profile-level default in that case.
                         string? slideTextColorHex = null;
 
+                        // A slide that received a generated image background must keep it: the ratio floor
+                        // can mark an all-flat-pattern slide as creative, and ResolveKindForSlide (pattern-
+                        // only) would still map it to FlatColor. Without this guard the short-circuit would
+                        // overwrite the generated image with flat CSS — the exact all-flat carousel observed.
                         if (preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
                             && mappedFlatKind == SlideBackgroundKind.FlatColor
+                            && !slidesWithGeneratedImage.Contains(specIndex + 1)
                             && aestheticProfile?.ColorPairings is { Count: > 0 })
                         {
                             var paletteInferred = new InferenceAccumulator();

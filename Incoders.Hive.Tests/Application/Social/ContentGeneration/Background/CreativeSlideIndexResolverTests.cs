@@ -305,4 +305,119 @@ public sealed class CreativeSlideIndexResolverTests
             Assert.Equal(SlideBackgroundKind.FlatColor, CreativeSlideIndexResolver.ResolveKindForSlide(pattern, 4, i));
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Photo-ratio floor (client-aligned-carousel-generation follow-up):
+    // when the corpus photo ratio is meaningful, an all-flat pattern must still
+    // yield at least one generated-image slide (magnitude overrides order).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void MinPhotoRatioForFloor_IsThirtyPercent()
+    {
+        Assert.Equal(0.30, CreativeSlideIndexResolver.MinPhotoRatioForFloor);
+    }
+
+    [Fact]
+    public void ResolveFromPattern_AllFlatPattern_WithMeaningfulPhotoRatio_FloorsToOnePhotoSlide()
+    {
+        // Reproduces the real "Comet Comedy" case: pattern all-FlatColor, photoRatio 0.357, 3 slides.
+        // Without the floor this returns [] (no image backgrounds); with it, at least slide 1 is creative.
+        IReadOnlyList<SlideBackgroundKind> pattern =
+        [
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor
+        ];
+
+        var result = CreativeSlideIndexResolver.ResolveFromPattern(pattern, slideCount: 3, photoRatio: 0.357);
+
+        Assert.Equal([1], result);
+    }
+
+    [Fact]
+    public void ResolveFromPattern_AllFlatPattern_NullRatio_KeepsPatternOnlyBehaviorEmpty()
+    {
+        // Cold-start / no ratio → byte-identical to before (no floor): all-flat → empty.
+        IReadOnlyList<SlideBackgroundKind> pattern =
+        [
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor
+        ];
+
+        var result = CreativeSlideIndexResolver.ResolveFromPattern(pattern, slideCount: 3, photoRatio: null);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ResolveFromPattern_AllFlatPattern_SubThresholdRatio_NoFloor()
+    {
+        // Genuinely flat-dominant client (ratio below threshold) → no floor, stays empty.
+        IReadOnlyList<SlideBackgroundKind> pattern =
+        [
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor
+        ];
+
+        var result = CreativeSlideIndexResolver.ResolveFromPattern(pattern, slideCount: 3, photoRatio: 0.10);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ResolveFromPattern_AllFlatPattern_HighRatio_FloorsProportionally_SpreadFromEdges()
+    {
+        // ratio 0.7 * 5 = 3.5 → 4, capped to MaxCreativeSlidesPerPackage=3. Spread from edges → {1,5,2} sorted.
+        IReadOnlyList<SlideBackgroundKind> pattern =
+        [
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor
+        ];
+
+        var result = CreativeSlideIndexResolver.ResolveFromPattern(pattern, slideCount: 5, photoRatio: 0.7);
+
+        Assert.Equal([1, 2, 5], result);
+    }
+
+    [Fact]
+    public void ResolveFromPattern_PatternAlreadyMeetsTarget_RatioDoesNotAddOrReorder()
+    {
+        // Pattern already has one photo slide (slide 3); ratio 0.357*3≈1 target already met → no top-up.
+        IReadOnlyList<SlideBackgroundKind> pattern =
+        [
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.Photo
+        ];
+
+        var result = CreativeSlideIndexResolver.ResolveFromPattern(pattern, slideCount: 3, photoRatio: 0.357);
+
+        Assert.Equal([3], result);
+    }
+
+    [Fact]
+    public void ResolveFromPattern_RatioFloor_NeverDropsPatternPhotoSlides()
+    {
+        // Pattern marks slide 5 as photo; a modest ratio floor must ADD (not replace) → slide 5 preserved.
+        IReadOnlyList<SlideBackgroundKind> pattern =
+        [
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.FlatColor,
+            SlideBackgroundKind.Photo
+        ];
+
+        var result = CreativeSlideIndexResolver.ResolveFromPattern(pattern, slideCount: 5, photoRatio: 0.5);
+
+        // target = round(0.5*5 away)=3; base=[5]; top-up edges → add 1, then 2 → {1,2,5}.
+        Assert.Contains(5, result);
+        Assert.Equal([1, 2, 5], result);
+    }
 }
