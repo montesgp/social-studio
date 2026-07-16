@@ -89,7 +89,8 @@ public sealed class CarouselGenerator : FormatContentGeneratorBase<CarouselConte
                 slides = "array of {title: string - max ~6 words, body: string|null - max ~2 short lines, imagePromptHint: string|null}",
                 ctaText = "string|null - ONLY when explicitly requested by the user or defined by a brand-manual directive; null otherwise — never inferred or invented",
                 ctaLink = "string|null - optional URL for the CTA",
-                publicationDescription = "string|null - social post copy to publish with this carousel"
+                publicationDescription = "string - ready-to-publish caption/post copy for this carousel; ALWAYS provide it, never null",
+                hashtags = "array of string - relevant hashtags for the post caption (without duplicates); [] if none apply"
             }
         };
 

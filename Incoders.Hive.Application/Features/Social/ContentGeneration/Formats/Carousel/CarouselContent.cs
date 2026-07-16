@@ -17,4 +17,5 @@ public sealed record CarouselContent(
     IReadOnlyList<CarouselSlide> Slides,
     string CtaText,
     string? CtaLink,
-    string? PublicationDescription = null);
+    string? PublicationDescription = null,
+    IReadOnlyList<string>? Hashtags = null);

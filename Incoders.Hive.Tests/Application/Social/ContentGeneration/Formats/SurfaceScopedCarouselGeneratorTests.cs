@@ -33,12 +33,12 @@ public sealed class SurfaceScopedCarouselGeneratorTests
     public void PromptVersion_DelegatesToInner_ReturnsCarouselV2()
     {
         // ADR-7: both surface-scoped carousel keys reuse the same version as the inner carousel generator.
-        // Latest inner version: carousel.v6 (client-directive precedence).
+        // Latest inner version: carousel.v7 (in-call post caption — mandatory publicationDescription + hashtags[]).
         var inner = MakeCarouselGenerator();
         var decorator = new SurfaceScopedCarouselGenerator("story-carousel", inner);
 
         Assert.Equal(inner.PromptVersion, decorator.PromptVersion);
-        Assert.Equal("carousel.v6", decorator.PromptVersion);
+        Assert.Equal("carousel.v7", decorator.PromptVersion);
     }
 
     [Fact]

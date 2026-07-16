@@ -1,6 +1,7 @@
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
+using Incoders.Hive.Domain.Social.ProfileAnalysis;
 using Microsoft.EntityFrameworkCore;
 
 namespace Incoders.Hive.Tests.Infrastructure.Persistence;
@@ -201,6 +202,49 @@ public sealed class EfProfileAnalysisRepositoryFreshnessTests
         Assert.Equal("aesthetic-extractor/v3", snapshot.SchemaVersion);
     }
 
+    [Fact]
+    public async Task UpdateAsync_AfterSetAestheticProfileJsonAsync_PreservesAestheticJson()
+    {
+        var now = new DateTime(2026, 7, 15, 10, 33, 33, DateTimeKind.Utc);
+        var ownAccountId = Guid.NewGuid();
+        const string aestheticJson =
+            """{"palette":[],"styleDescriptors":["editorial gradients"],"motifs":[],"captionVoice":null,"referenceImages":[],"promptVersion":"aesthetic-extractor/v2"}""";
+
+        var analysis = ProfileAnalysis.CreateFromClient(_orgId, _clientId, ownAccountId, "@handle", now.AddMinutes(-5));
+        analysis.StartScraping(now.AddMinutes(-4));
+        analysis.CompleteScrape(isPartial: false, now.AddMinutes(-3));
+        analysis.StartAnalyzing(now.AddMinutes(-2));
+        analysis.SetAiAnalysis("""{"summary":"ok"}""", """{"aiProviderKey":"test"}""");
+
+        await using var db = CreateDb();
+        db.ProfileAnalyses.Add(new ProfileAnalysisData
+        {
+            Id = analysis.Id,
+            OrganizationId = _orgId,
+            ClientId = _clientId,
+            OwnAccountId = ownAccountId,
+            ProfileUrlOrHandle = "@handle",
+            Status = analysis.Status.ToString(),
+            CreatedAtUtc = analysis.CreatedAtUtc,
+            UpdatedAtUtc = analysis.UpdatedAtUtc,
+        });
+        await db.SaveChangesAsync();
+
+        var repo = new EfProfileAnalysisRepository(db);
+        await repo.SetAestheticProfileJsonAsync(analysis.Id, _orgId, aestheticJson, CancellationToken.None);
+
+        analysis.CompleteAnalysis(BuildAiAnalysis(), now);
+        await repo.UpdateAsync(analysis, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var row = await db.ProfileAnalyses
+            .AsNoTracking()
+            .SingleAsync(x => x.Id == analysis.Id);
+        Assert.Equal("Analyzed", row.Status);
+        Assert.Equal(aestheticJson, row.AestheticProfileJson);
+        Assert.True(await repo.LatestAnalyzedHasAestheticAsync(_orgId, _clientId, CancellationToken.None));
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
@@ -254,4 +298,24 @@ public sealed class EfProfileAnalysisRepositoryFreshnessTests
             UpdatedAtUtc = completedAt ?? DateTime.UtcNow.AddHours(-2),
         });
     }
+
+    private static ProfileAiAnalysis BuildAiAnalysis() =>
+        new(
+            Summary: "Summary",
+            AudienceProfile: "Audience",
+            ContentPillars: ["Education"],
+            TopContentTypes: ["Carousel"],
+            PostingDays: ["Monday"],
+            DetectedBrandColors: [],
+            DetectedFonts: [],
+            DetectedBackgroundImages: ["Gradient"],
+            VoiceTone: "Direct",
+            RecommendedKpis: ["Reach"],
+            MonthlyObjectiveSuggestion: "Grow",
+            ContentStrategySuggestion: "Teach",
+            Strengths: ["Consistent"],
+            Weaknesses: [],
+            Opportunities: [],
+            Confidence: 0.9,
+            Warnings: []);
 }

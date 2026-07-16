@@ -36,7 +36,19 @@ namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
 public sealed class AiVisualDesigner : IVisualDesigner
 {
     private const string CapabilityKey = "content-generation";
-    private const string PromptVersion = "visual-designer/v1";
+    // v2: forbid the full-bleed gray scrim/overlay over real image backgrounds (legibility must come
+    // from local text treatment), so image-background slides match the client's visual language.
+    private const string PromptVersion = "visual-designer/v2";
+
+    // Applied to image-background tiers only (forced-default / references): a real photographic/brand
+    // template is the deliverable background, so a blanket scrim overloads the slide and breaks the
+    // client's visual language. Legibility is solved locally on the text, never with a full-bleed veil.
+    private const string NoScrimDirective =
+        "DO NOT lay a full-bleed translucent scrim, tint, veil, gradient, or gray/black overlay box over " +
+        "the image to boost legibility — it overloads the slide and does not match the client's visual " +
+        "language. Keep the image clean and full-strength. Achieve text legibility LOCALLY instead: font " +
+        "weight, color choice, letter-spacing, or a tight shadow/box behind the text only where the copy " +
+        "sits — never covering the whole background.";
 
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
@@ -216,7 +228,8 @@ public sealed class AiVisualDesigner : IVisualDesigner
                 Description:
                     "MANDATORY: use the exact brand-manual background template as the full-bleed " +
                     $"background image. Do not invent, replace, recolor, crop creatively, or add generated " +
-                    $"background art. Template URL: {fd.Url}"),
+                    $"background art. Template URL: {fd.Url}. " +
+                    NoScrimDirective),
 
             BackgroundSelection.References refs => new BackgroundGuidanceDto(
                 Tier: "references",
@@ -229,7 +242,7 @@ public sealed class AiVisualDesigner : IVisualDesigner
                     // agent can align copy/hierarchy with the image it will be placed on.
                     "Manual background templates are available. Incoders-Hive will use the first applicable " +
                     "template as the actual full-bleed background; design only the text hierarchy/components " +
-                    "that sit on top of it. Template URLs: "
+                    "that sit on top of it. " + NoScrimDirective + " Template URLs: "
                     + string.Join(", ", refs.Entries.Select(e => e.Url))),
 
             BackgroundSelection.Creative => new BackgroundGuidanceDto(

@@ -78,8 +78,15 @@ public sealed class MaterializeRunCommandHandler
                 : new List<ContentAssetRef>();
 
             // Phase 1: textual payload seeded from the structured output; visual markup carried for later edit.
+            // Text formats keep their raw structured output as the editable body. Visual posts (carousel/
+            // story/feed-post) carry a ready-to-publish caption — publicationDescription + hashtags — that
+            // the AI produced IN THE SAME generation call, so the studio post is not left without copy.
+            var draftText = medium == ContentMedium.Text
+                ? result.OutputJson
+                : VisualPublicationCaption.Extract(result.OutputJson);
+
             var draft = new ContentDraft(
-                medium == ContentMedium.Text ? result.OutputJson : null,
+                draftText,
                 result.CompositionSpecJson,
                 assets,
                 ContentFormatCatalog.ChannelFor(result.FormatKey));

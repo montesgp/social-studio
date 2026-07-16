@@ -14,9 +14,12 @@ public static class ContentGenerationPromptVersions
     //           and override defaults (incl. prohibitions); style inference is the fallback for signature.
     //           CTA is default-OFF: added ONLY on explicit user request or an explicit brand-manual
     //           directive — never inferred from the analysis/style (the agent must not invent CTAs).
-    public const string Carousel = "carousel.v6";
-    public const string Story = "story-single.v4";
-    public const string FeedPost = "feed-single.v5";
+    // v7/v5/v6: post caption bundled in-call — publicationDescription is now mandatory (never null) and a
+    //           hashtags[] array was added to the visual generators, so the studio post carries its caption
+    //           without a separate caption call.
+    public const string Carousel = "carousel.v7";
+    public const string Story = "story-single.v5";
+    public const string FeedPost = "feed-single.v6";
     public const string ReelScript = "reel-script.v2";
     public const string ContentIdea = "content-idea.v2";
     public const string CtaVariation = "cta-variation.v2";

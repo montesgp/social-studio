@@ -4,6 +4,7 @@ using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
@@ -40,6 +41,46 @@ public sealed class ProfileAnalyzerOrchestratorTests
         Assert.NotNull(stored.AiAnalysisJson);
         Assert.NotNull(stored.ServerDerivedStatsJson);
         Assert.NotNull(stored.RawPostsDatasetJson);
+    }
+
+    [Fact]
+    public async Task RunQueuedAsync_ClientOwnAccountEnrichment_DoesNotPublishAnalyzedBeforeAestheticJson()
+    {
+        var orgId = Guid.NewGuid();
+        var clientId = Guid.NewGuid();
+        var ownAccountId = Guid.NewGuid();
+        var harness = new OrchestratorHarness(
+            Now,
+            postMediaArchiver: new SuccessfulAestheticArchiver(),
+            aestheticExtractor: new SuccessfulAestheticExtractor());
+        var analysis = DomainProfileAnalysis.CreateFromClient(
+            orgId,
+            clientId,
+            ownAccountId,
+            "@testbrand",
+            Now);
+
+        harness.Repository.Store(analysis);
+        harness.ScrapeResolver.SetSuccess(MakeScrapeResultWithImages());
+        harness.AiGateway.SetPayload(MakeAiResult());
+
+        await harness.Orchestrator.RunQueuedAsync(analysis.Id, orgId, CancellationToken.None);
+
+        var events = harness.Repository.PublishedEvents;
+        var aestheticIndex = events.FindIndex(e => e.Kind == RepositoryPublishKind.AestheticJson);
+        var analyzedIndex = events.FindIndex(e =>
+            e.Kind == RepositoryPublishKind.Update &&
+            e.Status == ProfileAnalysisStatus.Analyzed);
+
+        Assert.True(aestheticIndex >= 0, "Aesthetic enrichment must persist aesthetic_profile_json.");
+        Assert.True(
+            analyzedIndex > aestheticIndex,
+            "A client own-account analysis must not be published as terminal Analyzed before aesthetic_profile_json is persisted.");
+        Assert.DoesNotContain(
+            events.Take(aestheticIndex),
+            e => e.Kind == RepositoryPublishKind.Update && e.Status == ProfileAnalysisStatus.Analyzed);
+        Assert.False(string.IsNullOrWhiteSpace(harness.Repository.AestheticProfileJson));
+        Assert.Equal(ProfileAnalysisStatus.Analyzed, harness.Repository.Stored!.Status);
     }
 
     // ── ProfileScrapedPartial path: partial data still proceeds to AI ─────────
@@ -396,6 +437,30 @@ public sealed class ProfileAnalyzerOrchestratorTests
             IsPartial: isPartial,
             Diagnostics: []);
 
+    private static ProfileScrapeResult MakeScrapeResultWithImages() =>
+        MakeScrapeResult(isPartial: false) with
+        {
+            OwnerPosts =
+            [
+                new ProfilePost(
+                    PostId: "p-img",
+                    MediaType: "Image",
+                    LikesCount: 100,
+                    CommentsCount: 10,
+                    VideoViewCount: null,
+                    Timestamp: new DateTimeOffset(2026, 5, 1, 12, 0, 0, TimeSpan.Zero),
+                    OwnerId: "12345",
+                    OwnerUsername: "testbrand",
+                    IsPaidPartnership: false,
+                    IsDegraded: false,
+                    Hashtags: [],
+                    CarouselChildrenCount: null,
+                    ImageUrls: ["https://cdn.example.com/p-img.jpg"],
+                    Caption: "Brand visual sample")
+            ],
+            ProviderAggregates = new ProfileAggregates(50, 10_000, 200, 1, 1, 0),
+        };
+
     private static ProfileAnalysisResult MakeAiResult() =>
         new(
             Summary: "Great brand presence",
@@ -420,7 +485,10 @@ public sealed class ProfileAnalyzerOrchestratorTests
 
     private sealed class OrchestratorHarness
     {
-        public OrchestratorHarness(DateTime nowUtc)
+        public OrchestratorHarness(
+            DateTime nowUtc,
+            IClientPostMediaArchiver? postMediaArchiver = null,
+            IClientAestheticStyleExtractor? aestheticExtractor = null)
         {
             Clock = new TestClock(nowUtc);
             Repository = new FakeProfileAnalysisRepository();
@@ -437,7 +505,9 @@ public sealed class ProfileAnalyzerOrchestratorTests
                 ScrapeResolver,
                 Calculator,
                 AiGateway,
-                workflowResolver: WorkflowResolver);
+                workflowResolver: WorkflowResolver,
+                postMediaArchiver: postMediaArchiver,
+                aestheticExtractor: aestheticExtractor);
         }
 
         public TestClock Clock { get; }
@@ -453,6 +523,8 @@ public sealed class ProfileAnalyzerOrchestratorTests
     private sealed class FakeProfileAnalysisRepository : IProfileAnalysisRepository
     {
         public DomainProfileAnalysis? Stored { get; private set; }
+        public string? AestheticProfileJson { get; private set; }
+        public List<RepositoryPublishEvent> PublishedEvents { get; } = [];
 
         public void Store(DomainProfileAnalysis analysis) => Stored = analysis;
 
@@ -474,6 +546,9 @@ public sealed class ProfileAnalyzerOrchestratorTests
         public Task UpdateAsync(DomainProfileAnalysis analysis, CancellationToken cancellationToken = default)
         {
             Stored = analysis;
+            PublishedEvents.Add(new RepositoryPublishEvent(
+                RepositoryPublishKind.Update,
+                analysis.Status));
             return Task.CompletedTask;
         }
 
@@ -488,6 +563,56 @@ public sealed class ProfileAnalyzerOrchestratorTests
         public Task<bool> HasNonTerminalAnalysisForClientAsync(
             Guid orgId, Guid clientId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
+
+        public Task SetAestheticProfileJsonAsync(
+            Guid analysisId,
+            Guid organizationId,
+            string aestheticProfileJson,
+            CancellationToken cancellationToken = default)
+        {
+            AestheticProfileJson = aestheticProfileJson;
+            PublishedEvents.Add(new RepositoryPublishEvent(
+                RepositoryPublishKind.AestheticJson,
+                Stored?.Status));
+            return Task.CompletedTask;
+        }
+    }
+
+    private enum RepositoryPublishKind
+    {
+        Update,
+        AestheticJson,
+    }
+
+    private sealed record RepositoryPublishEvent(
+        RepositoryPublishKind Kind,
+        ProfileAnalysisStatus? Status);
+
+    private sealed class SuccessfulAestheticArchiver : IClientPostMediaArchiver
+    {
+        public Task<IReadOnlyList<ProfilePostImageRef>> ArchiveAsync(
+            Guid organizationId,
+            Guid clientId,
+            Guid analysisId,
+            string sourcePostId,
+            IReadOnlyList<string> imageUrls,
+            CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<ProfilePostImageRef>>(
+                [new ProfilePostImageRef(sourcePostId, 0, "org/client/analysis/p-img.jpg", "hash")]);
+    }
+
+    private sealed class SuccessfulAestheticExtractor : IClientAestheticStyleExtractor
+    {
+        public Task<AestheticExtraction> ExtractAsync(
+            Guid organizationId,
+            IReadOnlyList<ProfilePostImageCaptionPair> referenceImages,
+            CancellationToken ct) =>
+            Task.FromResult(new AestheticExtraction(
+                Palette: [],
+                StyleDescriptors: ["soft gradients"],
+                Motifs: [],
+                CaptionVoice: "Direct",
+                SchemaVersion: "aesthetic-extractor/v2"));
     }
 
     private sealed class FakeScrapeResolver : IProfileScrapeResolver

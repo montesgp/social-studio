@@ -305,7 +305,8 @@ public sealed class ProfileAnalysis
 
     /// <summary>
     /// Stores the serialised AI analysis JSON after the AI stage completes.
-    /// Called by the orchestrator after CompleteAnalysis transitions the status to Analyzed.
+    /// Called by the orchestrator after the AI result is mapped; the terminal status may be
+    /// published later when post-AI enrichment needs to remain non-terminal.
     /// </summary>
     public void SetAiAnalysis(string aiAnalysisJson, string diagnosticsJson)
     {

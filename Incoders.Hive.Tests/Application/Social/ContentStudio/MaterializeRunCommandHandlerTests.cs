@@ -79,6 +79,39 @@ public sealed class MaterializeRunCommandHandlerTests
     }
 
     [Fact]
+    public async Task Materialize_VisualItem_SeedsCaptionFromPublicationDescriptionAndHashtags()
+    {
+        await using var db = CreateDbContext();
+        var sets = new EfContentSetRepository(db);
+        var items = new EfContentItemRepository(db);
+
+        var jobId = Guid.NewGuid();
+        var carouselResultId = Guid.NewGuid();
+        var outputJson =
+            "{\"coverTitle\":\"X\",\"publicationDescription\":\"Grow your brand today.\",\"hashtags\":[\"#growth\",\"#brand\"]}";
+
+        var formatResults = new FakeFormatResultRepo(new[]
+        {
+            FormatResult(carouselResultId, jobId, "carousel", "Succeeded", outputJson, compositionSpec: "<spec/>", errorCode: null),
+        });
+
+        var handler = new MaterializeRunCommandHandler(
+            sets, items, formatResults,
+            new FakeFormatAssetRepo(Array.Empty<FormatAssetRow>()),
+            new FakePackageRepo(null),
+            new FixedClock(Now));
+
+        var result = await handler.Handle(new MaterializeRunCommand(Org, Client, jobId), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var persisted = await items.ListByRunAsync(Org, jobId, CancellationToken.None);
+        var carousel = persisted.Single(i => i.Origin.FormatKey == "carousel");
+        Assert.Equal(ContentMedium.Visual, carousel.Kind.Medium);
+        // The visual post carries the caption the AI produced in the same generation call.
+        Assert.Equal("Grow your brand today.\n\n#growth #brand", carousel.Draft.Text);
+    }
+
+    [Fact]
     public async Task Materialize_WithNoSuccessfulFormats_Fails()
     {
         await using var db = CreateDbContext();

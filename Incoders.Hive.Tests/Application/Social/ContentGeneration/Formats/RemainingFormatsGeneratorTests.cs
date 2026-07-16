@@ -57,6 +57,8 @@ public sealed class RemainingFormatsGeneratorTests
         Assert.Equal(ContentGenerationPromptVersions.Story, result.PromptVersion);
         Assert.NotNull(gateway.LastRequest);
         Assert.Contains("publicationDescription", gateway.LastRequest!.InputJson);
+        // In-call post caption: the story call also asks for hashtags so the studio post carries them.
+        Assert.Contains("hashtags", gateway.LastRequest.InputJson);
     }
 
     [Fact]
