@@ -126,6 +126,13 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
                 var decision = _fallbackPolicy.Decide(candidate, diagnostic);
                 if (decision.ShouldRetry)
                 {
+                    // Back off before hitting the SAME provider again. Retrying instantly is useless
+                    // against the failures we classify as retryable: a provider that is down, being
+                    // restarted, or rate-limiting us needs wall-clock time to recover, and an
+                    // immediate second call just burns the attempt budget on the same error.
+                    await Task
+                        .Delay(ResolveRetryBackoff(attempt), _timeProvider, cancellationToken)
+                        .ConfigureAwait(false);
                     continue;
                 }
 
@@ -174,6 +181,34 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
             fallbackAllowed: true,
             elapsedMs,
             _timeProvider.GetUtcNow().UtcDateTime).Value;
+    }
+
+    /// <summary>
+    /// Base delay for the first retry. Chosen against the failure this was built for: a provider
+    /// refusing connections while it restarts fails in ~2s, so a comparable pause gives it a real
+    /// chance to come back without noticeably lengthening a job that is already going to fail.
+    /// </summary>
+    internal static readonly TimeSpan RetryBackoffBase = TimeSpan.FromSeconds(2);
+
+    /// <summary>Upper bound so a large attempt budget can never stall a job for minutes.</summary>
+    internal static readonly TimeSpan RetryBackoffCap = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Exponential backoff for the retry that follows <paramref name="attempt"/>: 2s, 4s, 8s, …,
+    /// capped at <see cref="RetryBackoffCap"/>. Pure and internal so the curve is unit-tested
+    /// directly rather than inferred from wall-clock timing in a test.
+    /// </summary>
+    internal static TimeSpan ResolveRetryBackoff(int attempt)
+    {
+        if (attempt < 1)
+        {
+            return RetryBackoffBase;
+        }
+
+        // Shift instead of Math.Pow, and clamp the exponent so the doubling cannot overflow.
+        var exponent = Math.Min(attempt - 1, 16);
+        var delayTicks = RetryBackoffBase.Ticks * (1L << exponent);
+        return delayTicks >= RetryBackoffCap.Ticks ? RetryBackoffCap : TimeSpan.FromTicks(delayTicks);
     }
 
     private static bool IsRetryable(string failureCode) =>

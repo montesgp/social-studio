@@ -28,6 +28,20 @@ public sealed record WorkflowStepRouteCandidate(
     string? ActorId,
     bool IsEnabled)
 {
+    /// <summary>
+    /// Attempts allowed per provider before falling back to the next candidate.
+    /// </summary>
+    /// <remarks>
+    /// This was 1, which disabled retries entirely: <c>ProviderFallbackPolicy</c> only retries while
+    /// <c>AttemptNumber &lt; MaxAttempts</c>, so a failure classified as retryable (provider
+    /// unavailable, timeout, 429, 5xx) was never actually retried — a provider being restarted for a
+    /// few seconds permanently lost the work. Two attempts means exactly one retry: enough to ride
+    /// out a transient blip, bounded enough that a slow capability cannot blow the job budget.
+    /// Raising this further is NOT free — image generation can take ~8 minutes per attempt against a
+    /// 30-minute job budget, so extra attempts must be justified per capability, not globally.
+    /// </remarks>
+    public const int DefaultMaxAttempts = 2;
+
     public IntegrationRouteCandidate ToIntegrationRouteCandidate() =>
         new(
             ProviderId,
@@ -35,7 +49,7 @@ public sealed record WorkflowStepRouteCandidate(
             ConnectionMode,
             Priority,
             AllowManagedFallback: ConnectionMode != IntegrationConnectionMode.BringYourOwnKey,
-            MaxAttempts: 1,
+            MaxAttempts: DefaultMaxAttempts,
             TimeoutMs: 120_000,
             SelectedModel: ModelId,
             IsEnabled);
