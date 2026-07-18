@@ -1,3 +1,5 @@
+using System.Data.Common;
+using System.Net.Sockets;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -14,6 +16,7 @@ namespace Incoders.Hive.ApiService.Endpoints.Common;
 internal sealed class GlobalExceptionHandler : IExceptionHandler
 {
     private const string UnexpectedErrorCode = "server.unexpected_error";
+    private const string DataStoreUnavailableCode = "server.data_store_unavailable";
 
     private readonly ILogger<GlobalExceptionHandler> _logger;
     private readonly IHostEnvironment _environment;
@@ -41,6 +44,51 @@ internal sealed class GlobalExceptionHandler : IExceptionHandler
             httpContext.Request.Method,
             httpContext.Request.Path);
 
+        var problem = IsDataStoreUnavailable(exception)
+            ? BuildDataStoreUnavailableProblem()
+            : BuildUnexpectedErrorProblem(exception);
+
+        httpContext.Response.StatusCode = problem.Status!.Value;
+        await httpContext.Response.WriteAsJsonAsync(problem, cancellationToken);
+        return true;
+    }
+
+    /// <summary>
+    /// The data store being unreachable is an availability problem, not a bug in the request:
+    /// it maps to 503 so clients (and probes) can tell "retry later" apart from "this is broken".
+    /// Detection stays provider-agnostic — <see cref="DbException.IsTransient"/> plus raw transport
+    /// failures — so no database-specific type leaks into the API layer.
+    /// </summary>
+    private static bool IsDataStoreUnavailable(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is DbException { IsTransient: true } or SocketException)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static ProblemDetails BuildDataStoreUnavailableProblem()
+    {
+        // Never environment-dependent: connection failures carry host, port and user in their
+        // message, so the sanitized text is the only text we ever return — dev included.
+        var problem = new ProblemDetails
+        {
+            Title = "Service temporarily unavailable",
+            Status = StatusCodes.Status503ServiceUnavailable,
+            Type = "https://tools.ietf.org/html/rfc7807",
+            Detail = "The service is temporarily unavailable. Please try again in a few moments.",
+        };
+        problem.Extensions["code"] = DataStoreUnavailableCode;
+        return problem;
+    }
+
+    private ProblemDetails BuildUnexpectedErrorProblem(Exception exception)
+    {
         var problem = new ProblemDetails
         {
             Title = "Unexpected error",
@@ -51,9 +99,6 @@ internal sealed class GlobalExceptionHandler : IExceptionHandler
                 : "An unexpected error occurred. Please try again, and contact support if it persists.",
         };
         problem.Extensions["code"] = UnexpectedErrorCode;
-
-        httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        await httpContext.Response.WriteAsJsonAsync(problem, cancellationToken);
-        return true;
+        return problem;
     }
 }
