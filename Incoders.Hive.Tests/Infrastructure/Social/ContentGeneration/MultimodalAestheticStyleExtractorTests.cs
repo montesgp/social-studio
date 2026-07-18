@@ -427,15 +427,41 @@ public sealed class MultimodalAestheticStyleExtractorTests
     }
 
     [Fact]
-    public async Task ExtractorPromptVersion_IsBumpedToV3()
+    public async Task TypicalSlideCount_Present_MapsThrough()
     {
-        // Extraction prompt/schema version MUST be bumped v2→v3 (FFS-PA-01)
+        // measured-typical-slide-count: the model's measured median maps straight onto the extraction.
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", typicalSlideCount: 5);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Equal(5, result.TypicalSlideCount);
+    }
+
+    [Fact]
+    public async Task TypicalSlideCount_Absent_IsNull_ExtractionSucceeds()
+    {
+        // No typicalSlideCount key (model could not tell, or pre-v4 response) → null; no throw
+        // (cold-start parity — caller falls back to BackgroundPattern's length).
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Null(result.TypicalSlideCount);
+        Assert.True(gateway.WasCalled);
+    }
+
+    [Fact]
+    public async Task ExtractorPromptVersion_IsBumpedToV4()
+    {
+        // Extraction prompt/schema version MUST be bumped v3→v4 (measured-typical-slide-count)
         var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
         var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
 
         await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v3", gateway.CapturedPromptVersionKey);
+        Assert.Equal("aesthetic-extractor/v4", gateway.CapturedPromptVersionKey);
     }
 
     /// <summary>
@@ -451,7 +477,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v3", result.SchemaVersion);
+        Assert.Equal("aesthetic-extractor/v4", result.SchemaVersion);
         Assert.Equal(gateway.CapturedPromptVersionKey, result.SchemaVersion);
     }
 
@@ -497,7 +523,8 @@ file sealed class CaptureGateway(
     string? slideMixPattern = null,
     string? conceptualMethodJson = null,
     string? imageTypeCountsJson = null,
-    string? brandMarkJson = null)
+    string? brandMarkJson = null,
+    int? typicalSlideCount = null)
     : IAiCompletionGateway
 {
     public bool WasCalled { get; private set; }
@@ -506,7 +533,7 @@ file sealed class CaptureGateway(
     /// <summary>The full instruction text passed to the AI gateway — used to assert caption tagging.</summary>
     public string? CapturedInstruction { get; private set; }
 
-    /// <summary>The prompt version key sent to the gateway — used to assert the v2→v3 bump.</summary>
+    /// <summary>The prompt version key sent to the gateway — used to assert the v3→v4 bump.</summary>
     public string? CapturedPromptVersionKey { get; private set; }
 
     public Task<Result<AiJsonCompletionResponse<TResponse>>> CompleteJsonAsync<TResponse>(
@@ -532,8 +559,11 @@ file sealed class CaptureGateway(
         var brandMarkPart = brandMarkJson is null
             ? string.Empty
             : $",\"brandMark\":{brandMarkJson}";
+        var typicalSlideCountPart = typicalSlideCount is null
+            ? string.Empty
+            : $",\"typicalSlideCount\":{typicalSlideCount.Value}";
         var json =
-            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}{{brandMarkPart}}}""";
+            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}{{brandMarkPart}}{{typicalSlideCountPart}}}""";
         var payload = JsonSerializer.Deserialize<TResponse>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         return Task.FromResult(Result.Success(new AiJsonCompletionResponse<TResponse>(payload, "claude", "claude-opus-4-8", [], null)));
     }

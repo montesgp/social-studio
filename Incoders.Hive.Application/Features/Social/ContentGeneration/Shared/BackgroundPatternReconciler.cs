@@ -28,8 +28,13 @@ public static class BackgroundPatternReconciler
 {
     /// <summary>
     /// Minimum corpus photo proportion (<see cref="ImageTypeRatio.Photo"/>) at or above which the
-    /// persisted pattern MUST carry at least one photo slide. Kept equal in spirit to
-    /// <see cref="Background.CreativeSlideIndexResolver.MinPhotoRatioForFloor"/>.
+    /// PERSISTED pattern is topped up so it carries at least one photo slide. This is a separate,
+    /// analysis-time layer from generation-time slide selection: as of the owner-approved rule change,
+    /// <see cref="Background.CreativeSlideIndexResolver.ResolveFromPattern"/> derives the creative-slide
+    /// COUNT directly and proportionally from the ratio (no threshold there — see its doc comment), so it
+    /// no longer depends on this constant to reach a correct count. This threshold still controls whether
+    /// the stored <c>BackgroundPattern</c> itself gets a photo slot injected, which only affects WHICH
+    /// positions the resolver prefers, not the final count.
     /// </summary>
     public const double MinPhotoRatio = 0.30;
 

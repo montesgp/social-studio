@@ -30,7 +30,11 @@ public static class AestheticProfilePersistence
             BackgroundPattern: extraction.BackgroundPattern?
                 .Select(k => k.ToString())
                 .ToArray(),
-            TypicalSlideCount: extraction.BackgroundPattern?.Count,
+            // measured-typical-slide-count: prefer the model's MEASURED median slide count; fall back
+            // to BackgroundPattern's length (the prior, invented proxy) only when the model omitted it
+            // or could not tell. Old stored blobs (pre-v4) never had a measured value, so they keep
+            // deriving from the pattern length exactly as before (cold-start parity).
+            TypicalSlideCount: extraction.TypicalSlideCount ?? extraction.BackgroundPattern?.Count,
             ColorPairings: extraction.ColorPairings?
                 .Select(p => new StoredColorPairing(p.BackgroundHex, p.TextHex, p.Rank))
                 .ToArray(),

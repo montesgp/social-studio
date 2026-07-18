@@ -19,23 +19,6 @@ public static class CreativeSlideIndexResolver
     public const int MaxCreativeSlidesPerPackage = 3;
 
     /// <summary>
-    /// Minimum corpus photo proportion (<c>ImageTypeRatio.Photo</c>) that forces at least one
-    /// generated-image slide even when the per-slide <c>BackgroundPattern</c> classified every slide as
-    /// non-photo (e.g. all FlatColor).
-    ///
-    /// <para>
-    /// Motivation: the pattern captures ORDER (which slides look photographic) while the ratio captures
-    /// MAGNITUDE (how many, statistically) — see <see cref="Shared.ImageTypeRatio"/>. A client that posts
-    /// image-heavy backgrounds can still yield an all-flat per-slide pattern (the classifier under-counts
-    /// image backgrounds), which silently suppressed ALL AI image generation and produced flat CSS slides
-    /// that looked nothing like the client. When the ratio says a meaningful share of the client's real
-    /// posts are photographic, we honour the magnitude and floor the creative-slide set to a proportional
-    /// count (at least one), overriding an all-flat pattern.
-    /// </para>
-    /// </summary>
-    public const double MinPhotoRatioForFloor = 0.30;
-
-    /// <summary>
     /// Resolves the final set of creative slide indices for <paramref name="slideCount"/> slides.
     /// <list type="bullet">
     ///   <item><description>Null or empty → default to { 1, slideCount } (first + last, deduped for single-slide case).</description></item>
@@ -70,22 +53,33 @@ public static class CreativeSlideIndexResolver
 
     /// <summary>
     /// Resolves the set of 1-based creative slide indices from a captured background-kind pattern.
-    /// Maps the pattern onto the actual slide count by proportional scaling and returns
-    /// the indices whose mapped kind is <see cref="SlideBackgroundKind.Photo"/>,
-    /// deduped and capped to <see cref="MaxCreativeSlidesPerPackage"/>.
+    /// Maps the pattern onto the actual slide count by proportional scaling to obtain a set of candidate
+    /// photo POSITIONS, then — when <paramref name="photoRatio"/> is known — reconciles that candidate set
+    /// against the ratio-implied COUNT (see <paramref name="photoRatio"/>). Deduped and capped to
+    /// <see cref="MaxCreativeSlidesPerPackage"/>.
     /// Refs: design §3.2, §0 OQ-1; CAC-BSP-01, CAC-BSP-02, CAC-BSP-04.
     /// </summary>
     /// <param name="pattern">
     /// Ordered per-slide background-kind sequence from <c>ClientAestheticProfile.BackgroundPattern</c>.
-    /// Null or empty → delegates to the existing <see cref="Resolve"/> default ({first, last}).
+    /// Null or empty → delegates to the existing <see cref="Resolve"/> default ({first, last}) as the
+    /// candidate position set.
     /// </param>
     /// <param name="slideCount">Total number of slides in the carousel (1-based upper bound).</param>
     /// <param name="photoRatio">
-    /// Corpus photo proportion (<c>ImageTypeRatio.Photo</c>), when known. When it is at or above
-    /// <see cref="MinPhotoRatioForFloor"/>, the result is floored to a proportional creative-slide count
-    /// (at least one) even if the pattern classified every slide as non-photo — the ratio's MAGNITUDE
-    /// overrides an all-flat pattern's ORDER. Null (cold-start / no ratio) → pattern-only behaviour,
-    /// byte-identical to before.
+    /// Corpus photo proportion (<c>ImageTypeRatio.Photo</c>), when known.
+    /// <list type="bullet">
+    /// <item><b>Null</b> (cold-start / old blobs) → pattern-only behaviour, byte-identical to before: the
+    /// pattern-derived candidate positions are returned as-is (deduped, capped).</item>
+    /// <item><b>Non-null</b> → AUTHORITATIVE for the COUNT: <c>target = Clamp(Round(ratio * slideCount,
+    /// AwayFromZero), 0, Min(MaxCreativeSlidesPerPackage, slideCount))</c>. The candidate positions are
+    /// preferred for WHERE (they carry the client's ordering intent): if there are more candidates than
+    /// <paramref name="photoRatio"/> implies, only the first <c>target</c> (ascending) are kept; if there
+    /// are fewer, the set is topped up using the edge-inward candidate order (first, last, then inner
+    /// ascending). The lower bound is 0 — a client whose corpus has no photos gets no creative slides, and
+    /// a pattern-derived count can now go DOWN as well as up. This is the owner-approved replacement for
+    /// the former 0.30 floor threshold: there is no cliff, the ratio scales the count proportionally at
+    /// every magnitude.</item>
+    /// </list>
     /// </param>
     /// <returns>Resolved, deduped, capped list of 1-based creative slide indices.</returns>
     public static IReadOnlyList<int> ResolveFromPattern(
@@ -114,14 +108,20 @@ public static class CreativeSlideIndexResolver
             }
         }
 
-        // Ratio floor (client-aligned-carousel-generation follow-up): the per-slide pattern captures which
-        // slides look photographic, but the classifier under-counts image backgrounds for image-heavy
-        // clients, yielding an all-flat pattern (0 photo slides) that suppressed ALL image generation. When
-        // the corpus photo ratio is meaningful, honour that magnitude: floor the set to a proportional
-        // count (>= 1). This only ADDS spread-out slides; it never drops a pattern-derived photo slide.
-        var floored = ApplyPhotoRatioFloor(photoIndices, slideCount, photoRatio);
+        if (photoRatio is null)
+        {
+            // Cold-start parity: no ratio signal → pattern-only behaviour, byte-identical to before.
+            return photoIndices
+                .Distinct()
+                .Take(MaxCreativeSlidesPerPackage)
+                .OrderBy(i => i)
+                .ToList();
+        }
 
-        return floored
+        // Ratio-authoritative count (owner-approved rule change: the measured ratio determines HOW MANY;
+        // the pattern only determines WHERE). Replaces the former MinPhotoRatioForFloor cliff — the count
+        // now scales proportionally from 0 and can go down relative to the pattern, not only up.
+        return ReconcileToRatioTarget(photoIndices, slideCount, photoRatio.Value)
             .Distinct()
             .Take(MaxCreativeSlidesPerPackage)
             .OrderBy(i => i)
@@ -129,33 +129,33 @@ public static class CreativeSlideIndexResolver
     }
 
     /// <summary>
-    /// Tops up <paramref name="photoIndices"/> to the proportional photo-slide count implied by
-    /// <paramref name="photoRatio"/> when that ratio is at or above <see cref="MinPhotoRatioForFloor"/>.
-    /// Never removes an existing index; adds spread-from-the-edges slide indices (first, last, then inner)
-    /// until the target count (capped at <see cref="MaxCreativeSlidesPerPackage"/>) is reached.
-    /// A null/sub-threshold ratio returns the input unchanged.
+    /// Reconciles the pattern-derived candidate photo positions against the ratio-implied target COUNT.
+    /// If there are more candidates than the target, keeps the first <c>target</c> in ascending order
+    /// (the count goes DOWN — intentional per the owner rule). If there are fewer, tops up using the
+    /// edge-inward candidate order (first, last, then inner ascending) until the target is reached.
+    /// The target's lower bound is 0: a ratio of 0 yields zero creative slides.
     /// </summary>
-    private static List<int> ApplyPhotoRatioFloor(List<int> photoIndices, int slideCount, double? photoRatio)
+    private static List<int> ReconcileToRatioTarget(List<int> candidateIndices, int slideCount, double photoRatio)
     {
-        if (photoRatio is not { } ratio || ratio < MinPhotoRatioForFloor || slideCount < 1)
+        if (slideCount < 1)
         {
-            return photoIndices;
+            return candidateIndices;
         }
 
-        // Proportional magnitude, at least one, capped. AwayFromZero keeps the count generous (image-heavy
-        // clients were under-served), e.g. 0.5 * 5 = 2.5 → 3; 0.357 * 3 = 1.07 → 1.
         var target = Math.Clamp(
-            (int)Math.Round(ratio * slideCount, MidpointRounding.AwayFromZero),
-            1,
+            (int)Math.Round(photoRatio * slideCount, MidpointRounding.AwayFromZero),
+            0,
             Math.Min(MaxCreativeSlidesPerPackage, slideCount));
 
-        if (photoIndices.Count >= target)
+        var ordered = candidateIndices.Distinct().OrderBy(i => i).ToList();
+
+        if (ordered.Count >= target)
         {
-            return photoIndices;
+            return ordered.Take(target).ToList();
         }
 
-        var result = new List<int>(photoIndices);
-        var present = new HashSet<int>(photoIndices);
+        var result = new List<int>(ordered);
+        var present = new HashSet<int>(ordered);
         foreach (var candidate in EdgeInwardCandidates(slideCount))
         {
             if (result.Count >= target)

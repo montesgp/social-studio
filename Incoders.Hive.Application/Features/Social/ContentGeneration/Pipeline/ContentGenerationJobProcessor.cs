@@ -551,9 +551,10 @@ public sealed class ContentGenerationJobProcessor
                     // photographic reference (the two conditionings conflict and the sampler diverges
                     // to noise) — they fall through to the CSS/palette path (ColorPairings) instead.
                     // Null/empty pattern → ResolveFromPattern delegates to the {first,last} cold-start default.
-                    // Photo ratio floors the set: an all-flat pattern from an image-heavy client (the
-                    // classifier under-counts image backgrounds) still yields >= 1 generated-image slide, so
-                    // the carousel does not silently fall back to flat CSS that looks nothing like the client.
+                    // When a photo ratio is known, it is AUTHORITATIVE for the COUNT (owner-approved rule
+                    // change): the pattern only supplies preferred positions. This can now yield FEWER
+                    // creative slides than the pattern suggests (e.g. ratio 0 → zero), not just more — the
+                    // measured proportion of the client's real corpus wins over the per-slide guess.
                     var creativeIndices = CreativeSlideIndexResolver.ResolveFromPattern(
                         aestheticProfile.BackgroundPattern, formatSlideCount, aestheticProfile.ImageTypeRatio?.Photo);
 

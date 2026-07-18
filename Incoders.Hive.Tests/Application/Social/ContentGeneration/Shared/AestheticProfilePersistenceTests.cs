@@ -52,6 +52,44 @@ public sealed class AestheticProfilePersistenceTests
     }
 
     [Fact]
+    public void Serialize_ThenRead_MeasuredTypicalSlideCount_TakesPrecedenceOverPatternLength()
+    {
+        // measured-typical-slide-count: when the extractor MEASURED a typicalSlideCount (median across
+        // posts), it must win over the BackgroundPattern-length proxy, even when they disagree.
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            BackgroundPattern: [SlideBackgroundKind.Photo, SlideBackgroundKind.FlatColor, SlideBackgroundKind.Photo],
+            TypicalSlideCount: 5);
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.Equal(5, read.TypicalSlideCount); // measured value, NOT BackgroundPattern.Count (3)
+    }
+
+    [Fact]
+    public void Serialize_ThenRead_NoMeasuredTypicalSlideCount_FallsBackToPatternLength()
+    {
+        // When the extractor did not measure typicalSlideCount (older extractor / model omitted it),
+        // fall back to BackgroundPattern's length — same behaviour as before this field existed.
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            BackgroundPattern: [SlideBackgroundKind.Photo, SlideBackgroundKind.FlatColor, SlideBackgroundKind.Photo],
+            TypicalSlideCount: null);
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.Equal(3, read.TypicalSlideCount);
+    }
+
+    [Fact]
     public void Serialize_ThenRead_PreservesColorPairings()
     {
         IReadOnlyList<ColorPairing> pairings =

@@ -22,8 +22,16 @@ public static class AestheticFreshness
     /// <see cref="Evaluate"/>: a stored version older than this triggers exactly one upgrade
     /// refresh — once re-analyzed at the current version, the schema-version branch never fires
     /// again for that client until a future version bump.
+    ///
+    /// <para>
+    /// v4 (measured-typical-slide-count): the extractor now measures <c>typicalSlideCount</c> directly
+    /// (median per-post slide count) instead of relying on <c>BackgroundPattern</c>'s length as a proxy.
+    /// Bumped per the established convention (see v3's brandMark bump) so profiles captured before this
+    /// field existed are treated as stale and eligible for re-analysis, rather than silently keeping the
+    /// old proxy value forever.
+    /// </para>
     /// </summary>
-    public const string CurrentSchemaVersion = "aesthetic-extractor/v3";
+    public const string CurrentSchemaVersion = "aesthetic-extractor/v4";
 
     /// <summary>
     /// Parses the trailing integer from an <c>"aesthetic-extractor/vN"</c> schema version string.

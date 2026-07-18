@@ -28,7 +28,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
 {
     private const string CapabilityKey = "ai-aesthetic";
     // aesthetic-extractor/v3: adds brandMark {present,positionHint,colorHex} detection (FFS-PA-01).
-    // Additive/backward-compatible: absent brandMark key on a v2 response still maps cleanly (null).
+    // aesthetic-extractor/v4: adds typicalSlideCount (median per-post slide count measured by the
+    // model, replacing the BackgroundPattern-length proxy — measured-typical-slide-count follow-up).
+    // Additive/backward-compatible: absent typicalSlideCount/brandMark keys on an older response still
+    // map cleanly (null).
     // aesthetic-freshness-versioning: MUST stay equal to AestheticFreshness.CurrentSchemaVersion —
     // referencing the constant directly (both are compile-time consts) guarantees they never drift.
     private const string PromptVersion = AestheticFreshness.CurrentSchemaVersion;
@@ -154,6 +157,12 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "photography), flat-color (solid background with template/text overlays), or decorator " +
             "(purely decorative / graphic dividers) and return `imageTypeCounts` " +
             "with fields `photo`, `flat`, and `decorator` (integer counts, not proportions). " +
+            // measured-typical-slide-count: corpus-grounded slide-count measurement, replacing the
+            // pattern-length proxy. MEDIAN (not mean) so a single outlier post cannot skew the count.
+            "Also count how many slides EACH attached post has, and return `typicalSlideCount` as the " +
+            "MEDIAN of those per-post slide counts (not the mean — it must resist outliers), as an " +
+            "integer. If you cannot reliably tell how many slides a post has, do not guess — omit " +
+            "`typicalSlideCount` (return null). " +
             // FFS-PA-01: recurring brand-mark detection (v3). Only report a mark that RECURS
             // consistently across the attached images — never invent one from a single occurrence.
             "Detect whether the SAME identifying mark (logo, emblem, watermark, or signature glyph) " +
@@ -264,7 +273,11 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             BrandMark: brandMark,
             // aesthetic-freshness-versioning: stamp the extractor's OWN version onto the extraction
             // so persistence stores the ACTUAL version that produced it, not a hardcoded constant.
-            SchemaVersion: PromptVersion);
+            SchemaVersion: PromptVersion,
+            // measured-typical-slide-count: pass the model's measured median through unchanged.
+            // Null when the model omitted it or could not tell (cold-start parity) — the caller
+            // (AestheticProfilePersistence) falls back to BackgroundPattern's length in that case.
+            TypicalSlideCount: dto.TypicalSlideCount);
     }
 
     private static IReadOnlyList<SlideBackgroundKind>? MapSlideMixPattern(string[]? pattern)
@@ -304,7 +317,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         // CACD-PA-02 (OQ-2): aggregate image-type counts (additive nullable; cold-start → null)
         [property: JsonPropertyName("imageTypeCounts")] ImageTypeCountsDto? ImageTypeCounts = null,
         // FFS-PA-01: recurring brand mark (additive nullable; absent on pre-v3 responses → null)
-        [property: JsonPropertyName("brandMark")] BrandMarkDto? BrandMark = null);
+        [property: JsonPropertyName("brandMark")] BrandMarkDto? BrandMark = null,
+        // measured-typical-slide-count: median per-post slide count (additive nullable; absent on
+        // pre-v4 responses, or when the model could not tell → null; cold-start parity)
+        [property: JsonPropertyName("typicalSlideCount")] int? TypicalSlideCount = null);
 
     private sealed record PaletteEntryDto(
         [property: JsonPropertyName("hex")] string? Hex,

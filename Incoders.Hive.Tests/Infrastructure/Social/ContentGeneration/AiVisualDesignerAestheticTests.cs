@@ -86,9 +86,68 @@ public sealed class AiVisualDesignerAestheticTests
         Assert.Contains("#C0FFEE", gateway.CapturedInput!, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task ClientAesthetic_EmptyAnalysisPalette_DoesNotReceiveBrandManualColours()
+    {
+        // Owner-approved rule change: a ClientAesthetic job whose analysis captured NO palette must NOT
+        // fall back to the brand-manual palette — the model already sees the real client creatives as
+        // vision input, and a brand-manual palette would contradict that evidence. The DTO must carry the
+        // (empty) analysis palette, not the brand-manual colours.
+        var gateway = new CaptureGateway();
+        var designer = new AiVisualDesigner(gateway, new StubResolver());
+        var brand = BrandWithPalette();
+        var aesthetic = new ClientAestheticDesignContext(
+            ReferenceImages: [new ProfilePostImageRef("p1", 0, "org/client/analysis/aesthetic/p1-0.jpg", "h1")],
+            Palette: [],
+            StyleDescriptors: ["editorial"],
+            Motifs: [],
+            VariationSeed: "job-99");
+
+        await designer.ComposeAsync(OrgId, BuildSpec(), brand, new BackgroundSelection.Creative(), CancellationToken.None, aesthetic);
+
+        Assert.NotNull(gateway.CapturedInput);
+        // NOTE: the brand-manual palette hex may still appear elsewhere in the payload (e.g. the general
+        // brand-notes prose in the system prompt is unconditional and out of this change's scope). What
+        // this rule change controls is the DTO's `brandPalette` array — the actual colour input the
+        // designer is told to use — which must stay EMPTY for a ClientAesthetic job with no captured
+        // palette, not fall back to the brand's colours.
+        Assert.Equal(0, ExtractBrandPaletteCount(gateway.CapturedInput!));
+    }
+
+    [Fact]
+    public async Task NonAestheticJob_StillReceivesBrandManualPalette()
+    {
+        // A non-aesthetic job (aesthetic is null — no client analysis to defer to) must keep the existing
+        // brand-manual palette behaviour byte-for-byte.
+        var gateway = new CaptureGateway();
+        var designer = new AiVisualDesigner(gateway, new StubResolver());
+        var brand = BrandWithPalette();
+
+        await designer.ComposeAsync(OrgId, BuildSpec(), brand, new BackgroundSelection.Creative(), CancellationToken.None, aesthetic: null);
+
+        Assert.NotNull(gateway.CapturedInput);
+        Assert.Equal(1, ExtractBrandPaletteCount(gateway.CapturedInput!));
+    }
+
+    /// <summary>Reads the count of entries in the DTO's top-level "brandPalette" JSON array.</summary>
+    private static int ExtractBrandPaletteCount(string capturedInputJson)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(capturedInputJson);
+        return doc.RootElement.GetProperty("brandPalette").GetArrayLength();
+    }
+
     private static BrandManualSnapshot BrandWithNoPalette() =>
         new BrandManualSnapshot(
             ColorPalette: Array.Empty<WeightedColor>(),
+            Logos: Array.Empty<string>(),
+            BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
+            Typography: new[] { "Inter" },
+            VoiceAndTone: "Professional",
+            Notes: null);
+
+    private static BrandManualSnapshot BrandWithPalette() =>
+        new BrandManualSnapshot(
+            ColorPalette: [new WeightedColor("#06C4E5", ColorRole.Primary, 0)],
             Logos: Array.Empty<string>(),
             BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
             Typography: new[] { "Inter" },

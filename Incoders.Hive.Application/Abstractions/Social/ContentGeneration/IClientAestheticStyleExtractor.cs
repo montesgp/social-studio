@@ -69,7 +69,12 @@ public sealed record AestheticExtraction(
     // hardcoded constant) so schema-version comparisons in `AestheticFreshness.Evaluate` reflect the
     // extractor that actually ran. Null on `Empty` / when the extractor didn't set it — Serialize
     // falls back to a safe default in that case.
-    string? SchemaVersion = null)
+    string? SchemaVersion = null,
+    // measured-typical-slide-count (additive trailing nullable — CACD-PA-02 follow-up): the MEDIAN
+    // number of slides the model actually counted across the attached posts, resisting outliers.
+    // Null when the model omits/cannot determine it (cold-start parity) — the caller falls back to
+    // BackgroundPattern's length, the prior (invented) proxy for "typical slide count".
+    int? TypicalSlideCount = null)
 {
     /// <summary>An empty extraction (no signal) — used when extraction is skipped or yields nothing.</summary>
     public static AestheticExtraction Empty { get; } = new([], [], [], null);

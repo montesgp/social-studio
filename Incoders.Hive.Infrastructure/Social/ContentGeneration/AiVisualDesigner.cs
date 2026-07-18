@@ -260,15 +260,20 @@ public sealed class AiVisualDesigner : IVisualDesigner
                 Description: "Generate a brand-appropriate background freely.")
         };
 
-        // Palette resolution (CAG2-CG-01/02, CAG2-BSP-02): for a ClientAesthetic job, the feed-derived
-        // palette leads; if the client has no marked palette we fall back to the brand palette only when
-        // one exists, and otherwise pass an EMPTY palette so the designer derives colour from the real
-        // creatives. We NEVER fabricate a default palette to fill the gap.
+        // Palette resolution (CAG2-CG-01/02, CAG2-BSP-02; owner-approved rule change): for a
+        // ClientAesthetic job (aesthetic is not null), the client's ANALYSIS is authoritative for
+        // colour — the designer also receives up to MaxDesignerReferenceImages real client posts as
+        // vision input (see LoadReferenceImagesAsync), so an analysis with no captured palette does NOT
+        // fall back to the brand-manual palette: that would contradict the vision evidence and muddy the
+        // prompt with dead-weight colours the model should ignore. We pass the analysis palette as-is —
+        // it may legitimately be EMPTY, in which case the designer derives colour directly from the real
+        // creatives it can see. A non-aesthetic job (aesthetic is null) keeps the brand-manual palette
+        // unchanged — there is no client analysis to defer to.
         var brandPalette = brand.ColorPalette
             .Select(wc => new WeightedPaletteEntryDto(wc.Hex, wc.Role?.ToString(), wc.Rank))
             .ToArray();
-        var palette = (aesthetic is { HasPalette: true })
-            ? aesthetic.Palette!
+        var palette = aesthetic is not null
+            ? (aesthetic.Palette ?? [])
                 .Select(p => new WeightedPaletteEntryDto(p.Hex, p.Role, p.Rank))
                 .ToArray()
             : brandPalette;
