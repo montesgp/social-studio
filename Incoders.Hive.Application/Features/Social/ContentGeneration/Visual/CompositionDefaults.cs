@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Domain.Social.ContentFormats;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
@@ -36,6 +37,30 @@ internal static class CompositionDefaults
     /// this so the editable design fills the story frame instead of leaving dead space.
     /// </summary>
     internal static readonly CompositionDimensions StoryDimensions = new(1080, 1920, 96);
+
+    /// <summary>
+    /// Resolves the logical canvas dimensions for a format key using the SAME Surface/Layout rule the
+    /// visual composers apply (see <c>SurfaceScopedCarouselVisualComposer.Dimensions</c>), so any
+    /// caller that needs the canvas size before a <see cref="VisualCompositionSpec"/> exists — e.g. an
+    /// image-generation request that must be sized to avoid an upscale at render time (CAC-IMG-04) —
+    /// derives it from the SAME single source of truth instead of hardcoding a second magic constant.
+    /// Falls back to <see cref="StandardDimensions"/> (1:1) when the format key does not resolve.
+    /// </summary>
+    internal static CompositionDimensions ResolveDimensionsForFormat(string formatKey)
+    {
+        var definition = FormatCatalog.ResolveForAssembly(formatKey);
+        if (definition is null)
+        {
+            return StandardDimensions;
+        }
+
+        if (definition.Layout == Layout.Carousel)
+        {
+            return definition.Surface == Surface.Story ? StoryDimensions : CarouselDimensions;
+        }
+
+        return definition.Surface == Surface.Story ? StoryDimensions : StandardDimensions;
+    }
 
     /// <summary>
     /// Resolves a brand palette or returns defaults and marks ColorPalette as inferred.

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Microsoft.Extensions.Logging;
@@ -60,9 +61,16 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
 {
     private const string ImageCapabilityKey = "ai-image";
     private const string ImagePromptVersionKey = "image-gen/v1";
-    private const int TargetWidth = 1024;
-    private const int TargetHeight = 1024;
     private const string ImageMime = "image/png";
+
+    /// <summary>
+    /// Stable Diffusion / ComfyUI latent space downsamples by a factor of this many pixels
+    /// (EmptyLatentImage requires width/height divisible by 8 — see
+    /// <c>ComfyUiImageModelClient</c>/<c>DefaultComfyUiWorkflowTemplate.json</c>). Used by
+    /// <see cref="SnapUpToLatentMultiple"/> to round the requested dimensions up to a value the
+    /// diffusion backend accepts.
+    /// </summary>
+    private const int LatentDimensionMultiple = 8;
 
     /// <summary>Capability key used for per-slide telemetry rows (CAC-INT-01).</summary>
     internal const string SlideCapabilityKey = "generate-image";
@@ -133,6 +141,14 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
         // CAC-IMG-01: call DescribeAsync ONCE per job, before the per-slide loop.
         var referenceImages = await ResolveReferenceImagesAsync(request, ct);
 
+        // CAC-IMG-04 (pixelation fix): resolve the target render size from the format's actual
+        // logical canvas (CompositionDefaults) instead of a hardcoded 1024x1024 square. The prior
+        // hardcoded square forced a ~2.6x upscale plus a 1:1 -> 4:5 aspect crop at render time
+        // (carousel canvas is 1080x1350, physical output 2160x2700 with DeviceScaleFactor=2), which
+        // produced visibly pixelated backgrounds. Every slide in this format shares the same canvas,
+        // so this is resolved once per job, not per slide.
+        var (targetWidth, targetHeight) = ResolveTargetDimensions(request.FormatKey);
+
         // Serialized per-slide loop (previously Task.WhenAll — OQ-4 "bounded parallel").
         // The per-slide pipeline transitively resolves workflow config through a scoped EF
         // DbContext (ImagePromptWriter → WorkflowConfigurationResolver →
@@ -145,7 +161,8 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
         var map = new Dictionary<int, BackgroundSelection.ForcedDefault>();
         foreach (var slideIndex in cappedIndices)
         {
-            var (index, forcedDefault) = await BuildSingleSlideAsync(request, slideIndex, referenceImages, ct);
+            var (index, forcedDefault) = await BuildSingleSlideAsync(
+                request, slideIndex, referenceImages, targetWidth, targetHeight, ct);
             if (forcedDefault is not null)
             {
                 map[index] = forcedDefault;
@@ -203,6 +220,8 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
         ClientAestheticImageRequest request,
         int slideIndex,
         IReadOnlyList<ImageInitReference>? referenceImages,
+        int targetWidth,
+        int targetHeight,
         CancellationToken ct)
     {
         try
@@ -247,7 +266,7 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
 
             // 3. Render the image with guardrail retry (CAC-IMG-03).
             var (renderedImage, failureReason) = await RenderWithGuardrailRetryAsync(
-                request, slideIndex, prompt, referenceImages, ct);
+                request, slideIndex, prompt, referenceImages, targetWidth, targetHeight, ct);
 
             if (renderedImage is null)
             {
@@ -302,6 +321,8 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
         int slideIndex,
         string prompt,
         IReadOnlyList<ImageInitReference>? referenceImages,
+        int targetWidth,
+        int targetHeight,
         CancellationToken ct)
     {
         for (var attempt = 1; attempt <= MaxGuardrailAttempts; attempt++)
@@ -313,8 +334,8 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
                 ImageCapabilityKey,
                 ImagePromptVersionKey,
                 prompt,
-                TargetWidth,
-                TargetHeight,
+                targetWidth,
+                targetHeight,
                 PreferredProviderKey: null,
                 PreferredModel: null,
                 ReferenceImages: referenceImages,
@@ -548,6 +569,36 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
         var bytes = Encoding.UTF8.GetBytes(prompt);
         var hash = SHA256.HashData(bytes);
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// CAC-IMG-04 (pixelation fix): resolves the (Width, Height) to request from the image
+    /// generation gateway for the given format, derived from the format's logical canvas
+    /// (<see cref="CompositionDefaults.ResolveDimensionsForFormat"/>) and snapped up to the nearest
+    /// multiple of <see cref="LatentDimensionMultiple"/> the diffusion backend's latent space
+    /// requires. Public so tests can assert the exact resolved size without duplicating the rounding
+    /// rule.
+    /// </summary>
+    public static (int Width, int Height) ResolveTargetDimensions(string formatKey)
+    {
+        var dims = CompositionDefaults.ResolveDimensionsForFormat(formatKey);
+        return (SnapUpToLatentMultiple(dims.Width), SnapUpToLatentMultiple(dims.Height));
+    }
+
+    /// <summary>
+    /// Rounds <paramref name="value"/> UP to the next multiple of <see cref="LatentDimensionMultiple"/>
+    /// (never down), so the generated image is never smaller than the logical canvas. E.g. the carousel
+    /// canvas height (1350) is not a multiple of 8, so it snaps to 1352; the 2px delta is imperceptible
+    /// and preserves the aspect ratio far more closely than the previous hardcoded 1024x1024 square.
+    /// NOTE: this removes the aspect crop and cuts the upscale from ~2.6x to exactly the renderer's
+    /// DeviceScaleFactor (2x today — a 1080x1350 canvas still rasterizes at 2160x2700). Matching
+    /// physical pixels 1:1 would need generation at 2x or a ComfyUI upscale node; both were weighed
+    /// and rejected on generation-time cost (a single 1024x1024 image already takes ~475s).
+    /// </summary>
+    internal static int SnapUpToLatentMultiple(int value)
+    {
+        var remainder = value % LatentDimensionMultiple;
+        return remainder == 0 ? value : value + (LatentDimensionMultiple - remainder);
     }
 
     private static string GetCopySummary(ClientAestheticImageRequest request, int slideIndex)

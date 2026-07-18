@@ -1709,14 +1709,30 @@ public sealed class ContentGenerationJobProcessor
             ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont)
             : BuildStoryTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont);
 
-        var backgroundDecor = isCarousel
+        // No-scrim fix: the full-bleed dark box below ("scrimBox") is ONLY safe over a synthesized
+        // CSS/gradient background, which has no inherent contrast guarantee. An ENFORCED background
+        // (background != null — a brand-manual template, or an AI-generated photo promoted to
+        // ForcedDefault by WithForcedDefaults once ClientAestheticImageBackgroundService succeeds)
+        // is a real image, and this deterministic template ALWAYS wins over the AI designer's markup
+        // (see the priority comment at the resolution site). That is why AiVisualDesigner's prompt-level
+        // NoScrimDirective could never reach the rendered pixels for an enforced background — the only
+        // place the rule can actually be enforced is HERE, in the markup that ships.
+        // Legibility on a real image comes from the per-slot text-shadow already baked into
+        // BuildCarouselTemplateSlots/BuildStoryTemplateSlots, matching the "achieve legibility locally,
+        // never with a full-bleed veil" policy. The thin accent divider is purely decorative (not a
+        // legibility aid) and stays on both paths.
+        var scrimBox = isCarousel
             ? """
               <div style="position:absolute;left:64px;right:64px;top:140px;bottom:140px;border-radius:46px;background:rgba(0,0,0,0.52);box-shadow:0 28px 80px rgba(0,0,0,0.32);"></div>
-              <div style="position:absolute;left:64px;right:64px;bottom:140px;height:10px;border-radius:999px;background:rgba(255,255,255,0.82);"></div>
               """
             : """
               <div style="position:absolute;left:56px;right:56px;top:170px;bottom:150px;border-radius:56px;background:rgba(0,0,0,0.50);box-shadow:0 32px 90px rgba(0,0,0,0.34);"></div>
               """;
+        var accentDecor = isCarousel
+            ? """
+              <div style="position:absolute;left:64px;right:64px;bottom:140px;height:10px;border-radius:999px;background:rgba(255,255,255,0.82);"></div>
+              """
+            : string.Empty;
 
         // Background layer. With a brand template we hard-enforce the image; without one (Creative
         // tier / resilience fallback) we synthesize a deterministic brand-palette gradient. A dark
@@ -1729,8 +1745,7 @@ public sealed class ContentGenerationJobProcessor
             var source = Html(background.Source);
             backgroundLayerInner = $"""
                 <img src="{safeUrl}" alt="{safeName}" data-background-source="{source}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" />
-                <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0.18) 0%,rgba(0,0,0,0.35) 46%,rgba(0,0,0,0.62) 100%);"></div>
-                {backgroundDecor}
+                {accentDecor}
                 """;
         }
         else
@@ -1753,7 +1768,8 @@ public sealed class ContentGenerationJobProcessor
             backgroundLayerInner = $"""
                 <div style="position:absolute;inset:0;background:linear-gradient(160deg,{c1} 0%,{c2} 100%);"></div>
                 <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0.20) 0%,rgba(0,0,0,0.45) 100%);"></div>
-                {backgroundDecor}
+                {scrimBox}
+                {accentDecor}
                 """;
         }
 

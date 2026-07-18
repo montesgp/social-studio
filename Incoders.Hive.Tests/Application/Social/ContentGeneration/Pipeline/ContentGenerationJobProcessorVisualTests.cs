@@ -117,6 +117,15 @@ public sealed class ContentGenerationJobProcessorVisualTests
         Assert.Contains("https://cdn.example.com/forced-story-bg.png", rendererSpy.ReceivedMarkup);
         Assert.Contains("data-background-source=\"brand-manual-forced-default\"", rendererSpy.ReceivedMarkup);
         Assert.DoesNotContain("class=\"layer-background\"", rendererSpy.ReceivedMarkup);
+
+        // v3 no-scrim fix (job 25a65dac-a31e-4eaf-b9a1-346111f67be7): an enforced background is a
+        // REAL image and always wins over the AI's own markup (see BuildTemplateBackedMarkup priority
+        // comment), so the AiVisualDesigner's no-scrim directive never reaches the rendered pixels for
+        // this path — the hardcoded scrim gradient + rounded box must be absent here directly.
+        // This is the "story" format, whose scrim box is rgba(0,0,0,0.50); the dark legibility
+        // gradient (rgba(0,0,0,0.18)...0.62) is shared by both formats.
+        Assert.DoesNotContain("rgba(0,0,0,0.50)", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("rgba(0,0,0,0.18)", rendererSpy.ReceivedMarkup);
     }
 
     [Fact]

@@ -34,7 +34,8 @@ public sealed class ClientAestheticImageBackgroundServiceTests
     private static ClientAestheticImageRequest BuildRequest(
         IReadOnlyList<int> creativeSlideIndices,
         int slideCount = 5,
-        IReadOnlyList<string>? perSlideCopySummaries = null)
+        IReadOnlyList<string>? perSlideCopySummaries = null,
+        string formatKey = "carousel-4")
     {
         perSlideCopySummaries ??= Enumerable.Range(1, slideCount).Select(i => $"Slide {i} copy").ToList();
         return new ClientAestheticImageRequest(
@@ -42,7 +43,7 @@ public sealed class ClientAestheticImageBackgroundServiceTests
             ClientId: ClientId,
             JobId: JobId,
             FormatResultId: FormatResultId,
-            FormatKey: "carousel-4",
+            FormatKey: formatKey,
             SlideCount: slideCount,
             CreativeSlideIndices: creativeSlideIndices,
             Aesthetic: RichProfile(),
@@ -75,6 +76,34 @@ public sealed class ClientAestheticImageBackgroundServiceTests
         Assert.Equal("ai-generated-background", fd4.Name);
         Assert.False(string.IsNullOrEmpty(fd1.Url));
         Assert.False(string.IsNullOrEmpty(fd4.Url));
+    }
+
+    // -----------------------------------------------------------------------
+    // CAC-IMG-04 (pixelation fix): the image request is sized from the format's real canvas,
+    // not the old hardcoded 1024x1024 square (job 25a65dac-a31e-4eaf-b9a1-346111f67be7).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task BuildCreativeBackgroundsAsync_CarouselFormat_RequestsCanvasSizedImageNotHardcodedSquare()
+    {
+        var promptWriter = new StaticPromptWriter(prompt: "a beautiful background");
+        var imageGateway = new CapturingImageGateway(bytes: [1, 2, 3], mime: "image/png");
+        var storage = new CapturingStorage(url: $"orgs/{OrgId}/{FormatResultId}/carousel/slide_{{0}}.png");
+
+        var sut = BuildSut(promptWriter, imageGateway, storage);
+
+        // BuildRequest uses FormatKey "carousel-4" (not a catalog key) in the other tests in this
+        // file; this test needs the REAL "carousel" catalog key so CompositionDefaults resolves the
+        // actual 1080x1350 canvas instead of falling back to the 1080x1080 default.
+        var request = BuildRequest([1], formatKey: "carousel");
+
+        await sut.BuildCreativeBackgroundsAsync(request, CancellationToken.None);
+
+        Assert.NotNull(imageGateway.LastRequest);
+        Assert.Equal(1080, imageGateway.LastRequest!.Width);
+        // 1350 (the carousel canvas height) is not a multiple of 8, so it snaps up to 1352 —
+        // never the previous hardcoded 1024, and never smaller than the logical canvas.
+        Assert.Equal(1352, imageGateway.LastRequest!.Height);
     }
 
     // -----------------------------------------------------------------------
@@ -443,6 +472,34 @@ file sealed class StaticImageGateway : IImageGenerationGateway
     public Task<Result<ImageGenerationResult>> GenerateAsync(ImageGenerationRequest request, CancellationToken ct = default)
     {
         Interlocked.Increment(ref _callCount);
+        var result = new ImageGenerationResult(_bytes, _mime, "openai", "dall-e-3");
+        return Task.FromResult(Result.Success(result));
+    }
+
+    public Task<Result<ImageModelCapabilities>> DescribeAsync(Guid organizationId, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new ImageModelCapabilities(false, 0)));
+}
+
+/// <summary>
+/// Image gateway that records the last <see cref="ImageGenerationRequest"/> it received, so a test
+/// can assert the resolved Width/Height reached the gateway call (CAC-IMG-04 pixelation fix).
+/// </summary>
+file sealed class CapturingImageGateway : IImageGenerationGateway
+{
+    private readonly byte[] _bytes;
+    private readonly string _mime;
+
+    public ImageGenerationRequest? LastRequest { get; private set; }
+
+    public CapturingImageGateway(byte[] bytes, string mime)
+    {
+        _bytes = bytes;
+        _mime = mime;
+    }
+
+    public Task<Result<ImageGenerationResult>> GenerateAsync(ImageGenerationRequest request, CancellationToken ct = default)
+    {
+        LastRequest = request;
         var result = new ImageGenerationResult(_bytes, _mime, "openai", "dall-e-3");
         return Task.FromResult(Result.Success(result));
     }
