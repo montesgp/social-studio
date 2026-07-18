@@ -40,6 +40,7 @@ import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { hasVisibleBorder, pickRecolorProperty } from "@/lib/studio/decoration-edit";
+import { resolveToolbarDock } from "@/lib/studio/toolbar-dock";
 import {
   approveItem,
   bulkOperation,
@@ -1878,7 +1879,7 @@ const DesignCanvas = forwardRef<
   // The edit toolbar is a floating, viewport-fixed panel (not pinned onto the component) so it never
   // covers the element being edited nor hides behind sibling components. The user can drag it anywhere
   // and pin it to lock the position. `toolbarPos` is viewport (fixed) coordinates; null = use the
-  // default left dock, computed from the canvas so it sits between the studio sidebar and the slide.
+  // default right dock, computed from the canvas so the column sits beside the slide render.
   const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number } | null>(null);
   const [toolbarPinned, setToolbarPinned] = useState(false);
   const dragRef = useRef<
@@ -2144,14 +2145,15 @@ const DesignCanvas = forwardRef<
     onDirty();
   };
 
-  // The floating toolbar lives in viewport (fixed) space. Default dock: just left of the slide, in the
-  // gap between the studio sidebar and the canvas — so it never overlaps the component being edited.
+  // The floating toolbar lives in viewport (fixed) space and stacks its controls VERTICALLY, so it
+  // docks as a narrow column beside the slide render instead of overlapping it. The dock rule
+  // (right by default, left when the viewport has no room) is a pure function so it stays unit-tested.
   const effectiveToolbarPos =
     toolbarPos ??
     (() => {
       const cr = containerRef.current?.getBoundingClientRect();
       if (!cr) return { x: 16, y: 120 };
-      return { x: Math.max(12, Math.round(cr.left - 260)), y: Math.max(64, Math.round(cr.top)) };
+      return resolveToolbarDock(cr, window.innerWidth);
     })();
 
   // Drag the whole panel by its header. Disabled while pinned so a pinned toolbar stays put.
@@ -2251,16 +2253,18 @@ const DesignCanvas = forwardRef<
           className="fixed z-[60] w-max rounded-md border border-border bg-background shadow-2xl"
           style={{ top: effectiveToolbarPos.y, left: effectiveToolbarPos.x }}
         >
-          {/* Draggable header — move the panel anywhere; pin to lock it in place. */}
+          {/* Draggable header — move the panel anywhere; pin to lock it in place. Stacked vertically
+              so the header never forces the column wider than its controls; the "Edit" affordance is
+              carried by the grip icon's title instead of a text label. */}
           <div
             onPointerDown={onToolbarDragStart}
             className={cn(
-              "flex items-center gap-1 rounded-t-md border-b border-border bg-muted/60 px-1.5 py-1",
+              "flex flex-col items-center gap-1 rounded-t-md border-b border-border bg-muted/60 px-1.5 py-1",
               toolbarPinned ? "cursor-default" : "cursor-grab active:cursor-grabbing",
             )}
           >
             <GripVertical className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-            <span className="mr-1 select-none text-[11px] font-medium text-muted-foreground">Edit</span>
+            <span className="sr-only">Edit</span>
             <button
               type="button"
               aria-label={toolbarPinned ? "Unpin toolbar" : "Pin toolbar"}
@@ -2269,14 +2273,14 @@ const DesignCanvas = forwardRef<
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => setToolbarPinned((p) => !p)}
               className={cn(
-                "ml-auto grid h-6 w-6 place-items-center rounded hover:bg-muted",
+                "grid h-6 w-6 place-items-center rounded hover:bg-muted",
                 toolbarPinned ? "text-primary" : "text-muted-foreground",
               )}
             >
               {toolbarPinned ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
             </button>
           </div>
-          <div className="flex items-center gap-0.5 p-1">
+          <div className="flex flex-col items-center gap-0.5 p-1">
           <ToolbarButton
             label="Smaller"
             onClick={() =>
@@ -2359,7 +2363,8 @@ const DesignCanvas = forwardRef<
             }
             className="h-6 w-6 cursor-pointer rounded border border-border bg-transparent p-0"
           />
-          <div className="mx-0.5 h-5 w-px bg-border" aria-hidden="true" />
+          {/* Group separator — horizontal rule, matching the vertical stack direction. */}
+          <div className="my-0.5 h-px w-5 bg-border" aria-hidden="true" />
           <ToolbarButton label="Send backward" onClick={() => reorderSelected("backward")}>
             <ArrowDown className="h-4 w-4" />
           </ToolbarButton>
