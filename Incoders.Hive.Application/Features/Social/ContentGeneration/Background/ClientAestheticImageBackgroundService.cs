@@ -64,13 +64,30 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
     private const string ImageMime = "image/png";
 
     /// <summary>
-    /// Stable Diffusion / ComfyUI latent space downsamples by a factor of this many pixels
-    /// (EmptyLatentImage requires width/height divisible by 8 — see
-    /// <c>ComfyUiImageModelClient</c>/<c>DefaultComfyUiWorkflowTemplate.json</c>). Used by
-    /// <see cref="SnapUpToLatentMultiple"/> to round the requested dimensions up to a value the
-    /// diffusion backend accepts.
+    /// Generation dimensions MUST be a multiple of 64, not 8.
     /// </summary>
-    private const int LatentDimensionMultiple = 8;
+    /// <remarks>
+    /// The VAE alone only needs 8 (that is what <c>EmptyLatentImage</c> validates), but the UNet
+    /// applies three further 2x downsample stages on top of it — 8 * 2^3 = 64. Feeding it a size that
+    /// is a multiple of 8 but not of 64 makes the skip connections mismatch, and the backend pads and
+    /// reallocates instead of failing cleanly.
+    ///
+    /// <para>
+    /// Measured on the reference dev backend (ComfyUI 0.3.48, --directml --lowvram --cpu-vae):
+    /// 1024x1024 (both multiples of 64) SUCCEEDS; 912x1144 OOMs at ~4.2 GB despite having FEWER total
+    /// pixels; 1080x1352 OOMs at ~4.0 GB. Total pixel count is not what decides it — divisibility is.
+    /// 1024x1280 (4:5, both multiples of 64, 25% MORE pixels than 1024x1024) also succeeds.
+    /// </para>
+    /// </remarks>
+    private const int LatentDimensionMultiple = 64;
+
+    /// <summary>
+    /// Upper bound on generated pixels per image, so a large canvas cannot exceed what the backend's
+    /// video memory can hold. Set to the largest size verified to complete on the reference dev
+    /// backend (1024x1280 = 1_310_720). Dimensions are scaled down proportionally to fit, preserving
+    /// the canvas aspect ratio, so the render still never has to crop.
+    /// </summary>
+    private const int MaxGenerationPixels = 1_310_720;
 
     /// <summary>Capability key used for per-slide telemetry rows (CAC-INT-01).</summary>
     internal const string SlideCapabilityKey = "generate-image";
@@ -581,24 +598,59 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
     /// </summary>
     public static (int Width, int Height) ResolveTargetDimensions(string formatKey)
     {
-        var dims = CompositionDefaults.ResolveDimensionsForFormat(formatKey);
-        return (SnapUpToLatentMultiple(dims.Width), SnapUpToLatentMultiple(dims.Height));
+        var canvas = CompositionDefaults.ResolveDimensionsForFormat(formatKey);
+        return ResolveGenerationSize(canvas.Width, canvas.Height);
     }
 
     /// <summary>
-    /// Rounds <paramref name="value"/> UP to the next multiple of <see cref="LatentDimensionMultiple"/>
-    /// (never down), so the generated image is never smaller than the logical canvas. E.g. the carousel
-    /// canvas height (1350) is not a multiple of 8, so it snaps to 1352; the 2px delta is imperceptible
-    /// and preserves the aspect ratio far more closely than the previous hardcoded 1024x1024 square.
-    /// NOTE: this removes the aspect crop and cuts the upscale from ~2.6x to exactly the renderer's
-    /// DeviceScaleFactor (2x today — a 1080x1350 canvas still rasterizes at 2160x2700). Matching
-    /// physical pixels 1:1 would need generation at 2x or a ComfyUI upscale node; both were weighed
-    /// and rejected on generation-time cost (a single 1024x1024 image already takes ~475s).
+    /// Resolves the generation size for a logical canvas: the canvas aspect ratio is preserved (so the
+    /// render never has to crop), both dimensions land on a multiple of
+    /// <see cref="LatentDimensionMultiple"/>, and the area stays within
+    /// <see cref="MaxGenerationPixels"/>. Never generates larger than the canvas itself.
     /// </summary>
-    internal static int SnapUpToLatentMultiple(int value)
+    /// <remarks>
+    /// Resolved sizes: feed carousel 1080x1350 (4:5) -> 1024x1280, an exact 4:5 match verified to
+    /// complete on the reference backend; story 1080x1920 (9:16) -> 832x1472; feed post 1080x1080 ->
+    /// 1024x1024. This replaces the hardcoded 1024x1024 square, which forced a 1:1 -> 4:5 crop on
+    /// every carousel slide.
+    /// </remarks>
+    internal static (int Width, int Height) ResolveGenerationSize(int canvasWidth, int canvasHeight)
     {
-        var remainder = value % LatentDimensionMultiple;
-        return remainder == 0 ? value : value + (LatentDimensionMultiple - remainder);
+        if (canvasWidth < 1 || canvasHeight < 1)
+        {
+            return (LatentDimensionMultiple, LatentDimensionMultiple);
+        }
+
+        var aspect = (double)canvasWidth / canvasHeight;
+        var canvasArea = (double)canvasWidth * canvasHeight;
+
+        // Never upscale past the canvas; shrink only when the canvas exceeds the memory budget.
+        var scale = Math.Min(1.0, Math.Sqrt(MaxGenerationPixels / canvasArea));
+
+        var width = SnapToLatentMultiple(canvasWidth * scale);
+        var height = SnapToLatentMultiple(width / aspect);
+
+        // Snapping rounds outward and can push the area back over budget; step the width down one
+        // latent block at a time until it fits, recomputing the height so the aspect ratio holds.
+        while ((long)width * height > MaxGenerationPixels && width > LatentDimensionMultiple)
+        {
+            width -= LatentDimensionMultiple;
+            height = SnapToLatentMultiple(width / aspect);
+        }
+
+        return (width, height);
+    }
+
+    /// <summary>
+    /// Rounds to the NEAREST multiple of <see cref="LatentDimensionMultiple"/>, with a floor of one
+    /// multiple. Nearest rather than up: rounding up is what pushed a 1080-wide canvas to 1088 and,
+    /// combined with the old multiple of 8, produced sizes the backend could not allocate.
+    /// </summary>
+    internal static int SnapToLatentMultiple(double value)
+    {
+        var snapped = (int)Math.Round(value / LatentDimensionMultiple, MidpointRounding.AwayFromZero)
+            * LatentDimensionMultiple;
+        return Math.Max(LatentDimensionMultiple, snapped);
     }
 
     private static string GetCopySummary(ClientAestheticImageRequest request, int slideIndex)

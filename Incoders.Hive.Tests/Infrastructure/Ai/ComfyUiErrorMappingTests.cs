@@ -270,6 +270,48 @@ public sealed class ComfyUiErrorMappingTests
         };
     }
 
+    // A workflow that fails to EXECUTE and a provider that is DOWN both surface as
+    // ExternalProviderUnavailable, so the only way to tell them apart is the logged detail. When a
+    // resolution change made every KSampler run out of memory, the logs read as an outage and the
+    // real cause stayed invisible for a full diagnostic cycle. These tests pin that detail.
+    [Fact]
+    public void DescribeExecutionError_SurfacesFailingNodeAndBackendException()
+    {
+        var status = System.Text.Json.JsonDocument.Parse(
+            """
+            {
+              "status_str": "error",
+              "messages": [
+                ["execution_start", {}],
+                ["execution_cached", {}],
+                ["execution_error", {
+                  "node_type": "KSampler",
+                  "exception_type": "RuntimeError",
+                  "exception_message": "Could not allocate tensor with 4033420304 bytes. There is not enough GPU video memory available!"
+                }]
+              ]
+            }
+            """).RootElement;
+
+        var description = ComfyUiImageModelClient.DescribeExecutionError(status);
+
+        Assert.Contains("KSampler", description, StringComparison.Ordinal);
+        Assert.Contains("RuntimeError", description, StringComparison.Ordinal);
+        Assert.Contains("not enough GPU video memory", description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DescribeExecutionError_MissingOrMalformedDetail_DoesNotThrow()
+    {
+        var noMessages = System.Text.Json.JsonDocument.Parse("""{"status_str":"error"}""").RootElement;
+        Assert.False(string.IsNullOrWhiteSpace(ComfyUiImageModelClient.DescribeExecutionError(noMessages)));
+
+        var wrongShape = System.Text.Json.JsonDocument.Parse(
+            """{"status_str":"error","messages":[["execution_error",{}]]}""").RootElement;
+        var description = ComfyUiImageModelClient.DescribeExecutionError(wrongShape);
+        Assert.Contains("unknown", description, StringComparison.Ordinal);
+    }
+
     private sealed class StaticHttpClientFactory : IHttpClientFactory
     {
         private readonly HttpMessageHandler _handler;

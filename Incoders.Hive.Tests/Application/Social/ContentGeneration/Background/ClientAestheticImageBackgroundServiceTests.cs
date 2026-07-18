@@ -100,10 +100,13 @@ public sealed class ClientAestheticImageBackgroundServiceTests
         await sut.BuildCreativeBackgroundsAsync(request, CancellationToken.None);
 
         Assert.NotNull(imageGateway.LastRequest);
-        Assert.Equal(1080, imageGateway.LastRequest!.Width);
-        // 1350 (the carousel canvas height) is not a multiple of 8, so it snaps up to 1352 —
-        // never the previous hardcoded 1024, and never smaller than the logical canvas.
-        Assert.Equal(1352, imageGateway.LastRequest!.Height);
+        // 1024x1280 is an EXACT 4:5 match for the 1080x1350 carousel canvas (so the render never
+        // crops), with both dimensions on a multiple of 64 as the UNet requires. Snapping to a
+        // multiple of 8 instead produced 1080x1352, which the diffusion backend could not allocate —
+        // see ClientAestheticImageBackgroundServiceDimensionTests for the measured evidence.
+        Assert.Equal(1024, imageGateway.LastRequest!.Width);
+        Assert.Equal(1280, imageGateway.LastRequest!.Height);
+        Assert.Equal(1080d / 1350d, (double)imageGateway.LastRequest!.Width / imageGateway.LastRequest!.Height, precision: 10);
     }
 
     // -----------------------------------------------------------------------

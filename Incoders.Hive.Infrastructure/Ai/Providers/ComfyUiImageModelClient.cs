@@ -193,7 +193,7 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                 return Result.Failure<ImageGenerationResult>(promptIdResult.Error);
             }
 
-            var outputImageResult = await PollHistoryAsync(http, baseUrl, promptIdResult.Value, settings, effectiveCt);
+            var outputImageResult = await PollHistoryAsync(http, baseUrl, promptIdResult.Value, settings, _logger, effectiveCt);
             if (outputImageResult.IsFailure)
             {
                 return Result.Failure<ImageGenerationResult>(outputImageResult.Error);
@@ -396,11 +396,56 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     /// <see cref="OperationCanceledException"/> and is mapped to
     /// <see cref="IntegrationErrors.ProviderTimeout"/> by the caller (CUI-02-c).
     /// </summary>
+    /// <summary>
+    /// Extracts ComfyUI's own failure description from a history entry's <c>status</c> object. The
+    /// detail lives in <c>messages</c> as an <c>["execution_error", {...}]</c> pair carrying the
+    /// failing node and the backend exception (e.g. a KSampler out-of-memory). Returns a short
+    /// single-line summary, or a fallback when the shape is not what we expect — this runs on a
+    /// failure path and must never throw or mask the original error.
+    /// </summary>
+    internal static string DescribeExecutionError(JsonElement status)
+    {
+        try
+        {
+            if (status.TryGetProperty("messages", out var messages) && messages.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var message in messages.EnumerateArray())
+                {
+                    if (message.ValueKind != JsonValueKind.Array
+                        || message.GetArrayLength() < 2
+                        || !string.Equals(message[0].GetString(), "execution_error", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    var detail = message[1];
+                    var nodeType = ReadString(detail, "node_type");
+                    var exceptionType = ReadString(detail, "exception_type");
+                    var exceptionMessage = ReadString(detail, "exception_message");
+
+                    return $"node={nodeType} exception={exceptionType} message={exceptionMessage}";
+                }
+            }
+
+            return "no execution_error detail in history status";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JsonException)
+        {
+            return "unreadable execution_error detail";
+        }
+
+        static string ReadString(JsonElement element, string propertyName) =>
+            element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString() ?? "(null)"
+                : "(unknown)";
+    }
+
     private static async Task<Result<JsonElement>> PollHistoryAsync(
         HttpClient http,
         string baseUrl,
         string promptId,
         ComfyUiSettings settings,
+        ILogger logger,
         CancellationToken ct)
     {
         while (true)
@@ -422,6 +467,16 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                     && status.TryGetProperty("status_str", out var statusStr)
                     && string.Equals(statusStr.GetString(), "error", StringComparison.OrdinalIgnoreCase))
                 {
+                    // A workflow that FAILED TO EXECUTE is not the same thing as an unreachable
+                    // provider, but both collapse into ExternalProviderUnavailable at the Result
+                    // level. Log ComfyUI's own diagnosis first — without it, an out-of-memory
+                    // KSampler is indistinguishable in the logs from a server that is simply down,
+                    // which is exactly how a resolution regression once read as an outage.
+                    logger.LogError(
+                        "ComfyUI workflow execution failed for prompt {PromptId}: {Detail}",
+                        promptId,
+                        DescribeExecutionError(status));
+
                     return Result.Failure<JsonElement>(IntegrationErrors.ExternalProviderUnavailable);
                 }
 
