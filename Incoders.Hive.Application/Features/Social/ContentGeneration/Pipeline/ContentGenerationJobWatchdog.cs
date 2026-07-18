@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 
@@ -16,9 +17,35 @@ public static class ContentGenerationJobWatchdog
     /// <summary>A "Running" job older than this is considered stuck and is force-failed by the
     /// periodic sweep. Set above the worker's per-job timeout so the per-job timeout always gets
     /// first chance to record an accurate terminal status.</summary>
-    // Kept strictly above ContentGenerationBackgroundWorker.JobTimeout (30 min) so the per-job
-    // CancelAfter self-heals first; this is the backstop for a worker that died mid-job.
-    public static readonly TimeSpan StuckJobThreshold = TimeSpan.FromMinutes(32);
+    // Kept strictly above ContentGenerationWorkerOptions.DefaultJobTimeoutMinutes (60 min), with the
+    // same 2-min buffer this threshold has always carried above the job timeout default (it was
+    // 32 min when the job timeout default was 30 min). Since JobTimeout is now sysadmin-configurable
+    // via appsettings, a config that raises it past this threshold would let the watchdog reap a
+    // still-healthy job — EnsureJobTimeoutBelowStuckThreshold below fails fast on that misconfiguration
+    // instead of leaving it as a comment-only invariant.
+    public static readonly TimeSpan StuckJobThreshold =
+        TimeSpan.FromMinutes(ContentGenerationWorkerOptions.DefaultJobTimeoutMinutes + 2);
+
+    /// <summary>
+    /// Enforces the invariant documented on <see cref="StuckJobThreshold"/>: the configured per-job
+    /// timeout must stay strictly below the watchdog's stuck-job threshold. Called by
+    /// <c>ContentGenerationBackgroundWorker</c> at startup so a misconfigured
+    /// <c>ContentGeneration:Worker:JobTimeoutMinutes</c> fails the host immediately instead of
+    /// silently letting the periodic sweep force-fail jobs that are still legitimately running.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="jobTimeout"/> is not strictly below <see cref="StuckJobThreshold"/>.
+    /// </exception>
+    public static void EnsureJobTimeoutBelowStuckThreshold(TimeSpan jobTimeout)
+    {
+        if (jobTimeout >= StuckJobThreshold)
+        {
+            throw new InvalidOperationException(
+                $"ContentGeneration:Worker:JobTimeoutMinutes ({jobTimeout.TotalMinutes} min) must stay " +
+                $"strictly below the watchdog StuckJobThreshold ({StuckJobThreshold.TotalMinutes} min); " +
+                "otherwise the periodic watchdog sweep could force-fail a job that is still healthily running.");
+        }
+    }
 
     /// <summary>
     /// Startup recovery: fail EVERY job still in "Running". These are orphans from a previous

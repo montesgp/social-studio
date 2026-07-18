@@ -1,5 +1,6 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Pipeline;
@@ -96,6 +97,41 @@ public sealed class ContentGenerationJobWatchdogTests
         Assert.Equal(2, failed);
         Assert.All(repo.StatusUpdates, u => Assert.Equal("restart-detected", u.errorCode));
         Assert.DoesNotContain(repo.StatusUpdates, u => u.id == queued.Id);
+    }
+
+    // ── JobTimeout / StuckJobThreshold invariant (issue: job 8757e85a / 07771831) ──────────────
+
+    [Fact]
+    public void StuckJobThreshold_IsStrictlyAboveDefaultJobTimeout()
+    {
+        // ContentGenerationWorkerOptions.JobTimeout defaults to 60 min; the watchdog must always
+        // give the per-job CancelAfter first chance to record a clean terminal status.
+        Assert.True(
+            ContentGenerationJobWatchdog.StuckJobThreshold >
+                TimeSpan.FromMinutes(ContentGenerationWorkerOptions.DefaultJobTimeoutMinutes));
+    }
+
+    [Fact]
+    public void EnsureJobTimeoutBelowStuckThreshold_DefaultJobTimeout_DoesNotThrow()
+    {
+        var defaultTimeout = new ContentGenerationWorkerOptions().JobTimeout;
+
+        var ex = Record.Exception(() =>
+            ContentGenerationJobWatchdog.EnsureJobTimeoutBelowStuckThreshold(defaultTimeout));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void EnsureJobTimeoutBelowStuckThreshold_JobTimeoutAtOrAboveThreshold_Throws()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            ContentGenerationJobWatchdog.EnsureJobTimeoutBelowStuckThreshold(
+                ContentGenerationJobWatchdog.StuckJobThreshold));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ContentGenerationJobWatchdog.EnsureJobTimeoutBelowStuckThreshold(
+                ContentGenerationJobWatchdog.StuckJobThreshold + TimeSpan.FromMinutes(1)));
     }
 
     private static ContentGenerationJob MakeJob(string status, DateTime? startedAt) => new(

@@ -1,5 +1,7 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Microsoft.Extensions.Options;
 
 namespace Incoders.Hive.ApiService.BackgroundServices;
 
@@ -13,8 +15,9 @@ namespace Incoders.Hive.ApiService.BackgroundServices;
 /// <para>Resilience against "stuck generating forever" (the pill never changes):</para>
 /// <list type="bullet">
 ///   <item><description>Startup: any job left in "Running" (orphaned from a crash) is failed.</description></item>
-///   <item><description>Per-job: a wall-clock timeout cancels a job that runs past <see cref="JobTimeout"/>;
-///   the processor records the terminal status so the UI stops polling.</description></item>
+///   <item><description>Per-job: a wall-clock timeout cancels a job that runs past the configured
+///   <see cref="ContentGenerationWorkerOptions.JobTimeout"/>; the processor records the terminal
+///   status so the UI stops polling.</description></item>
 ///   <item><description>Periodic watchdog: a recurring sweep fails any job stuck in "Running" past
 ///   <see cref="ContentGenerationJobWatchdog.StuckJobThreshold"/> (covers a worker that died
 ///   without unwinding its catch).</description></item>
@@ -26,29 +29,28 @@ internal sealed class ContentGenerationBackgroundWorker : BackgroundService
 {
     private const int MaxConcurrency = 3;
 
-    /// <summary>Per-job wall-clock backstop. Generous: a multi-format job legitimately makes several
-    /// bounded (120 s) AI calls plus renders. This only fires for a genuine hang, never normal work.</summary>
-    // Raised from 15 to 30 min: a real carousel combines 3+ ComfyUI background images (~6-7 min each
-    // on non-CUDA local hardware) with CSS/PPTX slide rendering, which exceeded the old 15-min budget
-    // and timed jobs out. Must stay below ContentGenerationJobWatchdog.StuckJobThreshold and above
-    // ContentGeneration:AestheticGating:MaxWaitSeconds (600s).
-    internal static readonly TimeSpan JobTimeout = TimeSpan.FromMinutes(30);
-
     /// <summary>How often the watchdog sweeps for stuck "Running" jobs.</summary>
     internal static readonly TimeSpan WatchdogInterval = TimeSpan.FromMinutes(2);
 
     private readonly IContentGenerationJobQueue _queue;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ContentGenerationBackgroundWorker> _logger;
+    private readonly TimeSpan _jobTimeout;
 
     public ContentGenerationBackgroundWorker(
         IContentGenerationJobQueue queue,
         IServiceScopeFactory scopeFactory,
+        IOptions<ContentGenerationWorkerOptions> workerOptions,
         ILogger<ContentGenerationBackgroundWorker> logger)
     {
         _queue = queue;
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _jobTimeout = workerOptions.Value.JobTimeout;
+
+        // Fail fast on startup rather than letting a misconfigured JobTimeout silently let the
+        // periodic watchdog sweep reap jobs that are still legitimately running.
+        ContentGenerationJobWatchdog.EnsureJobTimeoutBelowStuckThreshold(_jobTimeout);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -103,7 +105,7 @@ internal sealed class ContentGenerationBackgroundWorker : BackgroundService
         // cancellation handler records the terminal status (using a fresh token), so the job
         // never stays "Running".
         using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        jobCts.CancelAfter(JobTimeout);
+        jobCts.CancelAfter(_jobTimeout);
 
         try
         {
@@ -123,7 +125,7 @@ internal sealed class ContentGenerationBackgroundWorker : BackgroundService
             sw.Stop();
             _logger.LogError(
                 "ContentGeneration worker: job {JobId} TIMED OUT after {ElapsedMs} ms (limit {LimitMs} ms).",
-                jobId, sw.ElapsedMilliseconds, (long)JobTimeout.TotalMilliseconds);
+                jobId, sw.ElapsedMilliseconds, (long)_jobTimeout.TotalMilliseconds);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {

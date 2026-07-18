@@ -70,6 +70,13 @@ public static class InfrastructureContentGenerationExtensions
             .Bind(configuration.GetSection(
                 Application.Features.Social.ContentGeneration.Shared.ContentGenerationAestheticGatingOptions.SectionName));
 
+        // Per-job wall-clock budget for ContentGenerationBackgroundWorker (issue: job 8757e85a /
+        // 07771831 — see ContentGenerationWorkerOptions doc). Bound here so the worker resolves it
+        // via IOptions<T>, consistent with the AestheticGatingOptions binding above.
+        services.AddOptions<Application.Features.Social.ContentGeneration.Shared.ContentGenerationWorkerOptions>()
+            .Bind(configuration.GetSection(
+                Application.Features.Social.ContentGeneration.Shared.ContentGenerationWorkerOptions.SectionName));
+
         return services.AddB1bRenderingAndDesigner(options);
     }
 

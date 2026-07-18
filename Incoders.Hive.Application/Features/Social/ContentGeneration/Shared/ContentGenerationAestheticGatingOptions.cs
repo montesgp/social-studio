@@ -6,12 +6,15 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 /// <c>ContentGeneration:AestheticGating</c>.
 ///
 /// <para>
-/// INVARIANT: <see cref="MaxWaitSeconds"/> MUST stay strictly below
-/// <c>ContentGenerationBackgroundWorker.JobTimeout</c> (900s / 15min) so the gating wait always
+/// INVARIANT: <see cref="MaxWaitSeconds"/> MUST stay strictly below the configured
+/// <c>ContentGenerationWorkerOptions.JobTimeout</c> (default 3600s / 60min, see
+/// <see cref="ContentGenerationWorkerOptions.DefaultJobTimeoutMinutes"/>) so the gating wait always
 /// resolves to a clean, actionable <c>Failed</c> write before the outer per-job timeout fires. The
-/// 900s ceiling is itself below <c>ContentGenerationJobWatchdog.StuckJobThreshold</c> (960s / 16min).
-/// See design.md "Timeout / Budget Alignment". A future bump to <see cref="MaxWaitSeconds"/> MUST
-/// NOT cross the 15-minute line.
+/// job-timeout ceiling is itself kept below <c>ContentGenerationJobWatchdog.StuckJobThreshold</c>
+/// (default 3720s / 62min) — enforced at worker startup via
+/// <c>ContentGenerationJobWatchdog.EnsureJobTimeoutBelowStuckThreshold</c>. See design.md
+/// "Timeout / Budget Alignment". A future bump to <see cref="MaxWaitSeconds"/> MUST leave real
+/// headroom below the configured job timeout.
 /// </para>
 /// <para>
 /// The <see cref="MaxWaitSeconds"/> clock starts when

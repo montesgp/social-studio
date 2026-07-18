@@ -1,3 +1,4 @@
+using System.Globalization;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
@@ -28,12 +29,33 @@ public sealed record ComfyUiSettings(
     TimeSpan Timeout,
     TimeSpan PollInterval,
     /// <summary>Curated checkpoint fallback used by the catalog client when <c>/object_info</c> is unreachable.</summary>
-    IReadOnlyList<string> DefaultCheckpoints)
+    IReadOnlyList<string> DefaultCheckpoints,
+    /// <summary>
+    /// KSampler step count. Lower values iterate faster but degrade image quality — verified live
+    /// on the reference DirectML backend: 20 steps / CFG 7.0 produced a properly textured
+    /// photographic background, 6 steps / CFG 2.0 collapsed to a flat untextured fill. Intended for
+    /// local/dev tuning only; production installs should keep <see cref="DefaultSteps"/>.
+    /// </summary>
+    int Steps,
+    /// <summary>
+    /// KSampler classifier-free guidance scale. Same local/dev-only tuning caveat as
+    /// <see cref="Steps"/> — see the field doc above.
+    /// </summary>
+    double Cfg)
 {
     public const string ProviderKey = "comfyui";
     public const string DefaultBaseUrl = "http://127.0.0.1:8188";
     public const string DefaultOutputNodeId = "9";
     public const int DefaultMaxReferenceImages = 1;
+
+    /// <summary>Default KSampler step count. MUST NOT change — verified quality baseline (design §0 OQ-6).</summary>
+    public const int DefaultSteps = 20;
+
+    /// <summary>Default KSampler CFG scale. MUST NOT change — verified quality baseline (design §0 OQ-6).</summary>
+    public const double DefaultCfg = 7.0;
+
+    /// <summary>Sane upper bound for the CFG scale credential override; ComfyUI's own KSampler slider tops out here.</summary>
+    public const double MaxCfg = 30.0;
 
     // Overall generation budget. Sized for SDXL on non-CUDA hardware (e.g. DirectML/DML),
     // where a single image can take ~6 min (~15 s/iteration x 20 steps plus model/VAE load).
@@ -78,6 +100,18 @@ public sealed record ComfyUiSettings(
             return Result.Failure<ComfyUiSettings>(maxReferenceImagesResult.Error);
         }
 
+        var stepsResult = ParsePositiveInt(Read(credential, "steps"), DefaultSteps);
+        if (stepsResult.IsFailure)
+        {
+            return Result.Failure<ComfyUiSettings>(stepsResult.Error);
+        }
+
+        var cfgResult = ParseCfg(Read(credential, "cfg"), DefaultCfg);
+        if (cfgResult.IsFailure)
+        {
+            return Result.Failure<ComfyUiSettings>(cfgResult.Error);
+        }
+
         var workflowTemplateJson = Read(credential, "workflow_template_json");
 
         return Result.Success(new ComfyUiSettings(
@@ -89,7 +123,9 @@ public sealed record ComfyUiSettings(
             maxReferenceImagesResult.Value,
             TimeSpan.FromMilliseconds(timeoutMsResult.Value),
             TimeSpan.FromMilliseconds(pollIntervalMsResult.Value),
-            CuratedDefaultCheckpoints));
+            CuratedDefaultCheckpoints,
+            stepsResult.Value,
+            cfgResult.Value));
     }
 
     private static Result<string> ParseBaseUrl(string? value)
@@ -116,6 +152,23 @@ public sealed record ComfyUiSettings(
         return int.TryParse(value, out var parsed) && parsed > 0
             ? Result.Success(parsed)
             : Result.Failure<int>(IntegrationErrors.ProviderCredentialUnavailable);
+    }
+
+    /// <summary>Positive and no larger than <see cref="MaxCfg"/> — an out-of-band value maps to
+    /// <see cref="IntegrationErrors.ProviderCredentialUnavailable"/> instead of silently reaching
+    /// KSampler with a nonsensical guidance scale.</summary>
+    private static Result<double> ParseCfg(string? value, double defaultValue)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Result.Success(defaultValue);
+        }
+
+        return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            && parsed > 0
+            && parsed <= MaxCfg
+                ? Result.Success(parsed)
+                : Result.Failure<double>(IntegrationErrors.ProviderCredentialUnavailable);
     }
 
     private static string? Read(ResolvedProviderCredential credential, string key) =>

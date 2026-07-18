@@ -38,10 +38,6 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     private const string EmbeddedTemplateResourceName =
         "Incoders.Hive.Infrastructure.Ai.Providers.DefaultComfyUiWorkflowTemplate.json";
 
-    /// <summary>Generation-time defaults not present on <see cref="ImageGenerationRequest"/>.</summary>
-    private const int DefaultSteps = 20;
-    private const double DefaultCfg = 7.0;
-
     /// <summary>
     /// Default negative prompt. The generated image is used ONLY as a background raster; any text it
     /// bakes in is not editable in the studio and clashes with the separate editable text layer. The
@@ -179,8 +175,8 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                 request.Width,
                 request.Height,
                 seed,
-                DefaultSteps,
-                DefaultCfg);
+                settings.Steps,
+                settings.Cfg);
 
             if (graphResult.IsFailure)
             {

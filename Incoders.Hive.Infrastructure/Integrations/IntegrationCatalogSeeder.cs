@@ -91,7 +91,27 @@ public sealed class IntegrationCatalogSeeder
             false,
             true,
             false,
-            [new IntegrationCredentialField("base_url", "Base URL", false, false, "http://127.0.0.1:8188", "ComfyUI server base URL")],
+            [
+                new IntegrationCredentialField("base_url", "Base URL", false, false, "http://127.0.0.1:8188", "ComfyUI server base URL"),
+                // OQ-6: sysadmin-tunable sampler settings. Fewer steps / lower CFG generate faster
+                // but degrade image quality (verified: 6 steps / CFG 2.0 collapses to a flat
+                // untextured fill) — intended for local/dev iteration, NOT production. Leave blank
+                // in production to keep the verified-quality defaults.
+                new IntegrationCredentialField(
+                    "steps",
+                    "Sampler steps",
+                    false,
+                    false,
+                    "20",
+                    "KSampler step count. Lower = faster but lower quality. For local/dev iteration only — leave blank in production to keep the default (20)."),
+                new IntegrationCredentialField(
+                    "cfg",
+                    "Sampler CFG scale",
+                    false,
+                    false,
+                    "7.0",
+                    "KSampler classifier-free guidance scale. Lower = faster but lower quality. For local/dev iteration only — leave blank in production to keep the default (7.0)."),
+            ],
             ComfyUiSettings.CuratedDefaultCheckpoints),
         new(
             new Guid("b2610b54-a258-48d3-b2d2-12f70ac99d52"),
