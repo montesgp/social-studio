@@ -44,6 +44,42 @@ public sealed class ComfyUiHappyPathTests
         Assert.True(handler.UploadCalled);
     }
 
+    // A carousel generates its slides back to back against one ComfyUI process, which does not
+    // reclaim cached VRAM between runs. Measured on the reference backend: the first image succeeds
+    // and the next fails allocating as little as 209 MB, then the same request succeeds once the
+    // cache is dropped. That is the intermittency behind "sometimes it generates, sometimes not".
+    [Fact]
+    public async Task GenerateAsync_ReclaimsVideoMemoryBeforeQueueingTheWorkflow()
+    {
+        var handler = new ScriptedHandler(FixtureImageBytes);
+        var client = BuildClient(handler, new FakeStorage(new Dictionary<string, byte[]>()));
+
+        var result = await client.GenerateAsync(BuildRequest(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+
+        var freeIndex = handler.CallOrder.FindIndex(p => p.EndsWith("/free", StringComparison.OrdinalIgnoreCase));
+        var promptIndex = handler.CallOrder.FindIndex(p => p.EndsWith("/prompt", StringComparison.OrdinalIgnoreCase));
+
+        Assert.True(freeIndex >= 0, "Expected a /free call before queueing the workflow.");
+        Assert.True(promptIndex >= 0, "Expected the workflow to be queued.");
+        Assert.True(freeIndex < promptIndex, "/free must run BEFORE /prompt to give the run clean headroom.");
+    }
+
+    [Fact]
+    public async Task GenerateAsync_FreeEndpointFails_StillGeneratesTheImage()
+    {
+        // Reclaiming memory is hygiene, not a precondition: a backend without /free (or one that is
+        // momentarily busy) must never turn a generation that would have worked into a failure.
+        var handler = new ScriptedHandler(FixtureImageBytes) { FailFreeCalls = true };
+        var client = BuildClient(handler, new FakeStorage(new Dictionary<string, byte[]>()));
+
+        var result = await client.GenerateAsync(BuildRequest(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(FixtureImageBytes, result.Value.Bytes);
+    }
+
     [Fact]
     public void Capabilities_SupportsImageConditioningTrue_MaxConditioningImagesFromSettings()
     {
@@ -120,6 +156,12 @@ public sealed class ComfyUiHappyPathTests
 
         public bool UploadCalled { get; private set; }
 
+        /// <summary>Paths hit, in order, so a test can assert /free precedes /prompt.</summary>
+        public List<string> CallOrder { get; } = [];
+
+        /// <summary>When true, /free answers 500 so the best-effort contract can be exercised.</summary>
+        public bool FailFreeCalls { get; set; }
+
         public ScriptedHandler(byte[] fixtureBytes) => _fixtureBytes = fixtureBytes;
 
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -127,6 +169,14 @@ public sealed class ComfyUiHappyPathTests
             CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
+            CallOrder.Add(path);
+
+            if (path.EndsWith("/free", StringComparison.OrdinalIgnoreCase))
+            {
+                return FailFreeCalls
+                    ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                    : JsonResponse("{}");
+            }
 
             if (path.Contains("/upload/image", StringComparison.OrdinalIgnoreCase))
             {

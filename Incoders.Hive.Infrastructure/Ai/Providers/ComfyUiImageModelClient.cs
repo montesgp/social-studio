@@ -187,6 +187,14 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                 return Result.Failure<ImageGenerationResult>(graphResult.Error);
             }
 
+            // A carousel generates its slides back to back against the same ComfyUI process, and the
+            // backend does not reclaim cached VRAM between runs. Measured: the first image succeeds,
+            // the next fails allocating as little as 209 MB, and the same request succeeds once the
+            // cache is dropped. Reclaim before queueing so slide N does not inherit slide N-1's
+            // residue. Best-effort by design — a backend that does not expose /free must still
+            // generate.
+            await TryReclaimVideoMemoryAsync(http, baseUrl, unloadModels: false, effectiveCt);
+
             var promptIdResult = await QueuePromptAsync(http, baseUrl, graphResult.Value, effectiveCt);
             if (promptIdResult.IsFailure)
             {
@@ -196,6 +204,13 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
             var outputImageResult = await PollHistoryAsync(http, baseUrl, promptIdResult.Value, settings, _logger, effectiveCt);
             if (outputImageResult.IsFailure)
             {
+                // The dominant execution failure on a memory-constrained backend is an allocation
+                // failure, and the resident checkpoint is exactly what leaves no headroom. Evict it
+                // so the caller's retry (IntegrationExecutionPolicy, MaxAttempts) starts clean
+                // instead of hitting the same wall — the retry pays a model reload, which is far
+                // cheaper than losing the slide.
+                await TryReclaimVideoMemoryAsync(http, baseUrl, unloadModels: true, effectiveCt);
+
                 return Result.Failure<ImageGenerationResult>(outputImageResult.Error);
             }
 
@@ -396,6 +411,46 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     /// <see cref="OperationCanceledException"/> and is mapped to
     /// <see cref="IntegrationErrors.ProviderTimeout"/> by the caller (CUI-02-c).
     /// </summary>
+    /// <summary>
+    /// Asks ComfyUI to reclaim video memory via <c>POST /free</c>.
+    /// </summary>
+    /// <param name="unloadModels">
+    /// <c>false</c> drops cached tensors but keeps the checkpoint resident, so the next generation
+    /// does not pay the model-load cost. <c>true</c> also evicts the model — reserved for recovering
+    /// from an allocation failure, where keeping the checkpoint resident is what leaves no headroom.
+    /// </param>
+    /// <remarks>
+    /// Best-effort: any failure is logged at debug and swallowed. This is a hygiene call, and a
+    /// backend that does not implement <c>/free</c> (or is momentarily busy) must not turn a
+    /// generation that would have worked into a failure.
+    /// </remarks>
+    private async Task TryReclaimVideoMemoryAsync(
+        HttpClient http,
+        string baseUrl,
+        bool unloadModels,
+        CancellationToken ct)
+    {
+        try
+        {
+            using var content = new StringContent(
+                $$"""{"unload_models":{{(unloadModels ? "true" : "false")}},"free_memory":true}""",
+                Encoding.UTF8,
+                "application/json");
+
+            using var response = await http.PostAsync($"{baseUrl}/free", content, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug(
+                    "ComfyUI /free returned {StatusCode}; continuing without reclaiming video memory.",
+                    (int)response.StatusCode);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "ComfyUI /free call failed; continuing without reclaiming video memory.");
+        }
+    }
+
     /// <summary>
     /// Extracts ComfyUI's own failure description from a history entry's <c>status</c> object. The
     /// detail lives in <c>messages</c> as an <c>["execution_error", {...}]</c> pair carrying the
