@@ -14,6 +14,7 @@ import {
   Plug,
   PlugZap,
   ScanSearch,
+  History,
   Store,
   ShoppingBag,
   Package,
@@ -151,6 +152,7 @@ export const adminNavigation: NavGroup[] = [
       { href: "/admin/social-networks", label: "Social Networks", icon: Share2 },
       { href: "/admin/email-templates", label: "Email Templates", icon: Mail },
       { href: "/admin/platform-integrations", label: "Platform Integrations", icon: Plug },
+      { href: "/admin/content-generation-jobs", label: "Content Generation Jobs", icon: History },
       { href: "/admin/app-logs", label: "App Logs", icon: ScrollText, comingSoon: true },
       { href: "/admin/audit-logs", label: "Audit Logs", icon: ShieldCheck, comingSoon: true },
       { href: "/admin/jobs", label: "Scheduled Jobs", icon: CalendarClock, comingSoon: true }

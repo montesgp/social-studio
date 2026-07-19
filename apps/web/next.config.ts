@@ -24,7 +24,8 @@ const nextConfig: NextConfig = {
       { source: "/admin/users", destination: "/members" },
       { source: "/admin/social-networks", destination: "/social-networks" },
       { source: "/admin/email-templates", destination: "/platform-email-templates" },
-      { source: "/admin/platform-integrations", destination: "/platform-integrations" }
+      { source: "/admin/platform-integrations", destination: "/platform-integrations" },
+      { source: "/admin/content-generation-jobs", destination: "/content-generation-jobs" }
     ];
   }
 };

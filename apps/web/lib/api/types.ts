@@ -1096,3 +1096,89 @@ export interface ClientPackageEntry {
 export interface AnalysisPackagesResponse {
   clients: ClientPackageEntry[];
 }
+
+// ── Content generation audit (sysadmin job index + timeline) ─────────────────
+// Mirrors Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IContentGenerationAuditReader.cs
+// exactly — field names are camelCase on the wire. Status/errorCode/stepType are plain strings on
+// the backend (not enums), so we keep them as `string` here rather than inventing a closed union.
+
+/** One row in the bounded, most-recent-first job index. */
+export interface ContentGenerationJobListItem {
+  jobId: string;
+  organizationId: string;
+  clientId: string | null;
+  analysisId: string;
+  status: string;
+  errorCode: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  requestedFormatCount: number;
+  persistedFormatCount: number;
+  assetCount: number;
+}
+
+/** Response from GET /api/platform/content-generation-jobs. */
+export interface ContentGenerationJobListResponse {
+  items: ContentGenerationJobListItem[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+}
+
+/** One chronological step in a job's timeline. */
+export interface ContentGenerationTimelineStep {
+  occurredAtUtc: string;
+  stepType: "image-generation" | "slide-outcome" | string;
+  formatResultId: string | null;
+  formatKey: string | null;
+  providerKey: string;
+  capabilityKey: string;
+  attemptNumber: number;
+  retryCount: number;
+  elapsedMs: number;
+  succeeded: boolean;
+  failureCode: string | null;
+  slideIndex: number | null;
+  slideOutcome: string | null;
+  slideOutcomeReason: string | null;
+}
+
+/** One persisted asset row (one slide / one file) for a produced format. */
+export interface ContentGenerationTimelineAsset {
+  assetId: string;
+  assetIndex: number;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+/** What was actually produced for one requested format. */
+export interface ContentGenerationTimelineFormatOutput {
+  formatResultId: string;
+  formatKey: string;
+  status: string;
+  errorCode: string | null;
+  updatedAt: string;
+  assets: ContentGenerationTimelineAsset[];
+}
+
+/** Response from GET /api/platform/content-generation-jobs/{jobId}/timeline. */
+export interface ContentGenerationJobTimeline {
+  jobId: string;
+  organizationId: string;
+  clientId: string | null;
+  analysisId: string;
+  status: string;
+  statusReason: string | null;
+  errorCode: string | null;
+  requestedFormats: string[];
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  totalDurationSeconds: number | null;
+  endedWithoutPersistingEverything: boolean;
+  steps: ContentGenerationTimelineStep[];
+  formats: ContentGenerationTimelineFormatOutput[];
+}
