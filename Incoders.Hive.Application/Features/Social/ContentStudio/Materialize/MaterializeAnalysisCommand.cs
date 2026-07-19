@@ -4,6 +4,8 @@ using Incoders.Hive.Application.Abstractions.Social.ContentStudio;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentStudio;
 using MediatR;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Incoders.Hive.Application.Features.Social.ContentStudio.Materialize;
 
@@ -27,6 +29,7 @@ public sealed class MaterializeAnalysisCommandHandler
     private readonly IContentGenerationFormatAssetRepository _formatAssets;
     private readonly IGeneratedPackageRepository _packages;
     private readonly IClock _clock;
+    private readonly ILogger<MaterializeAnalysisCommandHandler> _logger;
 
     public MaterializeAnalysisCommandHandler(
         IContentSetRepository sets,
@@ -34,7 +37,8 @@ public sealed class MaterializeAnalysisCommandHandler
         IContentGenerationFormatResultRepository formatResults,
         IContentGenerationFormatAssetRepository formatAssets,
         IGeneratedPackageRepository packages,
-        IClock clock)
+        IClock clock,
+        ILogger<MaterializeAnalysisCommandHandler>? logger = null)
     {
         _sets = sets;
         _items = items;
@@ -42,6 +46,7 @@ public sealed class MaterializeAnalysisCommandHandler
         _formatAssets = formatAssets;
         _packages = packages;
         _clock = clock;
+        _logger = logger ?? NullLogger<MaterializeAnalysisCommandHandler>.Instance;
     }
 
     public async Task<Result<ContentSetResponse>> Handle(MaterializeAnalysisCommand request, CancellationToken ct)
@@ -220,13 +225,27 @@ public sealed class MaterializeAnalysisCommandHandler
             ? rows.Select(r => new ContentAssetRef("rendered", r.StoragePath, r.MimeType)).ToList()
             : new List<ContentAssetRef>();
 
-        // NOTE: unlike MaterializeRunCommandHandler, this analysis-scoped materialization path does
-        // not (yet) extract/fall back a caption for visual formats — matching its pre-existing
-        // behavior (Text was already null here for visual items). Tracked as a follow-up; see the
-        // Content Studio editing completeness apply-progress notes.
+        // Visual formats get the same extract-then-deterministic-fallback caption wiring as
+        // MaterializeRunCommandHandler, via the shared VisualCaptionResolver — the two materialization
+        // paths must never drift on "caption is required, never empty" again.
+        Caption? caption = null;
+        if (medium != ContentMedium.Text)
+        {
+            var resolution = VisualCaptionResolver.Resolve(result.OutputJson, result.CompositionSpecJson);
+            caption = resolution.Caption;
+
+            if (resolution.UsedFallback)
+            {
+                _logger.LogWarning(
+                    "ContentStudio: no caption produced by generation for format {FormatKey} (analysis {AnalysisId}, result {ResultId}); " +
+                    "using a deterministic fallback derived from slide content. FallbackSucceeded={FallbackSucceeded}",
+                    result.FormatKey, request.AnalysisId, result.Id, resolution.Caption is not null);
+            }
+        }
+
         var draft = new ContentDraft(
             medium == ContentMedium.Text ? result.OutputJson : null,
-            null,
+            caption,
             result.CompositionSpecJson,
             assets,
             ContentFormatCatalog.ChannelFor(result.FormatKey));

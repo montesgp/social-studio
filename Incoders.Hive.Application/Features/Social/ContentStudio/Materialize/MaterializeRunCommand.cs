@@ -96,25 +96,19 @@ public sealed class MaterializeRunCommandHandler
             else
             {
                 // publicationDescription + hashtags — produced by the AI IN THE SAME generation call —
-                // so the studio post is not left without copy.
-                var extracted = VisualPublicationCaption.Extract(result.OutputJson);
-                var captionResult = Caption.Create(extracted);
+                // so the studio post is not left without copy. R5.2/Decision E3: caption absence is
+                // NEVER a hard job failure; VisualCaptionResolver derives a deterministic, editable
+                // fallback from content already present (the first slide's headline) when needed.
+                var resolution = VisualCaptionResolver.Resolve(result.OutputJson, result.CompositionSpecJson);
+                caption = resolution.Caption;
 
-                if (captionResult.IsFailure)
+                if (resolution.UsedFallback)
                 {
-                    // R5.2/Decision E3: caption absence is NEVER a hard job failure. Derive a
-                    // deterministic, editable fallback from content already present (the first
-                    // slide's headline) and log loudly so the gap is visible in production.
-                    var fallbackText = CaptionFallback.DeriveFromCompositionSpec(result.CompositionSpecJson);
-                    captionResult = Caption.Create(fallbackText);
-
                     _logger.LogWarning(
                         "ContentStudio: no caption produced by generation for format {FormatKey} (job {JobId}, result {ResultId}); " +
                         "using a deterministic fallback derived from slide content. FallbackSucceeded={FallbackSucceeded}",
-                        result.FormatKey, request.JobId, result.Id, captionResult.IsSuccess);
+                        result.FormatKey, request.JobId, result.Id, resolution.Caption is not null);
                 }
-
-                caption = captionResult.IsSuccess ? captionResult.Value : null;
             }
 
             var draft = new ContentDraft(
