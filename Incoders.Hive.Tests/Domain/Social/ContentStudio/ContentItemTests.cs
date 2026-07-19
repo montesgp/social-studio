@@ -154,6 +154,65 @@ public sealed class ContentItemTests
     }
 
     [Fact]
+    public void EditCaption_UpdatesDraftCaption_SetsEdited_RecordsTrace()
+    {
+        var item = NewItem();
+
+        var result = item.EditCaption("New caption #brand", Now);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("New caption #brand", item.Draft.Caption?.Value);
+        Assert.Equal(ReviewState.Edited, item.State);
+        Assert.Equal(Now, item.EditTrace.LastEditedAtUtc);
+    }
+
+    [Fact]
+    public void EditCaption_Empty_IsRejected_DraftUnchanged()
+    {
+        var item = NewItem();
+        item.EditCaption("original caption", Now);
+
+        var result = item.EditCaption("   ", Now);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ContentStudioErrors.CaptionRequired, result.Error);
+        Assert.Equal("original caption", item.Draft.Caption?.Value);
+    }
+
+    [Fact]
+    public void EditCaption_ExceedsInstagramLimits_IsRejected_DraftUnchanged()
+    {
+        var item = NewItem();
+        item.EditCaption("original caption", Now);
+
+        var tooLong = new string('a', Caption.MaxLength + 1);
+        var result = item.EditCaption(tooLong, Now);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ContentStudioErrors.CaptionTooLong, result.Error);
+        Assert.Equal("original caption", item.Draft.Caption?.Value);
+
+        var tooManyHashtags = string.Join(' ', Enumerable.Range(0, Caption.MaxHashtags + 1).Select(i => $"#tag{i}"));
+        var hashtagResult = item.EditCaption(tooManyHashtags, Now);
+
+        Assert.True(hashtagResult.IsFailure);
+        Assert.Equal(ContentStudioErrors.CaptionTooManyHashtags, hashtagResult.Error);
+        Assert.Equal("original caption", item.Draft.Caption?.Value);
+    }
+
+    [Fact]
+    public void EditCaption_OnDiscardedItem_IsIllegal()
+    {
+        var item = NewItem();
+        Assert.True(item.Discard(Now).IsSuccess);
+
+        var result = item.EditCaption("x", Now);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ContentStudioErrors.IllegalReviewTransition, result.Error);
+    }
+
+    [Fact]
     public void Reject_RequiresReason()
     {
         var item = NewItem();

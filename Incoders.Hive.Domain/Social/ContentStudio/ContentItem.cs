@@ -163,6 +163,32 @@ public sealed class ContentItem : Entity<ContentItemId>
         return Result.Success();
     }
 
+    /// <summary>
+    /// Edits the dedicated publication <see cref="Caption"/> (R5.5 — Content Studio editing
+    /// completeness). Validates through <see cref="Caption.Create"/> (non-empty, IG length/hashtag
+    /// ceilings), records a manual edit, and moves to <see cref="ReviewState.Edited"/>. Never touches
+    /// <see cref="ContentDraft.Text"/> — that field keeps carrying reel scripts.
+    /// </summary>
+    public Result EditCaption(string? newCaption, DateTime nowUtc)
+    {
+        var captionResult = Caption.Create(newCaption);
+        if (captionResult.IsFailure)
+        {
+            return Result.Failure(captionResult.Error);
+        }
+
+        if (!ReviewStateTransitions.IsValid(State, ReviewState.Edited))
+        {
+            return Result.Failure(ContentStudioErrors.IllegalReviewTransition);
+        }
+
+        Draft = Draft with { Caption = captionResult.Value };
+        EditTrace = EditTrace.ManualEdit(nowUtc);
+        State = ReviewState.Edited;
+        UpdatedAtUtc = nowUtc;
+        return Result.Success();
+    }
+
     /// <summary>Approves the item, recording the reviewer and clearing any rejection reason.</summary>
     public Result Approve(Guid reviewerUserId, DateTime nowUtc)
     {

@@ -92,6 +92,14 @@ public static class InfrastructureContentGenerationExtensions
         services.RemoveAll<IVisualDesigner>();
         services.AddScoped<IVisualDesigner, AiVisualDesigner>();
 
+        // Font contract (Decision A2/F3 — Content Studio editing completeness): a single
+        // IFontProvider instance backs both renderers' fallback chain AND the render-capabilities
+        // endpoint the picker UI reads from, so "what the picker offers" and "what can actually be
+        // rendered" can never diverge. Singleton — EmbeddedFontProvider is stateless and caches its
+        // own typeface probe lazily.
+        services.TryAddSingleton<Application.Features.Social.ContentGeneration.Visual.Fonts.IFontProvider,
+            Rendering.Fonts.EmbeddedFontProvider>();
+
         if (options.Engine == RenderingEngine.Skia)
         {
             // Skia engine: register LocalSvgContentRenderer directly, replacing any prior registration.
