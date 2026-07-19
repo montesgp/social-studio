@@ -42,10 +42,10 @@ import { cn } from "@/lib/utils";
 import { hasVisibleBorder, pickRecolorProperty } from "@/lib/studio/decoration-edit";
 import { resolveToolbarDock } from "@/lib/studio/toolbar-dock";
 import {
+  ensureDecorLayer,
   isBackgroundLayer,
-  isContentLayer,
-  isInsideEditingChrome,
   pickElement,
+  upgradeLegacyShapes,
 } from "@/lib/studio/canvas-hit-test";
 import {
   approveItem,
@@ -122,6 +122,7 @@ type AutosaveStatus = "idle" | "saving" | "saved" | "error";
 
 interface SlotStyle {
   slot: string;
+  kind?: "text";
   x: number;
   y: number;
   width: number;
@@ -130,6 +131,31 @@ interface SlotStyle {
   fontWeight: string;
   fontStyle: string;
   color: string;
+}
+
+/**
+ * Typed identity + geometry + style for a decorative shape (Decision B2/B4). Shapes address the same
+ * way text slots do — a stable `data-slot` — rather than being recoverable only as opaque serialized
+ * markup, so they survive selection, reorder, and reload (R1.3/R1.4).
+ */
+interface ShapeStyle {
+  slot: string;
+  kind: "shape";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  background: string;
+  borderRadius: number;
+  opacity: number;
+  rotation?: number;
+}
+
+/** Discriminated union addressable by `"kind" in s && s.kind === "shape"`; `kind` stays optional on the text arm so every already-persisted `SlotStyle` remains a valid `ElementStyle`. */
+type ElementStyle = SlotStyle | ShapeStyle;
+
+function isShapeStyle(s: ElementStyle): s is ShapeStyle {
+  return "kind" in s && s.kind === "shape";
 }
 
 function parseEnvelopes(visualSpecMarkup: string | null): Envelope[] {
@@ -149,24 +175,37 @@ function serializeEnvelopes(envelopes: Envelope[]): string {
   return envelopes.length === 1 ? JSON.stringify(envelopes[0]) : JSON.stringify(envelopes);
 }
 
-/** Updates the envelope's slot geometry (position + fonts) from the edited DOM so the PPTX stays faithful. */
-function syncGeometry(geometry: SlotGeometry[] | undefined, styles: SlotStyle[]): SlotGeometry[] {
+/** Updates the envelope's slot geometry (position + style) from the edited DOM so the PPTX stays faithful. */
+function syncGeometry(geometry: SlotGeometry[] | undefined, styles: ElementStyle[]): SlotGeometry[] {
   const bySlot = new Map(styles.map((s) => [s.slot, s]));
   return (geometry ?? []).map((g) => {
     const s = bySlot.get(g.slot);
-    return s
-      ? {
-          ...g,
-          x: s.x,
-          y: s.y,
-          width: s.width,
-          height: s.height,
-          fontSizePx: s.fontSizePx,
-          fontWeight: s.fontWeight,
-          fontStyle: s.fontStyle,
-          color: s.color,
-        }
-      : g;
+    if (!s) return g;
+    if (isShapeStyle(s)) {
+      return {
+        ...g,
+        kind: "shape",
+        x: s.x,
+        y: s.y,
+        width: s.width,
+        height: s.height,
+        background: s.background,
+        borderRadius: s.borderRadius,
+        opacity: s.opacity,
+        ...(s.rotation !== undefined ? { rotation: s.rotation } : {}),
+      };
+    }
+    return {
+      ...g,
+      x: s.x,
+      y: s.y,
+      width: s.width,
+      height: s.height,
+      fontSizePx: s.fontSizePx,
+      fontWeight: s.fontWeight,
+      fontStyle: s.fontStyle,
+      color: s.color,
+    };
   });
 }
 
@@ -1751,7 +1790,7 @@ function SlideThumbnail({
 }
 
 interface DesignCanvasHandle {
-  getState: () => { markup: string; slotStyles: SlotStyle[] };
+  getState: () => { markup: string; slotStyles: ElementStyle[] };
 }
 
 function AssetFallbackImage({ item, token, assetIndex }: { item: ContentItem; token: string; assetIndex: number }) {
@@ -1796,10 +1835,10 @@ function AssetFallbackImage({ item, token, assetIndex }: { item: ContentItem; to
 }
 
 /**
- * `isBackgroundLayer`, `isContentLayer`, `pickElement`, and `isInsideEditingChrome` moved to
- * `@/lib/studio/canvas-hit-test` (Phase 4, characterization) so they can be unit-tested without a
+ * `isBackgroundLayer`, `isContentLayer`, and `pickElement` moved to `@/lib/studio/canvas-hit-test`
+ * (Phase 4, characterization; Phase 5, allow-list rewrite) so they can be unit-tested without a
  * browser/jsdom (this repo's test runner is plain Node, no DOM globals). See that module for their
- * documentation.
+ * documentation and for `isDecorLayer`, `ensureDecorLayer`, and `upgradeLegacyShapes`.
  */
 
 /** Promotes a flow element to absolute positioning at its current spot so it becomes draggable. */
@@ -1892,6 +1931,15 @@ const DesignCanvas = forwardRef<
         [data-cs-design-root] { position: relative; isolation: isolate; overflow: hidden; background: #fff; }
         [data-slot] { min-width: 1px; min-height: 1em; overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.1; }
         .composition { position: relative; contain: layout paint style; }
+        /* Layer order (paint bottom -> top): background -> decor (shapes) -> content (text). The
+           content wrapper must never intercept pointer events meant for a shape behind it — it is a
+           pure layout wrapper (R1.6) — so it (and the inert decor container itself) are click-through;
+           only their addressable [data-slot] children opt back in. */
+        [data-layer="background"] { position: relative; z-index: 0; }
+        [data-layer="decor"] { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+        [data-layer="decor"] [data-slot] { pointer-events: auto; }
+        [data-layer="content"] { position: relative; z-index: 2; pointer-events: none; }
+        [data-layer="content"] [data-slot] { pointer-events: auto; }
       </style>
       <div data-cs-design-root>${sanitizeDesignMarkup(markup)}</div>`;
     designRef.current = shadow.querySelector<HTMLDivElement>("[data-cs-design-root]");
@@ -1899,7 +1947,11 @@ const DesignCanvas = forwardRef<
     if (!el) return;
     selectedRef.current = null;
     setSelRect(null);
-  }, [markup]);
+
+    // Pre-Phase-5 drafts may carry shapes with no typed identity (R1.5) — upgrade them to the typed
+    // model immediately so they are selectable on first open, not only after the next blind save.
+    if (upgradeLegacyShapes(el)) onDirty();
+  }, [markup, onDirty]);
 
   useEffect(() => {
     const el = measureRef.current;
@@ -1957,7 +2009,12 @@ const DesignCanvas = forwardRef<
       const root = designRef.current;
       if (!root) return;
       const target = pickElement(e.target as Node, root);
-      if (!target) return;
+      if (!target) {
+        // R3.2: an explicit click on the canvas that doesn't hit a selectable element (empty
+        // background/decor space) clears the current selection and hides the toolbar.
+        select(null);
+        return;
+      }
       if (target.isContentEditable) return; // editing text — let the caret work
       select(target);
       if (isBackgroundLayer(target)) {
@@ -2027,12 +2084,12 @@ const DesignCanvas = forwardRef<
       onDirty();
       if (selectedRef.current) positionToolbar(selectedRef.current);
     };
-    const onDocPointerDown = (e: PointerEvent) => {
-      const t = e.target as HTMLElement;
-      if (!isInsideEditingChrome(t)) {
-        select(null);
-      }
-    };
+    // Decision C3/R3.1-R3.3: deselection is scoped entirely to the canvas itself now — an explicit
+    // click on empty canvas space (onPointerDown's !target branch, R3.2) or an explicit delete
+    // (deleteSelected, R3.1). There is deliberately NO document-level "click anywhere else clears
+    // selection" listener anymore: that blanket check used to fire for every unrelated app
+    // interaction (another panel button, a modal trigger, a sidebar control — R3.3) and hid the
+    // toolbar on nearly every click outside the canvas/toolbar/handle.
     const onShadowPointerDown: EventListener = (event) => onPointerDown(event as PointerEvent);
     const onShadowDblClick: EventListener = (event) => onDblClick(event as MouseEvent);
 
@@ -2041,14 +2098,12 @@ const DesignCanvas = forwardRef<
     window.addEventListener("pointerup", onPointerUp);
     shadow.addEventListener("dblclick", onShadowDblClick);
     shadow.addEventListener("input", onInput);
-    document.addEventListener("pointerdown", onDocPointerDown);
     return () => {
       shadow.removeEventListener("pointerdown", onShadowPointerDown);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       shadow.removeEventListener("dblclick", onShadowDblClick);
       shadow.removeEventListener("input", onInput);
-      document.removeEventListener("pointerdown", onDocPointerDown);
     };
   }, [canEdit, width, height, onDirty, select, positionToolbar]);
 
@@ -2056,10 +2111,27 @@ const DesignCanvas = forwardRef<
     getState() {
       const el = designRef.current;
       if (!el) return { markup, slotStyles: [] };
-      const slotStyles: SlotStyle[] = [...el.querySelectorAll<HTMLElement>("[data-slot]")].map((node) => {
+      // Every [data-slot] element round-trips here — text slots AND shapes alike (R1.3: shapes are
+      // typed identity + geometry + style, not only opaque serialized markup).
+      const slotStyles: ElementStyle[] = [...el.querySelectorAll<HTMLElement>("[data-slot]")].map((node) => {
+        const slot = node.getAttribute("data-slot") ?? "";
         const s = getComputedStyle(node);
-        return {
-          slot: node.getAttribute("data-slot") ?? "",
+        if (node.getAttribute("data-el-kind") === "shape") {
+          const shapeStyle: ShapeStyle = {
+            slot,
+            kind: "shape",
+            x: node.offsetLeft,
+            y: node.offsetTop,
+            width: node.offsetWidth,
+            height: node.offsetHeight,
+            background: s.backgroundColor,
+            borderRadius: parseFloat(s.borderRadius) || 0,
+            opacity: s.opacity ? parseFloat(s.opacity) : 1,
+          };
+          return shapeStyle;
+        }
+        const textStyle: SlotStyle = {
+          slot,
           x: node.offsetLeft,
           y: node.offsetTop,
           width: node.offsetWidth,
@@ -2069,6 +2141,7 @@ const DesignCanvas = forwardRef<
           fontStyle: s.fontStyle,
           color: s.color,
         };
+        return textStyle;
       });
       const clone = el.cloneNode(true) as HTMLElement;
       clone.querySelectorAll<HTMLElement>("*").forEach((node) => {
@@ -2114,7 +2187,7 @@ const DesignCanvas = forwardRef<
     positionToolbar(el);
   };
 
-  /** Adds a new editable text box (content layer) or decorative bar (background layer), then selects it. */
+  /** Adds a new editable text box (content layer) or a typed decorative shape (decor layer), then selects it. */
   const addElement = (kind: "text" | "shape") => {
     const root = designRef.current;
     if (!root) return;
@@ -2127,10 +2200,15 @@ const DesignCanvas = forwardRef<
         "width:240px;min-height:1em;color:#FFFFFF;font-size:40px;font-weight:700;line-height:1.1;text-align:center;";
       (root.querySelector<HTMLElement>('[data-layer="content"]') ?? root).appendChild(el);
     } else {
+      // Decision B1/B4: shapes get a stable data-slot identity (so getState()'s existing [data-slot]
+      // walk picks them up for free — no parallel persistence pipeline) and a visibly shape-like
+      // default (160x160, not the old 200x8 divider) so the operator can tell it was created.
+      el.setAttribute("data-slot", `shape-${crypto.randomUUID()}`);
+      el.setAttribute("data-el-kind", "shape");
       el.style.cssText =
-        `position:absolute;left:${Math.round(width / 2 - 100)}px;top:${Math.round(height / 2 - 4)}px;` +
-        "width:200px;height:8px;background:#8C6A45;border-radius:4px;";
-      (root.querySelector<HTMLElement>('[data-layer="background"]') ?? root).appendChild(el);
+        `position:absolute;left:${Math.round(width / 2 - 80)}px;top:${Math.round(height / 2 - 80)}px;` +
+        "width:160px;height:160px;background:#8C6A45;border-radius:8px;opacity:1;";
+      ensureDecorLayer(root).appendChild(el);
     }
     select(el);
     onDirty();
