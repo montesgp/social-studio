@@ -2,9 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   classifySlideOutcome,
+  describeStepType,
   formatBytes,
+  formatCostUsd,
   formatDurationSeconds,
   formatElapsedMs,
+  formatTokenUsage,
   getJobStatusTone,
   hadRetry,
   isFailedStatus,
@@ -77,4 +80,29 @@ test("formatBytes renders B/KB/MB tiers", () => {
   assert.equal(formatBytes(2048), "2.0 KB");
   assert.equal(formatBytes(5 * 1024 * 1024), "5.0 MB");
   assert.equal(formatBytes(-1), "—");
+});
+
+// ── Change 4: usage-event steps (content/copy + designer, previously invisible) ───────────────
+
+test("describeStepType labels every known step type, including the new usage-event kind", () => {
+  assert.equal(describeStepType("image-generation"), "Image generation");
+  assert.equal(describeStepType("slide-outcome"), "Slide outcome");
+  assert.equal(describeStepType("usage-event"), "Provider call");
+  assert.equal(describeStepType("something-future"), "something-future");
+});
+
+test("formatTokenUsage combines input/output counts and omits missing sides", () => {
+  assert.equal(formatTokenUsage(1200, 800), "1200 in / 800 out");
+  assert.equal(formatTokenUsage(1200, null), "1200 in");
+  assert.equal(formatTokenUsage(null, 800), "800 out");
+  assert.equal(formatTokenUsage(null, null), null);
+  assert.equal(formatTokenUsage(undefined, undefined), null);
+});
+
+test("formatCostUsd renders a dollar-formatted estimate or null when unknown", () => {
+  assert.equal(formatCostUsd(0.05), "$0.0500");
+  assert.equal(formatCostUsd(0), "$0.0000");
+  assert.equal(formatCostUsd(null), null);
+  assert.equal(formatCostUsd(undefined), null);
+  assert.equal(formatCostUsd(Number.NaN), null);
 });

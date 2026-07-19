@@ -32,9 +32,12 @@ import {
 } from "@/lib/api/types";
 import {
   classifySlideOutcome,
+  describeStepType,
   formatBytes,
+  formatCostUsd,
   formatDurationSeconds,
   formatElapsedMs,
+  formatTokenUsage,
   getJobStatusTone,
   hadRetry,
   isFailedStatus,
@@ -457,9 +460,7 @@ function StepRow({ step }: { step: ContentGenerationTimelineStep }) {
       </TableCell>
       <TableCell className="text-xs">
         <div className="flex flex-col gap-1">
-          <span className="font-medium">
-            {step.stepType === "image-generation" ? "Image generation" : "Slide outcome"}
-          </span>
+          <span className="font-medium">{describeStepType(step.stepType)}</span>
           {step.formatKey ? <span className="text-muted-foreground">{step.formatKey}</span> : null}
           {step.stepType === "slide-outcome" && step.slideIndex !== null ? (
             <span className="text-muted-foreground">Slide #{step.slideIndex}</span>
@@ -470,6 +471,7 @@ function StepRow({ step }: { step: ContentGenerationTimelineStep }) {
         <div className="flex flex-col gap-1">
           <span>{step.providerKey}</span>
           <span className="text-[0.65rem] uppercase tracking-wide opacity-70">{step.capabilityKey}</span>
+          {step.stepType === "usage-event" ? <UsageEventDetails step={step} /> : null}
         </div>
       </TableCell>
       <TableCell className="whitespace-nowrap text-xs">{formatElapsedMs(step.elapsedMs)}</TableCell>
@@ -477,6 +479,26 @@ function StepRow({ step }: { step: ContentGenerationTimelineStep }) {
         <StepOutcome step={step} retried={retried} />
       </TableCell>
     </TableRow>
+  );
+}
+
+/**
+ * Model + token/cost detail shown under the provider column for "usage-event" steps (Change 4) —
+ * kept compact since the operator's primary concerns are what ran, how long, and whether it failed;
+ * cost/tokens are secondary context, not the headline of the row.
+ */
+function UsageEventDetails({ step }: { step: ContentGenerationTimelineStep }) {
+  const tokenUsage = formatTokenUsage(step.inputTokens, step.outputTokens);
+  const cost = formatCostUsd(step.estimatedCostUsd);
+
+  if (!step.model && !tokenUsage && !cost) {
+    return null;
+  }
+
+  return (
+    <span className="text-[0.65rem] normal-case tracking-normal opacity-90">
+      {[step.model, tokenUsage, cost].filter(Boolean).join(" • ")}
+    </span>
   );
 }
 

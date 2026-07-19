@@ -144,6 +144,162 @@ public sealed class EfContentGenerationAuditReaderTests
         Assert.Equal(2, format.Assets[1].AssetIndex);
     }
 
+    // ── Change 4: usage-event merge (incident job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1) ─────────
+
+    [Fact]
+    public async Task GetJobTimelineAsync_UsageEventsForJobsCorrelationId_AppearAsUsageEventSteps()
+    {
+        await using var db = CreateDb();
+        var correlationId = Guid.NewGuid();
+
+        SeedJob(db, status: "Failed", correlationId: correlationId);
+        SeedUsageEvent(db, correlationId, "format:carousel", "anthropic", DateTime.UtcNow, durationMs: 17739);
+        await db.SaveChangesAsync();
+
+        var reader = new EfContentGenerationAuditReader(db);
+        var timeline = await reader.GetJobTimelineAsync(_jobId, CancellationToken.None);
+
+        var step = Assert.Single(timeline!.Steps);
+        Assert.Equal("usage-event", step.StepType);
+        Assert.Equal("format:carousel", step.CapabilityKey);
+        Assert.Equal("carousel", step.FormatKey);
+        Assert.Equal(17739, step.ElapsedMs);
+        Assert.True(step.Succeeded);
+    }
+
+    [Fact]
+    public async Task GetJobTimelineAsync_UsageEventForAnotherJob_IsNotIncluded()
+    {
+        await using var db = CreateDb();
+        var correlationId = Guid.NewGuid();
+        var otherJobCorrelationId = Guid.NewGuid();
+
+        SeedJob(db, status: "Completed", correlationId: correlationId);
+        SeedUsageEvent(db, otherJobCorrelationId, "format:carousel", "anthropic", DateTime.UtcNow, durationMs: 1000);
+        await db.SaveChangesAsync();
+
+        var reader = new EfContentGenerationAuditReader(db);
+        var timeline = await reader.GetJobTimelineAsync(_jobId, CancellationToken.None);
+
+        Assert.Empty(timeline!.Steps);
+    }
+
+    [Fact]
+    public async Task GetJobTimelineAsync_UsageEventsAndAttempts_InterleaveInChronologicalOrder()
+    {
+        await using var db = CreateDb();
+        var correlationId = Guid.NewGuid();
+        var t0 = DateTime.UtcNow;
+
+        SeedJob(db, status: "Failed", correlationId: correlationId);
+        SeedFormatResult(db, _formatResultId, status: "AiFailed");
+        // format:carousel (usage-event) succeeds first, then the comfyui attempt runs, then the job
+        // dies — mirrors the incident job's reconstructed flow.
+        SeedUsageEvent(db, correlationId, "format:carousel", "anthropic", t0, durationMs: 17739);
+        SeedAttempt(db, "ai-image", "comfyui", "Succeeded", startedAt: t0.AddSeconds(20));
+        SeedUsageEvent(db, correlationId, "designer:feed-carousel", "anthropic", t0.AddSeconds(40), durationMs: 5000);
+        await db.SaveChangesAsync();
+
+        var reader = new EfContentGenerationAuditReader(db);
+        var timeline = await reader.GetJobTimelineAsync(_jobId, CancellationToken.None);
+
+        Assert.Equal(3, timeline!.Steps.Count);
+        Assert.Equal("format:carousel", timeline.Steps[0].CapabilityKey);
+        Assert.Equal("image-generation", timeline.Steps[1].StepType);
+        Assert.Equal("designer:feed-carousel", timeline.Steps[2].CapabilityKey);
+    }
+
+    [Fact]
+    public async Task GetJobTimelineAsync_UsageEventOverlappingAnImageGenerationAttempt_IsDeduplicated()
+    {
+        // Change 4 double-counting rule: an image-background:{formatKey} usage event and an ai-image
+        // comfyui attempt describing the SAME provider call (same provider, near-identical start time,
+        // near-identical duration — ~394262ms vs ~394201ms in the incident data) must not both appear,
+        // or an operator would be misled into thinking the work happened twice.
+        await using var db = CreateDb();
+        var correlationId = Guid.NewGuid();
+        var t0 = DateTime.UtcNow;
+
+        SeedJob(db, status: "Partial", correlationId: correlationId);
+        SeedFormatResult(db, _formatResultId, status: "PartiallyRendered");
+        SeedAttempt(db, "ai-image", "comfyui", "Succeeded", startedAt: t0);
+        SeedUsageEvent(db, correlationId, "image-background:feed-carousel", "comfyui", t0.AddMilliseconds(60), durationMs: 394262);
+        await db.SaveChangesAsync();
+
+        var reader = new EfContentGenerationAuditReader(db);
+        var timeline = await reader.GetJobTimelineAsync(_jobId, CancellationToken.None);
+
+        var step = Assert.Single(timeline!.Steps);
+        Assert.Equal("image-generation", step.StepType);
+    }
+
+    [Fact]
+    public async Task GetJobTimelineAsync_UsageEventFromDifferentProvider_IsKeptEvenWhenNearAnAttempt()
+    {
+        // The prompt-writer call inside the SAME image-background:{formatKey} scope (a different,
+        // fast Anthropic call) has no counterpart in integration_execution_attempts — different
+        // provider key than the comfyui attempt — and must NOT be dropped by the dedup rule.
+        await using var db = CreateDb();
+        var correlationId = Guid.NewGuid();
+        var t0 = DateTime.UtcNow;
+
+        SeedJob(db, status: "Partial", correlationId: correlationId);
+        SeedFormatResult(db, _formatResultId, status: "PartiallyRendered");
+        SeedAttempt(db, "ai-image", "comfyui", "Succeeded", startedAt: t0);
+        SeedUsageEvent(db, correlationId, "image-background:feed-carousel", "anthropic", t0.AddMilliseconds(30), durationMs: 10421);
+        await db.SaveChangesAsync();
+
+        var reader = new EfContentGenerationAuditReader(db);
+        var timeline = await reader.GetJobTimelineAsync(_jobId, CancellationToken.None);
+
+        Assert.Equal(2, timeline!.Steps.Count);
+        Assert.Contains(timeline.Steps, s => s.StepType == "image-generation");
+        Assert.Contains(timeline.Steps, s => s.StepType == "usage-event" && s.ProviderKey == "anthropic");
+    }
+
+    [Fact]
+    public async Task GetJobTimelineAsync_ZeroFormatResults_StillSurfacesUsageEventSteps()
+    {
+        // The exact gap the owner reported: a job that dies while writing copy — BEFORE any
+        // format_result row is ever persisted — previously showed an empty audit because the
+        // attempts query is gated on format result ids. Usage events are not.
+        await using var db = CreateDb();
+        var correlationId = Guid.NewGuid();
+
+        SeedJob(db, status: "Failed", correlationId: correlationId);
+        SeedUsageEvent(db, correlationId, "ai-analysis", "anthropic", DateTime.UtcNow, durationMs: 4200, failed: true);
+        await db.SaveChangesAsync();
+
+        var reader = new EfContentGenerationAuditReader(db);
+        var timeline = await reader.GetJobTimelineAsync(_jobId, CancellationToken.None);
+
+        var step = Assert.Single(timeline!.Steps);
+        Assert.Equal("usage-event", step.StepType);
+        Assert.Null(step.FormatKey);
+        Assert.False(step.Succeeded);
+    }
+
+    [Fact]
+    public async Task GetJobTimelineAsync_UsageEventStep_ExposesModelAndTokenUsage()
+    {
+        await using var db = CreateDb();
+        var correlationId = Guid.NewGuid();
+
+        SeedJob(db, status: "Completed", correlationId: correlationId);
+        SeedUsageEvent(db, correlationId, "format:carousel", "anthropic", DateTime.UtcNow, durationMs: 17739,
+            model: "claude-sonnet", inputTokens: 1200, outputTokens: 800, estimatedCostUsd: 0.05m);
+        await db.SaveChangesAsync();
+
+        var reader = new EfContentGenerationAuditReader(db);
+        var timeline = await reader.GetJobTimelineAsync(_jobId, CancellationToken.None);
+
+        var step = Assert.Single(timeline!.Steps);
+        Assert.Equal("claude-sonnet", step.Model);
+        Assert.Equal(1200, step.InputTokens);
+        Assert.Equal(800, step.OutputTokens);
+        Assert.Equal(0.05m, step.EstimatedCostUsd);
+    }
+
     [Fact]
     public async Task GetJobTimelineAsync_UnknownJob_ReturnsNull()
     {
@@ -204,7 +360,8 @@ public sealed class EfContentGenerationAuditReaderTests
         string status,
         Guid? jobId = null,
         IReadOnlyList<string>? requestedFormats = null,
-        DateTime? createdAt = null)
+        DateTime? createdAt = null,
+        Guid? correlationId = null)
     {
         db.ContentGenerationJobs.Add(new ContentGenerationJobData
         {
@@ -215,11 +372,49 @@ public sealed class EfContentGenerationAuditReaderTests
             RequestedFormats = (requestedFormats ?? ["story-carousel"]).ToList(),
             Status = status,
             BrandSnapshotJson = "{}",
-            CorrelationId = Guid.NewGuid(),
+            CorrelationId = correlationId ?? Guid.NewGuid(),
             CreatedAt = createdAt ?? DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             StartedAt = DateTime.UtcNow.AddMinutes(-30),
             CompletedAt = DateTime.UtcNow,
+        });
+    }
+
+    private static void SeedUsageEvent(
+        AppIdentityDbContext db,
+        Guid correlationId,
+        string pipelineStepKey,
+        string providerKey,
+        DateTime requestTimestamp,
+        int durationMs,
+        string? model = null,
+        int? inputTokens = null,
+        int? outputTokens = null,
+        decimal? estimatedCostUsd = null,
+        bool failed = false)
+    {
+        db.UsageEvents.Add(new UsageEventData
+        {
+            OrganizationId = Guid.NewGuid(),
+            ClientId = null,
+            WorkflowKey = "content-generation",
+            PipelineStepKey = pipelineStepKey,
+            ProviderKey = providerKey,
+            Model = model,
+            PromptVersion = null,
+            RequestTimestamp = requestTimestamp,
+            CompletedTimestamp = requestTimestamp.AddMilliseconds(durationMs),
+            DurationMs = durationMs,
+            InputTokens = inputTokens,
+            OutputTokens = outputTokens,
+            EstimatedCostUsd = estimatedCostUsd,
+            RequestSizeBytes = null,
+            ResponseSizeBytes = null,
+            RetryCount = 0,
+            Status = failed ? "failed" : "succeeded",
+            FailureCode = failed ? "provider.error" : null,
+            CorrelationId = correlationId,
+            CreatedAtUtc = requestTimestamp,
         });
     }
 

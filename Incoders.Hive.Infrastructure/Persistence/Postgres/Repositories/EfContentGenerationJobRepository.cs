@@ -7,6 +7,19 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Repositories;
 
 public sealed class EfContentGenerationJobRepository : IContentGenerationJobRepository
 {
+    /// <summary>
+    /// Statuses that end a job's lifecycle. Gap 1 (incident job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1,
+    /// Change 5): before this fix <see cref="UpdateStatusAsync"/> never touched CompletedAt at all —
+    /// only the success path's <see cref="UpdateManifestAsync"/> set it — so a job that died via
+    /// cancellation, timeout, or any early "Failed" write (analysis missing, package build failure,
+    /// watchdog reap, …) kept CompletedAt null forever. That made it impossible to compute
+    /// TotalDurationSeconds for exactly the jobs an operator most needs to audit. "PartialSuccess" is
+    /// kept alongside "Partial" even though nothing currently writes it (see
+    /// <see cref="GetLatestByAnalysisAndClientAsync"/>) — cheap forward-compatibility, not dead weight.
+    /// </summary>
+    private static readonly HashSet<string> TerminalStatuses =
+        new(StringComparer.Ordinal) { "Completed", "Failed", "Partial", "PartialSuccess" };
+
     private readonly AppIdentityDbContext _db;
 
     public EfContentGenerationJobRepository(AppIdentityDbContext db)
@@ -55,6 +68,15 @@ public sealed class EfContentGenerationJobRepository : IContentGenerationJobRepo
         if (status == "Running" && entity.StartedAt is null)
         {
             entity.StartedAt = DateTime.UtcNow;
+        }
+
+        // Gap 1: set the completion timestamp the FIRST time the job reaches any terminal state,
+        // including cancellation/timeout — not only the success path (which also flows through here,
+        // after UpdateManifestAsync already set CompletedAt — the null guard keeps that earlier,
+        // more accurate timestamp instead of nudging it forward by the few ms it takes to write status).
+        if (TerminalStatuses.Contains(status) && entity.CompletedAt is null)
+        {
+            entity.CompletedAt = DateTime.UtcNow;
         }
 
         await _db.SaveChangesAsync(ct);

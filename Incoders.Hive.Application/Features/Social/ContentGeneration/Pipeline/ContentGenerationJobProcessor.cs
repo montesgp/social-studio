@@ -153,7 +153,24 @@ public sealed class ContentGenerationJobProcessor
         _aestheticGatingOptions = aestheticGatingOptions?.Value ?? new ContentGenerationAestheticGatingOptions();
     }
 
-    public async Task ProcessAsync(Guid jobId, CancellationToken ct)
+    /// <summary>
+    /// Bounded budget for a terminal-status write made after <c>ct</c> is already cancelled or faulted.
+    /// Mirrors <c>IntegrationExecutionPolicy.TelemetryWriteTimeout</c> (commit 0e0f7dd): never
+    /// <see cref="CancellationToken.None"/> with no bound, which could let a stalled DB connection hang
+    /// shutdown indefinitely — the write is best-effort observability of a job that is already done,
+    /// not work anything is still waiting on.
+    /// </summary>
+    internal static readonly TimeSpan TerminalStatusWriteTimeout = TimeSpan.FromSeconds(5);
+
+    public async Task ProcessAsync(
+        Guid jobId,
+        CancellationToken ct,
+        // Gap 1 (incident job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1, Change 5): supplied by
+        // ContentGenerationBackgroundWorker so the cancellation branch below can tell a per-job
+        // wall-clock budget timeout apart from host shutdown / any other cancellation. Null (the
+        // default) preserves the original generic "cancelled"/"cancelled-partial" classification for
+        // any caller — including every existing test — that has no such distinction to offer.
+        ContentGenerationJobCancellationContext? cancellationContext = null)
     {
         var job = await _jobs.GetByIdInternalAsync(jobId, ct);
         if (job is null)
@@ -163,6 +180,7 @@ public sealed class ContentGenerationJobProcessor
         }
 
         await _jobs.UpdateStatusAsync(job.Id, "Running", null, null, ct);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
 
         try
         {
@@ -170,6 +188,8 @@ public sealed class ContentGenerationJobProcessor
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            sw.Stop();
+
             // Per-job timeout or host shutdown. The terminal write MUST use a fresh, BOUNDED token —
             // writing with the already-cancelled ct would cancel SaveChanges too, leaving the job
             // stuck in "Running" forever (the exact "pill never changes" symptom). Bounded (not plain
@@ -199,19 +219,10 @@ public sealed class ContentGenerationJobProcessor
                 hasPersistedWork = false;
             }
 
-            if (hasPersistedWork)
-            {
-                await _jobs.UpdateStatusAsync(
-                    job.Id,
-                    "Partial",
-                    "cancelled-partial: job was cancelled or timed out after some format(s) already persisted assets",
-                    "cancelled-partial",
-                    CancellationToken.None);
-            }
-            else
-            {
-                await _jobs.UpdateStatusAsync(job.Id, "Failed", "cancelled", "cancelled", CancellationToken.None);
-            }
+            var (status, reason, errorCode) = ClassifyCancellation(cancellationContext, sw.Elapsed, hasPersistedWork);
+
+            using var statusWriteCts = new CancellationTokenSource(TerminalStatusWriteTimeout);
+            await _jobs.UpdateStatusAsync(job.Id, status, reason, errorCode, statusWriteCts.Token);
 
             throw;
         }
@@ -219,10 +230,49 @@ public sealed class ContentGenerationJobProcessor
         {
             // Anything that escapes the per-step handling is surfaced verbatim — the user
             // needs the real failure on their screen, not a generic "unexpected-error".
-            // Use CancellationToken.None so this terminal write always lands even if ct is faulted.
+            // Bounded (not CancellationToken.None) — see TerminalStatusWriteTimeout.
             _logger.LogError(ex, "ContentGeneration: unhandled error processing job {JobId}.", job.Id);
-            await _jobs.UpdateStatusAsync(job.Id, "Failed", FormatException(ex), $"unhandled:{ex.GetType().Name}", CancellationToken.None);
+            using var statusWriteCts = new CancellationTokenSource(TerminalStatusWriteTimeout);
+            await _jobs.UpdateStatusAsync(job.Id, "Failed", FormatException(ex), $"unhandled:{ex.GetType().Name}", statusWriteCts.Token);
         }
+    }
+
+    /// <summary>
+    /// Resolves the (status, reason, errorCode) triple for a cancelled/timed-out job. When
+    /// <paramref name="cancellationContext"/> confirms the job's OWN wall-clock budget fired (its host
+    /// token is intact — only the linked <c>CancelAfter</c> could have cancelled <c>ct</c>), the reason
+    /// carries the exact elapsed time and the configured limit that was exceeded, and the errorCode is
+    /// a distinct "cancelled-timeout[-partial]" — precise enough that an operator (or
+    /// <c>EfContentGenerationFailurePolicy</c> / the UI) can tell a budget timeout apart from a manual
+    /// cancellation or host shutdown, which keep the pre-existing generic "cancelled[-partial]".
+    /// </summary>
+    private static (string Status, string Reason, string ErrorCode) ClassifyCancellation(
+        ContentGenerationJobCancellationContext? cancellationContext,
+        TimeSpan elapsed,
+        bool hasPersistedWork)
+    {
+        var status = hasPersistedWork ? "Partial" : "Failed";
+
+        var isConfirmedBudgetTimeout =
+            cancellationContext is not null && !cancellationContext.HostShutdownToken.IsCancellationRequested;
+
+        if (isConfirmedBudgetTimeout)
+        {
+            var limitMs = (long)cancellationContext!.JobTimeoutLimit.TotalMilliseconds;
+            var elapsedMs = (long)elapsed.TotalMilliseconds;
+            var reason = hasPersistedWork
+                ? $"cancelled-timeout-partial: job exceeded the configured wall-clock limit ({limitMs} ms) " +
+                  $"after {elapsedMs} ms, some format(s) already persisted assets"
+                : $"cancelled-timeout: job exceeded the configured wall-clock limit ({limitMs} ms) after {elapsedMs} ms";
+            var errorCode = hasPersistedWork ? "cancelled-timeout-partial" : "cancelled-timeout";
+            return (status, reason, errorCode);
+        }
+
+        var genericReason = hasPersistedWork
+            ? "cancelled-partial: job was cancelled or timed out after some format(s) already persisted assets"
+            : "cancelled";
+        var genericErrorCode = hasPersistedWork ? "cancelled-partial" : "cancelled";
+        return (status, genericReason, genericErrorCode);
     }
 
     private async Task ProcessInternalAsync(ContentGenerationJob job, CancellationToken ct)
@@ -2417,3 +2467,22 @@ public sealed class ContentGenerationJobProcessor
         string Name,
         string Source);
 }
+
+/// <summary>
+/// Optional classification context <c>ContentGenerationBackgroundWorker</c> (ApiService) supplies to
+/// <see cref="ContentGenerationJobProcessor.ProcessAsync"/> so its terminal-cancellation write can
+/// tell a per-job wall-clock budget timeout apart from host shutdown / any other cancellation (Gap 1,
+/// incident job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1, Change 5).
+///
+/// <para>
+/// <see cref="HostShutdownToken"/> is the OUTER token the worker links into the job's own
+/// <c>CancelAfter</c> token to build <c>ct</c>. When <see cref="HostShutdownToken"/> is NOT
+/// cancelled at the moment <c>ct</c> IS, only the job's own budget timer could have fired — the same
+/// check <c>ContentGenerationBackgroundWorker.ProcessAsync</c> already performs to decide whether to
+/// log "TIMED OUT" vs. treat the cancellation as host shutdown, now threaded into the persisted record
+/// instead of staying log-only.
+/// </para>
+/// </summary>
+public sealed record ContentGenerationJobCancellationContext(
+    CancellationToken HostShutdownToken,
+    TimeSpan JobTimeoutLimit);

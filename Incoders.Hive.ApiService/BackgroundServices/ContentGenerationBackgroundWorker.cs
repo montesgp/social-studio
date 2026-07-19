@@ -111,7 +111,13 @@ internal sealed class ContentGenerationBackgroundWorker : BackgroundService
         {
             using var scope = _scopeFactory.CreateScope();
             var processor = scope.ServiceProvider.GetRequiredService<ContentGenerationJobProcessor>();
-            await processor.ProcessAsync(jobId, jobCts.Token);
+
+            // Gap 1 (incident job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1, Change 5): pass the outer host
+            // token alongside jobCts.Token so the processor's terminal-cancellation write can tell a
+            // per-job budget timeout apart from host shutdown — the same distinction the catch block
+            // below already uses to decide whether to log "TIMED OUT", now carried into the DB record.
+            var cancellationContext = new ContentGenerationJobCancellationContext(cancellationToken, _jobTimeout);
+            await processor.ProcessAsync(jobId, jobCts.Token, cancellationContext);
 
             sw.Stop();
             _logger.LogInformation(

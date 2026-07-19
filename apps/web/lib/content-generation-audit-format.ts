@@ -98,6 +98,47 @@ export function classifySlideOutcome(slideOutcome: string | null | undefined): S
   return "unknown";
 }
 
+/**
+ * Human-readable label for a timeline step's stepType. "usage-event" (Change 4) covers the
+ * content/copy and designer steps that never went through IIntegrationExecutionPolicy — they only
+ * exist because platform.usage_events records every provider call regardless of that policy.
+ */
+export function describeStepType(stepType: string): string {
+  switch (stepType) {
+    case "image-generation":
+      return "Image generation";
+    case "slide-outcome":
+      return "Slide outcome";
+    case "usage-event":
+      return "Provider call";
+    default:
+      return stepType;
+  }
+}
+
+/** Renders input/output token counts as a compact string, or null when neither is present. */
+export function formatTokenUsage(
+  inputTokens: number | null | undefined,
+  outputTokens: number | null | undefined
+): string | null {
+  const parts: string[] = [];
+  if (typeof inputTokens === "number" && Number.isFinite(inputTokens)) {
+    parts.push(`${inputTokens} in`);
+  }
+  if (typeof outputTokens === "number" && Number.isFinite(outputTokens)) {
+    parts.push(`${outputTokens} out`);
+  }
+  return parts.length > 0 ? parts.join(" / ") : null;
+}
+
+/** Renders an estimated USD cost, or null when unknown. */
+export function formatCostUsd(costUsd: number | null | undefined): string | null {
+  if (typeof costUsd !== "number" || !Number.isFinite(costUsd)) {
+    return null;
+  }
+  return `$${costUsd.toFixed(4)}`;
+}
+
 /** Formats a byte count as a compact human-readable size (KB/MB). */
 export function formatBytes(sizeBytes: number): string {
   if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {

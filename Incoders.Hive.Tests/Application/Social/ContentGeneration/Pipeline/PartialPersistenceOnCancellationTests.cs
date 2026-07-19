@@ -103,6 +103,91 @@ public sealed class PartialPersistenceOnCancellationTests
     }
 
     [Fact]
+    public async Task ProcessAsync_BudgetTimeoutContextConfirmed_RecordsPreciseTimeoutReasonAndCode()
+    {
+        // Gap 1 (incident job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1, Change 5): when the caller
+        // (the background worker) supplies a cancellation context whose host token is NOT cancelled,
+        // only the job's own wall-clock budget could have fired — the terminal write must say so
+        // precisely, distinct from a plain "cancelled".
+        var assetStorage = new PpAssetStorage();
+        var assetRepo = new PpAssetRepository();
+        var formatResults = new PpFormatResultRepository();
+        var jobRepo = new PpJobRepository(BuildJob());
+        using var cts = new CancellationTokenSource();
+        using var hostShutdownCts = new CancellationTokenSource(); // never cancelled — host is alive
+
+        var processor = BuildProcessor(
+            jobRepo, formatResults, assetRepo, assetStorage,
+            renderer: new PpCancelOnFirstSlideRenderer(cts));
+
+        var budgetLimit = TimeSpan.FromMinutes(60);
+        var cancellationContext = new ContentGenerationJobCancellationContext(hostShutdownCts.Token, budgetLimit);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => processor.ProcessAsync(JobId, cts.Token, cancellationContext));
+
+        var finalStatusCall = Assert.Single(jobRepo.StatusCalls, c => c.Status is "Partial" or "Failed");
+        Assert.Equal("Failed", finalStatusCall.Status);
+        Assert.Equal("cancelled-timeout", finalStatusCall.ErrorCode);
+        Assert.Contains("60000", finalStatusCall.Reason); // configured limit, in ms
+        Assert.Contains("job exceeded the configured wall-clock limit", finalStatusCall.Reason);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_HostShutdownContextConfirmed_KeepsGenericCancelledClassification()
+    {
+        // Control case: the host token IS cancelled at the moment ct is — this is a host shutdown
+        // (or any cancellation that is not confirmed as the job's own budget), not a budget timeout,
+        // so the pre-existing generic "cancelled" classification must be kept, not misreported as a
+        // timeout.
+        var assetStorage = new PpAssetStorage();
+        var assetRepo = new PpAssetRepository();
+        var formatResults = new PpFormatResultRepository();
+        var jobRepo = new PpJobRepository(BuildJob());
+        using var cts = new CancellationTokenSource();
+        using var hostShutdownCts = new CancellationTokenSource();
+        hostShutdownCts.Cancel();
+
+        var processor = BuildProcessor(
+            jobRepo, formatResults, assetRepo, assetStorage,
+            renderer: new PpCancelOnFirstSlideRenderer(cts));
+
+        var cancellationContext = new ContentGenerationJobCancellationContext(hostShutdownCts.Token, TimeSpan.FromMinutes(60));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => processor.ProcessAsync(JobId, cts.Token, cancellationContext));
+
+        var finalStatusCall = Assert.Single(jobRepo.StatusCalls, c => c.Status is "Partial" or "Failed");
+        Assert.Equal("Failed", finalStatusCall.Status);
+        Assert.Equal("cancelled", finalStatusCall.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_BudgetTimeoutWithPersistedWork_RecordsPartialTimeoutCode()
+    {
+        var assetStorage = new PpAssetStorage();
+        var assetRepo = new PpAssetRepository();
+        var formatResults = new PpFormatResultRepository();
+        var jobRepo = new PpJobRepository(BuildJob());
+        using var cts = new CancellationTokenSource();
+        using var hostShutdownCts = new CancellationTokenSource();
+
+        var processor = BuildProcessor(
+            jobRepo, formatResults, assetRepo, assetStorage,
+            renderer: new PpCancelOnThirdSlideRenderer(cts));
+
+        var cancellationContext = new ContentGenerationJobCancellationContext(hostShutdownCts.Token, TimeSpan.FromMinutes(60));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => processor.ProcessAsync(JobId, cts.Token, cancellationContext));
+
+        var finalStatusCall = Assert.Single(jobRepo.StatusCalls, c => c.Status is "Partial" or "Failed");
+        Assert.Equal("Partial", finalStatusCall.Status);
+        Assert.Equal("cancelled-timeout-partial", finalStatusCall.ErrorCode);
+        Assert.Contains("some format(s) already persisted assets", finalStatusCall.Reason);
+    }
+
+    [Fact]
     public async Task ProcessAsync_CancelledBeforeAnySlideFinished_JobStatusStaysFailed()
     {
         // Control case: cancellation on the FIRST slide, before anything checkpointed — must keep the

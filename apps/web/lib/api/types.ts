@@ -1127,9 +1127,18 @@ export interface ContentGenerationJobListResponse {
 }
 
 /** One chronological step in a job's timeline. */
+/**
+ * stepType is one of "image-generation" / "slide-outcome" (sourced from
+ * integration_execution_attempts) or "usage-event" (Change 4 — sourced from platform.usage_events;
+ * the content/copy and designer steps that never went through IIntegrationExecutionPolicy). For
+ * "usage-event" rows, capabilityKey carries usage_events.pipeline_step_key (e.g. "format:carousel",
+ * "designer:feed-carousel", "ai-analysis") — the backend already deduplicates a usage-event row
+ * against an overlapping "image-generation" attempt describing the same provider call, so every row
+ * the client receives is meant to be shown, never treated as a possible duplicate.
+ */
 export interface ContentGenerationTimelineStep {
   occurredAtUtc: string;
-  stepType: "image-generation" | "slide-outcome" | string;
+  stepType: "image-generation" | "slide-outcome" | "usage-event" | string;
   formatResultId: string | null;
   formatKey: string | null;
   providerKey: string;
@@ -1142,6 +1151,11 @@ export interface ContentGenerationTimelineStep {
   slideIndex: number | null;
   slideOutcome: string | null;
   slideOutcomeReason: string | null;
+  /** Only populated for "usage-event" steps. */
+  model: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  estimatedCostUsd: number | null;
 }
 
 /** One persisted asset row (one slide / one file) for a produced format. */

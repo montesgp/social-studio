@@ -73,10 +73,37 @@ public sealed record ContentGenerationJobTimeline(
 
 /// <summary>
 /// One chronological step in the timeline. <see cref="StepType"/> is one of:
-/// <c>"image-generation"</c> (provider-level attempt, capability_key=ai-image) or
-/// <c>"slide-outcome"</c> (per-slide degrade-to-CSS-or-succeed outcome, capability_key=generate-image).
-/// Sourced from <c>social.integration_execution_attempts</c>, resolved server-side to the owning
-/// format result so the UI never has to join <c>correlation_id</c> itself.
+/// <list type="bullet">
+///   <item><description><c>"image-generation"</c> — provider-level attempt, capability_key=ai-image,
+///   sourced from <c>social.integration_execution_attempts</c>.</description></item>
+///   <item><description><c>"slide-outcome"</c> — per-slide degrade-to-CSS-or-succeed outcome,
+///   capability_key=generate-image, sourced from <c>social.integration_execution_attempts</c>.</description></item>
+///   <item><description><c>"usage-event"</c> — any other provider call recorded in
+///   <c>platform.usage_events</c> for this job (content/copy generation, the designer step, the
+///   image-prompt writer, …) — the steps that were previously invisible because they never went
+///   through <see cref="Incoders.Hive.Application.Abstractions.Integrations.IIntegrationExecutionPolicy"/>.
+///   For this step type <see cref="CapabilityKey"/> holds <c>usage_events.pipeline_step_key</c> (e.g.
+///   <c>"format:carousel"</c>, <c>"designer:feed-carousel"</c>, <c>"ai-analysis"</c>) — the same
+///   "what kind of call was this" role <see cref="CapabilityKey"/> plays for the attempt-sourced step
+///   types above.</description></item>
+/// </list>
+/// Resolved server-side to the owning format result (where determinable) so the UI never has to
+/// join <c>correlation_id</c> itself.
+///
+/// <para>
+/// DOUBLE-COUNTING (Change 4, incident job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1): a
+/// <c>image-background:{formatKey}</c> usage event and an <c>ai-image</c>/comfyui
+/// <c>integration_execution_attempts</c> row can describe the SAME underlying provider call — the
+/// former is written by the outer <c>ClientAestheticImageBackgroundService</c> scope, the latter by
+/// <see cref="Incoders.Hive.Application.Abstractions.Integrations.IIntegrationExecutionPolicy"/> one
+/// layer further in. <see cref="EfContentGenerationAuditReader"/> DEDUPLICATES: a usage-event row is
+/// dropped from the merged timeline when an existing <c>"image-generation"</c> step already covers
+/// the same provider call (same provider key, request timestamp within a few seconds of the
+/// attempt's start) — see <c>EfContentGenerationAuditReader.OverlapsExistingImageGenerationStep</c>.
+/// Everything else from <c>usage_events</c> (the prompt-writer call inside the same
+/// <c>image-background:*</c> scope, <c>format:*</c>, <c>designer:*</c>, <c>ai-analysis</c>, …) has no
+/// counterpart in <c>integration_execution_attempts</c> and is kept.
+/// </para>
 /// </summary>
 public sealed record ContentGenerationTimelineStep(
     DateTime OccurredAtUtc,
@@ -92,7 +119,11 @@ public sealed record ContentGenerationTimelineStep(
     string? FailureCode,
     int? SlideIndex,
     string? SlideOutcome,
-    string? SlideOutcomeReason);
+    string? SlideOutcomeReason,
+    string? Model = null,
+    int? InputTokens = null,
+    int? OutputTokens = null,
+    decimal? EstimatedCostUsd = null);
 
 /// <summary>What was actually produced for one requested format: its result status plus every
 /// persisted asset row.</summary>
