@@ -195,6 +195,39 @@ public sealed class AiVisualDesignerTests
     }
 
     // -----------------------------------------------------------------------
+    // R4.5 (Content Studio editing completeness, Decision D4): the prompt no longer licenses an
+    // arbitrary system fallback font — the guardrail (R4.3) now hard-rejects anything the prompt and
+    // the guardrail would otherwise contradict on.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ComposeAsync_PromptTypographyInstruction_DoesNotLicenseSystemFallback()
+    {
+        var gatewaySpy = new SpyAiGateway(BuildSuccessMarkup());
+        var designer = BuildDesigner(gatewaySpy);
+
+        await designer.ComposeAsync(OrgId, BuildSpec(), BuildBrand(), new BackgroundSelection.Creative(), CancellationToken.None);
+
+        Assert.NotNull(gatewaySpy.CapturedInput);
+        Assert.DoesNotContain("a clean system fallback is acceptable", gatewaySpy.CapturedInput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ComposeAsync_PromptTypographyInstruction_RequiresBrandFamilyVerbatim()
+    {
+        var gatewaySpy = new SpyAiGateway(BuildSuccessMarkup());
+        var designer = BuildDesigner(gatewaySpy);
+
+        await designer.ComposeAsync(OrgId, BuildSpec(), BuildBrand(), new BackgroundSelection.Creative(), CancellationToken.None);
+
+        Assert.NotNull(gatewaySpy.CapturedInput);
+        // The prompt must instruct the model to use the brand family verbatim (or a CSS generic,
+        // which the pipeline normalizes) — never an invented, unrelated named font.
+        Assert.Contains("TYPOGRAPHY", gatewaySpy.CapturedInput, StringComparison.Ordinal);
+        Assert.Contains("verbatim", gatewaySpy.CapturedInput, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 

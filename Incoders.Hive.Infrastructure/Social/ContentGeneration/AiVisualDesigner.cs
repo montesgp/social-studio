@@ -450,7 +450,10 @@ public sealed class AiVisualDesigner : IVisualDesigner
             $"    Primary = most dominant (use for hero backgrounds and key elements),\n" +
             $"    Secondary = supporting (complement the primary), Accent = sparingly (highlights only),\n" +
             $"    Neutral = backgrounds and text fields. Palette (rank-ordered): {palette}\n" +
-            $"11. TYPOGRAPHY: prefer the brand fonts ({fonts}); a clean system fallback is acceptable. Drive\n" +
+            $"11. TYPOGRAPHY: use the brand family verbatim in every font-family declaration ({fonts}) — do\n" +
+            "    NOT invent or substitute a different named font. If you cannot determine a brand family,\n" +
+            "    use a CSS generic (e.g. sans-serif) and the pipeline will resolve it to the brand font;\n" +
+            "    never a named system font (no \"Arial\", \"Helvetica\", or similar substitutes). Drive\n" +
             "    hierarchy with WEIGHT (heavy/black headline, lighter body). Uppercase + letter-spacing for\n" +
             "    small labels/kickers when it fits the design.\n" +
             "12. RESTRAINT: 2-3 colors, 2-3 type sizes, one accent. When in doubt, remove. Clean beats busy.\n" +

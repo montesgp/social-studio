@@ -88,6 +88,11 @@
   <ItemGroup>
     <EmbeddedResource Include="Ai\Providers\DefaultComfyUiWorkflowTemplate.json" />
     <EmbeddedResource Include="Rendering\Fonts\Assets\NotoColorEmoji.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.NotoColorEmoji.ttf" />
+    <EmbeddedResource Include="Rendering\Fonts\Assets\LiberationSans-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.LiberationSans-Regular.ttf" />
+    <EmbeddedResource Include="Rendering\Fonts\Assets\LiberationSerif-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.LiberationSerif-Regular.ttf" />
+    <EmbeddedResource Include="Rendering\Fonts\Assets\LiberationMono-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.LiberationMono-Regular.ttf" />
+    <EmbeddedResource Include="Rendering\Fonts\Assets\DejaVuSans-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.DejaVuSans-Regular.ttf" />
+    <EmbeddedResource Include="Rendering\Fonts\Assets\DejaVuSerif-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.DejaVuSerif-Regular.ttf" />
   </ItemGroup>
 
 </Project>

@@ -16,10 +16,20 @@ public sealed class EmbeddedFontProvider : IFontProvider
 
     private const string NotoColorEmojiFamily = "Noto Color Emoji";
 
+    private const string AssetsNamespace = "Incoders.Hive.Infrastructure.Rendering.Fonts.Assets";
+
+    // Every family FontCatalog.SystemSafeList offers MUST resolve here — the picker, the guardrail
+    // allow-list, and this map are one contract (Decision F2). Real OFL substitute names, no
+    // aliasing to Arial/Helvetica (Decision #1169).
     private static readonly IReadOnlyDictionary<string, string> ResourceNamesByFamily =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            [NotoColorEmojiFamily] = "Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.NotoColorEmoji.ttf",
+            [NotoColorEmojiFamily] = $"{AssetsNamespace}.NotoColorEmoji.ttf",
+            ["Liberation Sans"] = $"{AssetsNamespace}.LiberationSans-Regular.ttf",
+            ["Liberation Serif"] = $"{AssetsNamespace}.LiberationSerif-Regular.ttf",
+            ["Liberation Mono"] = $"{AssetsNamespace}.LiberationMono-Regular.ttf",
+            ["DejaVu Sans"] = $"{AssetsNamespace}.DejaVuSans-Regular.ttf",
+            ["DejaVu Serif"] = $"{AssetsNamespace}.DejaVuSerif-Regular.ttf",
         };
 
     private readonly Lazy<byte[]?> _emojiBytes = new(() =>

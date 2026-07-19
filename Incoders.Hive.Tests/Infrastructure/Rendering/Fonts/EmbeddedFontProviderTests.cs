@@ -72,4 +72,39 @@ public sealed class EmbeddedFontProviderTests
 
         Assert.Equal(first, second);
     }
+
+    // -----------------------------------------------------------------------
+    // FontCatalog.SystemSafeList bundling (Content Studio editing completeness, Phase 2, Decision
+    // F1/#1169) — every system-safe-list family must be resolvable through the SAME mechanism as the
+    // emoji font, or the guardrail/picker contract (F2) is broken.
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("Liberation Sans")]
+    [InlineData("Liberation Serif")]
+    [InlineData("Liberation Mono")]
+    [InlineData("DejaVu Sans")]
+    [InlineData("DejaVu Serif")]
+    public void Resolve_EverySystemSafeListFont_ReturnsNonEmptyBytes(string family)
+    {
+        IFontProvider provider = new EmbeddedFontProvider();
+
+        var bytes = provider.Resolve(family);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes!.Length > 0, $"Embedded bytes for '{family}' must be non-empty.");
+    }
+
+    [Fact]
+    public void FontCatalog_SystemSafeList_IsFullyResolvableByEmbeddedFontProvider()
+    {
+        // The contract (Decision F2): FontCatalog.SystemSafeList and IFontProvider must never
+        // disagree about what is actually bundled.
+        IFontProvider provider = new EmbeddedFontProvider();
+
+        foreach (var family in FontCatalog.SystemSafeList)
+        {
+            Assert.NotNull(provider.Resolve(family));
+        }
+    }
 }

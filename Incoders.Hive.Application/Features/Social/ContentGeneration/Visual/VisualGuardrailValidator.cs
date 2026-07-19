@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using System.Xml;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fonts;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Microsoft.Extensions.Logging;
@@ -13,13 +14,19 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 /// Four ordered steps with two enforcement levels:
 ///   1. Schema      — single root div.composition, allowed tags, mandatory data-layer attributes. HARD.
 ///   2. Palette     — colors SHOULD be in the brand palette. ADVISORY (logged, never blocks).
-///   3. Typography  — fonts SHOULD be in the brand allow-list. ADVISORY (logged, never blocks).
+///   3. Typography  — fonts MUST be in the brand/catalog allow-list (<see cref="FontCatalog"/>). HARD
+///      (Content Studio editing completeness, R4.3 — the former CSS-generic waiver is gone; callers
+///      normalize generic-only declarations via <see cref="TypographyNormalizer"/> BEFORE calling
+///      this validator, so a generic reaching this step means normalization was skipped upstream —
+///      a pipeline bug that fails loudly rather than being silently waived).
 ///   4. Overflow    — static heuristic: char-count estimate vs data-max-lines per slot. HARD.
 ///
-/// Product decision: the brand palette/typography are strong preferences, not gates — a story must
-/// always generate even if the AI's design deviates (e.g. white text for legibility). Only the HARD
-/// steps (a structurally invalid markup or text that won't fit the canvas) stop the render; the
-/// SOFT steps are logged for observability and otherwise allowed through.
+/// Product decision: the brand palette is a strong preference, not a gate — a story must always
+/// generate even if the AI's design deviates on color (e.g. white text for legibility). Typography
+/// is different: item 4 of the Content Studio editing completeness change requires one deterministic
+/// typeface per carousel, so a font outside the allow-list is a hard rejection — the pipeline falls
+/// back to a deterministic brand-bound composition for that slide (see
+/// <c>ContentGenerationJobProcessor</c>), it does not fail the whole job.
 /// </summary>
 public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
 {
@@ -137,14 +144,15 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
                 paletteResult.Error.MessageKey, spec.FormatKey);
         }
 
-        // Step 3 — Typography (VD-02). ADVISORY for the same reason; off-allowlist fonts fall back
-        // gracefully in the renderer rather than failing the format.
+        // Step 3 — Typography (R4.3). HARD: one deterministic typeface per carousel is a stated
+        // requirement (item 4), not a preference. Callers are expected to run TypographyNormalizer
+        // on generic-only declarations before calling Validate — a font that fails here is either a
+        // genuinely foreign named font (prompt non-compliance) or a normalization-skip bug; both
+        // must fail loudly rather than render silently.
         var typoResult = ValidateTypography(output.Markup, brand);
         if (typoResult.IsFailure)
         {
-            _logger.LogWarning(
-                "Visual guardrail (advisory): {Reason} Rendering anyway for format '{FormatKey}'.",
-                typoResult.Error.MessageKey, spec.FormatKey);
+            return Result.Failure<VisualDesignOutput>(typoResult.Error);
         }
 
         // Step 4 — Overflow check: static heuristic (VD-03). HARD: protects legibility (text must
@@ -493,48 +501,49 @@ public sealed class VisualGuardrailValidator : IVisualGuardrailValidator
 
     private static Result ValidateTypography(string markup, BrandManualSnapshot brand)
     {
-        // Build allow-list from brand.Typography. If empty, add the bundled fallback.
-        var allowed = brand.Typography.Count > 0
-            ? brand.Typography.ToHashSet(StringComparer.OrdinalIgnoreCase)
+        // Build allow-list from FontCatalog.For(brand) — the SAME catalog the picker UI and the
+        // embedded render fonts consume (Decision F2). This is strictly wider than brand.Typography
+        // alone: it also accepts the bundled system-safe-list fonts (e.g. an operator-picked
+        // "Liberation Sans"), so operator edits from the picker never get rejected downstream.
+        var catalog = FontCatalog.For(brand.Typography);
+        var allowed = catalog.Count > 0
+            ? catalog.Select(e => e.Family).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { FallbackFontFamily };
 
         foreach (Match match in FontFamilyRegex.Matches(markup))
         {
             var raw = match.Groups[1].Value.Trim();
-            // Font-family values can be comma-separated stacks: "Inter, Roboto, sans-serif"
+            // Font-family values can be comma-separated stacks: "Inter, Roboto, sans-serif". The
+            // WHOLE STACK is evaluated together, not each token in isolation — this is what makes
+            // TypographyNormalizer's rewrite ("<Brand>", <original generic>) actually pass: the
+            // generic tail is a deliberate graceful-degradation fallback, not itself a claim about
+            // which font renders.
             var families = raw
                 .Split(',')
                 .Select(f => f.Trim().Trim('\'', '"'))
-                .Where(f => !string.IsNullOrWhiteSpace(f));
+                .Where(f => !string.IsNullOrWhiteSpace(f))
+                .ToArray();
 
-            foreach (var family in families)
+            var namedFamilies = families.Where(f => !TypographyNormalizer.IsCssGenericFontFamily(f)).ToArray();
+
+            if (namedFamilies.Length == 0)
             {
-                // Generic CSS keywords are always allowed
-                if (IsCssGenericFontFamily(family))
-                {
-                    continue;
-                }
+                // Generic-only stack reached the validator: either normalization was skipped
+                // upstream (a pipeline bug) or the caller never ran it — either way this fails
+                // loudly instead of being silently waived (Decision D2/R4.3).
+                return Result.Failure(VisualGuardrailErrors.FontNotAllowed(families.FirstOrDefault() ?? raw));
+            }
 
-                if (!allowed.Contains(family))
-                {
-                    return Result.Failure(VisualGuardrailErrors.FontNotAllowed(family));
-                }
+            if (!namedFamilies.Any(allowed.Contains))
+            {
+                // Every named family in the stack is foreign — none matches the brand/catalog
+                // allow-list. Report the first one as the rejection reason.
+                return Result.Failure(VisualGuardrailErrors.FontNotAllowed(namedFamilies[0]));
             }
         }
 
         return Result.Success();
     }
-
-    private static bool IsCssGenericFontFamily(string name) =>
-        name.Equals("serif", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("sans-serif", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("monospace", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("cursive", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("fantasy", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("system-ui", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("ui-serif", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("ui-sans-serif", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("ui-monospace", StringComparison.OrdinalIgnoreCase);
 
     // -------------------------------------------------------------------------
     // Step 4: Overflow (static heuristic — B1a)

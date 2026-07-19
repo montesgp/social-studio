@@ -18,10 +18,19 @@ internal static class CompositionDefaults
         Background: "#F9FAFB" // off-white background
     );
 
+    /// <summary>
+    /// Bundled OFL substitute for the legacy "Arial" default (Decision #1169 — Content Studio editing
+    /// completeness). Arial is Monotype-licensed and cannot be legally embedded, and with no
+    /// Dockerfile provisioning fonts in this repository the render host's font state is unknown, so
+    /// the fallback MUST be a font this assembly actually bundles (see
+    /// <c>Fonts.FontCatalog.SystemSafeList</c> and <c>EmbeddedFontProvider</c>).
+    /// </summary>
+    private const string FallbackFontFamily = "Liberation Sans";
+
     internal static readonly CompositionTypography Typography = new(
-        HeadingFamily: "Arial",
+        HeadingFamily: FallbackFontFamily,
         HeadingSize: 28,
-        BodyFamily: "Arial",
+        BodyFamily: FallbackFontFamily,
         BodySize: 16);
 
     internal static readonly CompositionDimensions StandardDimensions = new(1080, 1080, 96);
