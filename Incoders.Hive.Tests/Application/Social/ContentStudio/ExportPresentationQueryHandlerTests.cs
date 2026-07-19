@@ -77,7 +77,7 @@ public sealed class ExportPresentationQueryHandlerTests
     private static ContentItem VisualItem(Guid runId, string markup)
     {
         var id = ContentItemId.New();
-        var draft = new ContentDraft(null, markup, Array.Empty<ContentAssetRef>(), new TargetChannel("instagram", "carousel"));
+        var draft = new ContentDraft(null, null, markup, Array.Empty<ContentAssetRef>(), new TargetChannel("instagram", "carousel"));
         return ContentItem.Materialize(
             id, Org, Client,
             new ContentOrigin(GeneratorKind.SingleAnalyzer, runId, null, Guid.NewGuid(), "carousel"),

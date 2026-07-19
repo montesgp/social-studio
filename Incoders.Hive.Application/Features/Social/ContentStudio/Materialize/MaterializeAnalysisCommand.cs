@@ -220,8 +220,13 @@ public sealed class MaterializeAnalysisCommandHandler
             ? rows.Select(r => new ContentAssetRef("rendered", r.StoragePath, r.MimeType)).ToList()
             : new List<ContentAssetRef>();
 
+        // NOTE: unlike MaterializeRunCommandHandler, this analysis-scoped materialization path does
+        // not (yet) extract/fall back a caption for visual formats — matching its pre-existing
+        // behavior (Text was already null here for visual items). Tracked as a follow-up; see the
+        // Content Studio editing completeness apply-progress notes.
         var draft = new ContentDraft(
             medium == ContentMedium.Text ? result.OutputJson : null,
+            null,
             result.CompositionSpecJson,
             assets,
             ContentFormatCatalog.ChannelFor(result.FormatKey));

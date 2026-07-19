@@ -26,6 +26,7 @@ public sealed class ContentStudioItemData
 
     // Draft (editable working payload)
     public string? DraftText { get; set; }
+    public string? DraftCaption { get; set; }
     public string? DraftVisualSpecMarkup { get; set; }
     public List<ContentStudioAssetData> DraftAssets { get; set; } = new();
     public string TargetNetwork { get; set; } = string.Empty;

@@ -969,6 +969,10 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnName("draft_assets")
                         .HasDefaultValueSql("'[]'");
 
+                    b.Property<string>("DraftCaption")
+                        .HasColumnType("text")
+                        .HasColumnName("draft_caption");
+
                     b.Property<string>("DraftText")
                         .HasColumnType("text")
                         .HasColumnName("draft_text");

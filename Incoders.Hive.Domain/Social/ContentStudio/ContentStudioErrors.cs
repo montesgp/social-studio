@@ -38,4 +38,16 @@ public static class ContentStudioErrors
     public static readonly Error MemberNotFound = Error.NotFound(
         "social.content_studio.member_not_found",
         "social.content_studio.errors.member_not_found");
+
+    public static readonly Error CaptionRequired = Error.Validation(
+        "social.content_studio.caption_required",
+        "social.content_studio.errors.caption_required");
+
+    public static readonly Error CaptionTooLong = Error.Validation(
+        "social.content_studio.caption_too_long",
+        "social.content_studio.errors.caption_too_long");
+
+    public static readonly Error CaptionTooManyHashtags = Error.Validation(
+        "social.content_studio.caption_too_many_hashtags",
+        "social.content_studio.errors.caption_too_many_hashtags");
 }

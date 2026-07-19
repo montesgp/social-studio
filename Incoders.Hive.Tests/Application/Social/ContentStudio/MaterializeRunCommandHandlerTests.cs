@@ -107,8 +107,46 @@ public sealed class MaterializeRunCommandHandlerTests
         var persisted = await items.ListByRunAsync(Org, jobId, CancellationToken.None);
         var carousel = persisted.Single(i => i.Origin.FormatKey == "carousel");
         Assert.Equal(ContentMedium.Visual, carousel.Kind.Medium);
-        // The visual post carries the caption the AI produced in the same generation call.
-        Assert.Equal("Grow your brand today.\n\n#growth #brand", carousel.Draft.Text);
+        // The visual post carries the caption the AI produced in the same generation call — in the
+        // dedicated Caption field (Decision E2 split), NOT Text (Text keeps reel scripts).
+        Assert.Null(carousel.Draft.Text);
+        Assert.NotNull(carousel.Draft.Caption);
+        Assert.Equal("Grow your brand today.\n\n#growth #brand", carousel.Draft.Caption!.Value);
+    }
+
+    [Fact]
+    public async Task Materialize_VisualItem_WithNoCaptionInOutput_UsesDeterministicFallback_NeverFailsJob()
+    {
+        await using var db = CreateDbContext();
+        var sets = new EfContentSetRepository(db);
+        var items = new EfContentItemRepository(db);
+
+        var jobId = Guid.NewGuid();
+        var carouselResultId = Guid.NewGuid();
+        // No publicationDescription/hashtags at all — the AI omitted the caption entirely.
+        var outputJson = "{\"coverTitle\":\"X\"}";
+        var compositionSpecJson =
+            """{"schemaVersion":1,"markup":"<div class=\"composition\"><div data-layer=\"content\"><h1 data-slot=\"headline\">Grow your brand today</h1></div></div>","canvas":{"width":1080,"height":1350,"dpi":96},"slotGeometry":[]}""";
+
+        var formatResults = new FakeFormatResultRepo(new[]
+        {
+            FormatResult(carouselResultId, jobId, "carousel", "Succeeded", outputJson, compositionSpecJson, errorCode: null),
+        });
+
+        var handler = new MaterializeRunCommandHandler(
+            sets, items, formatResults,
+            new FakeFormatAssetRepo(Array.Empty<FormatAssetRow>()),
+            new FakePackageRepo(null),
+            new FixedClock(Now));
+
+        var result = await handler.Handle(new MaterializeRunCommand(Org, Client, jobId), CancellationToken.None);
+
+        // R5.2/Q2: caption absence NEVER fails the job — a deterministic, editable fallback is used.
+        Assert.True(result.IsSuccess);
+        var persisted = await items.ListByRunAsync(Org, jobId, CancellationToken.None);
+        var carousel = persisted.Single(i => i.Origin.FormatKey == "carousel");
+        Assert.NotNull(carousel.Draft.Caption);
+        Assert.Equal("Grow your brand today", carousel.Draft.Caption!.Value);
     }
 
     [Fact]

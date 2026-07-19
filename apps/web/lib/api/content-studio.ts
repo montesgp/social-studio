@@ -49,6 +49,7 @@ export interface ContentItem {
   formatKey: string;
   medium: string;
   text: string | null;
+  caption: string | null;
   visualSpecMarkup: string | null;
   assets: ContentAssetDto[];
   targetNetwork: string;

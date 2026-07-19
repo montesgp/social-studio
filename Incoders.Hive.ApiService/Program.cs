@@ -84,6 +84,10 @@ builder.Services.AddHostedService<ContentGenerationBackgroundWorker>();
 // (story → story-single, feed-post → feed-single, carousel → feed-carousel). No-op once canonical.
 builder.Services.AddHostedService<LegacyPackageReconstructionStartupJob>();
 
+// One-time, idempotent backfill of draft_caption from draft_text for pre-existing visual Content
+// Studio items (task 3.6). No-op once every visual item already has a caption.
+builder.Services.AddHostedService<ContentStudioCaptionBackfillStartupJob>();
+
 var app = builder.Build();
 
 var clientAssetStorageOptions = app.Services.GetRequiredService<IOptions<ClientAssetStorageOptions>>().Value;

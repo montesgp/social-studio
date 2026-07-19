@@ -4,6 +4,8 @@ using Incoders.Hive.Application.Abstractions.Social.ContentStudio;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentStudio;
 using MediatR;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Incoders.Hive.Application.Features.Social.ContentStudio.Materialize;
 
@@ -26,6 +28,7 @@ public sealed class MaterializeRunCommandHandler
     private readonly IContentGenerationFormatAssetRepository _formatAssets;
     private readonly IGeneratedPackageRepository _packages;
     private readonly IClock _clock;
+    private readonly ILogger<MaterializeRunCommandHandler> _logger;
 
     public MaterializeRunCommandHandler(
         IContentSetRepository sets,
@@ -33,7 +36,8 @@ public sealed class MaterializeRunCommandHandler
         IContentGenerationFormatResultRepository formatResults,
         IContentGenerationFormatAssetRepository formatAssets,
         IGeneratedPackageRepository packages,
-        IClock clock)
+        IClock clock,
+        ILogger<MaterializeRunCommandHandler>? logger = null)
     {
         _sets = sets;
         _items = items;
@@ -41,6 +45,7 @@ public sealed class MaterializeRunCommandHandler
         _formatAssets = formatAssets;
         _packages = packages;
         _clock = clock;
+        _logger = logger ?? NullLogger<MaterializeRunCommandHandler>.Instance;
     }
 
     public async Task<Result<ContentSetResponse>> Handle(MaterializeRunCommand request, CancellationToken ct)
@@ -78,15 +83,43 @@ public sealed class MaterializeRunCommandHandler
                 : new List<ContentAssetRef>();
 
             // Phase 1: textual payload seeded from the structured output; visual markup carried for later edit.
-            // Text formats keep their raw structured output as the editable body. Visual posts (carousel/
-            // story/feed-post) carry a ready-to-publish caption — publicationDescription + hashtags — that
-            // the AI produced IN THE SAME generation call, so the studio post is not left without copy.
-            var draftText = medium == ContentMedium.Text
-                ? result.OutputJson
-                : VisualPublicationCaption.Extract(result.OutputJson);
+            // Text formats keep their raw structured output as the editable body (Draft.Text — reel
+            // scripts, unconstrained). Visual posts (carousel/story/feed-post) carry a dedicated,
+            // IG-bounded Draft.Caption — this is a SPLIT (Decision E2), not a rename.
+            string? draftText = null;
+            Caption? caption = null;
+
+            if (medium == ContentMedium.Text)
+            {
+                draftText = result.OutputJson;
+            }
+            else
+            {
+                // publicationDescription + hashtags — produced by the AI IN THE SAME generation call —
+                // so the studio post is not left without copy.
+                var extracted = VisualPublicationCaption.Extract(result.OutputJson);
+                var captionResult = Caption.Create(extracted);
+
+                if (captionResult.IsFailure)
+                {
+                    // R5.2/Decision E3: caption absence is NEVER a hard job failure. Derive a
+                    // deterministic, editable fallback from content already present (the first
+                    // slide's headline) and log loudly so the gap is visible in production.
+                    var fallbackText = CaptionFallback.DeriveFromCompositionSpec(result.CompositionSpecJson);
+                    captionResult = Caption.Create(fallbackText);
+
+                    _logger.LogWarning(
+                        "ContentStudio: no caption produced by generation for format {FormatKey} (job {JobId}, result {ResultId}); " +
+                        "using a deterministic fallback derived from slide content. FallbackSucceeded={FallbackSucceeded}",
+                        result.FormatKey, request.JobId, result.Id, captionResult.IsSuccess);
+                }
+
+                caption = captionResult.IsSuccess ? captionResult.Value : null;
+            }
 
             var draft = new ContentDraft(
                 draftText,
+                caption,
                 result.CompositionSpecJson,
                 assets,
                 ContentFormatCatalog.ChannelFor(result.FormatKey));
