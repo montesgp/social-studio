@@ -1,6 +1,8 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fonts;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
+using Incoders.Hive.Infrastructure.Rendering.Fonts;
 using Incoders.Hive.Infrastructure.Social;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -24,11 +26,29 @@ namespace Incoders.Hive.Infrastructure.Rendering;
 /// </summary>
 public sealed class LocalSvgContentRenderer : IContentRenderer
 {
+    /// <summary>Family name of the bundled emoji font — see Decision A1 (design #1168 §1).</summary>
+    private const string EmojiFamily = "Noto Color Emoji";
+
+    private static readonly IFontProvider DefaultFontProvider = new EmbeddedFontProvider();
+
     private readonly string? _clientAssetRootPath;
     private readonly string _clientAssetPublicBasePath;
+    private readonly IFontProvider _fonts;
 
-    public LocalSvgContentRenderer()
+    /// <summary>
+    /// Per-instance typeface cache. <see cref="IFontProvider"/> deliberately returns only raw bytes
+    /// (Decision A2 — no SkiaSharp types on the Application-facing port surface); this renderer owns
+    /// the parsed-typeface cache so repeated resolves don't re-parse font bytes on every draw call.
+    /// </summary>
+    private readonly Dictionary<string, SKTypeface> _typefaceCache = new(StringComparer.OrdinalIgnoreCase);
+
+    public LocalSvgContentRenderer() : this(DefaultFontProvider)
     {
+    }
+
+    public LocalSvgContentRenderer(IFontProvider fonts)
+    {
+        _fonts = fonts;
         _clientAssetRootPath = null;
         _clientAssetPublicBasePath = "/storage/client-assets";
     }
@@ -36,10 +56,19 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
     public LocalSvgContentRenderer(
         IOptions<ClientAssetStorageOptions> clientAssetStorageOptions,
         IHostEnvironment environment)
+        : this(clientAssetStorageOptions, environment, DefaultFontProvider)
+    {
+    }
+
+    public LocalSvgContentRenderer(
+        IOptions<ClientAssetStorageOptions> clientAssetStorageOptions,
+        IHostEnvironment environment,
+        IFontProvider fonts)
     {
         var options = clientAssetStorageOptions.Value;
         _clientAssetRootPath = options.ResolveRootPath(environment.ContentRootPath);
         _clientAssetPublicBasePath = options.NormalizedPublicBasePath();
+        _fonts = fonts;
     }
 
     public Task<Result<RenderedAsset>> RenderAsync(
@@ -92,7 +121,7 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         || string.Equals(formatKey, "feed-post", StringComparison.OrdinalIgnoreCase)
         || string.Equals(formatKey, "feed-single", StringComparison.OrdinalIgnoreCase);
 
-    private static byte[] RenderTextCardToPng(VisualCompositionSpec spec)
+    private byte[] RenderTextCardToPng(VisualCompositionSpec spec)
     {
         int width = spec.Dimensions.Width;
         int height = spec.Dimensions.Height;
@@ -133,8 +162,8 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
         headingPaint.Color = ParseColor(spec.Palette.Text, SKColors.Black);
         bodyPaint.Color = ParseColor(spec.Palette.Secondary, new SKColor(55, 65, 81));
 
-        using var headingFont = new SKFont(SKTypeface.FromFamilyName(spec.Typography.HeadingFamily), spec.Typography.HeadingSize);
-        using var bodyFont = new SKFont(SKTypeface.FromFamilyName(spec.Typography.BodyFamily), spec.Typography.BodySize);
+        using var headingFont = new SKFont(ResolveTypeface(spec.Typography.HeadingFamily), spec.Typography.HeadingSize);
+        using var bodyFont = new SKFont(ResolveTypeface(spec.Typography.BodyFamily), spec.Typography.BodySize);
 
         float y = 118f;
         float margin = 80f;
@@ -310,15 +339,15 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
             42,
             headline,
             contentMaxWidth);
-        using var subtitleFont = new SKFont(SKTypeface.FromFamilyName(spec.Typography.BodyFamily), 35);
-        using var bodyFont = new SKFont(SKTypeface.FromFamilyName(spec.Typography.BodyFamily), 31);
+        using var subtitleFont = new SKFont(ResolveTypeface(spec.Typography.BodyFamily), 35);
+        using var bodyFont = new SKFont(ResolveTypeface(spec.Typography.BodyFamily), 31);
         using var ctaFont = CreateFittedFont(
             spec.Typography.HeadingFamily,
             40,
             28,
             cta,
             contentMaxWidth - 92);
-        using var signatureFont = new SKFont(SKTypeface.FromFamilyName(spec.Typography.BodyFamily), 34);
+        using var signatureFont = new SKFont(ResolveTypeface(spec.Typography.BodyFamily), 34);
 
         using var headingPaint = new SKPaint
         {
@@ -533,7 +562,7 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
     private static string? GetCopy(VisualCompositionSpec spec, string key) =>
         spec.CopySlots.TryGetValue(key, out var value) ? value : null;
 
-    private static SKFont CreateFittedFont(
+    private SKFont CreateFittedFont(
         string family,
         float preferredSize,
         float minimumSize,
@@ -545,9 +574,11 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
             .OrderByDescending(word => word.Length)
             .FirstOrDefault() ?? text;
 
+        var typeface = ResolveTypeface(family);
+
         for (var size = preferredSize; size >= minimumSize; size -= 2)
         {
-            var font = new SKFont(SKTypeface.FromFamilyName(family), size);
+            var font = new SKFont(typeface, size);
             if (font.MeasureText(longestWord) <= maxWidth)
             {
                 return font;
@@ -556,7 +587,69 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
             font.Dispose();
         }
 
-        return new SKFont(SKTypeface.FromFamilyName(family), minimumSize);
+        return new SKFont(typeface, minimumSize);
+    }
+
+    /// <summary>
+    /// Resolves a typeface for <paramref name="family"/> through the fallback chain (Decision A3):
+    /// (1) embedded font matching the family name, (2) the host's font manager, (3) the SkiaSharp
+    /// bundled default. Results are cached per instance to avoid re-parsing font bytes on every draw.
+    /// </summary>
+    private SKTypeface ResolveTypeface(string family)
+    {
+        if (_typefaceCache.TryGetValue(family, out var cached))
+        {
+            return cached;
+        }
+
+        var resolved = ResolveTypefaceUncached(family);
+        _typefaceCache[family] = resolved;
+        return resolved;
+    }
+
+    private SKTypeface ResolveTypefaceUncached(string family)
+    {
+        var embeddedBytes = _fonts.Resolve(family);
+        if (embeddedBytes is { Length: > 0 })
+        {
+            var embedded = SKTypeface.FromData(SKData.CreateCopy(embeddedBytes));
+            if (embedded is not null)
+            {
+                return embedded;
+            }
+        }
+
+        var matched = SKFontManager.Default.MatchFamily(family);
+        return matched ?? SKTypeface.Default;
+    }
+
+    /// <summary>
+    /// Resolves the bundled color-emoji typeface used as the fallback for codepoints the base
+    /// typeface cannot draw (Decision A3 — emoji is a separate axis from the family fallback chain,
+    /// since Skia does not auto-fallback per-codepoint). Returns <c>null</c> when the emoji font is
+    /// not embedded/available — callers must treat that as "no emoji fallback for this render".
+    /// </summary>
+    private SKTypeface? ResolveEmojiTypeface()
+    {
+        if (_typefaceCache.TryGetValue(EmojiFamily, out var cached))
+        {
+            return cached;
+        }
+
+        var bytes = _fonts.Resolve(EmojiFamily);
+        if (bytes is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        var typeface = SKTypeface.FromData(SKData.CreateCopy(bytes));
+        if (typeface is null)
+        {
+            return null;
+        }
+
+        _typefaceCache[EmojiFamily] = typeface;
+        return typeface;
     }
 
     private static void DrawSeededDecorativeShapes(
@@ -635,42 +728,126 @@ public sealed class LocalSvgContentRenderer : IContentRenderer
     private static SKColor WithAlpha(SKColor color, byte alpha) =>
         new(color.Red, color.Green, color.Blue, alpha);
 
-    /// <summary>Draws text with simple word-wrap. Returns the updated Y position.</summary>
-    private static float DrawWrappedText(SKCanvas canvas, string text, SKFont font, SKPaint paint,
+    /// <summary>
+    /// Draws text with simple word-wrap. Returns the updated Y position.
+    /// </summary>
+    /// <remarks>
+    /// Decision A3 (design #1168 §1): emoji is a separate axis from the family fallback chain —
+    /// SkiaSharp does not auto-fallback per-codepoint. Each word is segmented into runs of
+    /// consecutive codepoints the base font can draw vs. codepoints only the bundled emoji font can
+    /// draw, and each run is measured/drawn with its own <see cref="SKFont"/> so advance widths
+    /// (and therefore word-wrap and glyph positions) stay correct across a mixed-font line.
+    /// </remarks>
+    private float DrawWrappedText(SKCanvas canvas, string text, SKFont font, SKPaint paint,
         float x, float y, float maxWidth, float lineHeightMultiplier)
     {
         if (string.IsNullOrWhiteSpace(text)) return y;
 
         float lineHeight = font.Size * lineHeightMultiplier;
+        var emojiTypeface = ResolveEmojiTypeface();
+        using var emojiFont = emojiTypeface is not null ? new SKFont(emojiTypeface, font.Size) : null;
+
         var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var currentLine = new System.Text.StringBuilder();
+        var currentLine = new List<string>();
+        var currentLineWidth = 0f;
+        var spaceWidth = font.MeasureText(" ");
+
+        void FlushLine()
+        {
+            if (currentLine.Count == 0) return;
+            var lineText = string.Join(' ', currentLine);
+            DrawMixedRuns(canvas, lineText, font, paint, emojiFont, x, y);
+            y += lineHeight;
+            currentLine.Clear();
+            currentLineWidth = 0f;
+        }
 
         foreach (var word in words)
         {
-            var testLine = currentLine.Length == 0 ? word : $"{currentLine} {word}";
-            var measured = font.MeasureText(testLine);
+            var wordWidth = MeasureMixedRuns(word, font, emojiFont);
+            var testWidth = currentLine.Count == 0
+                ? wordWidth
+                : currentLineWidth + spaceWidth + wordWidth;
 
-            if (measured > maxWidth && currentLine.Length > 0)
+            if (testWidth > maxWidth && currentLine.Count > 0)
             {
-                canvas.DrawText(currentLine.ToString(), x, y, SKTextAlign.Left, font, paint);
-                y += lineHeight;
-                currentLine.Clear();
-                currentLine.Append(word);
+                FlushLine();
+                currentLine.Add(word);
+                currentLineWidth = wordWidth;
             }
             else
             {
-                if (currentLine.Length > 0) currentLine.Append(' ');
-                currentLine.Append(word);
+                currentLine.Add(word);
+                currentLineWidth = testWidth;
             }
         }
 
-        if (currentLine.Length > 0)
-        {
-            canvas.DrawText(currentLine.ToString(), x, y, SKTextAlign.Left, font, paint);
-            y += lineHeight;
-        }
+        FlushLine();
 
         return y;
+    }
+
+    /// <summary>
+    /// Splits <paramref name="text"/> into runs of consecutive Unicode codepoints that share the
+    /// same resolved font: <paramref name="baseFont"/> when it contains the glyph, otherwise
+    /// <paramref name="emojiFont"/> when that contains it. Codepoints neither font can draw stay on
+    /// <paramref name="baseFont"/> (matches Skia's own "draw nothing/.notdef" behavior — this
+    /// segmentation never hides a genuinely unsupported character, it only redirects the ones the
+    /// emoji font *can* draw).
+    /// </summary>
+    private static IEnumerable<(string Text, SKFont Font)> SegmentMixedRuns(
+        string text, SKFont baseFont, SKFont? emojiFont)
+    {
+        if (emojiFont is null)
+        {
+            yield return (text, baseFont);
+            yield break;
+        }
+
+        var current = new System.Text.StringBuilder();
+        SKFont? currentFont = null;
+
+        foreach (var rune in text.EnumerateRunes())
+        {
+            var useEmoji = !baseFont.ContainsGlyph(rune.Value) && emojiFont.ContainsGlyph(rune.Value);
+            var font = useEmoji ? emojiFont : baseFont;
+
+            if (currentFont is not null && !ReferenceEquals(currentFont, font) && current.Length > 0)
+            {
+                yield return (current.ToString(), currentFont);
+                current.Clear();
+            }
+
+            currentFont = font;
+            current.Append(rune.ToString());
+        }
+
+        if (current.Length > 0 && currentFont is not null)
+        {
+            yield return (current.ToString(), currentFont);
+        }
+    }
+
+    private static float MeasureMixedRuns(string text, SKFont baseFont, SKFont? emojiFont)
+    {
+        float total = 0f;
+        foreach (var (runText, runFont) in SegmentMixedRuns(text, baseFont, emojiFont))
+        {
+            total += runFont.MeasureText(runText);
+        }
+
+        return total;
+    }
+
+    private static void DrawMixedRuns(
+        SKCanvas canvas, string text, SKFont baseFont, SKPaint paint, SKFont? emojiFont, float x, float y)
+    {
+        var cursorX = x;
+        foreach (var (runText, runFont) in SegmentMixedRuns(text, baseFont, emojiFont))
+        {
+            canvas.DrawText(runText, cursorX, y, SKTextAlign.Left, runFont, paint);
+            cursorX += runFont.MeasureText(runText);
+        }
     }
 
     private static SKColor ParseColor(string hex, SKColor fallback)

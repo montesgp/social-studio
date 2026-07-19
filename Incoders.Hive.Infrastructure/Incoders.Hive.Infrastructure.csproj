@@ -87,6 +87,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Ai\Providers\DefaultComfyUiWorkflowTemplate.json" />
+    <EmbeddedResource Include="Rendering\Fonts\Assets\NotoColorEmoji.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.NotoColorEmoji.ttf" />
   </ItemGroup>
 
 </Project>

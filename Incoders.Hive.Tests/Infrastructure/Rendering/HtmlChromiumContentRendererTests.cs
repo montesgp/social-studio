@@ -218,6 +218,78 @@ public sealed class HtmlChromiumContentRendererTests
         Assert.True(result.IsFailure, "A timeout must return a failed Result, not throw.");
         Assert.Contains("timeout", result.Error.MessageKey, StringComparison.OrdinalIgnoreCase);
     }
+
+    // -----------------------------------------------------------------------
+    // Task 1.5 — embedded @font-face injection (Content Studio emoji render spike, design #1168 §1
+    // Decision A4). Unit-tested against the internal markup-composition seam — no real Chromium
+    // required, since this only asserts what gets handed to SetContentAsync.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void InjectFontFaceStyle_EmbedsFontFaceRuleForEmojiFamily()
+    {
+        var options = new RenderingOptions { Engine = RenderingEngine.Chromium };
+        var renderer = new HtmlChromiumContentRenderer(
+            browserPool: null,
+            fallbackRenderer: new SpyFallbackRenderer(),
+            options: options);
+
+        var markup = renderer.InjectFontFaceStyle(BuildSampleHtml());
+
+        Assert.Contains("@font-face", markup, StringComparison.Ordinal);
+        Assert.Contains("Noto Color Emoji", markup, StringComparison.Ordinal);
+        Assert.Contains("data:font/ttf;base64,", markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InjectFontFaceStyle_AddsEmojiFamilyToDocumentFontStack()
+    {
+        var options = new RenderingOptions { Engine = RenderingEngine.Chromium };
+        var renderer = new HtmlChromiumContentRenderer(
+            browserPool: null,
+            fallbackRenderer: new SpyFallbackRenderer(),
+            options: options);
+
+        var markup = renderer.InjectFontFaceStyle(BuildSampleHtml());
+
+        // Emoji family must appear in a font-family declaration that applies document-wide, so any
+        // slide-text run using it resolves without depending on the host having it installed.
+        Assert.Matches(@"font-family\s*:[^;]*Noto Color Emoji", markup);
+    }
+
+    [Fact]
+    public void InjectFontFaceStyle_PreservesOriginalMarkup()
+    {
+        var options = new RenderingOptions { Engine = RenderingEngine.Chromium };
+        var renderer = new HtmlChromiumContentRenderer(
+            browserPool: null,
+            fallbackRenderer: new SpyFallbackRenderer(),
+            options: options);
+        var original = BuildSampleHtml();
+
+        var markup = renderer.InjectFontFaceStyle(original);
+
+        Assert.Contains(original, markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InjectFontFaceStyle_CachesBuiltStyleAcrossCalls()
+    {
+        var options = new RenderingOptions { Engine = RenderingEngine.Chromium };
+        var renderer = new HtmlChromiumContentRenderer(
+            browserPool: null,
+            fallbackRenderer: new SpyFallbackRenderer(),
+            options: options);
+
+        var first = renderer.InjectFontFaceStyle(BuildSampleHtml());
+        var second = renderer.InjectFontFaceStyle(BuildSampleHtml());
+
+        // Same style-block prefix both times — proves the (potentially expensive, base64-of-10MB)
+        // style block is built once and cached, not rebuilt per render (Decision A4).
+        var firstStyleBlock = first[..first.IndexOf("</style>", StringComparison.Ordinal)];
+        var secondStyleBlock = second[..second.IndexOf("</style>", StringComparison.Ordinal)];
+        Assert.Equal(firstStyleBlock, secondStyleBlock);
+    }
 }
 
 // -----------------------------------------------------------------------
