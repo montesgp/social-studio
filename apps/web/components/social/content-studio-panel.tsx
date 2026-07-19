@@ -42,6 +42,12 @@ import { cn } from "@/lib/utils";
 import { hasVisibleBorder, pickRecolorProperty } from "@/lib/studio/decoration-edit";
 import { resolveToolbarDock } from "@/lib/studio/toolbar-dock";
 import {
+  isBackgroundLayer,
+  isContentLayer,
+  isInsideEditingChrome,
+  pickElement,
+} from "@/lib/studio/canvas-hit-test";
+import {
   approveItem,
   bulkOperation,
   deleteItem,
@@ -1789,27 +1795,12 @@ function AssetFallbackImage({ item, token, assetIndex }: { item: ContentItem; to
   );
 }
 
-/** The full-bleed art layer (`data-layer="background"`): selectable to recolor its fill, but never dragged. */
-function isBackgroundLayer(el: HTMLElement): boolean {
-  return el.getAttribute("data-layer") === "background" || el.classList.contains("layer-background");
-}
-
-/** The text-only wrapper (`data-layer="content"`): a pure layout wrapper, never directly selectable. */
-function isContentLayer(el: HTMLElement): boolean {
-  return el.getAttribute("data-layer") === "content" || el.classList.contains("layer-content");
-}
-
 /**
- * Picks the editable element under a click. Text slots and decorative shapes are draggable/editable;
- * the background layer is selectable too — so its base fill can be recolored — but the pointer handler
- * never lets it move or resize. Only the structural wrappers (composition root, content layer) are inert.
+ * `isBackgroundLayer`, `isContentLayer`, `pickElement`, and `isInsideEditingChrome` moved to
+ * `@/lib/studio/canvas-hit-test` (Phase 4, characterization) so they can be unit-tested without a
+ * browser/jsdom (this repo's test runner is plain Node, no DOM globals). See that module for their
+ * documentation.
  */
-function pickElement(node: Node, root: HTMLElement): HTMLElement | null {
-  const el = node instanceof HTMLElement ? node : (node.parentElement as HTMLElement | null);
-  if (!el || !root.contains(el) || el === root) return null;
-  if (el.classList.contains("composition") || isContentLayer(el)) return null;
-  return el;
-}
 
 /** Promotes a flow element to absolute positioning at its current spot so it becomes draggable. */
 function ensurePositioned(el: HTMLElement) {
@@ -2038,7 +2029,7 @@ const DesignCanvas = forwardRef<
     };
     const onDocPointerDown = (e: PointerEvent) => {
       const t = e.target as HTMLElement;
-      if (!t.closest("[data-cs-canvas]") && !t.closest("[data-cs-toolbar]") && !t.closest("[data-cs-handle]")) {
+      if (!isInsideEditingChrome(t)) {
         select(null);
       }
     };
