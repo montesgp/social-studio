@@ -172,6 +172,8 @@ public static class DependencyInjection
         services.AddScoped<IContentGenerationFailurePolicy, EfContentGenerationFailurePolicy>();
         services.AddScoped<IGeneratedPackageRepository, EfGeneratedPackageRepository>();
         services.AddScoped<IContentGenerationFormatAssetRepository, EfContentGenerationFormatAssetRepository>();
+        // Change 3 (job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1 incident): sysadmin audit timeline reader.
+        services.AddScoped<IContentGenerationAuditReader, EfContentGenerationAuditReader>();
         services.AddScoped<ILegacyPackageReconstructor, EfLegacyPackageReconstructor>();
         // Per-platform Apify scrape adapters (ISocialPlatformScrapeAdapter)
         services.AddScoped<ISocialPlatformScrapeAdapter, TikTokApifyScrapeAdapter>();

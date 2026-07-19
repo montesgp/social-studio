@@ -218,6 +218,14 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
         || failureCode.Contains("5xx", StringComparison.OrdinalIgnoreCase)
         || failureCode.Contains("unavailable", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Bounded budget for the telemetry write when the caller's token is already cancelled. Kept
+    /// short and deliberately NOT unbounded (<see cref="CancellationToken.None"/> with no time limit)
+    /// so a stalled DB connection cannot hang job shutdown / cancellation indefinitely — the write is
+    /// best-effort observability, not work the caller is waiting on.
+    /// </summary>
+    internal static readonly TimeSpan TelemetryWriteTimeout = TimeSpan.FromSeconds(5);
+
     private async Task PersistAttemptAsync(
         IntegrationExecutionRequest request,
         IntegrationRouteCandidate candidate,
@@ -235,6 +243,22 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
         if (request.AnalysisId is null && request.CorrelationId is null)
         {
             return;
+        }
+
+        // INCIDENT (job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1): when the caller's token is cancelled
+        // (job timeout / host shutdown), writing with it throws OperationCanceledException BEFORE the
+        // attempt row is saved — the four successful provider attempts of that job made it into
+        // integration_execution_attempts, but the final FAILING attempt (the one that explains WHY
+        // the job died) did not, because by then cancellationToken was already cancelled. The audit
+        // trail lost exactly the record that would explain the failure. Substitute a short, bounded,
+        // uncancelled token instead of the poisoned one — never CancellationToken.None with no bound,
+        // which could let a stalled write hang shutdown forever.
+        var writeToken = cancellationToken;
+        CancellationTokenSource? boundedCts = null;
+        if (cancellationToken.IsCancellationRequested)
+        {
+            boundedCts = new CancellationTokenSource(TelemetryWriteTimeout);
+            writeToken = boundedCts.Token;
         }
 
         try
@@ -255,10 +279,12 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
                     completedAtUtc,
                     CorrelationId: request.CorrelationId,
                     CorrelationKind: request.CorrelationKind),
-                cancellationToken);
+                writeToken);
         }
         catch (Exception ex)
         {
+            // Best-effort: a telemetry failure (including the bounded write timing out) must never
+            // fail the caller's actual work.
             _logger.LogWarning(
                 ex,
                 "Telemetry write failed — attempt record not persisted. OrganizationId={OrganizationId} AnalysisId={AnalysisId} CorrelationId={CorrelationId} CapabilityKey={CapabilityKey}",
@@ -266,6 +292,10 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
                 request.AnalysisId,
                 request.CorrelationId,
                 request.CapabilityKey);
+        }
+        finally
+        {
+            boundedCts?.Dispose();
         }
     }
 }

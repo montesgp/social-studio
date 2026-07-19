@@ -107,9 +107,15 @@ public sealed class BackgroundAssetStorageUploadTests
             ["story-carousel/slide_1_bg.png", "story-carousel/slide_2_bg.png", "story-carousel/slide_3_bg.png"],
             bgNames);
 
-        // Regression guard: still only 3 asset rows total (one per slide's primary asset).
-        var totalAssetRows = assetRepo.UpsertCalls.Sum(u => u.Assets.Count);
-        Assert.Equal(3, totalAssetRows);
+        // Change 1 (incident job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1): the processor now checkpoints
+        // UpsertManyForFormatAsync once PER SLIDE (idempotent replace with the full accumulated list
+        // so far) instead of once at the end of the format — so each slide safeguards the work of the
+        // slides before it if the job dies mid-carousel. UpsertManyForFormatAsync's contract is "replace
+        // ALL rows for this format result", so only the LAST call reflects final state; summing across
+        // calls would double-count the same rows. Regression guard: still only 3 rows in the final
+        // (most current) checkpoint — one per slide's primary asset.
+        var finalAssetRows = assetRepo.UpsertCalls[^1].Assets;
+        Assert.Equal(3, finalAssetRows.Count);
         Assert.DoesNotContain(
             assetRepo.UpsertCalls.SelectMany(u => u.Assets),
             row => row.StoragePath.EndsWith("_bg.png"));

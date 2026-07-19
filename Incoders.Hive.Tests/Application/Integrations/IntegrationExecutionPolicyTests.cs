@@ -226,6 +226,50 @@ public sealed class IntegrationExecutionPolicyTests
         Assert.Equal(IntegrationExecutionPolicy.RetryBackoffCap, IntegrationExecutionPolicy.ResolveRetryBackoff(int.MaxValue));
     }
 
+    // Change 2 (incident job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1): PersistAttemptAsync used to write
+    // telemetry with the caller's own CancellationToken. When the job's token was already cancelled
+    // (timeout/shutdown), that write threw OperationCanceledException BEFORE saving — the four
+    // successful attempts of that job made it into integration_execution_attempts, but the final
+    // FAILING attempt (the one that explains WHY the job died) did not. Assert the write survives an
+    // already-cancelled token, using a token that is guaranteed not to be the poisoned one.
+    [Fact]
+    public async Task ExecuteAsync_CallerTokenAlreadyCancelled_AttemptStillPersisted()
+    {
+        var repository = new TokenCapturingAttemptRepository();
+        var policy = new IntegrationExecutionPolicy(new ProviderFallbackPolicy(), repository, new ImmediateTimeProvider());
+
+        using var alreadyCancelled = new CancellationTokenSource();
+        alreadyCancelled.Cancel();
+
+        var result = await policy.ExecuteAsync(
+            CorrelationOnlyRequest(),
+            [Candidate("openai", maxAttempts: 1)],
+            // The candidate call itself is expected to observe cancellation and fail fast — mirrors
+            // what happens when a job timeout fires mid in-flight provider call.
+            (_, ct) => Task.FromResult(ct.IsCancellationRequested
+                ? Result.Failure<string>(IntegrationErrors.ProviderTimeout)
+                : Result.Success("unexpected")),
+            alreadyCancelled.Token);
+
+        Assert.True(result.IsFailure);
+        Assert.Single(repository.Attempts);
+        Assert.Equal(IntegrationExecutionAttemptStatus.Failed, repository.Attempts[0].Status);
+
+        // The write itself must NOT have used the already-cancelled token — otherwise AddAsync would
+        // have thrown before the record was captured at all.
+        Assert.NotNull(repository.LastWriteToken);
+        Assert.False(repository.LastWriteToken!.Value.IsCancellationRequested);
+    }
+
+    [Fact]
+    public void TelemetryWriteTimeout_IsBoundedNotUnbounded()
+    {
+        // Guards the explicit instruction: never substitute CancellationToken.None with no time bound
+        // for the resilient write — a wedged DB connection must not hang job shutdown forever.
+        Assert.True(IntegrationExecutionPolicy.TelemetryWriteTimeout > TimeSpan.Zero);
+        Assert.True(IntegrationExecutionPolicy.TelemetryWriteTimeout < TimeSpan.FromMinutes(1));
+    }
+
     private static IntegrationExecutionRequest Request() => new(
         OrganizationId,
         AnalysisId: Guid.NewGuid(),
@@ -304,6 +348,28 @@ public sealed class IntegrationExecutionPolicyTests
 
         public Task AddAsync(IntegrationExecutionAttemptRecord attempt, CancellationToken cancellationToken = default)
         {
+            Attempts.Add(attempt);
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<IntegrationExecutionAttemptRecord>> ListByAnalysisIdAsync(
+            Guid analysisId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<IntegrationExecutionAttemptRecord>>(
+                Attempts.Where(x => x.AnalysisId == analysisId).ToArray());
+    }
+
+    /// <summary>Captures the CancellationToken actually passed to AddAsync, so the test can assert
+    /// it is NOT the caller's already-cancelled token (Change 2).</summary>
+    private sealed class TokenCapturingAttemptRepository : IIntegrationExecutionAttemptRepository
+    {
+        public List<IntegrationExecutionAttemptRecord> Attempts { get; } = [];
+
+        public CancellationToken? LastWriteToken { get; private set; }
+
+        public Task AddAsync(IntegrationExecutionAttemptRecord attempt, CancellationToken cancellationToken = default)
+        {
+            LastWriteToken = cancellationToken;
             Attempts.Add(attempt);
             return Task.CompletedTask;
         }

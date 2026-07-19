@@ -1,4 +1,6 @@
 using Incoders.Hive.ApiService.Endpoints.Common;
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.PlatformConfiguration.ContentGenerationAudit;
 using Incoders.Hive.Application.Features.PlatformConfiguration.EmailTemplates;
 using Incoders.Hive.Application.Features.PlatformConfiguration.Integrations;
 using Incoders.Hive.Infrastructure.Identity;
@@ -46,6 +48,25 @@ public static class PlatformConfigurationEndpointsExtensions
             .WithSummary("Create or update the platform SMTP email configuration")
             .Produces<EmailSmtpConfigurationResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest);
+
+        // Change 3 (job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1 incident): read-only audit timeline for
+        // content-generation jobs. Same PlatformAdmin (sysadmin) policy as the rest of this group —
+        // this surfaces per-slide provider telemetry and asset state across ALL organizations, which
+        // must never be reachable by a normal tenant user or a caller scoped to one org.
+        var contentGenerationJobs = app.MapGroup("/api/platform/content-generation-jobs")
+            .WithTags("Platform Content Generation Audit")
+            .RequireAuthorization(IdentityServicesExtensions.Policies.PlatformAdmin);
+
+        contentGenerationJobs.MapGet("/", ListContentGenerationJobsAsync)
+            .WithName("ListPlatformContentGenerationJobs")
+            .WithSummary("List recent content-generation jobs across all organizations (bounded, paginated)")
+            .Produces<ContentGenerationJobListPage>(StatusCodes.Status200OK);
+
+        contentGenerationJobs.MapGet("/{jobId:guid}/timeline", GetContentGenerationJobTimelineAsync)
+            .WithName("GetPlatformContentGenerationJobTimeline")
+            .WithSummary("Get the chronological audit timeline for one content-generation job")
+            .Produces<ContentGenerationJobTimeline>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }
@@ -103,6 +124,25 @@ public static class PlatformConfigurationEndpointsExtensions
                 body.FromName),
             cancellationToken);
         return result.Match(config => (IResult)TypedResults.Ok(config));
+    }
+
+    private static async Task<IResult> ListContentGenerationJobsAsync(
+        ISender sender,
+        CancellationToken cancellationToken,
+        int page = 1,
+        int pageSize = 25)
+    {
+        var result = await sender.Send(new ListContentGenerationJobsQuery(page, pageSize), cancellationToken);
+        return result.Match(items => (IResult)TypedResults.Ok(items));
+    }
+
+    private static async Task<IResult> GetContentGenerationJobTimelineAsync(
+        Guid jobId,
+        ISender sender,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(new GetContentGenerationJobTimelineQuery(jobId), cancellationToken);
+        return result.Match(timeline => (IResult)TypedResults.Ok(timeline));
     }
 }
 

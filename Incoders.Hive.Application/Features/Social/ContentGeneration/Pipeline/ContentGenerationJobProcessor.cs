@@ -170,10 +170,49 @@ public sealed class ContentGenerationJobProcessor
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // Per-job timeout or host shutdown. The terminal write MUST use a fresh token —
-            // writing with the already-cancelled ct would cancel SaveChanges too, leaving the
-            // job stuck in "Running" forever (the exact "pill never changes" symptom).
-            await _jobs.UpdateStatusAsync(job.Id, "Failed", "cancelled", "cancelled", CancellationToken.None);
+            // Per-job timeout or host shutdown. The terminal write MUST use a fresh, BOUNDED token —
+            // writing with the already-cancelled ct would cancel SaveChanges too, leaving the job
+            // stuck in "Running" forever (the exact "pill never changes" symptom). Bounded (not plain
+            // CancellationToken.None) so a wedged DB connection cannot hang shutdown indefinitely.
+            //
+            // Change 1: by this point every slide that finished before cancellation was already
+            // checkpointed durably (see the 5c per-slide persist in ProcessInternalAsync). Re-read
+            // that truth from the DB rather than threading a flag through the exception — if any
+            // format result exists for this job, the job produced SOMETHING and its terminal status
+            // must say so: reuse the existing "Partial" job status (already used for the
+            // some-formats-failed case) instead of "Failed", which would hide the safeguarded work
+            // from anyone reading the job list.
+            bool hasPersistedWork;
+            try
+            {
+                using var statusReadCts = new CancellationTokenSource(ResilientPersistenceTimeout);
+                hasPersistedWork = await HasAnyPersistedFormatResultAsync(job.Id, statusReadCts.Token);
+            }
+            catch (Exception readEx)
+            {
+                // The read itself is best-effort — if it fails or times out we cannot confirm
+                // partial success, so fall back to the pre-existing "Failed" behavior rather than
+                // risk hanging shutdown or mislabeling a job that actually produced nothing.
+                _logger.LogWarning(readEx,
+                    "ContentGeneration: could not determine partial-persistence state for job {JobId} " +
+                    "after cancellation. Defaulting terminal status to Failed.", job.Id);
+                hasPersistedWork = false;
+            }
+
+            if (hasPersistedWork)
+            {
+                await _jobs.UpdateStatusAsync(
+                    job.Id,
+                    "Partial",
+                    "cancelled-partial: job was cancelled or timed out after some format(s) already persisted assets",
+                    "cancelled-partial",
+                    CancellationToken.None);
+            }
+            else
+            {
+                await _jobs.UpdateStatusAsync(job.Id, "Failed", "cancelled", "cancelled", CancellationToken.None);
+            }
+
             throw;
         }
         catch (Exception ex)
@@ -459,6 +498,12 @@ public sealed class ContentGenerationJobProcessor
             // Runs after payload is confirmed; pipeline continues regardless of violations.
             CheckConcisionAdvisory(job.Id, formatKey, step.Payload);
 
+            // Change 1: declared OUTSIDE the try block (unlike formatRendered/formatStorageFailed)
+            // so the catch blocks below can inspect how many slides already checkpointed successfully
+            // before deciding whether it is safe to call PersistRenderFailureAsync — see the guard
+            // comments in those catch blocks.
+            var formatAssetRows = new List<FormatAssetRow>();
+
             try
             {
                 // WU-4 C4: compute ONE background plan per format BEFORE the slide loop.
@@ -478,7 +523,6 @@ public sealed class ContentGenerationJobProcessor
 
                 var formatRendered = false;
                 var formatStorageFailed = false;
-                var formatAssetRows = new List<FormatAssetRow>();
                 Guid formatResultId;
 
                 // WU-1 (B3 D1+D3): one editable composition envelope (validated markup + canvas +
@@ -1049,6 +1093,46 @@ public sealed class ContentGenerationJobProcessor
                             capturedGeometry,
                             backgroundImageRef));
                     }
+
+                    // 5c. INCIDENT (job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1): persist THIS slide's
+                    // asset row + format-result checkpoint immediately, instead of waiting for the
+                    // whole format's spec loop to finish. That job generated four ComfyUI backgrounds
+                    // successfully (394s/391s/382s/402s) then hit the worker's wall-clock timeout on
+                    // the next slide — the entire batch-at-the-end write meant zero rows ever reached
+                    // content_generation_format_assets, discarding ~26 minutes of GPU work. Checkpoint
+                    // status is "PartiallyRendered" until the last spec in this format succeeds, at
+                    // which point it is upgraded to "Rendered" — see PersistRenderSuccessAsync callers
+                    // below. PersistResilientlyAsync guards the write itself against a token that goes
+                    // cancelled mid-checkpoint (Change 2's same trap, see IntegrationExecutionPolicy).
+                    if (formatRendered)
+                    {
+                        var isLastSlideOfFormat = specIndex == specs.Count - 1;
+                        var checkpointStatus = isLastSlideOfFormat ? "Rendered" : "PartiallyRendered";
+
+                        var checkpointResult = await PersistResilientlyAsync(
+                            ct,
+                            token => PersistRenderSuccessAsync(
+                                formatResultId, job.Id, formatKey, step, assets[^1], capturedEnvelopes, checkpointStatus, token));
+                        existingByFormat[formatKey] = checkpointResult;
+                        formatResultId = checkpointResult.Id;
+
+                        if (_assetRepository is not null && formatAssetRows.Count > 0)
+                        {
+                            var checkpointRows = formatAssetRows
+                                .Select(row => row.FormatResultId == formatResultId
+                                    ? row
+                                    : row with { FormatResultId = formatResultId })
+                                .ToList();
+
+                            await PersistResilientlyAsync(
+                                ct,
+                                async token =>
+                                {
+                                    await _assetRepository.UpsertManyForFormatAsync(formatResultId, checkpointRows, token);
+                                    return true;
+                                });
+                        }
+                    }
                 }
 
                 if (formatRendered && !formatStorageFailed)
@@ -1059,37 +1143,10 @@ public sealed class ContentGenerationJobProcessor
                         publicationByFormat[formatKey] = publication;
                     }
 
-                    // Persist format result first (so formatResultId is stable in DB).
-                    // WU-1: pass captured markup + canvas dimensions + geometry so
-                    // PersistRenderSuccessAsync can serialize the CompositionSpecEnvelope
-                    // into composition_spec_json.
-                    var persistedFormatResult = await PersistRenderSuccessAsync(
-                        formatResultId,
-                        job.Id,
-                        formatKey,
-                        step,
-                        assets.Last(),
-                        capturedEnvelopes,
-                        ct);
-                    existingByFormat[formatKey] = persistedFormatResult;
-
-                    // Persist per-asset rows if we have any.
-                    if (_assetRepository is not null && formatAssetRows.Count > 0)
-                    {
-                        var persistedAssetRows = persistedFormatResult.Id == formatResultId
-                            ? formatAssetRows
-                            : formatAssetRows
-                                .Select(row => row with { FormatResultId = persistedFormatResult.Id })
-                                .ToList();
-
-                        await _assetRepository.UpsertManyForFormatAsync(
-                            persistedFormatResult.Id,
-                            persistedAssetRows,
-                            ct);
-                    }
-
                     // Create carousel-family folder placeholder.
                     // Applies to any multi-asset format (story-carousel, feed-carousel, legacy carousel).
+                    // The format-result row and asset rows are already durable — see the per-slide
+                    // checkpoint above (5c) — so nothing left to persist here but the folder marker.
                     var folderDef = FormatCatalog.ResolveForAssembly(formatKey);
                     if (_assetStorage is not null
                         && folderDef?.IsMultiAsset == true
@@ -1111,13 +1168,31 @@ public sealed class ContentGenerationJobProcessor
                 }
                 else if (formatStorageFailed)
                 {
-                    // Storage failed — record as render failure (no asset row written).
-                    await PersistRenderFailureAsync(job.Id, formatKey, step, "storage-upload-failed", ct);
+                    // Storage failed on this slide. If earlier slides of the SAME format already
+                    // checkpointed successfully (formatRendered was true before this slide), the row
+                    // already sits at "PartiallyRendered" with their data — calling
+                    // PersistRenderFailureAsync here would OVERWRITE it with ErrorCode/no-composition,
+                    // destroying the safeguarded partial success. Only mark the whole format failed
+                    // when nothing was ever persisted for it.
+                    if (formatAssetRows.Count == 0)
+                    {
+                        await PersistRenderFailureAsync(job.Id, formatKey, step, "storage-upload-failed", ct);
+                    }
+                    else
+                    {
+                        _logger.LogWarning(
+                            "ContentGeneration: storage upload failed for format {FormatKey} (job {JobId}) after " +
+                            "{PersistedCount} slide(s) already checkpointed as PartiallyRendered. Keeping the " +
+                            "partial checkpoint instead of overwriting it with a failure record.",
+                            formatKey, job.Id, formatAssetRows.Count);
+                    }
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 // FIX-3: propagate genuine job cancellation — do not swallow it as a render failure.
+                // Nothing to persist here: every slide that finished before cancellation hit was
+                // already checkpointed at 5c above, using the still-live token at the time.
                 throw;
             }
             catch (Exception ex)
@@ -1127,7 +1202,20 @@ public sealed class ContentGenerationJobProcessor
                 _logger.LogError(ex,
                     "ContentGeneration: compose/render threw for format {FormatKey} (job {JobId}).",
                     formatKey, job.Id);
-                await PersistRenderFailureAsync(job.Id, formatKey, step, detail, ct);
+
+                // Same guard as the storage-failure branch above: do not clobber an already-
+                // checkpointed partial success with a failure record that nulls the composition spec.
+                if (formatAssetRows.Count == 0)
+                {
+                    await PersistRenderFailureAsync(job.Id, formatKey, step, detail, ct);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "ContentGeneration: format {FormatKey} (job {JobId}) failed after {PersistedCount} " +
+                        "slide(s) already checkpointed as PartiallyRendered. Keeping the partial checkpoint.",
+                        formatKey, job.Id, formatAssetRows.Count);
+                }
             }
         }
 
@@ -1423,6 +1511,7 @@ public sealed class ContentGenerationJobProcessor
         FormatStep step,
         RenderedAsset asset,
         IReadOnlyList<CompositionSpecEnvelope> compositionEnvelopes,
+        string status,
         CancellationToken ct)
     {
         // WU-1 D1: serialize the per-slide composition envelopes (markup + canvas + geometry +
@@ -1437,7 +1526,12 @@ public sealed class ContentGenerationJobProcessor
             Id: resultId,
             JobId: jobId,
             FormatKey: formatKey,
-            Status: "Rendered",
+            // Change 1: "PartiallyRendered" until the format's last spec checkpoints as "Rendered"
+            // (see the 5c checkpoint in ProcessInternalAsync). Reuses the same naming pattern as the
+            // job-level "Partial" status rather than inventing an unrelated term, and is intentionally
+            // excluded from EfContentGenerationFailurePolicy.FailedFormatStatuses — a partial success
+            // with real assets must not trip the AI-retry cost guard the way AiFailed/RenderFailed do.
+            Status: status,
             OutputJson: step.OutputJson,
             CompositionSpecJson: compositionSpecJson,
             // v1 storage: asset-hash marker for legacy compat (INC-4 switches to per-asset rows).
@@ -1449,6 +1543,50 @@ public sealed class ContentGenerationJobProcessor
             ErrorCode: null,
             CreatedAt: now,
             UpdatedAt: now), ct);
+    }
+
+    /// <summary>
+    /// Bounded budget for a persistence write that must survive a token that is ALREADY cancelled
+    /// (job timeout / host shutdown fired while a slide's checkpoint was about to be written). Kept
+    /// short and deliberately NOT unbounded (<see cref="CancellationToken.None"/> with no time limit)
+    /// so a wedged DB connection cannot hang job shutdown indefinitely — see Change 2 in the same
+    /// incident report for the identical trap in <c>IntegrationExecutionPolicy.PersistAttemptAsync</c>.
+    /// </summary>
+    private static readonly TimeSpan ResilientPersistenceTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Runs a durable write with a token that is guaranteed not to already be cancelled. When
+    /// <paramref name="ct"/> is still live it is forwarded unchanged (the common case). When it is
+    /// already cancelled — e.g. the job's wall-clock timeout fired between this slide finishing and
+    /// its checkpoint write starting — using it would throw <see cref="OperationCanceledException"/>
+    /// immediately and lose the slide that just succeeded, defeating the whole point of checkpointing
+    /// per slide. A short, bounded token is substituted instead.
+    /// </summary>
+    private static async Task<T> PersistResilientlyAsync<T>(
+        CancellationToken ct,
+        Func<CancellationToken, Task<T>> write)
+    {
+        if (!ct.IsCancellationRequested)
+        {
+            return await write(ct);
+        }
+
+        using var boundedCts = new CancellationTokenSource(ResilientPersistenceTimeout);
+        return await write(boundedCts.Token);
+    }
+
+    /// <summary>
+    /// Reports whether at least one format result was durably persisted for this job — i.e. the
+    /// per-slide checkpoint (5c above) fired at least once before the job's cancellation. Used to
+    /// pick "Partial" over "Failed" as the terminal status so a cancelled job that safeguarded real
+    /// output does not read identically to one that produced nothing.
+    /// </summary>
+    private async Task<bool> HasAnyPersistedFormatResultAsync(Guid jobId, CancellationToken ct)
+    {
+        var results = await _formatResults.ListByJobAsync(jobId, ct);
+        return results.Any(r =>
+            string.Equals(r.Status, "Rendered", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(r.Status, "PartiallyRendered", StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task PersistRenderFailureAsync(
