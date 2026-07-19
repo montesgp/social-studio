@@ -31,11 +31,13 @@ import {
   PinOff,
   Plus,
   Send,
+  Smile,
   Square,
   Trash2,
   Type,
   Underline,
 } from "lucide-react";
+import EmojiPicker, { EmojiStyle, Theme as EmojiPickerTheme } from "emoji-picker-react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -47,6 +49,10 @@ import {
   pickElement,
   upgradeLegacyShapes,
 } from "@/lib/studio/canvas-hit-test";
+import { computeCaptionLimits, CAPTION_MAX_HASHTAGS, CAPTION_MAX_LENGTH } from "@/lib/studio/caption-limits";
+import { groupFontOptions } from "@/lib/studio/font-options";
+import { canOfferSlideEmojiPicker } from "@/lib/studio/emoji-capability";
+import { insertTextAtCaret } from "@/lib/studio/text-insertion";
 import {
   approveItem,
   bulkOperation,
@@ -54,10 +60,12 @@ import {
   discardItem,
   downloadPresentationPptx,
   duplicateItem,
+  editItemCaption,
   editItemText,
   editItemVisual,
   fetchContentItemAsset,
   getContentSet,
+  getRenderCapabilities,
   linkItemToPlan,
   listContentItems,
   materializeAnalysis,
@@ -69,6 +77,7 @@ import {
   type ContentItem,
   type ContentReviewState,
   type ContentSet,
+  type RenderCapabilities,
   type VisualAssetInput,
 } from "@/lib/api/content-studio";
 import { getContentPlan, listContentPlans } from "@/lib/api/content-plans";
@@ -131,6 +140,8 @@ interface SlotStyle {
   fontWeight: string;
   fontStyle: string;
   color: string;
+  /** Family selected via the font picker (R2.4). Optional so pre-Phase-6 persisted styles remain valid. */
+  fontFamily?: string;
 }
 
 /**
@@ -205,6 +216,7 @@ function syncGeometry(geometry: SlotGeometry[] | undefined, styles: ElementStyle
       fontWeight: s.fontWeight,
       fontStyle: s.fontStyle,
       color: s.color,
+      ...(s.fontFamily !== undefined ? { fontFamily: s.fontFamily } : {}),
     };
   });
 }
@@ -269,6 +281,8 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
   const [saveErrorByItemId, setSaveErrorByItemId] = useState<Record<string, string | null>>({});
 
   const [draftText, setDraftText] = useState("");
+  const [draftCaption, setDraftCaption] = useState("");
+  const [renderCapabilities, setRenderCapabilities] = useState<RenderCapabilities | null>(null);
   const [rejecting, setRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
@@ -333,12 +347,36 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
     };
   }, [clientId, token]);
 
+  // Render-capability contract (R2.3/F3): the font picker and the emoji picker both gate on this —
+  // it is the SAME catalog + probe the guardrail and the renderer use, never a hardcoded frontend
+  // list. Fetched once per client; an unconfigured/missing brand manual still resolves successfully
+  // (system-list-only, per R2.2), so a fetch failure here is the only case that leaves it null.
+  useEffect(() => {
+    if (!clientId) return;
+    let cancelled = false;
+    getRenderCapabilities(clientId, token)
+      .then((capabilities) => {
+        if (!cancelled) setRenderCapabilities(capabilities);
+      })
+      .catch(() => {
+        /* picker degrades to "no fonts / no emoji" until this resolves */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, token]);
+
   const selected = useMemo(() => items.find((i) => i.id === selectedId) ?? null, [items, selectedId]);
 
   useEffect(() => {
     setRejecting(false);
     setRejectReason("");
     setDraftText(selected?.text ?? "");
+    setDraftCaption(selected?.caption ?? "");
+    // Intentionally keyed on selectedId only: re-running this reset whenever `selected` itself
+    // changes identity (e.g. after autosave patches the item in place) would clobber in-progress
+    // edits before the operator saves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   const refresh = useCallback(
@@ -543,6 +581,9 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
                   saveError={saveErrorByItemId[selected.id] ?? null}
                   draftText={draftText}
                   onDraftChange={setDraftText}
+                  draftCaption={draftCaption}
+                  onCaptionChange={setDraftCaption}
+                  renderCapabilities={renderCapabilities}
                   rejecting={rejecting}
                   rejectReason={rejectReason}
                   onRejectReasonChange={setRejectReason}
@@ -552,6 +593,7 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
                     setRejectReason("");
                   }}
                   onSaveText={() => runAction(() => editItemText(selected.id, draftText, token), selected.id)}
+                  onSaveCaption={() => runAction(() => editItemCaption(selected.id, draftCaption, token), selected.id)}
                   onAutosaveText={autosaveSelectedText}
                   onAutosaveVisual={autosaveSelectedVisual}
                   onItemSaved={patchItem}
@@ -718,12 +760,16 @@ interface ItemDetailProps {
   saveError: string | null;
   draftText: string;
   onDraftChange: (value: string) => void;
+  draftCaption: string;
+  onCaptionChange: (value: string) => void;
+  renderCapabilities: RenderCapabilities | null;
   rejecting: boolean;
   rejectReason: string;
   onRejectReasonChange: (value: string) => void;
   onStartReject: () => void;
   onCancelReject: () => void;
   onSaveText: () => void;
+  onSaveCaption: () => void;
   onAutosaveText: (text: string) => Promise<ContentItem>;
   onAutosaveVisual: (markup: string | null, assets: VisualAssetInput[]) => Promise<ContentItem>;
   onItemSaved: (item: ContentItem) => void;
@@ -739,8 +785,99 @@ interface ItemDetailProps {
   planLink: ReactNode;
 }
 
+/**
+ * Publication caption editor (R5.2-R5.5). Surfaces Instagram's 2,200-character / 30-hashtag
+ * invariants (R5.3) as live feedback instead of a silent server rejection, and offers an emoji
+ * picker (R6.1 — always available for captions, independent of any render-capability gate since a
+ * caption is never rasterized).
+ */
+function CaptionEditor({
+  value,
+  onChange,
+  onSave,
+  canEdit,
+  busy,
+  isDirty,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  canEdit: boolean;
+  busy: boolean;
+  isDirty: boolean;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const limits = computeCaptionLimits(value);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Caption / post copy</label>
+      <div className="relative">
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={!canEdit || busy}
+          rows={4}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 pr-9 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
+          placeholder="No caption. Required before this item can be staged for publication."
+        />
+        <button
+          type="button"
+          aria-label="Insert emoji"
+          title="Insert emoji"
+          disabled={!canEdit || busy}
+          onClick={() => setEmojiPickerOpen((open) => !open)}
+          className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-muted disabled:opacity-40"
+        >
+          <Smile className="h-4 w-4" />
+        </button>
+        {emojiPickerOpen ? (
+          <div className="absolute right-0 top-8 z-[70]">
+            <EmojiPicker
+              theme={EmojiPickerTheme.AUTO}
+              emojiStyle={EmojiStyle.NATIVE}
+              onEmojiClick={(emojiData) => {
+                const ta = textareaRef.current;
+                const caretIndex = ta?.selectionStart ?? value.length;
+                const { text, caretIndex: nextCaret } = insertTextAtCaret(value, emojiData.emoji, caretIndex);
+                onChange(text);
+                setEmojiPickerOpen(false);
+                requestAnimationFrame(() => {
+                  ta?.focus();
+                  ta?.setSelectionRange(nextCaret, nextCaret);
+                });
+              }}
+            />
+          </div>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-3 text-xs">
+          <span className={limits.isOverLength ? "font-medium text-rose-600 dark:text-rose-400" : "text-muted-foreground"}>
+            {limits.length} / {CAPTION_MAX_LENGTH} characters
+          </span>
+          <span className={limits.isOverHashtags ? "font-medium text-rose-600 dark:text-rose-400" : "text-muted-foreground"}>
+            {limits.hashtagCount} / {CAPTION_MAX_HASHTAGS} hashtags
+          </span>
+          {limits.isEmpty ? <span className="text-amber-600 dark:text-amber-400">Caption cannot be empty.</span> : null}
+        </div>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={!canEdit || busy || !isDirty || limits.isEmpty || limits.isOverLength || limits.isOverHashtags}
+          onClick={onSave}
+        >
+          Save caption
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ItemDetail(props: ItemDetailProps) {
-  const { item, busy, draftText } = props;
+  const { item, busy, draftText, draftCaption } = props;
   const isTerminal = TERMINAL.includes(item.state);
   const canEdit = !isTerminal;
   const canApprove = !["Approved", ...TERMINAL].includes(item.state);
@@ -790,6 +927,7 @@ function ItemDetail(props: ItemDetailProps) {
               busy={busy}
               saveStatus={props.saveStatus}
               saveError={props.saveError}
+              renderCapabilities={props.renderCapabilities}
               onAutosaveVisual={props.onAutosaveVisual}
               onItemSaved={props.onItemSaved}
               onSaveStatusChange={props.onSaveStatusChange}
@@ -801,11 +939,12 @@ function ItemDetail(props: ItemDetailProps) {
               item={item}
               token={props.token}
               igHandle={props.igHandle}
-              caption={draftText}
+              caption={draftCaption}
               canEdit={canEdit && isVisual}
               busy={busy}
               saveStatus={props.saveStatus}
               saveError={props.saveError}
+              renderCapabilities={props.renderCapabilities}
               onAutosaveVisual={props.onAutosaveVisual}
               onItemSaved={props.onItemSaved}
               onSaveStatusChange={props.onSaveStatusChange}
@@ -813,45 +952,18 @@ function ItemDetail(props: ItemDetailProps) {
             />
           )}
 
-          {item.targetPlacement !== "story" ? (
-            <div className="flex flex-col gap-2">
-              <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Caption / post copy</label>
-              <textarea
-                value={draftText}
-                onChange={(e) => props.onDraftChange(e.target.value)}
-                disabled={!canEdit || busy}
-                rows={4}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
-                placeholder="No caption."
-              />
-              <div>
-                {/*
-                  Autosave is temporarily disabled so local/test/dev environments do not
-                  keep calling the API while the user edits. Manual saving remains
-                  available through the explicit save buttons.
-
-                  <CaptionAutosave
-                    item={item}
-                    value={draftText}
-                    canEdit={canEdit}
-                    busy={busy}
-                    onAutosaveText={props.onAutosaveText}
-                    onItemSaved={props.onItemSaved}
-                    onSaveStatusChange={props.onSaveStatusChange}
-                  />
-                  <AutosaveIndicator status={props.saveStatus} error={props.saveError} />
-                */}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={!canEdit || busy || draftText === (item.text ?? "")}
-                  onClick={props.onSaveText}
-                >
-                  Save caption
-                </Button>
-              </div>
-            </div>
-          ) : null}
+          {/* R5.4: caption UI is enabled for every visual placement, INCLUDING stories — it used to be
+              gated off here for `targetPlacement === "story"`, which was simply wrong (stories publish
+              with captions too). Bound to the dedicated `caption` DTO field (R5.1), never the generic
+              `text` field, which keeps carrying reel scripts. */}
+          <CaptionEditor
+            value={draftCaption}
+            onChange={props.onCaptionChange}
+            onSave={props.onSaveCaption}
+            canEdit={canEdit}
+            busy={busy}
+            isDirty={draftCaption !== (item.caption ?? "")}
+          />
         </>
       )}
 
@@ -1260,6 +1372,7 @@ function InstagramStoryPost({
   igHandle,
   canEdit,
   busy,
+  renderCapabilities,
   // Autosave is temporarily disabled.
   // saveStatus,
   // saveError,
@@ -1275,6 +1388,7 @@ function InstagramStoryPost({
   busy: boolean;
   saveStatus: AutosaveStatus;
   saveError: string | null;
+  renderCapabilities: RenderCapabilities | null;
   onAutosaveVisual: (markup: string | null, assets: VisualAssetInput[]) => Promise<ContentItem>;
   onItemSaved: (item: ContentItem) => void;
   onSaveStatusChange: (status: AutosaveStatus, message?: string | null) => void;
@@ -1391,6 +1505,7 @@ function InstagramStoryPost({
               canEdit={canEdit}
               onDirty={markEdited}
               fallbackImageUrl={slide.flattenedImageRef ?? null}
+              renderCapabilities={renderCapabilities}
             />
           ) : (
             <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
@@ -1451,6 +1566,7 @@ function InstagramPost({
   caption,
   canEdit,
   busy,
+  renderCapabilities,
   // Autosave is temporarily disabled.
   // saveStatus,
   // saveError,
@@ -1467,6 +1583,7 @@ function InstagramPost({
   busy: boolean;
   saveStatus: AutosaveStatus;
   saveError: string | null;
+  renderCapabilities: RenderCapabilities | null;
   onAutosaveVisual: (markup: string | null, assets: VisualAssetInput[]) => Promise<ContentItem>;
   onItemSaved: (item: ContentItem) => void;
   onSaveStatusChange: (status: AutosaveStatus, message?: string | null) => void;
@@ -1595,6 +1712,7 @@ function InstagramPost({
                 onDirty={markEdited}
                 fallbackImageUrl={slide?.flattenedImageRef ?? null}
                 maxHeight={feedMaxHeight}
+                renderCapabilities={renderCapabilities}
               />
             ) : (
               <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
@@ -1894,8 +2012,13 @@ const DesignCanvas = forwardRef<
     fallbackImageUrl?: string | null;
     /** Caps the rendered height (px) so a tall portrait fits the screen instead of forcing a long scroll. */
     maxHeight?: number;
+    /** Font contract (R2.3) + color-emoji signal (R6.2) — null while it has not loaded yet. */
+    renderCapabilities?: RenderCapabilities | null;
   }
->(function DesignCanvas({ markup, width, height, canEdit, onDirty, fallbackImageUrl, maxHeight }, ref) {
+>(function DesignCanvas(
+  { markup, width, height, canEdit, onDirty, fallbackImageUrl, maxHeight, renderCapabilities = null },
+  ref,
+) {
   const measureRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -1905,6 +2028,8 @@ const DesignCanvas = forwardRef<
   const [scale, setScale] = useState(0);
   const selectedRef = useRef<HTMLElement | null>(null);
   const [selIsBackground, setSelIsBackground] = useState(false);
+  const [selIsText, setSelIsText] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [selRect, setSelRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   // The edit toolbar is a floating, viewport-fixed panel (not pinned onto the component) so it never
   // covers the element being edited nor hides behind sibling components. The user can drag it anywhere
@@ -1995,6 +2120,10 @@ const DesignCanvas = forwardRef<
         target.style.cursor = isBackgroundLayer(target) ? "default" : "move";
       }
       setSelIsBackground(target ? isBackgroundLayer(target) : false);
+      // Font-family and emoji pickers only make sense on text — not on the background fill or a
+      // decorative shape (data-el-kind="shape", Decision B1/B2).
+      setSelIsText(target ? !isBackgroundLayer(target) && target.getAttribute("data-el-kind") !== "shape" : false);
+      setEmojiPickerOpen(false);
       positionToolbar(target);
     },
     [positionToolbar],
@@ -2140,6 +2269,7 @@ const DesignCanvas = forwardRef<
           fontWeight: s.fontWeight,
           fontStyle: s.fontStyle,
           color: s.color,
+          fontFamily: node.style.fontFamily || undefined,
         };
         return textStyle;
       });
@@ -2350,6 +2480,37 @@ const DesignCanvas = forwardRef<
             </button>
           </div>
           <div className="flex flex-col items-center gap-0.5 p-1">
+          {selIsText && renderCapabilities && renderCapabilities.fonts.length > 0 ? (
+            <FontFamilyPicker
+              fonts={renderCapabilities.fonts}
+              onSelect={(family) => apply((el) => { el.style.fontFamily = family; })}
+            />
+          ) : null}
+          {selIsText && canOfferSlideEmojiPicker(renderCapabilities) ? (
+            <div className="relative">
+              <ToolbarButton label="Insert emoji" onClick={() => setEmojiPickerOpen((open) => !open)}>
+                <Smile className="h-4 w-4" />
+              </ToolbarButton>
+              {emojiPickerOpen ? (
+                <div className="absolute left-full top-0 z-[70] ml-1">
+                  <EmojiPicker
+                    theme={EmojiPickerTheme.AUTO}
+                    emojiStyle={EmojiStyle.NATIVE}
+                    onEmojiClick={(emojiData) => {
+                      apply((el) => {
+                        el.focus();
+                        const inserted = document.execCommand?.("insertText", false, emojiData.emoji);
+                        if (!inserted) {
+                          el.textContent = `${el.textContent ?? ""}${emojiData.emoji}`;
+                        }
+                      });
+                      setEmojiPickerOpen(false);
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <ToolbarButton
             label="Smaller"
             onClick={() =>
@@ -2464,6 +2625,58 @@ function ToolbarButton({ children, label, onClick }: { children: ReactNode; labe
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Font-family picker (R2.1/R2.4, Decision F4): brand fonts first and visually marked as brand, then
+ * a separator, then the short system-safe list. The offered set is exactly `renderCapabilities.fonts`
+ * — never a hardcoded frontend list — so it can never diverge from what the render path can draw
+ * (R2.3).
+ */
+function FontFamilyPicker({
+  fonts,
+  onSelect,
+}: {
+  fonts: { family: string; isBrand: boolean }[];
+  onSelect: (family: string) => void;
+}) {
+  const { brand, system } = groupFontOptions(fonts);
+  return (
+    <select
+      aria-label="Font family"
+      title="Font family"
+      defaultValue=""
+      onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        const value = e.target.value;
+        if (value) onSelect(value);
+        e.target.value = "";
+      }}
+      className="mb-0.5 w-16 rounded border border-border bg-background text-[10px] text-foreground hover:bg-muted"
+    >
+      <option value="" disabled>
+        Font
+      </option>
+      {brand.length > 0 ? (
+        <optgroup label="Brand">
+          {brand.map((f) => (
+            <option key={f.family} value={f.family}>
+              {f.family}
+            </option>
+          ))}
+        </optgroup>
+      ) : null}
+      {system.length > 0 ? (
+        <optgroup label="System">
+          {system.map((f) => (
+            <option key={f.family} value={f.family}>
+              {f.family}
+            </option>
+          ))}
+        </optgroup>
+      ) : null}
+    </select>
   );
 }
 
