@@ -51,6 +51,44 @@ public sealed class ContentItemOperationsAndStageTests
     }
 
     [Fact]
+    public async Task EditCaption_PersistsCaptionAndEditedState()
+    {
+        await using var db = CreateDbContext();
+        var items = new EfContentItemRepository(db);
+        var item = await SeedItemAsync(items);
+
+        var handler = new EditItemCaptionCommandHandler(items, new FixedClock(Now));
+        var result = await handler.Handle(
+            new EditItemCaptionCommand(Org, item.Id.Value, "Fresh caption #brand"), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Fresh caption #brand", result.Value.Caption);
+        Assert.Equal("Edited", result.Value.State);
+
+        var read = await items.GetByIdAsync(Org, item.Id, CancellationToken.None);
+        Assert.Equal("Fresh caption #brand", read!.Draft.Caption?.Value);
+    }
+
+    [Fact]
+    public async Task EditCaption_TooManyHashtags_Fails_AndDoesNotPersist()
+    {
+        await using var db = CreateDbContext();
+        var items = new EfContentItemRepository(db);
+        var item = await SeedItemAsync(items);
+
+        var tooManyHashtags = string.Join(' ', Enumerable.Range(0, Caption.MaxHashtags + 1).Select(i => $"#t{i}"));
+        var handler = new EditItemCaptionCommandHandler(items, new FixedClock(Now));
+        var result = await handler.Handle(
+            new EditItemCaptionCommand(Org, item.Id.Value, tooManyHashtags), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ContentStudioErrors.CaptionTooManyHashtags, result.Error);
+
+        var read = await items.GetByIdAsync(Org, item.Id, CancellationToken.None);
+        Assert.Null(read!.Draft.Caption);
+    }
+
+    [Fact]
     public async Task Reject_WithoutReason_Fails()
     {
         await using var db = CreateDbContext();

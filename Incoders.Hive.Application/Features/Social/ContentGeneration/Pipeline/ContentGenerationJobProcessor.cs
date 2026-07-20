@@ -11,6 +11,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fonts;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentFormats;
 using Incoders.Hive.Domain.Social.ContentGeneration;
@@ -878,7 +879,17 @@ public sealed class ContentGenerationJobProcessor
                                 // flow must complete for any model/agent".)
                                 if (designed.IsSuccess)
                                 {
-                                    var guarded = _guardrails.Validate(designed.Value, brand.Brand!, spec);
+                                    // R4.2: normalize CSS-generic-only font-family declarations to the
+                                    // brand typeface BEFORE guardrail validation, which is now a HARD
+                                    // gate on typography (R4.3). This is the image/AI path only — the
+                                    // flat path (BuildFlatColorMarkup) already applies spec.Typography
+                                    // deterministically and is never routed through the guardrail.
+                                    var catalog = FontCatalog.For(brand.Brand!.Typography);
+                                    var (normalizedMarkup, _) = TypographyNormalizer.Normalize(
+                                        designed.Value.Markup, spec.Typography, catalog);
+                                    var normalizedOutput = designed.Value with { Markup = normalizedMarkup };
+
+                                    var guarded = _guardrails.Validate(normalizedOutput, brand.Brand!, spec);
                                     if (guarded.IsSuccess)
                                     {
                                         aiMarkup = guarded.Value.Markup;

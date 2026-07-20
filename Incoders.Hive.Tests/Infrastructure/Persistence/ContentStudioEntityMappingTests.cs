@@ -30,7 +30,8 @@ public sealed class ContentStudioEntityMappingTests
         {
             new("rendered", "storage://org/job/carousel/slide_1.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
         };
-        var draft = new ContentDraft("caption text", "<spec/>", assets, new TargetChannel("instagram", "carousel"));
+        var caption = Caption.Create("Grow your brand today. #growth").Value;
+        var draft = new ContentDraft("script text", caption, "<spec/>", assets, new TargetChannel("instagram", "carousel"));
         var item = ContentItem.Restore(
             id, Org, Client, origin, kind, draft,
             ReviewState.Edited, EditTrace.ManualEdit(Now), id.Value, true,
@@ -45,7 +46,9 @@ public sealed class ContentStudioEntityMappingTests
         Assert.Equal(origin.SourcePackageId, read.Origin.SourcePackageId);
         Assert.Equal("carousel", read.Origin.FormatKey);
         Assert.Equal(ContentMedium.Visual, read.Kind.Medium);
-        Assert.Equal("caption text", read.Draft.Text);
+        Assert.Equal("script text", read.Draft.Text);
+        Assert.NotNull(read.Draft.Caption);
+        Assert.Equal("Grow your brand today. #growth", read.Draft.Caption!.Value);
         Assert.Equal("<spec/>", read.Draft.VisualSpecMarkup);
         Assert.Single(read.Draft.Assets);
         Assert.Equal("storage://org/job/carousel/slide_1.pptx", read.Draft.Assets[0].StorageUri);

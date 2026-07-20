@@ -24,6 +24,7 @@ using Incoders.Hive.Infrastructure.PlatformConfiguration;
 using Incoders.Hive.Infrastructure.Process;
 using Incoders.Hive.Infrastructure.Persistence;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
+using Incoders.Hive.Infrastructure.Persistence.Postgres.Maintenance;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Repositories;
 using Incoders.Hive.Infrastructure.Social.Providers;
 using Incoders.Hive.Infrastructure.Social.Providers.Apify;
@@ -175,6 +176,8 @@ public static class DependencyInjection
         // Change 3 (job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1 incident): sysadmin audit timeline reader.
         services.AddScoped<IContentGenerationAuditReader, EfContentGenerationAuditReader>();
         services.AddScoped<ILegacyPackageReconstructor, EfLegacyPackageReconstructor>();
+        // Task 3.6 (Content Studio editing completeness): idempotent draft_caption backfill.
+        services.AddScoped<ContentStudioCaptionBackfill>();
         // Per-platform Apify scrape adapters (ISocialPlatformScrapeAdapter)
         services.AddScoped<ISocialPlatformScrapeAdapter, TikTokApifyScrapeAdapter>();
         services.AddScoped<ISocialPlatformScrapeAdapter, InstagramApifyScrapeAdapter>();

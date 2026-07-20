@@ -1,6 +1,7 @@
 using Incoders.Hive.ApiService.Endpoints.Common;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Tenancy;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fonts;
 using Incoders.Hive.Application.Features.Social.ContentStudio;
 using Incoders.Hive.Application.Features.Social.ContentStudio.Bulk;
 using Incoders.Hive.Application.Features.Social.ContentStudio.Export;
@@ -71,9 +72,21 @@ public static class ContentStudioEndpointsExtensions
             .Produces(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapGet("/render-capabilities", GetRenderCapabilitiesAsync)
+            .WithName("GetContentStudioRenderCapabilities")
+            .WithSummary("The picker/render font contract for a client (brand fonts + system-safe list) plus the color-emoji render-capability signal")
+            .Produces<RenderCapabilitiesResponse>(StatusCodes.Status200OK);
+
         group.MapPut("/items/{itemId:guid}/text", EditTextAsync)
             .WithName("EditContentStudioItemText")
             .Produces<ContentItemResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        group.MapPut("/items/{itemId:guid}/caption", EditCaptionAsync)
+            .WithName("EditContentStudioItemCaption")
+            .WithSummary("Edit the dedicated publication caption (distinct from the reel-script text field)")
+            .Produces<ContentItemResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapPut("/items/{itemId:guid}/visual", EditVisualAsync)
@@ -252,6 +265,30 @@ public static class ContentStudioEndpointsExtensions
         return result.Match(r => (IResult)TypedResults.Ok(r));
     }
 
+    private static async Task<IResult> GetRenderCapabilitiesAsync(
+        [FromQuery] Guid clientId, ICurrentTenant tenant, ISender sender, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } org)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var result = await sender.Send(new GetRenderCapabilitiesQuery(org.Value, clientId), ct);
+        return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
+    private static async Task<IResult> EditCaptionAsync(
+        Guid itemId, [FromBody] EditCaptionRequest body, ICurrentTenant tenant, ISender sender, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } org)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var result = await sender.Send(new EditItemCaptionCommand(org.Value, itemId, body.Caption), ct);
+        return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
     private static async Task<IResult> EditVisualAsync(
         Guid itemId, [FromBody] EditVisualRequest body, ICurrentTenant tenant, ISender sender, CancellationToken ct)
     {
@@ -403,6 +440,8 @@ public static class ContentStudioEndpointsExtensions
 public sealed record MaterializeRunRequest(Guid ClientId);
 
 public sealed record EditTextRequest(string Text);
+
+public sealed record EditCaptionRequest(string Caption);
 
 public sealed record RejectRequest(string Reason);
 

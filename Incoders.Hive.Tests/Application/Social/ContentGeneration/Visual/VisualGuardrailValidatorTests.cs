@@ -85,22 +85,62 @@ public sealed class VisualGuardrailValidatorTests
     }
 
     // -----------------------------------------------------------------------
-    // VD-02 (advisory): Non-manual font (Arial) does NOT block generation — render anyway.
+    // R4.3 (HARD, waiver removed): a foreign named font not in the brand/catalog allow-list is
+    // rejected outright — this is a hard rejection, not a silent pass (Decision D2).
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void NonManualFont_Arial_IsAdvisory_RendersAnyway()
+    public void ForeignNamedFont_NotInBrandOrCatalog_IsHardRejected()
     {
-        // GIVEN markup with font-family:Arial, manual does not list Arial
-        var markup = ValidMarkup(fontFamily: "Arial");
+        // GIVEN markup with font-family:Comic Sans MS, manual does not list it and it is not a
+        // catalog system-safe-list font either.
+        var markup = ValidMarkup(fontFamily: "Comic Sans MS");
         var output = ValidOutput(markup);
-        var brand = BuildBrand(); // only "Inter", "Roboto" — no Arial
+        var brand = BuildBrand(); // only "Inter", "Roboto"
         var spec = BuildSpec();
 
         // WHEN guardrail validation runs
         var result = Validator.Validate(output, brand, spec);
 
-        // THEN it is NOT blocked — the design is forwarded to the renderer.
+        // THEN generation fails validation for this slide — a hard rejection, not a silent pass.
+        Assert.True(result.IsFailure);
+    }
+
+    // -----------------------------------------------------------------------
+    // R4.3 (HARD): a CSS-generic-only declaration that reaches the validator (i.e. normalization was
+    // skipped upstream) is now rejected too — the old unconditional waiver is gone. This is the
+    // guardrail's own loud failure for a pipeline bug, per Decision D2.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void GenericOnlyFontFamily_WithoutPriorNormalization_IsHardRejected()
+    {
+        var markup = ValidMarkup(fontFamily: "sans-serif");
+        var output = ValidOutput(markup);
+        var brand = BuildBrand();
+        var spec = BuildSpec();
+
+        var result = Validator.Validate(output, brand, spec);
+
+        Assert.True(result.IsFailure);
+    }
+
+    // -----------------------------------------------------------------------
+    // F2: the allow-list is sourced from FontCatalog.For(brand), not brand.Typography directly — so
+    // a system-safe-list font (e.g. one chosen via the picker) is accepted even though it is not in
+    // the brand manual.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void CatalogSystemSafeFont_NotInBrandManual_IsAccepted()
+    {
+        var markup = ValidMarkup(fontFamily: "Liberation Sans");
+        var output = ValidOutput(markup);
+        var brand = BuildBrand(); // only "Inter", "Roboto" — Liberation Sans comes from the catalog
+        var spec = BuildSpec();
+
+        var result = Validator.Validate(output, brand, spec);
+
         Assert.True(result.IsSuccess);
     }
 

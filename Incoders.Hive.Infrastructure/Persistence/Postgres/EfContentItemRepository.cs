@@ -116,8 +116,15 @@ public sealed class EfContentItemRepository : IContentItemRepository
             .Select(a => new ContentAssetRef(a.Role, a.StorageUri, a.Mime))
             .ToList();
 
+        // Defensive: Caption.Create re-validates on read. A row written before this change (or via a
+        // path that bypassed validation) never blocks a read — an invariant-violating stored value
+        // simply surfaces as no caption rather than throwing.
+        var caption = Caption.Create(d.DraftCaption) is { IsSuccess: true } captionResult
+            ? captionResult.Value
+            : null;
+
         var draft = new ContentDraft(
-            d.DraftText, d.DraftVisualSpecMarkup, assets, new TargetChannel(d.TargetNetwork, d.TargetPlacement));
+            d.DraftText, caption, d.DraftVisualSpecMarkup, assets, new TargetChannel(d.TargetNetwork, d.TargetPlacement));
 
         var editTrace = new EditTrace((EditSource)d.EditLastSource, d.EditLastAtUtc, d.EditPromptVersion);
 
@@ -172,6 +179,7 @@ public sealed class EfContentItemRepository : IContentItemRepository
         d.FormatKey = item.Origin.FormatKey;
         d.ContentMedium = (short)item.Kind.Medium;
         d.DraftText = item.Draft.Text;
+        d.DraftCaption = item.Draft.Caption?.Value;
         d.DraftVisualSpecMarkup = item.Draft.VisualSpecMarkup;
         d.DraftAssets = item.Draft.Assets
             .Select(a => new ContentStudioAssetData { Role = a.Role, StorageUri = a.StorageUri, Mime = a.Mime })

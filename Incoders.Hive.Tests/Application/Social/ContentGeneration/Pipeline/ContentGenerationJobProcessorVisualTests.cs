@@ -265,6 +265,42 @@ public sealed class ContentGenerationJobProcessorVisualTests
     }
 
     // -----------------------------------------------------------------------
+    // R4.2/R4.1: generic-only AI markup is normalized to the brand font BEFORE the (now-hard)
+    // guardrail typography check runs — cosmetic omission must not become a hard generation failure,
+    // and the resulting slide must use the client's brand typeface (Content Studio editing
+    // completeness, Phase 2).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Pipeline_AiMarkupWithGenericOnlyFont_IsNormalizedToBrandFont_BeforeRealGuardrail()
+    {
+        // GIVEN a real (non-fake) guardrail validator — typography is now a HARD gate (R4.3) — and a
+        // designer that (like a real model sometimes does) forgets to name the brand font and emits
+        // a CSS-generic-only font-family. The brand's typography is "Inter".
+        var rendererSpy = new CapturingGeometryRenderer();
+        var designer = new GenericFontDesigner();
+
+        var processor = BuildProcessor(
+            formatKey: "story",
+            payload: new object(),
+            renderer: rendererSpy,
+            designer: designer,
+            guardrails: new VisualGuardrailValidator(),
+            brandWithTypographyOnly: true); // brand.Typography = ["Inter"], no background templates
+
+        // WHEN processing runs
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        // THEN the AI markup is used (not the deterministic fallback) — normalization let it pass
+        // the now-hard guardrail — and the rendered markup's font-family is the brand font, not the
+        // bare generic the designer emitted.
+        Assert.True(rendererSpy.WasCalled);
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("class=\"layer-background\"", rendererSpy.ReceivedMarkup);
+        Assert.Contains("Inter", rendererSpy.ReceivedMarkup);
+    }
+
+    // -----------------------------------------------------------------------
     // [RED] Regression: designer AI call MUST run inside an active ProviderCallContext
     // -----------------------------------------------------------------------
 
@@ -344,6 +380,23 @@ public sealed class ContentGenerationJobProcessorVisualTests
                 Notes: null),
             null, null);
 
+    /// <summary>
+    /// Brand with typography only ("Inter") and NO background templates, so
+    /// <c>ResolveEnforcedBackground</c> never short-circuits the AI/guardrail path — used to test the
+    /// typography normalization + hard-guardrail wiring in isolation from the background-enforcement
+    /// priority rule.
+    /// </summary>
+    private static BrandSnapshot BuildBrandWithTypographyOnly() =>
+        BrandSnapshot.FromBrandData(
+            new BrandManualSnapshot(
+                ColorPalette: new[] { new WeightedColor("#FFFFFF", null, 0), new WeightedColor("#000000", null, 1) },
+                Logos: Array.Empty<string>(),
+                BackgroundTemplates: Array.Empty<BrandBackgroundTemplateSnapshot>(),
+                Typography: new[] { "Inter" },
+                VoiceAndTone: null,
+                Notes: null),
+            null, null);
+
     private ContentGenerationJobProcessor BuildProcessor(
         string formatKey,
         object payload,
@@ -352,6 +405,7 @@ public sealed class ContentGenerationJobProcessorVisualTests
         IVisualGuardrailValidator guardrails,
         bool brandWithForcedDefault = false,
         bool brandWithLegacyBackground = false,
+        bool brandWithTypographyOnly = false,
         ProviderCallContext? providerCallContext = null)
     {
         var fakeJob = new ContentGenerationJob(
@@ -402,17 +456,21 @@ public sealed class ContentGenerationJobProcessorVisualTests
             UpdatedAtUtc: DateTime.UtcNow,
             CompletedAtUtc: DateTime.UtcNow);
 
-        var brandLoader = brandWithForcedDefault
-            ? (IClientBrandSnapshotLoader)new ForcedDefaultBrandLoader()
-            : brandWithLegacyBackground
-                ? new LegacyBackgroundBrandLoader()
-            : new EmptyBrandLoader();
-
         var brand = brandWithForcedDefault
             ? BuildBrandWithForcedDefault()
             : brandWithLegacyBackground
                 ? BuildBrandWithLegacyBackground()
-                : BrandSnapshot.FromBrandData(null, null, null);
+                : brandWithTypographyOnly
+                    ? BuildBrandWithTypographyOnly()
+                    : BrandSnapshot.FromBrandData(null, null, null);
+
+        var brandLoader = brandWithForcedDefault
+            ? (IClientBrandSnapshotLoader)new ForcedDefaultBrandLoader()
+            : brandWithLegacyBackground
+                ? new LegacyBackgroundBrandLoader()
+            : brandWithTypographyOnly
+                ? new FC_BrandLoader(brand)
+                : new EmptyBrandLoader();
 
         return new ContentGenerationJobProcessor(
             jobs: new SimpleJobRepository(fakeJob),
@@ -529,6 +587,30 @@ file sealed class ContextCapturingDesigner(ProviderCallContext context) : IVisua
         ContextWasActive = context.Current is not null;
         var output = new VisualDesignOutput(
             Markup: """<div class="composition" data-format="story" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:Inter;color:#FFFFFF;">Test</h1></div></div>""",
+            PromptVersionKey: "visual-designer/v1",
+            IsValid: false);
+        return Task.FromResult(Result.Success(output));
+    }
+}
+
+/// <summary>
+/// Emits markup with a CSS-generic-only <c>font-family</c> declaration (no brand font named) — the
+/// case R4.2's <c>TypographyNormalizer</c> wiring must fix up before the (now-hard) guardrail runs.
+/// </summary>
+file sealed class GenericFontDesigner : IVisualDesigner
+{
+    public bool IsActive => true;
+
+    public Task<Result<VisualDesignOutput>> ComposeAsync(
+        Guid organizationId,
+        VisualCompositionSpec contentPayload,
+        BrandManualSnapshot brandSnapshot,
+        BackgroundSelection backgroundSelection,
+        CancellationToken cancellationToken,
+        Incoders.Hive.Application.Features.Social.ContentGeneration.Shared.ClientAestheticDesignContext? aesthetic = null)
+    {
+        var output = new VisualDesignOutput(
+            Markup: """<div class="composition" data-format="story" style="width:1080px;height:1920px;"><div class="layer-background" data-layer="background" style="background:#000000;"></div><div class="layer-content" data-layer="content"><h1 class="slot" data-slot="headline" data-max-lines="3" style="font-family:sans-serif;color:#FFFFFF;">Test</h1></div></div>""",
             PromptVersionKey: "visual-designer/v1",
             IsValid: false);
         return Task.FromResult(Result.Success(output));

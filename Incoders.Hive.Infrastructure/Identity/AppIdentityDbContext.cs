@@ -1158,6 +1158,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
             // Draft (editable working payload)
             entity.Property(x => x.DraftText).HasColumnName("draft_text");
+            entity.Property(x => x.DraftCaption).HasColumnName("draft_caption");
             entity.Property(x => x.DraftVisualSpecMarkup).HasColumnName("draft_visual_spec_markup");
             entity.Property(x => x.TargetNetwork).HasColumnName("target_network").HasMaxLength(64).IsRequired();
             entity.Property(x => x.TargetPlacement).HasColumnName("target_placement").HasMaxLength(64).IsRequired();

@@ -49,6 +49,7 @@ export interface ContentItem {
   formatKey: string;
   medium: string;
   text: string | null;
+  caption: string | null;
   visualSpecMarkup: string | null;
   assets: ContentAssetDto[];
   targetNetwork: string;
@@ -148,6 +149,34 @@ export function editItemText(itemId: string, text: string, token?: string): Prom
   return apiRequest<ContentItem>(
     `${base}/items/${itemId}/text`,
     { method: "PUT", body: JSON.stringify({ text }) },
+    token,
+  );
+}
+
+/** Edits the dedicated publication caption — distinct from the reel-script `text` field. */
+export function editItemCaption(itemId: string, caption: string, token?: string): Promise<ContentItem> {
+  return apiRequest<ContentItem>(
+    `${base}/items/${itemId}/caption`,
+    { method: "PUT", body: JSON.stringify({ caption }) },
+    token,
+  );
+}
+
+export interface FontEntryDto {
+  family: string;
+  isBrand: boolean;
+}
+
+/** The picker/render font contract (R2.3) plus the color-emoji render-capability signal (F3). */
+export interface RenderCapabilities {
+  fonts: FontEntryDto[];
+  supportsColorEmoji: boolean;
+}
+
+export function getRenderCapabilities(clientId: string, token?: string): Promise<RenderCapabilities> {
+  return apiRequest<RenderCapabilities>(
+    `${base}/render-capabilities?clientId=${encodeURIComponent(clientId)}`,
+    undefined,
     token,
   );
 }

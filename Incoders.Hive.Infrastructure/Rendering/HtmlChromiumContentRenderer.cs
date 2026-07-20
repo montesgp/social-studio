@@ -1,7 +1,10 @@
+using System.Text;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fonts;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
+using Incoders.Hive.Infrastructure.Rendering.Fonts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Playwright;
@@ -75,10 +78,24 @@ file static class SlotGeometryScript
 
 public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
 {
+    /// <summary>Family name of the bundled emoji font — see Decision A1 (design #1168 §1).</summary>
+    private const string EmojiFamily = "Noto Color Emoji";
+
+    private static readonly IFontProvider DefaultFontProvider = new EmbeddedFontProvider();
+
     private readonly ChromiumBrowserPool? _browserPool;
     private readonly IContentRenderer _fallbackRenderer;
     private readonly RenderingOptions _options;
     private readonly ILogger<HtmlChromiumContentRenderer> _logger;
+    private readonly IFontProvider _fonts;
+
+    /// <summary>
+    /// Built once, reused for every render (Decision A4 — a 10MB base64 emoji font must not be
+    /// rebuilt per request). <c>null</c> means "not built yet"; an empty string means "no embedded
+    /// fonts available to inject" (still cached, so we don't retry every render).
+    /// </summary>
+    private string? _cachedFontFaceStyle;
+    private readonly object _fontFaceStyleLock = new();
 
     /// <summary>
     /// Initializes the renderer.
@@ -94,11 +111,16 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
     /// <param name="logger">
     /// Logger for geometry capture warnings. Pass <c>null</c> in unit tests (defaults to NullLogger).
     /// </param>
+    /// <param name="fonts">
+    /// Embedded font source for the injected <c>@font-face</c> style block (Decision A4). Pass
+    /// <c>null</c> to use the default <see cref="EmbeddedFontProvider"/>.
+    /// </param>
     public HtmlChromiumContentRenderer(
         ChromiumBrowserPool? browserPool,
         IContentRenderer fallbackRenderer,
         RenderingOptions options,
-        ILogger<HtmlChromiumContentRenderer>? logger = null)
+        ILogger<HtmlChromiumContentRenderer>? logger = null,
+        IFontProvider? fonts = null)
     {
         ArgumentNullException.ThrowIfNull(fallbackRenderer);
         ArgumentNullException.ThrowIfNull(options);
@@ -107,6 +129,7 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
         _fallbackRenderer = fallbackRenderer;
         _options = options;
         _logger = logger ?? NullLogger<HtmlChromiumContentRenderer>.Instance;
+        _fonts = fonts ?? DefaultFontProvider;
     }
 
     /// <inheritdoc />
@@ -198,7 +221,10 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
             var page = lease.Page;
 
             // Set HTML content and wait for networkidle to allow inline fonts/styles to apply.
-            await page.SetContentAsync(markup, new PageSetContentOptions
+            // Decision A4: prepend a cached @font-face style block so emoji (and any other bundled
+            // font) renders correctly without depending on the host having it installed.
+            var markupWithFonts = InjectFontFaceStyle(markup);
+            await page.SetContentAsync(markupWithFonts, new PageSetContentOptions
             {
                 WaitUntil = WaitUntilState.NetworkIdle
             });
@@ -284,6 +310,80 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
             return Result.Failure<RenderedAssetWithGeometry>(
                 RenderErrors.RenderFailed($"Unexpected render error: {ex.Message}"));
         }
+    }
+
+    /// <summary>
+    /// Prepends a cached <c>&lt;style&gt;</c> block declaring <c>@font-face</c> rules for every
+    /// embedded font (Decision A4, design #1168 §1) to <paramref name="markup"/>, and adds those
+    /// families to a document-wide <c>font-family</c> stack so any text run — including one Chromium
+    /// picks a font for on its own — can resolve the emoji family without requiring it on the host.
+    /// </summary>
+    /// <remarks>
+    /// Internal (not private) so this can be unit-tested directly without a real Chromium instance —
+    /// it only asserts what would be handed to <c>Page.SetContentAsync</c>.
+    /// The browser parses a leading &lt;style&gt; tag into &lt;head&gt; per standard HTML5 foster-parenting
+    /// rules, so this does not require the caller's markup to already have a &lt;head&gt; element.
+    /// </remarks>
+    internal string InjectFontFaceStyle(string markup)
+    {
+        var style = GetOrBuildFontFaceStyle();
+        return string.IsNullOrEmpty(style) ? markup : style + markup;
+    }
+
+    private string GetOrBuildFontFaceStyle()
+    {
+        if (_cachedFontFaceStyle is not null)
+        {
+            return _cachedFontFaceStyle;
+        }
+
+        lock (_fontFaceStyleLock)
+        {
+            _cachedFontFaceStyle ??= BuildFontFaceStyle();
+            return _cachedFontFaceStyle;
+        }
+    }
+
+    private string BuildFontFaceStyle()
+    {
+        // Spike scope (Phase 1): only the emoji font is embedded so far. The system-safe-list
+        // fonts (Liberation/DejaVu) are bundled in Phase 2 (FontCatalog, commit 1) and will extend
+        // this same families list without changing the mechanism.
+        var families = new[] { EmojiFamily };
+
+        var faceRules = new StringBuilder();
+        var stack = new List<string>();
+
+        foreach (var family in families)
+        {
+            var bytes = _fonts.Resolve(family);
+            if (bytes is not { Length: > 0 })
+            {
+                continue;
+            }
+
+            var base64 = Convert.ToBase64String(bytes);
+            faceRules.Append("@font-face{font-family:'")
+                .Append(family)
+                .Append("';src:url(data:font/ttf;base64,")
+                .Append(base64)
+                .Append(");}");
+            stack.Add($"'{family}'");
+        }
+
+        if (stack.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var style = new StringBuilder("<style>")
+            .Append(faceRules)
+            .Append("body{font-family:")
+            .Append(string.Join(',', stack))
+            .Append(",sans-serif;}")
+            .Append("</style>");
+
+        return style.ToString();
     }
 
     /// <summary>
