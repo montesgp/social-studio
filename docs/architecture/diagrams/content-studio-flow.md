@@ -96,3 +96,47 @@ flowchart TB
 ```
 
 A Single Analyzer run is a small `ContentSet`; Magic Generator is a large set (or a `Campaign`). Bulk operations are an application-layer fan-out over the **same** `ContentItem` aggregate and the **same** per-item commands — there is no separate "bulk" model, which is what lets generation scale from one piece to many without a redesign.
+
+## 4. Frontend canvas edit history (undo/redo)
+
+The visual editor (`DesignCanvas` in `apps/web/components/social/content-studio-panel.tsx`) is a client-only, imperative-DOM surface — it is not part of the backend domain above. Undo/redo is bounded entirely to this component tree; it does not touch `ContentDraft`/`ReviewState` and does not persist across item switches or page reloads.
+
+```mermaid
+flowchart LR
+  subgraph Mutation["13 mutation sites (drag, resize, style, delete, reorder, add, typing...)"]
+    M["onDirty(EditSignal?)"]
+  end
+
+  subgraph Hook["useSlideEditHistory (React glue, panel component)"]
+    W["onDirty wrapper<br/>getState().markup → Snapshot"]
+    C["commit(stack, snapshot)<br/>pure: coalesce or push + FIFO cap"]
+    R["registry: Map&lt;slideIndex, HistoryState&gt;"]
+  end
+
+  M --> W --> C --> R
+
+  subgraph Shortcut["Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z"]
+    K["keydown @ canvas host (containerRef)"]
+    S["resolveShortcut(...)<br/>pure predicate"]
+  end
+
+  K --> S
+  S -- "undo" --> U["undo(stack)"]
+  S -- "redo" --> D["redo(stack)"]
+  U --> RS["canvasRef.restore(markup)<br/>imperative shadow-DOM write"]
+  D --> RS
+  RS --> ODF["onDirty() (autosave dirty flag only —<br/>does not re-commit history)"]
+
+  classDef pure fill:#eff6ff,stroke:#3b82f6,color:#1e3a8a;
+  classDef glue fill:#f4f4f5,stroke:#a1a1aa,color:#27272a;
+  class C,S,U,D pure;
+  class M,W,K,RS,ODF glue;
+```
+
+**Ownership**: all policy (the `{past, present, future}` stack reducer, the per-slide registry, the typing-coalescing window, the 50-entry depth cap, the shortcut predicate) lives in the pure module `apps/web/lib/studio/edit-history.ts`, unit-tested with the Node test runner (no jsdom in this repo). The panel component (`useSlideEditHistory`) and `DesignCanvas` are DOM/React glue only — every conditional in the glue layer is a guard on a pure function's return value, never a computed threshold or state transition.
+
+**Per-slide keying**: history is keyed by slide index, not by `DesignCanvas`'s `key={item.id}` — the canvas does not remount on slide navigation (`goTo` only swaps the `markup` prop), so a single stack would silently mix slides. Switching the selected item remounts the editor component (`ItemDetail key={selected.id}`), which naturally clears history — no explicit code required.
+
+**Restore path**: undo/redo never write back through the `markup` prop (a value that equals the current prop is a no-op React never re-runs). `DesignCanvasHandle.restore(markup)` writes `shadow.innerHTML` imperatively and invalidates the current selection, mirroring the existing prop-driven effect's own invalidation.
+
+**Reachability**: Undo/Redo controls live in the existing always-mounted `data-cs-add` action row (`canEdit`-gated only, never `selRect`-gated), so they remain reachable immediately after a delete clears the selection.

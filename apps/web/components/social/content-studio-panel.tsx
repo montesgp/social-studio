@@ -8,8 +8,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -30,12 +32,14 @@ import {
   Pin,
   PinOff,
   Plus,
+  Redo2,
   Send,
   Smile,
   Square,
   Trash2,
   Type,
   Underline,
+  Undo2,
 } from "lucide-react";
 import EmojiPicker, { EmojiStyle, Theme as EmojiPickerTheme } from "emoji-picker-react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
@@ -49,6 +53,21 @@ import {
   pickElement,
   upgradeLegacyShapes,
 } from "@/lib/studio/canvas-hit-test";
+import {
+  canRedo as canRedoStack,
+  canUndo as canUndoStack,
+  commit as commitHistory,
+  createHistory,
+  redo as redoStack,
+  resolveShortcut,
+  shouldClearRegistry,
+  undo as undoStack,
+  withStack,
+  type EditSignal,
+  type HistoryRegistry,
+  type HistoryState,
+  type Snapshot,
+} from "@/lib/studio/edit-history";
 import { computeCaptionLimits, CAPTION_MAX_HASHTAGS, CAPTION_MAX_LENGTH } from "@/lib/studio/caption-limits";
 import { groupFontOptions } from "@/lib/studio/font-options";
 import { canOfferSlideEmojiPicker } from "@/lib/studio/emoji-capability";
@@ -256,6 +275,98 @@ function useVisualAutosaveRevision() {
   }, []);
 
   return { markEdited, markSaveNeeded, markSavedIfLatest, pendingRevision, savedRevisionRef };
+}
+
+/**
+ * Per-slide undo/redo history (R4-R9, DD2). One registry, keyed by slide index, defined once and
+ * shared by both editor call sites instead of duplicating the wiring per editor. All policy — the
+ * stack reducer, the coalescing window, the depth cap — lives in `lib/studio/edit-history.ts`; this
+ * hook is DOM/React glue only (Glue Site #2): read the current markup, build a `Snapshot`, delegate to
+ * the pure module, store the result.
+ */
+function useSlideEditHistory({
+  canvasRef,
+  envelopesRef,
+  idxRef,
+  commitCurrent,
+}: {
+  canvasRef: RefObject<DesignCanvasHandle | null>;
+  envelopesRef: RefObject<Envelope[]>;
+  idxRef: RefObject<number>;
+  // Not called by this hook — history never re-commits the draft itself (`goTo` already runs
+  // `commitCurrent` before the active index changes, per DD2's lifecycle table). Kept in the shared
+  // hook's signature so both call sites wire the same four values without a bespoke shape per editor.
+  commitCurrent: () => Envelope[];
+}) {
+  void commitCurrent;
+  // R5: this ref's lifetime is tied to the enclosing editor component's remount on item switch
+  // (`ItemDetail key={selected.id}`) — that remount is what naturally clears history across items.
+  // A future refactor MUST NOT lift this ref above that keyed boundary, or history would leak
+  // between unrelated content items.
+  const registryRef = useRef<HistoryRegistry>(new Map());
+  const slideCountRef = useRef(envelopesRef.current.length);
+  const [, setVersion] = useState(0);
+  const rerender = useCallback(() => setVersion((v) => v + 1), []);
+
+  // R4: a slide-count change (add/remove) misaligns index-keyed stacks — discard the registry
+  // wholesale (Glue Site #5: a guard on `shouldClearRegistry`'s pure result, no threshold logic here).
+  useEffect(() => {
+    const nextCount = envelopesRef.current.length;
+    if (shouldClearRegistry(slideCountRef.current, nextCount)) {
+      registryRef.current = new Map();
+      rerender();
+    }
+    slideCountRef.current = nextCount;
+  });
+
+  const onDirty = useCallback(
+    (edit?: EditSignal) => {
+      const state = canvasRef.current?.getState();
+      if (!state) return;
+      const idx = idxRef.current;
+      const snapshot: Snapshot = {
+        markup: state.markup,
+        kind: edit?.kind ?? "structural",
+        slot: edit?.slot ?? null,
+        at: Date.now(),
+      };
+      // DD4: the first capture for a slide seeds its baseline from the pre-edit envelope markup —
+      // there is no prior stack yet, so nothing to coalesce or push against.
+      const existing = registryRef.current.get(idx);
+      const nextStack = existing ? commitHistory(existing, snapshot) : createHistory(snapshot);
+      registryRef.current = withStack(registryRef.current, idx, nextStack);
+      rerender();
+    },
+    [canvasRef, idxRef, rerender],
+  );
+
+  const restoreFrom = useCallback(
+    (step: (state: HistoryState) => { state: HistoryState; restored: Snapshot | null }): boolean => {
+      const idx = idxRef.current;
+      const stack = registryRef.current.get(idx);
+      if (!stack) return false;
+      const { state: nextStack, restored } = step(stack);
+      registryRef.current = withStack(registryRef.current, idx, nextStack);
+      rerender();
+      if (!restored) return false;
+      canvasRef.current?.restore(restored.markup);
+      return true;
+    },
+    [canvasRef, idxRef, rerender],
+  );
+
+  const undo = useCallback(() => restoreFrom(undoStack), [restoreFrom]);
+  const redo = useCallback(() => restoreFrom(redoStack), [restoreFrom]);
+
+  const currentStack = registryRef.current.get(idxRef.current);
+
+  return {
+    onDirty,
+    undo,
+    redo,
+    canUndo: canUndoStack(currentStack),
+    canRedo: canRedoStack(currentStack),
+  };
 }
 
 /** Tracks the viewport height so the editable canvas can be sized to fit the screen, not just the column width. */
@@ -1427,6 +1538,8 @@ function InstagramStoryPost({
     return next;
   }, [markSaveNeeded]);
 
+  const history = useSlideEditHistory({ canvasRef, envelopesRef, idxRef, commitCurrent });
+
   /*
    * Autosave is temporarily disabled so local/test/dev environments do not keep
    * calling the API while the user edits. Manual saving remains available
@@ -1503,7 +1616,18 @@ function InstagramStoryPost({
               width={width}
               height={height}
               canEdit={canEdit}
-              onDirty={markEdited}
+              onDirty={(edit) => {
+                markEdited();
+                history.onDirty(edit);
+              }}
+              canUndo={history.canUndo}
+              canRedo={history.canRedo}
+              onUndo={() => {
+                if (history.undo()) markEdited();
+              }}
+              onRedo={() => {
+                if (history.redo()) markEdited();
+              }}
               fallbackImageUrl={slide.flattenedImageRef ?? null}
               renderCapabilities={renderCapabilities}
             />
@@ -1627,6 +1751,8 @@ function InstagramPost({
     return next;
   }, [markSaveNeeded]);
 
+  const history = useSlideEditHistory({ canvasRef, envelopesRef, idxRef, commitCurrent });
+
   /*
    * Autosave is temporarily disabled so local/test/dev environments do not keep
    * calling the API while the user edits. Manual saving remains available
@@ -1709,7 +1835,18 @@ function InstagramPost({
                 width={width}
                 height={height}
                 canEdit={canEdit}
-                onDirty={markEdited}
+                onDirty={(edit) => {
+                  markEdited();
+                  history.onDirty(edit);
+                }}
+                canUndo={history.canUndo}
+                canRedo={history.canRedo}
+                onUndo={() => {
+                  if (history.undo()) markEdited();
+                }}
+                onRedo={() => {
+                  if (history.redo()) markEdited();
+                }}
                 fallbackImageUrl={slide?.flattenedImageRef ?? null}
                 maxHeight={feedMaxHeight}
                 renderCapabilities={renderCapabilities}
@@ -1909,6 +2046,12 @@ function SlideThumbnail({
 
 interface DesignCanvasHandle {
   getState: () => { markup: string; slotStyles: ElementStyle[] };
+  /**
+   * Imperatively replaces the shadow-DOM markup (undo/redo restore, DD5/DD7). Does NOT write to the
+   * `markup` prop or `envelopes` — writing back a value equal to the current prop is a no-op React
+   * never re-runs, which is exactly why the prop route silently does nothing on the first undo.
+   */
+  restore: (markup: string) => void;
 }
 
 function AssetFallbackImage({ item, token, assetIndex }: { item: ContentItem; token: string; assetIndex: number }) {
@@ -2008,15 +2151,35 @@ const DesignCanvas = forwardRef<
     width: number;
     height: number;
     canEdit: boolean;
-    onDirty: () => void;
+    /** Widened for undo/redo (R2): every site keeps calling `onDirty()` unchanged (⇒ "structural");
+     * only the `contentEditable` `input` handler passes an explicit `{ kind: "typing", slot }`. */
+    onDirty: (edit?: EditSignal) => void;
     fallbackImageUrl?: string | null;
     /** Caps the rendered height (px) so a tall portrait fits the screen instead of forcing a long scroll. */
     maxHeight?: number;
     /** Font contract (R2.3) + color-emoji signal (R6.2) — null while it has not loaded yet. */
     renderCapabilities?: RenderCapabilities | null;
+    /** Undo/redo (R6): reachable regardless of selection — never gated on `selRect`. */
+    canUndo: boolean;
+    canRedo: boolean;
+    onUndo: () => void;
+    onRedo: () => void;
   }
 >(function DesignCanvas(
-  { markup, width, height, canEdit, onDirty, fallbackImageUrl, maxHeight, renderCapabilities = null },
+  {
+    markup,
+    width,
+    height,
+    canEdit,
+    onDirty,
+    fallbackImageUrl,
+    maxHeight,
+    renderCapabilities = null,
+    canUndo,
+    canRedo,
+    onUndo,
+    onRedo,
+  },
   ref,
 ) {
   const measureRef = useRef<HTMLDivElement>(null);
@@ -2210,7 +2373,9 @@ const DesignCanvas = forwardRef<
       target.focus();
     };
     const onInput = () => {
-      onDirty();
+      // Only site (of 13) that reports a typing capture — this is what lets `shouldCoalesce` (R2)
+      // merge a typed burst into one history entry instead of one per keystroke.
+      onDirty({ kind: "typing", slot: selectedRef.current?.getAttribute("data-slot") ?? null });
       if (selectedRef.current) positionToolbar(selectedRef.current);
     };
     // Decision C3/R3.1-R3.3: deselection is scoped entirely to the canvas itself now — an explicit
@@ -2281,6 +2446,15 @@ const DesignCanvas = forwardRef<
         node.removeAttribute("contenteditable");
       });
       return { markup: clone.innerHTML, slotStyles };
+    },
+    restore(nextMarkup: string) {
+      const el = designRef.current;
+      if (!el) return;
+      el.innerHTML = sanitizeDesignMarkup(nextMarkup);
+      // Restored nodes are new objects — the same invalidation the markup-prop effect performs
+      // (L2073-2074) so a stale `selectedRef` never points at a detached element.
+      select(null);
+      setSelRect(null);
     },
   }));
 
@@ -2396,11 +2570,45 @@ const DesignCanvas = forwardRef<
         >
           <Square className="h-3.5 w-3.5" /> Forma
         </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onUndo}
+          disabled={!canUndo}
+          className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          <Undo2 className="h-3.5 w-3.5" /> Deshacer
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onRedo}
+          disabled={!canRedo}
+          className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          <Redo2 className="h-3.5 w-3.5" /> Rehacer
+        </button>
       </div>
     ) : null}
     <div
       data-cs-canvas
       ref={containerRef}
+      tabIndex={-1}
+      onKeyDown={(e: ReactKeyboardEvent<HTMLDivElement>) => {
+        const action = resolveShortcut({
+          key: e.key,
+          ctrlOrMeta: e.ctrlKey || e.metaKey,
+          shift: e.shiftKey,
+          isTextEditing: selectedRef.current?.isContentEditable === true,
+        });
+        if (action === "undo") {
+          e.preventDefault();
+          onUndo();
+        } else if (action === "redo") {
+          e.preventDefault();
+          onRedo();
+        }
+      }}
       className="relative mx-auto overflow-hidden bg-white"
       style={{ width: scale > 0 ? width * scale : "100%", height: scale > 0 ? height * scale : undefined }}
     >
