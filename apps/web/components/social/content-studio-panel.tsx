@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
@@ -31,12 +32,14 @@ import {
   Pin,
   PinOff,
   Plus,
+  Redo2,
   Send,
   Smile,
   Square,
   Trash2,
   Type,
   Underline,
+  Undo2,
 } from "lucide-react";
 import EmojiPicker, { EmojiStyle, Theme as EmojiPickerTheme } from "emoji-picker-react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
@@ -56,6 +59,7 @@ import {
   commit as commitHistory,
   createHistory,
   redo as redoStack,
+  resolveShortcut,
   shouldClearRegistry,
   undo as undoStack,
   withStack,
@@ -1616,6 +1620,14 @@ function InstagramStoryPost({
                 markEdited();
                 history.onDirty(edit);
               }}
+              canUndo={history.canUndo}
+              canRedo={history.canRedo}
+              onUndo={() => {
+                if (history.undo()) markEdited();
+              }}
+              onRedo={() => {
+                if (history.redo()) markEdited();
+              }}
               fallbackImageUrl={slide.flattenedImageRef ?? null}
               renderCapabilities={renderCapabilities}
             />
@@ -1826,6 +1838,14 @@ function InstagramPost({
                 onDirty={(edit) => {
                   markEdited();
                   history.onDirty(edit);
+                }}
+                canUndo={history.canUndo}
+                canRedo={history.canRedo}
+                onUndo={() => {
+                  if (history.undo()) markEdited();
+                }}
+                onRedo={() => {
+                  if (history.redo()) markEdited();
                 }}
                 fallbackImageUrl={slide?.flattenedImageRef ?? null}
                 maxHeight={feedMaxHeight}
@@ -2139,9 +2159,27 @@ const DesignCanvas = forwardRef<
     maxHeight?: number;
     /** Font contract (R2.3) + color-emoji signal (R6.2) — null while it has not loaded yet. */
     renderCapabilities?: RenderCapabilities | null;
+    /** Undo/redo (R6): reachable regardless of selection — never gated on `selRect`. */
+    canUndo: boolean;
+    canRedo: boolean;
+    onUndo: () => void;
+    onRedo: () => void;
   }
 >(function DesignCanvas(
-  { markup, width, height, canEdit, onDirty, fallbackImageUrl, maxHeight, renderCapabilities = null },
+  {
+    markup,
+    width,
+    height,
+    canEdit,
+    onDirty,
+    fallbackImageUrl,
+    maxHeight,
+    renderCapabilities = null,
+    canUndo,
+    canRedo,
+    onUndo,
+    onRedo,
+  },
   ref,
 ) {
   const measureRef = useRef<HTMLDivElement>(null);
@@ -2532,11 +2570,45 @@ const DesignCanvas = forwardRef<
         >
           <Square className="h-3.5 w-3.5" /> Forma
         </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onUndo}
+          disabled={!canUndo}
+          className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          <Undo2 className="h-3.5 w-3.5" /> Deshacer
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onRedo}
+          disabled={!canRedo}
+          className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          <Redo2 className="h-3.5 w-3.5" /> Rehacer
+        </button>
       </div>
     ) : null}
     <div
       data-cs-canvas
       ref={containerRef}
+      tabIndex={-1}
+      onKeyDown={(e: ReactKeyboardEvent<HTMLDivElement>) => {
+        const action = resolveShortcut({
+          key: e.key,
+          ctrlOrMeta: e.ctrlKey || e.metaKey,
+          shift: e.shiftKey,
+          isTextEditing: selectedRef.current?.isContentEditable === true,
+        });
+        if (action === "undo") {
+          e.preventDefault();
+          onUndo();
+        } else if (action === "redo") {
+          e.preventDefault();
+          onRedo();
+        }
+      }}
       className="relative mx-auto overflow-hidden bg-white"
       style={{ width: scale > 0 ? width * scale : "100%", height: scale > 0 ? height * scale : undefined }}
     >
