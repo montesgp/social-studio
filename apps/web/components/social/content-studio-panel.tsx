@@ -1909,6 +1909,12 @@ function SlideThumbnail({
 
 interface DesignCanvasHandle {
   getState: () => { markup: string; slotStyles: ElementStyle[] };
+  /**
+   * Imperatively replaces the shadow-DOM markup (undo/redo restore, DD5/DD7). Does NOT write to the
+   * `markup` prop or `envelopes` — writing back a value equal to the current prop is a no-op React
+   * never re-runs, which is exactly why the prop route silently does nothing on the first undo.
+   */
+  restore: (markup: string) => void;
 }
 
 function AssetFallbackImage({ item, token, assetIndex }: { item: ContentItem; token: string; assetIndex: number }) {
@@ -2281,6 +2287,15 @@ const DesignCanvas = forwardRef<
         node.removeAttribute("contenteditable");
       });
       return { markup: clone.innerHTML, slotStyles };
+    },
+    restore(nextMarkup: string) {
+      const el = designRef.current;
+      if (!el) return;
+      el.innerHTML = sanitizeDesignMarkup(nextMarkup);
+      // Restored nodes are new objects — the same invalidation the markup-prop effect performs
+      // (L2073-2074) so a stale `selectedRef` never points at a detached element.
+      select(null);
+      setSelRect(null);
     },
   }));
 
