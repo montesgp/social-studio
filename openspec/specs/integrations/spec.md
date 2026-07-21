@@ -420,3 +420,38 @@ network and workflow selectors so configured values remain readable.
 - WHEN an operator opens its configuration dialog on a desktop viewport
 - THEN the dialog is wider than standard provider dialogs
 - AND Actor ID values have a dedicated wide input column
+
+---
+
+<!-- Merged from openspec/changes/content-bank-planner/specs/integrations/spec-delta.md — change applied 2026-07-21 (content-bank-planner) -->
+
+## Added Requirements: Per-Client Account Credentials (content-bank-planner)
+
+> Added by change `content-bank-planner`. This section is additive; no existing integration behavior or requirements are modified.
+
+### Requirement: INT-BANK-01 — Per-Client Account Credential Exists Alongside Org-Level Integration
+
+The system MUST persist, per client and per social network, a credential record (extending `ClientOwnAccount` or a new dedicated entity) holding the client account's publish token and external account id for that network. This record MUST be distinct from and layered on top of the org-level `OrganizationIntegration` record for the same provider — resolving a publication destination MUST require both to be present and valid.
+
+#### Scenario: Per-client credential resolves alongside org-level integration
+
+- GIVEN an org with a connected Instagram `OrganizationIntegration` and a client account with a stored Instagram credential
+- WHEN a destination is resolved for that client account and Instagram
+- THEN both the org-level integration and the per-client credential are returned together
+
+#### Scenario: Org-level integration connected but client has no credential
+
+- GIVEN an org with a connected Instagram `OrganizationIntegration` but a client account with no stored Instagram credential
+- WHEN a destination is resolved for that client account and Instagram
+- THEN resolution fails with a structured error identifying the missing per-client credential
+- AND the org-level integration status is unaffected by this failure
+
+### Requirement: INT-BANK-02 — Per-Client Credentials Are Additive to Existing Integration Behavior
+
+Introducing per-client account credentials MUST NOT change the existing `OrganizationIntegration` catalog, connection modes (`BringYourOwnKey`, `ManagedByIncoders`, `SystemDefault`), statuses, or the Settings > Integrations checklist behavior for Single Analyzer or Generator setup.
+
+#### Scenario: Existing org-level integration checklist is unaffected
+
+- GIVEN an org's existing Single Analyzer and Generator setup checklists
+- WHEN per-client account credentials are introduced for Instagram
+- THEN the existing checklists continue to evaluate the same org-level connected-provider conditions as before

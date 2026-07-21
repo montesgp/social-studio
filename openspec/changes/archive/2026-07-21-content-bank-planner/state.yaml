@@ -1,6 +1,6 @@
 change: content-bank-planner
-status: applied
-completed_at: null
+status: archived
+completed_at: "2026-07-21"
 adr: docs/architecture/adr/0005-publication-axis-and-two-level-credentials.md
 
 artifacts:
@@ -76,10 +76,12 @@ phases:
     notes: "All 5 work units landed on dev: WU1 domain+persistence, WU2 connector+credentials, WU3 lifecycle commands+Bank query+Api, WU4 frontend /publications workspace, WU5 ADR 0005 + PRD/SDD doc sync (this batch)."
   - id: 6
     name: "Verify"
-    status: pending
+    status: complete
+    notes: "PASS — 0 CRITICAL, 0 WARNING. All 14 task phases complete, all traced spec requirements have passing covering tests, full gate suite green (18 pass / 1 skipped-non-blocking / 0 MUST failures). Ready for archive."
   - id: 7
     name: "Archive"
-    status: pending
+    status: complete
+    notes: "Specs merged into openspec/specs/: content-bank/spec.md (new), publishing/spec.md (canonical v1, replaced stub), content-studio/spec.md (new, with CS-BANK-01 additive requirement), integrations/spec.md (appended INT-BANK-01 and INT-BANK-02 additive requirements). Change folder moved to archive/2026-07-21-content-bank-planner/. Archive report persisted to engram with observation IDs."
 
 validation:
   gates: PASS
