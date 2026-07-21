@@ -1,0 +1,140 @@
+"use client";
+
+import type { ReactNode } from "react";
+import { Send } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ReviewStateBadge } from "@/components/social/publications/publication-status-badge";
+import { PublicationCard } from "@/components/social/publications/publication-card";
+import { projectPlannerBoard, type PlannerItemCard, type PlannerPublicationCard } from "@/lib/publications/planner-board";
+import type { ContentBankItemResponse, PublicationSummaryDto } from "@/lib/api/publications";
+
+interface PublicationPlannerBoardProps {
+  items: ContentBankItemResponse[];
+  busy?: boolean;
+  showCancelled: boolean;
+  onOpenItem: (item: ContentBankItemResponse) => void;
+  onPublishNow: (item: ContentBankItemResponse) => void;
+  onRetry: (item: ContentBankItemResponse, publication: PublicationSummaryDto) => void;
+  onCancel: (item: ContentBankItemResponse, publication: PublicationSummaryDto) => void;
+}
+
+interface ColumnProps {
+  title: string;
+  count: number;
+  children: ReactNode;
+}
+
+function Column({ title, count, children }: ColumnProps) {
+  return (
+    <div className="flex min-w-[240px] flex-1 flex-col gap-2">
+      <div className="flex items-center justify-between px-1">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+        <span className="text-xs text-muted-foreground">{count}</span>
+      </div>
+      <div className="flex flex-1 flex-col gap-2 rounded-lg border border-dashed border-border bg-muted/10 p-2">
+        {count === 0 ? <p className="p-2 text-center text-xs text-muted-foreground">Empty</p> : children}
+      </div>
+    </div>
+  );
+}
+
+function ItemCardView({ card, onOpen, onPublishNow }: { card: PlannerItemCard; onOpen: () => void; onPublishNow: () => void }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border bg-background p-3 text-sm shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <button type="button" onClick={onOpen} className="truncate text-left font-medium hover:underline">
+          {card.item.formatKey}
+        </button>
+        <ReviewStateBadge state={card.item.state} />
+      </div>
+      <Button size="sm" variant="default" onClick={onPublishNow}>
+        <Send className="h-3.5 w-3.5" /> Publish now
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * Planner tab (design §2/OQ-3): pure projection kanban over (editorial ReviewState x publication
+ * PublicationStatus). Never owns state — every action issues a command through the passed callbacks.
+ */
+export function PublicationPlannerBoard({
+  items,
+  busy,
+  showCancelled,
+  onOpenItem,
+  onPublishNow,
+  onRetry,
+  onCancel,
+}: PublicationPlannerBoardProps) {
+  const board = projectPlannerBoard(items);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-3 overflow-x-auto pb-2">
+        <Column title="Ready" count={board.ready.length}>
+          {board.ready.map((card) => (
+            <ItemCardView
+              key={card.item.id}
+              card={card}
+              onOpen={() => onOpenItem(card.item)}
+              onPublishNow={() => onPublishNow(card.item)}
+            />
+          ))}
+        </Column>
+        <Column title="Scheduled" count={board.scheduled.length}>
+          {board.scheduled.map((card) => (
+            <PublicationCardView key={card.publication.id} card={card} busy={busy} onOpenItem={onOpenItem} onCancel={onCancel} />
+          ))}
+        </Column>
+        <Column title="Publishing" count={board.publishing.length}>
+          {board.publishing.map((card) => (
+            <PublicationCardView key={card.publication.id} card={card} busy={busy} onOpenItem={onOpenItem} />
+          ))}
+        </Column>
+        <Column title="Published" count={board.published.length}>
+          {board.published.map((card) => (
+            <PublicationCardView key={card.publication.id} card={card} busy={busy} onOpenItem={onOpenItem} />
+          ))}
+        </Column>
+        <Column title="Failed" count={board.failed.length}>
+          {board.failed.map((card) => (
+            <PublicationCardView key={card.publication.id} card={card} busy={busy} onOpenItem={onOpenItem} onRetry={onRetry} onCancel={onCancel} />
+          ))}
+        </Column>
+        {showCancelled ? (
+          <Column title="Cancelled" count={board.cancelled.length}>
+            {board.cancelled.map((card) => (
+              <PublicationCardView key={card.publication.id} card={card} busy={busy} onOpenItem={onOpenItem} />
+            ))}
+          </Column>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PublicationCardView({
+  card,
+  busy,
+  onOpenItem,
+  onRetry,
+  onCancel,
+}: {
+  card: PlannerPublicationCard;
+  busy?: boolean;
+  onOpenItem: (item: ContentBankItemResponse) => void;
+  onRetry?: (item: ContentBankItemResponse, publication: PublicationSummaryDto) => void;
+  onCancel?: (item: ContentBankItemResponse, publication: PublicationSummaryDto) => void;
+}) {
+  return (
+    <PublicationCard
+      item={card.item}
+      publication={card.publication}
+      busy={busy}
+      onOpen={() => onOpenItem(card.item)}
+      onRetry={onRetry ? () => onRetry(card.item, card.publication) : undefined}
+      onCancel={onCancel ? () => onCancel(card.item, card.publication) : undefined}
+    />
+  );
+}
