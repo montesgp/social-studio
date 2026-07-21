@@ -168,6 +168,8 @@ app.MapProfileAnalyzerEndpoints();
 app.MapContentGenerationEndpoints();
 app.MapContentStudioEndpoints();
 app.MapPublicationConnectionEndpoints();
+app.MapContentBankEndpoints();
+app.MapPublicationEndpoints();
 app.MapUserPreferencesEndpoints();
 
 app.MapDefaultEndpoints();
