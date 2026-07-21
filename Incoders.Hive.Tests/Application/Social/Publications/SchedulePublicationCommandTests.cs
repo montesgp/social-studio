@@ -2,7 +2,10 @@ using Incoders.Hive.Application.Abstractions.Social.ContentStudio;
 using Incoders.Hive.Application.Abstractions.Social.Publications;
 using Incoders.Hive.Application.Features.Social.Publications.Schedule;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.ClientAccountConnections;
+using Incoders.Hive.Domain.Social.Clients;
 using Incoders.Hive.Domain.Social.ContentStudio;
+using Incoders.Hive.Domain.Social.Networks;
 using Incoders.Hive.Domain.Social.Publications;
 
 namespace Incoders.Hive.Tests.Application.Social.Publications;
@@ -22,7 +25,8 @@ public sealed class SchedulePublicationCommandTests
         var item = BuildItem(ReviewState.Draft);
         var items = new FakeContentItemRepository(item);
         var publications = new FakePublicationRepository();
-        var handler = new SchedulePublicationCommandHandler(items, publications, new FixedClock(Now));
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection(ClientId));
+        var handler = new SchedulePublicationCommandHandler(items, publications, connections, new FixedClock(Now));
 
         var result = await handler.Handle(
             new SchedulePublicationCommand(
@@ -41,7 +45,8 @@ public sealed class SchedulePublicationCommandTests
         var item = BuildItem(ReviewState.Approved);
         var items = new FakeContentItemRepository(item);
         var publications = new FakePublicationRepository();
-        var handler = new SchedulePublicationCommandHandler(items, publications, new FixedClock(Now));
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection(ClientId));
+        var handler = new SchedulePublicationCommandHandler(items, publications, connections, new FixedClock(Now));
 
         var scheduledFor = Now.AddDays(1);
         var result = await handler.Handle(
@@ -61,7 +66,8 @@ public sealed class SchedulePublicationCommandTests
         var item = BuildItem(ReviewState.Approved);
         var items = new FakeContentItemRepository(item);
         var publications = new FakePublicationRepository();
-        var handler = new SchedulePublicationCommandHandler(items, publications, new FixedClock(Now));
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection(ClientId));
+        var handler = new SchedulePublicationCommandHandler(items, publications, connections, new FixedClock(Now));
 
         var result = await handler.Handle(
             new SchedulePublicationCommand(
@@ -71,6 +77,45 @@ public sealed class SchedulePublicationCommandTests
 
         Assert.True(result.IsFailure);
         Assert.Empty(publications.Added);
+    }
+
+    [Fact]
+    public async Task Handle_ConnectionBelongsToDifferentClient_ReturnsDestinationUnresolvedAndCreatesNoPublication()
+    {
+        var item = BuildItem(ReviewState.Approved);
+        var items = new FakeContentItemRepository(item);
+        var publications = new FakePublicationRepository();
+        // Connection belongs to a DIFFERENT client than the item — must be rejected before any
+        // Publication is created.
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection(Guid.NewGuid()));
+        var handler = new SchedulePublicationCommandHandler(items, publications, connections, new FixedClock(Now));
+
+        var result = await handler.Handle(
+            new SchedulePublicationCommand(
+                OrganizationId, ClientId, item.Id.Value, ConnectionId, NetworkId, "instagram",
+                Now.AddDays(1)),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(PublicationErrors.DestinationUnresolved.Code, result.Error.Code);
+        Assert.Empty(publications.Added);
+    }
+
+    private static ClientAccountConnection BuildConnection(Guid clientId)
+    {
+        var created = ClientAccountConnection.Create(
+            new ClientAccountConnectionId(ConnectionId),
+            OrganizationId,
+            new ClientId(clientId),
+            new SocialNetworkId(NetworkId),
+            Incoders.Hive.Domain.Integrations.OrganizationIntegrationId.New(),
+            "ig-business-account-1",
+            "ciphertext",
+            tokenExpiresAtUtc: null,
+            Now);
+
+        Assert.True(created.IsSuccess);
+        return created.Value;
     }
 
     private static ContentItem BuildItem(ReviewState state)
@@ -94,6 +139,30 @@ public sealed class SchedulePublicationCommandTests
         }
 
         return item;
+    }
+
+    private sealed class FakeClientAccountConnectionRepository : IClientAccountConnectionRepository
+    {
+        private readonly ClientAccountConnection? _connection;
+
+        public FakeClientAccountConnectionRepository(ClientAccountConnection? connection) => _connection = connection;
+
+        public Task<ClientAccountConnection?> GetByIdAsync(
+            Guid organizationId, ClientAccountConnectionId id, CancellationToken ct) =>
+            Task.FromResult(_connection);
+
+        public Task<IReadOnlyList<ClientAccountConnection>> ListByClientAsync(
+            Guid organizationId, Guid clientId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<ClientAccountConnection>>(
+                _connection is null ? [] : [_connection]);
+
+        public Task<ClientAccountConnection?> GetByClientNetworkAsync(
+            Guid organizationId, Guid clientId, SocialNetworkId socialNetworkId, CancellationToken ct) =>
+            Task.FromResult(_connection);
+
+        public Task AddAsync(ClientAccountConnection connection, CancellationToken ct) => Task.CompletedTask;
+
+        public Task UpdateAsync(ClientAccountConnection connection, CancellationToken ct) => Task.CompletedTask;
     }
 
     private sealed class FakeContentItemRepository : IContentItemRepository

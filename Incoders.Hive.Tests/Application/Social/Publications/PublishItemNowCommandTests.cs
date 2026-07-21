@@ -4,7 +4,10 @@ using Incoders.Hive.Application.Abstractions.Social.Publications;
 using Incoders.Hive.Application.Features.Social.Publications;
 using Incoders.Hive.Application.Features.Social.Publications.PublishNow;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.ClientAccountConnections;
+using Incoders.Hive.Domain.Social.Clients;
 using Incoders.Hive.Domain.Social.ContentStudio;
+using Incoders.Hive.Domain.Social.Networks;
 using Incoders.Hive.Domain.Social.Publications;
 
 namespace Incoders.Hive.Tests.Application.Social.Publications;
@@ -24,8 +27,9 @@ public sealed class PublishItemNowCommandTests
         var item = BuildItem(ReviewState.Draft);
         var items = new FakeContentItemRepository(item);
         var publications = new FakePublicationRepository();
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection(ClientId));
         var runner = BuildRunner(succeed: true, externalReference: "media-1");
-        var handler = new PublishItemNowCommandHandler(items, publications, runner, new FixedClock(Now));
+        var handler = new PublishItemNowCommandHandler(items, publications, connections, runner, new FixedClock(Now));
 
         var result = await handler.Handle(BuildCommand(item.Id.Value), CancellationToken.None);
 
@@ -41,8 +45,9 @@ public sealed class PublishItemNowCommandTests
         var item = BuildItem(ReviewState.Approved);
         var items = new FakeContentItemRepository(item);
         var publications = new FakePublicationRepository();
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection(ClientId));
         var runner = BuildRunner(succeed: true, externalReference: "media-1");
-        var handler = new PublishItemNowCommandHandler(items, publications, runner, new FixedClock(Now));
+        var handler = new PublishItemNowCommandHandler(items, publications, connections, runner, new FixedClock(Now));
 
         var result = await handler.Handle(BuildCommand(item.Id.Value), CancellationToken.None);
 
@@ -63,8 +68,9 @@ public sealed class PublishItemNowCommandTests
         var item = BuildItem(ReviewState.ReadyForPublication);
         var items = new FakeContentItemRepository(item);
         var publications = new FakePublicationRepository();
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection(ClientId));
         var runner = BuildRunner(succeed: false, externalReference: null);
-        var handler = new PublishItemNowCommandHandler(items, publications, runner, new FixedClock(Now));
+        var handler = new PublishItemNowCommandHandler(items, publications, connections, runner, new FixedClock(Now));
 
         var result = await handler.Handle(BuildCommand(item.Id.Value), CancellationToken.None);
 
@@ -80,18 +86,77 @@ public sealed class PublishItemNowCommandTests
         var item = BuildItem(ReviewState.ReadyForPublication);
         var items = new FakeContentItemRepository(item);
         var publications = new FakePublicationRepository();
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection(ClientId));
         var runner = BuildRunner(succeed: true, externalReference: "media-2");
-        var handler = new PublishItemNowCommandHandler(items, publications, runner, new FixedClock(Now));
+        var handler = new PublishItemNowCommandHandler(items, publications, connections, runner, new FixedClock(Now));
 
         var result = await handler.Handle(BuildCommand(item.Id.Value), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
     }
 
+    [Fact]
+    public async Task Handle_ConnectionBelongsToDifferentClient_ReturnsDestinationUnresolvedAndCreatesNoPublication()
+    {
+        var item = BuildItem(ReviewState.Approved);
+        var items = new FakeContentItemRepository(item);
+        var publications = new FakePublicationRepository();
+        // Connection belongs to a DIFFERENT client than the item — must be rejected before any
+        // Publication is created or the connector is invoked.
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection(Guid.NewGuid()));
+        var runner = BuildRunner(succeed: true, externalReference: "media-1");
+        var handler = new PublishItemNowCommandHandler(items, publications, connections, runner, new FixedClock(Now));
+
+        var result = await handler.Handle(BuildCommand(item.Id.Value), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(PublicationErrors.DestinationUnresolved.Code, result.Error.Code);
+        Assert.Empty(publications.Added);
+    }
+
+    [Fact]
+    public async Task Handle_HappyPath_AttributesPublicationToItemClientNotRequestClientId()
+    {
+        var item = BuildItem(ReviewState.Approved);
+        var items = new FakeContentItemRepository(item);
+        var publications = new FakePublicationRepository();
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection(ClientId));
+        var runner = BuildRunner(succeed: true, externalReference: "media-1");
+        var handler = new PublishItemNowCommandHandler(items, publications, connections, runner, new FixedClock(Now));
+
+        // Command carries a different (bogus) request.ClientId — the handler must ignore it and use
+        // the item's real ClientId for the Publication.
+        var command = new PublishItemNowCommand(
+            OrganizationId, Guid.NewGuid(), item.Id.Value, ConnectionId, NetworkId, "instagram");
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(publications.Added);
+        Assert.Equal(item.ClientId, publications.Added[0].ClientId);
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private static PublishItemNowCommand BuildCommand(Guid itemId) =>
         new(OrganizationId, ClientId, itemId, ConnectionId, NetworkId, "instagram");
+
+    private static ClientAccountConnection BuildConnection(Guid clientId)
+    {
+        var created = ClientAccountConnection.Create(
+            new ClientAccountConnectionId(ConnectionId),
+            OrganizationId,
+            new ClientId(clientId),
+            new SocialNetworkId(NetworkId),
+            Incoders.Hive.Domain.Integrations.OrganizationIntegrationId.New(),
+            "ig-business-account-1",
+            "ciphertext",
+            tokenExpiresAtUtc: null,
+            Now);
+
+        Assert.True(created.IsSuccess);
+        return created.Value;
+    }
 
     private static ContentItem BuildItem(ReviewState state)
     {
@@ -133,6 +198,30 @@ public sealed class PublishItemNowCommandTests
         var selector = new FakeConnectorSelector(succeed, externalReference);
         var storage = new FakeAssetStorage();
         return new PublicationPublishAttemptRunner(resolver, selector, storage);
+    }
+
+    private sealed class FakeClientAccountConnectionRepository : IClientAccountConnectionRepository
+    {
+        private readonly ClientAccountConnection? _connection;
+
+        public FakeClientAccountConnectionRepository(ClientAccountConnection? connection) => _connection = connection;
+
+        public Task<ClientAccountConnection?> GetByIdAsync(
+            Guid organizationId, ClientAccountConnectionId id, CancellationToken ct) =>
+            Task.FromResult(_connection);
+
+        public Task<IReadOnlyList<ClientAccountConnection>> ListByClientAsync(
+            Guid organizationId, Guid clientId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<ClientAccountConnection>>(
+                _connection is null ? [] : [_connection]);
+
+        public Task<ClientAccountConnection?> GetByClientNetworkAsync(
+            Guid organizationId, Guid clientId, SocialNetworkId socialNetworkId, CancellationToken ct) =>
+            Task.FromResult(_connection);
+
+        public Task AddAsync(ClientAccountConnection connection, CancellationToken ct) => Task.CompletedTask;
+
+        public Task UpdateAsync(ClientAccountConnection connection, CancellationToken ct) => Task.CompletedTask;
     }
 
     private sealed class FakeContentItemRepository : IContentItemRepository

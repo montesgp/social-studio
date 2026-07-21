@@ -3,6 +3,7 @@ using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social.ContentStudio;
 using Incoders.Hive.Application.Abstractions.Social.Publications;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.ClientAccountConnections;
 using Incoders.Hive.Domain.Social.ContentStudio;
 using Incoders.Hive.Domain.Social.Publications;
 using MediatR;
@@ -41,17 +42,20 @@ public sealed class PublishItemNowCommandHandler
 {
     private readonly IContentItemRepository _items;
     private readonly IPublicationRepository _publications;
+    private readonly IClientAccountConnectionRepository _connections;
     private readonly PublicationPublishAttemptRunner _runner;
     private readonly IClock _clock;
 
     public PublishItemNowCommandHandler(
         IContentItemRepository items,
         IPublicationRepository publications,
+        IClientAccountConnectionRepository connections,
         PublicationPublishAttemptRunner runner,
         IClock clock)
     {
         _items = items;
         _publications = publications;
+        _connections = connections;
         _runner = runner;
         _clock = clock;
     }
@@ -70,11 +74,21 @@ public sealed class PublishItemNowCommandHandler
             return Result.Failure<PublicationResponse>(gate.Error);
         }
 
+        // Ownership guard: the target connection must belong to the SAME client that owns the
+        // content item — request.ClientId comes straight from the HTTP body and must never be
+        // trusted for cross-client attribution (see security fix).
+        var connection = await _connections.GetByIdAsync(
+            request.OrganizationId, new ClientAccountConnectionId(request.ClientAccountConnectionId), ct);
+        if (connection is null || connection.ClientId.Value != item.ClientId)
+        {
+            return Result.Failure<PublicationResponse>(PublicationErrors.DestinationUnresolved);
+        }
+
         var destination = new PublicationDestination(
             request.ClientAccountConnectionId, request.SocialNetworkId, request.NetworkKey);
 
         var created = Publication.PublishNow(
-            PublicationId.New(), request.OrganizationId, request.ClientId, request.ContentItemId,
+            PublicationId.New(), request.OrganizationId, item.ClientId, request.ContentItemId,
             destination, _clock.UtcNow);
         if (created.IsFailure)
         {

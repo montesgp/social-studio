@@ -5,7 +5,10 @@ using Incoders.Hive.Application.Abstractions.Social.Publications;
 using Incoders.Hive.Application.Features.Social.Publications;
 using Incoders.Hive.Application.Features.Social.Publications.PublishNow;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.ClientAccountConnections;
+using Incoders.Hive.Domain.Social.Clients;
 using Incoders.Hive.Domain.Social.ContentStudio;
+using Incoders.Hive.Domain.Social.Networks;
 using Incoders.Hive.Domain.Social.Publications;
 
 namespace Incoders.Hive.Tests.Application.Social.Publications;
@@ -35,9 +38,10 @@ public sealed class PublicationEditorialOrthogonalityTests
 
         var items = new SpyContentItemRepository(item);
         var publications = new NoopPublicationRepository();
+        var connections = new NoopClientAccountConnectionRepository(BuildConnection());
         var runner = new PublicationPublishAttemptRunner(
             new SucceedingDestinationResolver(), new SucceedingConnectorSelector(), new NoopAssetStorage());
-        var handler = new PublishItemNowCommandHandler(items, publications, runner, new FixedClock(Now));
+        var handler = new PublishItemNowCommandHandler(items, publications, connections, runner, new FixedClock(Now));
 
         var result = await handler.Handle(
             new PublishItemNowCommand(OrganizationId, ClientId, item.Id.Value, ConnectionId, NetworkId, "instagram"),
@@ -54,6 +58,23 @@ public sealed class PublicationEditorialOrthogonalityTests
         Assert.Equal(originalState, item.State);
         Assert.Equal(originalDraft, item.Draft);
         Assert.Equal(originalUpdatedAtUtc, item.UpdatedAtUtc);
+    }
+
+    private static ClientAccountConnection BuildConnection()
+    {
+        var created = ClientAccountConnection.Create(
+            new ClientAccountConnectionId(ConnectionId),
+            OrganizationId,
+            new ClientId(ClientId),
+            new SocialNetworkId(NetworkId),
+            Incoders.Hive.Domain.Integrations.OrganizationIntegrationId.New(),
+            "ig-business-account-1",
+            "ciphertext",
+            tokenExpiresAtUtc: null,
+            Now);
+
+        Assert.True(created.IsSuccess);
+        return created.Value;
     }
 
     private static ContentItem BuildApprovedItem()
@@ -104,6 +125,29 @@ public sealed class PublicationEditorialOrthogonalityTests
         }
 
         public Task DeleteAsync(Guid organizationId, ContentItemId id, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    private sealed class NoopClientAccountConnectionRepository : IClientAccountConnectionRepository
+    {
+        private readonly ClientAccountConnection _connection;
+
+        public NoopClientAccountConnectionRepository(ClientAccountConnection connection) => _connection = connection;
+
+        public Task<ClientAccountConnection?> GetByIdAsync(
+            Guid organizationId, ClientAccountConnectionId id, CancellationToken ct) =>
+            Task.FromResult<ClientAccountConnection?>(_connection);
+
+        public Task<IReadOnlyList<ClientAccountConnection>> ListByClientAsync(
+            Guid organizationId, Guid clientId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<ClientAccountConnection>>([_connection]);
+
+        public Task<ClientAccountConnection?> GetByClientNetworkAsync(
+            Guid organizationId, Guid clientId, SocialNetworkId socialNetworkId, CancellationToken ct) =>
+            Task.FromResult<ClientAccountConnection?>(_connection);
+
+        public Task AddAsync(ClientAccountConnection connection, CancellationToken ct) => Task.CompletedTask;
+
+        public Task UpdateAsync(ClientAccountConnection connection, CancellationToken ct) => Task.CompletedTask;
     }
 
     private sealed class NoopPublicationRepository : IPublicationRepository
