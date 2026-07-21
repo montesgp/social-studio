@@ -210,6 +210,23 @@ public sealed class SupabaseStorageAdapter : IGeneratedAssetStorage
         }
     }
 
+    /// <summary>
+    /// Builds a publicly-fetchable Supabase Storage URL (the <c>/object/public/</c> variant — no
+    /// <c>apikey</c>/<c>Authorization</c> header needed) for <paramref name="storagePath"/>. Reuses the
+    /// exact same base URL and bucket already configured for the authenticated adapter; requires the
+    /// bucket to be public. Never fails — Supabase itself returns 404 at fetch time for a private
+    /// bucket or missing object, which the caller (e.g. Instagram Graph) surfaces as a connector error.
+    /// </summary>
+    public Result<string> TryGetPublicUrl(string storagePath)
+    {
+        ArgumentNullException.ThrowIfNull(storagePath);
+
+        var encodedPath = EncodePathPreservingSlashes(storagePath);
+        var baseUrl = _options.Url.TrimEnd('/');
+        var url = $"{baseUrl}/storage/v1/object/public/{Uri.EscapeDataString(_options.Bucket)}/{encodedPath}";
+        return Result<string>.Success(url);
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------

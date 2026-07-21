@@ -12,10 +12,16 @@ namespace Incoders.Hive.Infrastructure.Social.Publications;
 /// <see cref="Result{TValue}"/> crosses into Application.
 ///
 /// <para>
-/// Publish flow (two-step, per the Graph Content Publishing API): create a media container
-/// (<c>POST /{ig-user-id}/media</c>) with the asset URL + caption, then publish it
-/// (<c>POST /{ig-user-id}/media_publish</c>) with the resulting <c>creation_id</c>. v1 publishes a
-/// single asset (the first entry of <see cref="ResolvedPublicationRequest.Assets"/>).
+/// Publish flow (per the Graph Content Publishing API):
+/// <list type="bullet">
+///   <item><description><b>Single image</b> (<c>Assets.Count == 1</c>): create one media container
+///   (<c>POST /{ig-user-id}/media</c>) with the asset URL + caption, then publish it
+///   (<c>POST /{ig-user-id}/media_publish</c>) with the resulting <c>creation_id</c>.</description></item>
+///   <item><description><b>Carousel</b> (<c>Assets.Count &gt; 1</c>): create one child media container
+///   per asset with <c>is_carousel_item=true</c> (no caption on children), then a parent carousel
+///   container (<c>media_type=CAROUSEL</c>, <c>children=&lt;child ids&gt;</c>, caption on the parent),
+///   then publish the parent container the same way as the single-image flow.</description></item>
+/// </list>
 /// </para>
 /// </summary>
 public sealed class InstagramGraphPublicationConnector : IPublicationConnector
@@ -40,10 +46,12 @@ public sealed class InstagramGraphPublicationConnector : IPublicationConnector
                 PublicationErrors.Validation("At least one asset is required to publish to Instagram."));
         }
 
-        var asset = request.Assets[0];
+        var containerResult = request.Assets.Count == 1
+            ? await CreateMediaContainerAsync(
+                request.ExternalAccountId, request.AccessToken, request.Assets[0].Url, request.Caption,
+                isCarouselItem: false, ct)
+            : await CreateCarouselContainerAsync(request, ct);
 
-        var containerResult = await CreateMediaContainerAsync(
-            request.ExternalAccountId, request.AccessToken, asset.Url, request.Caption, ct);
         if (containerResult.IsFailure)
         {
             return Result.Failure<PublicationResult>(containerResult.Error);
@@ -57,14 +65,54 @@ public sealed class InstagramGraphPublicationConnector : IPublicationConnector
             : Result.Success(new PublicationResult(publishResult.Value));
     }
 
+    /// <summary>Creates one child container per asset (<c>is_carousel_item=true</c>, no caption), then
+    /// the parent carousel container referencing all children (caption goes on the parent).</summary>
+    private async Task<Result<string>> CreateCarouselContainerAsync(
+        ResolvedPublicationRequest request, CancellationToken ct)
+    {
+        var childIds = new List<string>(request.Assets.Count);
+        foreach (var asset in request.Assets)
+        {
+            var child = await CreateMediaContainerAsync(
+                request.ExternalAccountId, request.AccessToken, asset.Url, caption: null,
+                isCarouselItem: true, ct);
+            if (child.IsFailure)
+            {
+                return child;
+            }
+
+            childIds.Add(child.Value);
+        }
+
+        var form = new Dictionary<string, string>
+        {
+            ["media_type"] = "CAROUSEL",
+            ["children"] = string.Join(',', childIds),
+            ["access_token"] = request.AccessToken,
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.Caption))
+        {
+            form["caption"] = request.Caption;
+        }
+
+        return await PostGraphAsync($"{GraphApiBaseUrl}/{request.ExternalAccountId}/media", form, ct);
+    }
+
     private Task<Result<string>> CreateMediaContainerAsync(
-        string externalAccountId, string accessToken, string imageUrl, string? caption, CancellationToken ct)
+        string externalAccountId, string accessToken, string imageUrl, string? caption,
+        bool isCarouselItem, CancellationToken ct)
     {
         var form = new Dictionary<string, string>
         {
             ["image_url"] = imageUrl,
             ["access_token"] = accessToken,
         };
+
+        if (isCarouselItem)
+        {
+            form["is_carousel_item"] = "true";
+        }
 
         if (!string.IsNullOrWhiteSpace(caption))
         {

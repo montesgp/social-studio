@@ -23,6 +23,16 @@ public interface IGeneratedAssetStorage
 
     /// <summary>Permanently removes an object from storage.</summary>
     Task DeleteAsync(string storagePath, CancellationToken ct);
+
+    /// <summary>
+    /// Attempts to build a publicly-fetchable URL (no auth headers required) for the object at
+    /// <paramref name="storagePath"/> — used by outbound integrations (e.g. the Instagram Graph API)
+    /// that fetch media themselves rather than receiving bytes from us. Default implementation fails
+    /// with <see cref="StorageErrors.PublicUrlUnsupported"/>; only backends with a genuine public-URL
+    /// scheme (e.g. a public Supabase Storage bucket) override it. Never throws.
+    /// </summary>
+    Result<string> TryGetPublicUrl(string storagePath) =>
+        Result<string>.Failure(StorageErrors.PublicUrlUnsupported);
 }
 
 /// <summary>Identifies the storage path for an asset: {orgId}/{clientId}/{analysisId}/{relativePath}.</summary>
@@ -75,4 +85,7 @@ public static class StorageErrors
 
     public static readonly Error ListFailed =
         Error.Failure("storage.list-failed", "storage.listFailed");
+
+    public static readonly Error PublicUrlUnsupported =
+        Error.Failure("storage.public-url-unsupported", "storage.publicUrlUnsupported");
 }
