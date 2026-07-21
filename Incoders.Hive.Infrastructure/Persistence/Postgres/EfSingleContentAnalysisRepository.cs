@@ -180,6 +180,22 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
         return new SingleContentAnalysisHistoryPage(items, totalCount, safePage, safePageSize);
     }
 
+    public async Task<IReadOnlyList<SingleContentAnalysisRecord>> ListCompletedByClientAsync(
+        Guid organizationId,
+        Guid clientId,
+        CancellationToken cancellationToken = default)
+    {
+        var completedStatus = SingleContentAnalysisStatus.Analyzed.ToString();
+
+        var rows = await _dbContext.SingleContentAnalyses
+            .AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.ClientId == clientId && x.Status == completedStatus)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(ToRecord).ToList();
+    }
+
     public async Task<SingleContentAnalysisHistoryItem?> FindLatestByUserAndUrlAsync(
         Guid organizationId,
         Guid userId,

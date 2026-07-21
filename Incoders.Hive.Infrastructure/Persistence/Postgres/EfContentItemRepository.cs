@@ -65,6 +65,36 @@ public sealed class EfContentItemRepository : IContentItemRepository
             .ToList();
     }
 
+    public async Task<IReadOnlyList<ContentItem>> ListByClientAsync(
+        Guid organizationId, Guid clientId, ContentBankFilter filter, CancellationToken ct)
+    {
+        var query = _dbContext.ContentStudioItems
+            .AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.ClientId == clientId);
+
+        if (filter.FromUtc is { } fromUtc)
+        {
+            query = query.Where(x => x.CreatedAtUtc >= fromUtc);
+        }
+
+        if (filter.ToUtc is { } toUtc)
+        {
+            query = query.Where(x => x.CreatedAtUtc <= toUtc);
+        }
+
+        if (filter.State is { } state)
+        {
+            var stateValue = (short)state;
+            query = query.Where(x => x.ReviewState == stateValue);
+        }
+
+        var rows = await query
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .ToListAsync(ct);
+
+        return rows.Select(ToDomain).ToList();
+    }
+
     public async Task AddRangeAsync(IReadOnlyList<ContentItem> items, CancellationToken ct)
     {
         foreach (var item in items)

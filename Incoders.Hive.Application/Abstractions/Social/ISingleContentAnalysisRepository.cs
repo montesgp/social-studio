@@ -40,6 +40,19 @@ public interface ISingleContentAnalysisRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Lists a client's completed (<see cref="SingleContentAnalysisStatus.Analyzed"/>) analyses,
+    /// across all owning users, newest first. Used by the Content Bank's lazy materialization
+    /// (design §5.3) to find analyses that still need a <c>ContentSet</c> materialized. Default
+    /// implementation returns empty — only <c>EfSingleContentAnalysisRepository</c> overrides it;
+    /// existing fakes across the test suite keep compiling unchanged.
+    /// </summary>
+    Task<IReadOnlyList<SingleContentAnalysisRecord>> ListCompletedByClientAsync(
+        Guid organizationId,
+        Guid clientId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<SingleContentAnalysisRecord>>([]);
+
+    /// <summary>
     /// Finds the newest analysis owned by the user for the same submitted or normalized URL.
     /// Used as a pre-flight duplicate check before queueing a new extraction + AI run.
     /// </summary>
