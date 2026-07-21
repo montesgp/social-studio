@@ -1,5 +1,5 @@
-import { PlaceholderPage } from "@/components/dashboard/placeholder-page";
+import { PublicationsWorkspace } from "@/components/social/publications/publications-workspace";
 
 export default function PublicationsPage() {
-  return <PlaceholderPage title="Publications" description="Publication pipeline and provider tracking are placeholders." />;
+  return <PublicationsWorkspace />;
 }

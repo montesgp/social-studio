@@ -118,14 +118,14 @@ Chain strategy: pending
 
 ## Phase 13 — Frontend: Publications Workspace (PR 4, WU 4) — refs design §10
 
-- [ ] 13.1 Create `apps/web/lib/api/publications.ts` (mirrors `content-studio.ts`) — typed client for Bank items, publications (publish/schedule/retry/cancel/reclaim), and account connections, per the DTOs in design §9.
-- [ ] 13.2 Replace `apps/web/app/(dashboard)/publications/page.tsx` (currently `PlaceholderPage`) with `PublicationsPage` → `PublicationsWorkspace` (container: client selector, date-range filter state, fetches Bank items, holds shared item+publication data, renders tab strip `[Bank · Planner · Published]`).
-- [ ] 13.3 **[P]** Build **Bank tab**: `ContentBankGrid` (presentational grid, thumbnails from resolved markup, date-range picker defaulting to last 7 days per OQ-4, `ReviewState` filter chips), `DestinationPicker` (lists the client's Instagram `ClientAccountConnection`s), "Publish now" action on Approved/ReadyForPublication cards (Schedule action hidden in v1 per design §15). Clicking a card opens `content-studio-panel.tsx` (reused verbatim, unmodified).
-- [ ] 13.4 **[P]** Build **Planner tab**: `PublicationPlannerBoard` (presentational kanban) with columns per design §2/OQ-3 (`Ready · Scheduled · Publishing · Published · Failed` lane, `Rejected` as a filter chip not a column, `Cancelled` hidden-by-default via filter). Card actions issue commands (publish-now/retry/cancel); the board is a pure projection, never owns state. Multi-destination items render as multiple independent publication-cards.
-- [ ] 13.5 **[P]** Build **Published tab**: `PublishedList` (recency-weighted list of `Published` publications with external reference links, filterable by range).
-- [ ] 13.6 Build shared components: `PublicationCard.tsx`, `PublicationStatusBadge.tsx`, `AttemptHistoryPopover.tsx`.
-- [ ] 13.7 Build `ClientAccountConnectionsPanel.tsx` (settings surface reachable from the client context; token input is write-only — never pre-filled, never returned; gated to org-admin per design §15).
-- [ ] 13.8 Frontend build + type-check pass; component tests for `ContentBankGrid`, `PublicationPlannerBoard` column placement, and `PublicationCard`/`PublicationStatusBadge` rendering. **PR 4 checkpoint.**
+- [x] 13.1 Create `apps/web/lib/api/publications.ts` (mirrors `content-studio.ts`) — typed client for Bank items, publications (publish/schedule/retry/cancel/reclaim), and account connections, per the DTOs in design §9.
+- [x] 13.2 Replace `apps/web/app/(dashboard)/publications/page.tsx` (currently `PlaceholderPage`) with `PublicationsPage` → `PublicationsWorkspace` (container: client selector, date-range filter state, fetches Bank items, holds shared item+publication data, renders tab strip `[Bank · Planner · Published]`).
+- [x] 13.3 **[P]** Build **Bank tab**: `ContentBankGrid` (presentational grid, thumbnails from resolved markup, date-range picker defaulting to last 7 days per OQ-4, `ReviewState` filter chips), `DestinationPicker` (lists the client's Instagram `ClientAccountConnection`s), "Publish now" action on Approved/ReadyForPublication cards (Schedule action hidden in v1 per design §15). Clicking a card opens `content-studio-panel.tsx` (reused verbatim, unmodified).
+- [x] 13.4 **[P]** Build **Planner tab**: `PublicationPlannerBoard` (presentational kanban) with columns per design §2/OQ-3 (`Ready · Scheduled · Publishing · Published · Failed` lane, `Rejected` as a filter chip not a column, `Cancelled` hidden-by-default via filter). Card actions issue commands (publish-now/retry/cancel); the board is a pure projection, never owns state. Multi-destination items render as multiple independent publication-cards.
+- [x] 13.5 **[P]** Build **Published tab**: `PublishedList` (recency-weighted list of `Published` publications with external reference links, filterable by range).
+- [x] 13.6 Build shared components: `PublicationCard.tsx`, `PublicationStatusBadge.tsx`, `AttemptHistoryPopover.tsx`.
+- [x] 13.7 Build `ClientAccountConnectionsPanel.tsx` (settings surface reachable from the client context; token input is write-only — never pre-filled, never returned; gated to org-admin per design §15).
+- [x] 13.8 Frontend build + type-check pass; component tests for `ContentBankGrid`, `PublicationPlannerBoard` column placement, and `PublicationCard`/`PublicationStatusBadge` rendering. **PR 4 checkpoint.**
 
 ## Phase 14 — Docs Sync, ADR, and Cleanup (PR 5, WU 5) — refs PUB-01–PUB-06, CB-01–CB-04, CS-BANK-01, INT-BANK-01, INT-BANK-02
 
