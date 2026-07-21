@@ -77,6 +77,44 @@ public sealed class PublicationDestinationResolverTests
         Assert.False(protector.WasCalled);
     }
 
+    [Fact]
+    public async Task ResolveAsync_ConnectionDisabled_ReturnsDestinationUnresolved()
+    {
+        var connection = BuildConnection();
+        Assert.True(connection.Disable(DateTime.UtcNow).IsSuccess);
+        var connections = new FakeClientAccountConnectionRepository(connection);
+        var integrationResolver = new FakeIntegrationResolver(IntegrationStatus.Connected);
+        var protector = new FakeProtector();
+
+        var resolver = new PublicationDestinationResolver(connections, integrationResolver, protector);
+        var destination = new PublicationDestination(ConnectionId.Value, NetworkId.Value, "instagram");
+
+        var result = await resolver.ResolveAsync(OrganizationId, destination, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(PublicationErrors.DestinationUnresolved.Code, result.Error.Code);
+        Assert.False(protector.WasCalled);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ConnectionInFailedStatus_ReturnsDestinationUnresolved()
+    {
+        var connection = BuildConnection();
+        connection.MarkTestResult(isSuccess: false, error: "provider rejected", DateTime.UtcNow);
+        var connections = new FakeClientAccountConnectionRepository(connection);
+        var integrationResolver = new FakeIntegrationResolver(IntegrationStatus.Connected);
+        var protector = new FakeProtector();
+
+        var resolver = new PublicationDestinationResolver(connections, integrationResolver, protector);
+        var destination = new PublicationDestination(ConnectionId.Value, NetworkId.Value, "instagram");
+
+        var result = await resolver.ResolveAsync(OrganizationId, destination, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(PublicationErrors.DestinationUnresolved.Code, result.Error.Code);
+        Assert.False(protector.WasCalled);
+    }
+
     private static ClientAccountConnection BuildConnection()
     {
         var created = ClientAccountConnection.Create(

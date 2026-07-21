@@ -24,7 +24,11 @@ public sealed record CreateClientAccountConnectionCommand(
     string ExternalAccountId,
     string AccessToken,
     DateTime? TokenExpiresAtUtc)
-    : IRequest<Result<ClientAccountConnectionResponse>>;
+    : IRequest<Result<ClientAccountConnectionResponse>>
+{
+    // Defense-in-depth: carries a plaintext AccessToken; never let the default record ToString() print it.
+    public override string ToString() => "CreateClientAccountConnectionCommand { [redacted] }";
+}
 
 public sealed class CreateClientAccountConnectionCommandValidator
     : AbstractValidator<CreateClientAccountConnectionCommand>

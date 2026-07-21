@@ -17,7 +17,11 @@ public sealed record RotateClientAccountTokenCommand(
     Guid ConnectionId,
     string AccessToken,
     DateTime? TokenExpiresAtUtc)
-    : IRequest<Result<ClientAccountConnectionResponse>>;
+    : IRequest<Result<ClientAccountConnectionResponse>>
+{
+    // Defense-in-depth: carries a plaintext AccessToken; never let the default record ToString() print it.
+    public override string ToString() => "RotateClientAccountTokenCommand { [redacted] }";
+}
 
 public sealed class RotateClientAccountTokenCommandValidator
     : AbstractValidator<RotateClientAccountTokenCommand>

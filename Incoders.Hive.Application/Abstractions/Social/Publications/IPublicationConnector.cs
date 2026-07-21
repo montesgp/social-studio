@@ -36,7 +36,11 @@ public sealed record ResolvedPublicationRequest(
     string AccessToken,
     string NetworkKey,
     string? Caption,
-    IReadOnlyList<PublicationAssetRef> Assets);
+    IReadOnlyList<PublicationAssetRef> Assets)
+{
+    // Defense-in-depth: carries a plaintext AccessToken; never let the default record ToString() print it.
+    public override string ToString() => "ResolvedPublicationRequest { [redacted] }";
+}
 
 /// <summary>A resolved, publicly-fetchable media reference the connector can hand to the provider.</summary>
 public sealed record PublicationAssetRef(string Url, string Mime);

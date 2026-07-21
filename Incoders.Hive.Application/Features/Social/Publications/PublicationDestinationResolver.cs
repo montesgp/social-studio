@@ -43,6 +43,13 @@ public sealed class PublicationDestinationResolver : IPublicationDestinationReso
             return Result.Failure<ResolvedPublicationCredentials>(PublicationErrors.DestinationUnresolved);
         }
 
+        // Per-client level guard (PUB-04): a Disabled/Failed connection is "not connected" — fail before
+        // unprotecting the token or hitting the provider. The org-level check is delegated to the resolver below.
+        if (connection.Status != ClientAccountConnectionStatus.Connected)
+        {
+            return Result.Failure<ResolvedPublicationCredentials>(PublicationErrors.DestinationUnresolved);
+        }
+
         // Org-level app access. ResolveProviderAsync already fails with IntegrationNotConnected when
         // Status != Connected and verifies category "publishing" — no duplicate check here.
         var resolvedIntegration = await _integrationResolver.ResolveProviderAsync(

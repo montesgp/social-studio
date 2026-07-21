@@ -23,4 +23,8 @@ public interface IPublicationDestinationResolver
 public sealed record ResolvedPublicationCredentials(
     string ExternalAccountId,
     string AccessToken,
-    string NetworkKey);
+    string NetworkKey)
+{
+    // Defense-in-depth: carries a plaintext AccessToken; never let the default record ToString() print it.
+    public override string ToString() => "ResolvedPublicationCredentials { [redacted] }";
+}
