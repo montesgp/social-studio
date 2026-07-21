@@ -64,27 +64,27 @@ Chain strategy: pending
 
 ## Phase 5 — Application: Connector Port & Credential Resolution (PR 2, WU 2) — refs PUB-04, PUB-05
 
-- [ ] 5.1 **[RED]** Add `Incoders.Hive.Tests/Application/Social/Publications/PublicationDestinationResolverTests.cs` (fakes for `IClientAccountConnectionRepository` / `IIntegrationResolver` / `IIntegrationSecretProtector`) — resolves both levels when connected; fails with `DestinationUnresolved` when the org-level integration is not `Connected` (delegates to the existing `IntegrationNotConnected` from `ResolveProviderAsync`) or when the `ClientAccountConnection` is missing; the unprotected token never appears outside the returned request object.
-- [ ] 5.2 **[GREEN]** Create `Abstractions/Social/Publications/IPublicationConnector.cs` (`NetworkKey`, `PublishAsync(ResolvedPublicationRequest, ct) → Result<PublicationResult>`), `ResolvedPublicationRequest.cs`, `PublicationResult.cs`, `PublicationAssetRef.cs`, `IPublicationConnectorSelector.cs`, and `Features/Social/Publications/PublicationDestinationResolver.cs` implementing design §6.2's 4-step resolution.
-- [ ] 5.3 Run `dotnet test` — Application resolver tests green.
+- [x] 5.1 **[RED]** Add `Incoders.Hive.Tests/Application/Social/Publications/PublicationDestinationResolverTests.cs` (fakes for `IClientAccountConnectionRepository` / `IIntegrationResolver` / `IIntegrationSecretProtector`) — resolves both levels when connected; fails with `DestinationUnresolved` when the org-level integration is not `Connected` (delegates to the existing `IntegrationNotConnected` from `ResolveProviderAsync`) or when the `ClientAccountConnection` is missing; the unprotected token never appears outside the returned request object.
+- [x] 5.2 **[GREEN]** Create `Abstractions/Social/Publications/IPublicationConnector.cs` (`NetworkKey`, `PublishAsync(ResolvedPublicationRequest, ct) → Result<PublicationResult>`), `ResolvedPublicationRequest.cs`, `PublicationResult.cs`, `PublicationAssetRef.cs`, `IPublicationConnectorSelector.cs`, and `Features/Social/Publications/PublicationDestinationResolver.cs` implementing design §6.2's 4-step resolution.
+- [x] 5.3 Run `dotnet test` — Application resolver tests green.
 
 ## Phase 6 — Infrastructure: Instagram Connector (PR 2, WU 2) — refs PUB-05
 
-- [ ] 6.1 **[RED]** Add `Incoders.Hive.Tests/Infrastructure/Social/Publications/InstagramGraphPublicationConnectorTests.cs` — stubbed Graph `HttpMessageHandler`: success (media container create → publish) returns `Result<PublicationResult>` with the external media id; failure (non-2xx / provider error body) returns a failed `Result` with no exception; asserts no Graph SDK/HTTP type is required by the caller (compile-time — only domain/application types cross the port).
-- [ ] 6.2 **[GREEN]** Create `Infrastructure/Social/Publications/InstagramGraphPublicationConnector.cs` implementing `IPublicationConnector` (`NetworkKey = "instagram"`); register it + `IPublicationConnectorSelector` in DI.
-- [ ] 6.3 Run gates: `pwsh -File scripts/gates/Run-Gates.ps1` — architecture gate must confirm no Instagram/Graph API type is visible from Domain or Application.
+- [x] 6.1 **[RED]** Add `Incoders.Hive.Tests/Infrastructure/Social/Publications/InstagramGraphPublicationConnectorTests.cs` — stubbed Graph `HttpMessageHandler`: success (media container create → publish) returns `Result<PublicationResult>` with the external media id; failure (non-2xx / provider error body) returns a failed `Result` with no exception; asserts no Graph SDK/HTTP type is required by the caller (compile-time — only domain/application types cross the port).
+- [x] 6.2 **[GREEN]** Create `Infrastructure/Social/Publications/InstagramGraphPublicationConnector.cs` implementing `IPublicationConnector` (`NetworkKey = "instagram"`); register it + `IPublicationConnectorSelector` in DI.
+- [x] 6.3 Run gates: `pwsh -File scripts/gates/Run-Gates.ps1` — architecture gate must confirm no Instagram/Graph API type is visible from Domain or Application.
 
 ## Phase 7 — Application: Credential Management Commands (PR 2, WU 2) — refs OQ-1 (design §2), INT-BANK-01
 
-- [ ] 7.1 **[RED]** Add `ClientAccountConnectionCommandsTests.cs` — `CreateClientAccountConnectionCommand` protects the plaintext token via `IIntegrationSecretProtector.Protect` BEFORE constructing the aggregate (fake protector asserts it was called with the raw value, never persisted); `RotateClientAccountTokenCommand` re-protects and replaces ciphertext; `TestClientAccountConnectionCommand` calls the connector's verify path (or a cheap Graph `GET me` behind the same connector abstraction) and records `MarkTestResult`; `ListClientAccountConnectionsQuery` → `ClientAccountConnectionResponse` NEVER includes the token field, only `ExternalAccountId`/status/expiry/lastTested.
-- [ ] 7.2 **[GREEN]** Create `Features/Social/Publications/Connections/**` (`CreateClientAccountConnectionCommand`, `RotateClientAccountTokenCommand`, `TestClientAccountConnectionCommand`, `ListClientAccountConnectionsQuery`) + handlers + validators; register in DI.
-- [ ] 7.3 Run `dotnet test`.
+- [x] 7.1 **[RED]** Add `ClientAccountConnectionCommandsTests.cs` — `CreateClientAccountConnectionCommand` protects the plaintext token via `IIntegrationSecretProtector.Protect` BEFORE constructing the aggregate (fake protector asserts it was called with the raw value, never persisted); `RotateClientAccountTokenCommand` re-protects and replaces ciphertext; `TestClientAccountConnectionCommand` calls the connector's verify path (or a cheap Graph `GET me` behind the same connector abstraction) and records `MarkTestResult`; `ListClientAccountConnectionsQuery` → `ClientAccountConnectionResponse` NEVER includes the token field, only `ExternalAccountId`/status/expiry/lastTested.
+- [x] 7.2 **[GREEN]** Create `Features/Social/Publications/Connections/**` (`CreateClientAccountConnectionCommand`, `RotateClientAccountTokenCommand`, `TestClientAccountConnectionCommand`, `ListClientAccountConnectionsQuery`) + handlers + validators; register in DI.
+- [x] 7.3 Run `dotnet test`.
 
 ## Phase 8 — Api: Connection Management Endpoints (PR 2, WU 2) — refs design §9, INT-BANK-01
 
-- [ ] 8.1 Add connection routes to a new `Incoders.Hive.ApiService/Endpoints/Social/MapPublicationConnectionEndpoints.cs`: `GET /api/social/clients/{clientId}/account-connections`, `POST /api/social/clients/{clientId}/account-connections`, `PUT /api/social/account-connections/{connectionId}/token`, `POST /api/social/account-connections/{connectionId}/test`. Org-scope via `ICurrentTenant.TenantId`; gate connection-management routes to org `admin` role (design §15). Register in the API route builder.
-- [ ] 8.2 **[RED]** Add `Incoders.Hive.Tests/Api/Social/PublicationConnectionEndpointTests.cs` — smoke tests: create returns a token-free DTO, list never includes the token, cross-organization denial, non-admin denial.
-- [ ] 8.3 Run `dotnet test` + gates. **PR 2 checkpoint.**
+- [x] 8.1 Add connection routes to a new `Incoders.Hive.ApiService/Endpoints/Social/MapPublicationConnectionEndpoints.cs`: `GET /api/social/clients/{clientId}/account-connections`, `POST /api/social/clients/{clientId}/account-connections`, `PUT /api/social/account-connections/{connectionId}/token`, `POST /api/social/account-connections/{connectionId}/test`. Org-scope via `ICurrentTenant.TenantId`; gate connection-management routes to org `admin` role (design §15). Register in the API route builder.
+- [x] 8.2 **[RED]** Add `Incoders.Hive.Tests/Api/Social/PublicationConnectionEndpointTests.cs` — smoke tests: create returns a token-free DTO, list never includes the token, cross-organization denial, non-admin denial.
+- [x] 8.3 Run `dotnet test` + gates. **PR 2 checkpoint.**
 
 ## Phase 9 — Application: Publish-Now & Lifecycle Commands (PR 3, WU 3) — refs PUB-01, PUB-02, PUB-03, PUB-06
 

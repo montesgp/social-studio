@@ -167,6 +167,7 @@ app.MapSingleAnalyzerEndpoints();
 app.MapProfileAnalyzerEndpoints();
 app.MapContentGenerationEndpoints();
 app.MapContentStudioEndpoints();
+app.MapPublicationConnectionEndpoints();
 app.MapUserPreferencesEndpoints();
 
 app.MapDefaultEndpoints();
