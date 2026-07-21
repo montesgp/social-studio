@@ -19,6 +19,10 @@ public static class PublicationErrors
         "social.publications.destination_unresolved",
         "social.publications.errors.destination_unresolved");
 
+    public static readonly Error NotFound = Error.NotFound(
+        "social.publications.not_found",
+        "social.publications.errors.not_found");
+
     public static readonly Error ConnectorNotFound = Error.Validation(
         "social.publications.connector_not_found",
         "social.publications.errors.connector_not_found");

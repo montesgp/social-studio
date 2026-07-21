@@ -144,6 +144,8 @@ public static class DependencyInjection
         services.AddScoped<IClientAccountConnectionRepository, EfClientAccountConnectionRepository>();
         services.AddScoped<IPublicationDestinationResolver, PublicationDestinationResolver>();
         services.AddScoped<IPublicationConnectorSelector, PublicationConnectorSelector>();
+        // Shared connector-invocation helper for PublishItemNowCommand/RetryPublicationCommand (WU3).
+        services.AddScoped<PublicationPublishAttemptRunner>();
         // Native Instagram Graph API adapter — v1's only registered IPublicationConnector. Typed
         // HttpClient owns the connector; also exposed as IPublicationConnector for the selector's
         // IEnumerable<IPublicationConnector> composition.
