@@ -1,0 +1,107 @@
+change: content-bank-planner
+status: proposal
+completed_at: null
+adr: null
+
+artifacts:
+  exploration: openspec/changes/content-bank-planner/exploration.md
+  proposal: openspec/changes/content-bank-planner/proposal.md
+  design: openspec/changes/content-bank-planner/design.md
+  tasks: openspec/changes/content-bank-planner/tasks.md
+  specs:
+    - openspec/changes/content-bank-planner/specs/content-bank/spec.md
+    - openspec/changes/content-bank-planner/specs/publishing/spec.md
+    - openspec/changes/content-bank-planner/specs/content-studio/spec-delta.md
+    - openspec/changes/content-bank-planner/specs/integrations/spec-delta.md
+
+scope:
+  phase: 1
+  name: "Content Bank + Publication axis + Instagram-only publish-now"
+  roadmap:
+    - phase: 2
+      name: "Scheduler/dispatcher worker (timed Scheduled -> Publishing)"
+      status: deferred
+      notes: "New background infra. v1 models the Scheduled state + ScheduledForUtc so this is additive; publish-now ships without it."
+    - phase: 3
+      name: "Meta adapter + other networks (TikTok, YouTube, X)"
+      status: deferred
+      notes: "IPublicationConnector is channel-agnostic. Each network is an additional adapter behind the same port."
+    - phase: 4
+      name: "Background materialization on generation completion"
+      status: deferred
+      notes: "v1 is lazy materialize-on-Bank-load only (reuses MaterializeAnalysisCommand)."
+    - phase: 5
+      name: "Blotato multi-network consolidation"
+      status: deferred
+      notes: "Deferred future consolidation; native per-network adapters first."
+    - phase: 6
+      name: "Published-history recency polish + post-publish metrics/insights"
+      status: deferred
+      notes: "Analytics capture after publish; out of the first slice."
+
+capabilities:
+  new:
+    - content-bank
+    - publishing
+  modified:
+    - content-studio
+    - integrations
+
+first_slice:
+  networks: [instagram]
+  publish_paths: [publish-now]
+  scheduling: modeled-not-fired   # Scheduled state + ScheduledForUtc exist; no dispatcher in v1
+  materialization: lazy-on-bank-load
+
+phases:
+  - id: 1
+    name: "Proposal"
+    status: complete
+    notes: "This document. Problem/intent, scope, capabilities, first-slice MVP boundary, risks."
+  - id: 2
+    name: "Specs"
+    status: complete
+    notes: "content-bank + publishing spec; content-studio + integrations deltas. PUB-01 updated to allow re-publish (no (item,destination) uniqueness) per user decision."
+  - id: 3
+    name: "Design"
+    status: complete
+    notes: "Publication aggregate + two-axis model, IPublicationConnector, native IG adapter, two-level credential model (new ClientAccountConnection), Bank query. §15 product decisions resolved; §16 reconciles/deprecates the older IPublicationHandoff contract (pull-by-id supersedes push-payload). ADR 0005 recommended."
+  - id: 4
+    name: "Tasks"
+    status: complete
+    notes: "14-phase, test-first checklist (tasks.md) grouped Domain -> Infra -> Application -> Api -> Frontend -> Docs/ADR. Review Workload Forecast: ~3,400-4,300 changed lines, High 400-line budget risk, 5 chained PRs recommended (PR1 domain+persistence, PR2 connector+credentials, PR3 lifecycle commands+Bank query+Api, PR4 frontend, PR5 docs/ADR). delivery_strategy=ask-on-risk; chain_strategy pending orchestrator decision."
+  - id: 5
+    name: "Apply"
+    status: pending
+  - id: 6
+    name: "Verify"
+    status: pending
+  - id: 7
+    name: "Archive"
+    status: pending
+
+validation:
+  gates: PENDING
+  detail: "No implementation yet. Run-Gates.ps1 to run before completion; strict TDD; architecture gate must stay green."
+
+migrations:
+  - name: Add_Publications
+    applied: false
+    note: "Not yet generated. Additive — creates social.publications. Plus per-client account credential storage (ClientOwnAccount extension or new ClientAccountConnection)."
+
+delivery:
+  strategy: direct-to-dev   # user decision: commit straight to dev, no PRs (owner-authorized workflow); sliced into work-unit commits, not chained PRs
+  target_branch: dev
+  branch: null
+  apply_gate: "PAUSED — user reviews the plan (tasks.md / design.md) before apply starts; do NOT begin apply without explicit user OK"
+  work_units:   # same 5 slices, delivered as sequenced work-unit commits to dev instead of PRs
+    - name: "WU1 — Publication domain + persistence"
+      status: pending
+    - name: "WU2 — Connector + credentials"
+      status: pending
+    - name: "WU3 — Lifecycle commands + Bank query + Api"
+      status: pending
+    - name: "WU4 — Frontend"
+      status: pending
+    - name: "WU5 — Docs/ADR"
+      status: pending
