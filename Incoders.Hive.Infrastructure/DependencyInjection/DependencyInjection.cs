@@ -6,6 +6,7 @@ using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Social.ContentStudio;
+using Incoders.Hive.Application.Abstractions.Social.Publications;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
 using Incoders.Hive.Infrastructure.Ai;
@@ -137,6 +138,8 @@ public static class DependencyInjection
         services.AddScoped<IContentPlanRepository, EfContentPlanRepository>();
         services.AddScoped<IContentItemRepository, EfContentItemRepository>();
         services.AddScoped<IContentSetRepository, EfContentSetRepository>();
+        services.AddScoped<IPublicationRepository, EfPublicationRepository>();
+        services.AddScoped<IClientAccountConnectionRepository, EfClientAccountConnectionRepository>();
         services.AddScoped<IPublicationHandoff, Incoders.Hive.Infrastructure.Social.ContentStudio.LoggingPublicationHandoff>();
         services.AddScoped<SocialNetworkCatalogSeeder>();
         services.AddScoped<PlatformSystemModuleSeeder>();

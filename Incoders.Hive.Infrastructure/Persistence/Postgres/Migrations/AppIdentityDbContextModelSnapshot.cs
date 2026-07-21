@@ -205,6 +205,84 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("canva_user_tokens", "platform");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientAccountConnectionData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("EncryptedAccessToken")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("encrypted_access_token");
+
+                    b.Property<string>("ExternalAccountId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("external_account_id");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTime?>("LastTestedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_tested_at_utc");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<Guid>("OrganizationIntegrationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_integration_id");
+
+                    b.Property<Guid>("SocialNetworkId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("social_network_id");
+
+                    b.Property<short>("Status")
+                        .HasColumnType("smallint")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime?>("TokenExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("token_expires_at_utc");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_client_account_connections");
+
+                    b.HasIndex("ClientId")
+                        .HasDatabaseName("ix_client_account_connections_client_id");
+
+                    b.HasIndex("OrganizationIntegrationId")
+                        .HasDatabaseName("ix_client_account_connections_organization_integration_id");
+
+                    b.HasIndex("OrganizationId", "ClientId")
+                        .HasDatabaseName("ix_client_account_connections_org_client");
+
+                    b.HasIndex("OrganizationId", "ClientId", "SocialNetworkId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_client_account_connections_org_client_network_unique");
+
+                    b.ToTable("client_account_connections", "social");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientBrandManualData", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2039,6 +2117,131 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("provider_cost_rates", "platform");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.PublicationAttemptData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_number");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("error_message");
+
+                    b.Property<string>("ExternalReference")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("external_reference");
+
+                    b.Property<DateTime?>("FinishedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at_utc");
+
+                    b.Property<short>("Outcome")
+                        .HasColumnType("smallint")
+                        .HasColumnName("outcome");
+
+                    b.Property<Guid>("PublicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("publication_id");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_publication_attempts");
+
+                    b.HasIndex("PublicationId")
+                        .HasDatabaseName("ix_publication_attempts_publication_id");
+
+                    b.HasIndex("PublicationId", "AttemptNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_publication_attempts_publication_attempt_number");
+
+                    b.ToTable("publication_attempts", "social");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.PublicationData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_id");
+
+                    b.Property<Guid>("ContentItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("content_item_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<Guid>("DestinationClientAccountConnectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("destination_client_account_connection_id");
+
+                    b.Property<string>("DestinationNetworkKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("destination_network_key");
+
+                    b.Property<Guid>("DestinationSocialNetworkId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("destination_social_network_id");
+
+                    b.Property<string>("ExternalReference")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("external_reference");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<DateTime?>("ScheduledForUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("scheduled_for_utc");
+
+                    b.Property<short>("Status")
+                        .HasColumnType("smallint")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_publications");
+
+                    b.HasIndex("ClientId")
+                        .HasDatabaseName("ix_publications_client_id");
+
+                    b.HasIndex("ContentItemId")
+                        .HasDatabaseName("ix_publications_content_item");
+
+                    b.HasIndex("OrganizationId", "ClientId")
+                        .HasDatabaseName("ix_publications_client");
+
+                    b.HasIndex("OrganizationId", "Status")
+                        .HasDatabaseName("ix_publications_status");
+
+                    b.HasIndex("Status", "ScheduledForUtc")
+                        .HasDatabaseName("ix_publications_scheduled");
+
+                    b.ToTable("publications", "social");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SingleContentAnalysisData", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2731,6 +2934,30 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasConstraintName("fk_canva_user_tokens_organization_integration");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientAccountConnectionData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_client_account_connections_clients_client_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_client_account_connections_organizations_organization_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationIntegrationData", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationIntegrationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_client_account_connections_organization_integrations_organi~");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ClientBrandManualData", b =>
                 {
                     b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData", null)
@@ -3142,6 +3369,35 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.Navigation("Organization");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.PublicationAttemptData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.PublicationData", "Publication")
+                        .WithMany("Attempts")
+                        .HasForeignKey("PublicationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_publication_attempts_publications_publication_id");
+
+                    b.Navigation("Publication");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.PublicationData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_publications_clients_client_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_publications_organizations_organization_id");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SingleContentAnalysisData", b =>
                 {
                     b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", "Organization")
@@ -3267,6 +3523,11 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationIntegrationData", b =>
                 {
                     b.Navigation("Credentials");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.PublicationData", b =>
+                {
+                    b.Navigation("Attempts");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SingleContentAnalysisData", b =>

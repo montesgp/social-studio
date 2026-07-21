@@ -91,6 +91,12 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<ContentStudioSetItemData> ContentStudioSetItems => Set<ContentStudioSetItemData>();
 
+    public DbSet<PublicationData> Publications => Set<PublicationData>();
+
+    public DbSet<PublicationAttemptData> PublicationAttempts => Set<PublicationAttemptData>();
+
+    public DbSet<ClientAccountConnectionData> ClientAccountConnections => Set<ClientAccountConnectionData>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -1265,6 +1271,116 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .HasDatabaseName("ix_content_studio_set_items_set_item");
             entity.HasIndex(x => x.ItemId)
                 .HasDatabaseName("ix_content_studio_set_items_item_id");
+        });
+
+        // ── Publications (publication axis; soft ref to content_studio_items, orphan-tolerant) ──
+        builder.Entity<PublicationData>(entity =>
+        {
+            entity.ToTable("publications", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+
+            // Soft reference — no FK to content_studio_items
+            entity.Property(x => x.ContentItemId).HasColumnName("content_item_id").IsRequired();
+
+            entity.Property(x => x.DestinationClientAccountConnectionId)
+                .HasColumnName("destination_client_account_connection_id").IsRequired();
+            entity.Property(x => x.DestinationSocialNetworkId)
+                .HasColumnName("destination_social_network_id").IsRequired();
+            entity.Property(x => x.DestinationNetworkKey)
+                .HasColumnName("destination_network_key").HasMaxLength(64).IsRequired();
+
+            entity.Property(x => x.Status).HasColumnName("status").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.ScheduledForUtc).HasColumnName("scheduled_for_utc");
+            entity.Property(x => x.ExternalReference).HasColumnName("external_reference").HasMaxLength(256);
+
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: client_id → social.clients(id) ON DELETE CASCADE
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // publication → attempts (owned one-to-many, cascade; FK lives on the attempt side)
+            entity.HasMany(x => x.Attempts)
+                .WithOne(x => x.Publication)
+                .HasForeignKey(x => x.PublicationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId }).HasDatabaseName("ix_publications_client");
+            entity.HasIndex(x => x.ContentItemId).HasDatabaseName("ix_publications_content_item");
+            entity.HasIndex(x => new { x.OrganizationId, x.Status }).HasDatabaseName("ix_publications_status");
+            entity.HasIndex(x => new { x.Status, x.ScheduledForUtc }).HasDatabaseName("ix_publications_scheduled");
+        });
+
+        builder.Entity<PublicationAttemptData>(entity =>
+        {
+            entity.ToTable("publication_attempts", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.PublicationId).HasColumnName("publication_id").IsRequired();
+            entity.Property(x => x.AttemptNumber).HasColumnName("attempt_number").IsRequired();
+            entity.Property(x => x.StartedAtUtc).HasColumnName("started_at_utc").IsRequired();
+            entity.Property(x => x.FinishedAtUtc).HasColumnName("finished_at_utc");
+            entity.Property(x => x.Outcome).HasColumnName("outcome").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.ErrorMessage).HasColumnName("error_message").HasMaxLength(2000);
+            entity.Property(x => x.ExternalReference).HasColumnName("external_reference").HasMaxLength(256);
+
+            entity.HasIndex(x => new { x.PublicationId, x.AttemptNumber })
+                .IsUnique()
+                .HasDatabaseName("ix_publication_attempts_publication_attempt_number");
+            entity.HasIndex(x => x.PublicationId).HasDatabaseName("ix_publication_attempts_publication_id");
+        });
+
+        // ── Client account connections (per-client publish credential; ciphertext only) ──
+        builder.Entity<ClientAccountConnectionData>(entity =>
+        {
+            entity.ToTable("client_account_connections", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.SocialNetworkId).HasColumnName("social_network_id").IsRequired();
+            entity.Property(x => x.OrganizationIntegrationId).HasColumnName("organization_integration_id").IsRequired();
+            entity.Property(x => x.ExternalAccountId).HasColumnName("external_account_id").HasMaxLength(256).IsRequired();
+            entity.Property(x => x.EncryptedAccessToken).HasColumnName("encrypted_access_token").IsRequired();
+            entity.Property(x => x.TokenExpiresAtUtc).HasColumnName("token_expires_at_utc");
+            entity.Property(x => x.Status).HasColumnName("status").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.LastTestedAtUtc).HasColumnName("last_tested_at_utc");
+            entity.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(2000);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: client_id → social.clients(id) ON DELETE CASCADE
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: organization_integration_id → platform.organization_integrations(id)
+            entity.HasOne<OrganizationIntegrationData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationIntegrationId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId, x.SocialNetworkId })
+                .IsUnique()
+                .HasDatabaseName("ix_client_account_connections_org_client_network_unique");
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId })
+                .HasDatabaseName("ix_client_account_connections_org_client");
         });
     }
 
