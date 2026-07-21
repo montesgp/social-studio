@@ -1,7 +1,7 @@
 change: content-bank-planner
-status: proposal
+status: applied
 completed_at: null
-adr: null
+adr: docs/architecture/adr/0005-publication-axis-and-two-level-credentials.md
 
 artifacts:
   exploration: openspec/changes/content-bank-planner/exploration.md
@@ -72,7 +72,8 @@ phases:
     notes: "14-phase, test-first checklist (tasks.md) grouped Domain -> Infra -> Application -> Api -> Frontend -> Docs/ADR. Review Workload Forecast: ~3,400-4,300 changed lines, High 400-line budget risk, 5 chained PRs recommended (PR1 domain+persistence, PR2 connector+credentials, PR3 lifecycle commands+Bank query+Api, PR4 frontend, PR5 docs/ADR). delivery_strategy=ask-on-risk; chain_strategy pending orchestrator decision."
   - id: 5
     name: "Apply"
-    status: pending
+    status: complete
+    notes: "All 5 work units landed on dev: WU1 domain+persistence, WU2 connector+credentials, WU3 lifecycle commands+Bank query+Api, WU4 frontend /publications workspace, WU5 ADR 0005 + PRD/SDD doc sync (this batch)."
   - id: 6
     name: "Verify"
     status: pending
@@ -81,27 +82,27 @@ phases:
     status: pending
 
 validation:
-  gates: PENDING
-  detail: "No implementation yet. Run-Gates.ps1 to run before completion; strict TDD; architecture gate must stay green."
+  gates: PASS
+  detail: "pwsh -File scripts/gates/Run-Gates.ps1 green through WU4 (18 pass, 1 skipped pre-existing coverage gap, 0 MUST failures); WU5 is docs-only and re-confirms the same gate suite green. Strict TDD followed for all backend/frontend logic; architecture gate green throughout."
 
 migrations:
   - name: Add_Publications
-    applied: false
-    note: "Not yet generated. Additive — creates social.publications. Plus per-client account credential storage (ClientOwnAccount extension or new ClientAccountConnection)."
+    applied: true
+    note: "Additive — creates social.publications, social.publication_attempts, social.client_account_connections. No existing table modified."
 
 delivery:
   strategy: direct-to-dev   # user decision: commit straight to dev, no PRs (owner-authorized workflow); sliced into work-unit commits, not chained PRs
   target_branch: dev
   branch: null
-  apply_gate: "PAUSED — user reviews the plan (tasks.md / design.md) before apply starts; do NOT begin apply without explicit user OK"
+  apply_gate: "COMPLETE — all 5 work units delivered as sequenced commits to dev."
   work_units:   # same 5 slices, delivered as sequenced work-unit commits to dev instead of PRs
     - name: "WU1 — Publication domain + persistence"
-      status: pending
+      status: complete
     - name: "WU2 — Connector + credentials"
-      status: pending
+      status: complete
     - name: "WU3 — Lifecycle commands + Bank query + Api"
-      status: pending
+      status: complete
     - name: "WU4 — Frontend"
-      status: pending
+      status: complete
     - name: "WU5 — Docs/ADR"
-      status: pending
+      status: complete

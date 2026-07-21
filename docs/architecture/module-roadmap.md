@@ -20,7 +20,7 @@
 2. Clients bounded context
 3. Content research workflow state tracking
 4. AI idea generation/evaluation contracts
-5. Publication pipeline tracking
+5. ~~Publication pipeline tracking~~ — first slice shipped by `content-bank-planner` (Content Bank + Publication axis + Instagram publish-now; see `docs/PRD.md` §12, `docs/SDD.md` §13, ADR 0005). Scheduler/dispatcher + other networks remain deferred.
 
 ## Explicitly Deferred in this Iteration
 - Campaigns module

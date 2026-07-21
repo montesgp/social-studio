@@ -200,3 +200,46 @@ See `docs/architecture/diagrams/profile-analysis-flow.md` for the full diagram.
 ### Operator Setup
 
 See `docs/operators/profile-analysis-setup.md` for the required `actor_mappings_json` entries.
+
+---
+
+## 13. Content Bank Planner (change: content-bank-planner)
+
+> ADR: [`docs/architecture/adr/0005-publication-axis-and-two-level-credentials.md`](architecture/adr/0005-publication-axis-and-two-level-credentials.md). Builds on Content Studio (ADR 0004, §12 above).
+
+Publishing was a stub until this change. `content-bank-planner` adds a client-scoped **Content Bank** (cross-set, cross-origin read seam over reviewable Content Studio items) and a **Planner/Published** workspace to publish approved items to Instagram, first slice = publish-now only.
+
+### Two-Axis Model
+
+`Domain/Social/Publications/Publication` is a **new, independent aggregate** — its own table (`social.publications`, owned `social.publication_attempts` collection) and its own guarded `PublicationStatusTransitions` (`Scheduled→Publishing→{Published|PublishFailed}`, `PublishFailed→{Publishing,Cancelled}`, `Scheduled→Cancelled`). It references `ContentItem` by a **soft `Guid`**, never mutates `ReviewState`, and MUST NOT share domain types with `Domain/Social/ContentStudio/` (orthogonality asserted by a dedicated architecture-style test). There is no uniqueness constraint on `(content_item_id, destination)` — republish and multi-destination each create a new independent `Publication`.
+
+### Two-Level Credential Model
+
+- **Org level** (existing, unchanged): `OrganizationIntegration`, resolved via `IIntegrationResolver`.
+- **Client level** (new): `Domain/Social/ClientAccountConnections/ClientAccountConnection` — one row per `(organization_id, client_id, social_network_id)`, holding `ExternalAccountId` + an encrypted token (`IIntegrationSecretProtector`) + connection health (`Connected/Failed/Disabled`). Never returns the token in any response DTO.
+
+`PublicationDestinationResolver` composes both levels into a `ResolvedPublicationRequest` that crosses the `IPublicationConnector` port (`NetworkKey`, `PublishAsync`). `InstagramGraphPublicationConnector` is the only v1 adapter; the port is channel-agnostic so future networks (Meta variants, TikTok, YouTube, X) slot in without touching Domain/Application.
+
+### Content Bank Query
+
+`ListClientContentBankQuery` returns every reviewable `ContentItem` for a client across content sets and generator origins, with attached `PublicationSummaryDto[]` per item, optionally filtered by date range and `ReviewState`. Materialization is **lazy-on-Bank-load**: `EnsureClientContentMaterializedCommand` re-invokes the existing idempotent `MaterializeAnalysisCommand` for any completed-but-unmaterialized analysis before the query runs — no background job in v1.
+
+### Frontend — `/publications`
+
+`PublicationsWorkspace` (client selector + date-range/state filters) renders three tabs: **Bank** (`ContentBankGrid`, publish-now action, opens the existing `content-studio-panel.tsx` unmodified), **Planner** (`PublicationPlannerBoard`, a pure projection over Bank items + publications into `Ready/Scheduled/Publishing/Published/Failed` lanes), **Published** (`PublishedList`, recency-sorted with external links). `ClientAccountConnectionsPanel` is the org-admin-gated settings surface for connecting/rotating/testing Instagram credentials (write-only token input, never pre-filled).
+
+### Key Decisions
+
+| Decision | Choice |
+|---|---|
+| Publication lifecycle | Separate `Publication` aggregate, orthogonal to `ReviewState` — never mutates it |
+| Credential model | Two levels: org `OrganizationIntegration` + per-client `ClientAccountConnection` |
+| Republish semantics | Allowed — no `(item, destination)` uniqueness; each publish action is a new `Publication` |
+| Scheduling (v1) | Modeled (`Scheduled` + `ScheduledForUtc`) but not dispatched — no background worker yet; hidden from v1 UI |
+| Materialization | Lazy, on Bank load, reusing existing idempotent `MaterializeAnalysisCommand` |
+| Handoff contract | Pull-by-id (read `ContentItem` fresh at publish time) supersedes the earlier unmerged push-based `IPublicationHandoff`/`PublicationHandoffPayload` design (ADR 0005 §16) |
+| Credential management access | Org `admin` role only |
+
+### Deferred Roadmap
+
+Scheduler/dispatcher worker, additional network connectors, background (non-lazy) materialization, Blotato multi-network consolidation, post-publish metrics/insights — see PRD §12 and `openspec/changes/content-bank-planner/state.yaml`.

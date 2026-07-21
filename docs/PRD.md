@@ -128,3 +128,48 @@ As a community manager, I want to analyse an Instagram account (my client's own 
 - Scheduling or automating repeated profile analyses.
 - Comparing multiple accounts head-to-head.
 - Real-time metrics (all data is from a single Apify snapshot).
+
+---
+
+## 12. Content Bank Planner (v1 — Instagram-only publish-now)
+
+> Added by `content-bank-planner` (2026-07-21). ADR: [`docs/architecture/adr/0005-publication-axis-and-two-level-credentials.md`](architecture/adr/0005-publication-axis-and-two-level-credentials.md). Builds on Content Studio (ADR 0004).
+
+### User Story
+
+As a community manager, I want a client-scoped view of every reviewable content item — regardless of which generator or generation run produced it — so I can see everything ready to go out, publish an approved item to the client's Instagram account now, and track its publication status and history in one place.
+
+### The two independent axes
+
+Content moves along two orthogonal lifecycles:
+
+- **Editorial** (Content Studio, ADR 0004): `Draft → InReview → Edited → Approved → ReadyForPublication`, plus `Rejected`/`Discarded`.
+- **Publication** (this change, ADR 0005): `Scheduled → Publishing → Published | PublishFailed`, plus `Cancelled`. An item can have zero, one, or many independent publications (one per publish action, one per destination); publishing never mutates the editorial state.
+
+### MVP Acceptance Criteria
+
+- CM can open a per-client **Content Bank**: a grid of all reviewable items across content sets and generator origins for that client, filterable by date range (defaults to last 7 days) and editorial state.
+- CM can click "Publish now" on an `Approved`/`ReadyForPublication` item to publish it to a connected Instagram account for that client. Publishing is gated: items in any other editorial state cannot be published (`ItemNotPublishable`).
+- CM can view a **Planner** board with lanes for `Ready`/`Scheduled`/`Publishing`/`Published`/`Failed` publications, retry a failed publication, or cancel a scheduled/failed one.
+- CM can view a **Published** list of everything successfully published, with a link to the external post.
+- Org admins can connect, rotate, and test a client's Instagram account credential (a `ClientAccountConnection`, separate from the org-level `OrganizationIntegration`) before any publish action can succeed.
+- Re-publishing the same item to the same destination is allowed and creates a new, independent publication record — history is preserved, never overwritten.
+- Content Bank materializes reviewable items lazily on load (no background job in v1) by reusing the existing idempotent Content Studio materialization command.
+
+### Non-Goals (v1)
+
+- Firing scheduled publications automatically — `Scheduled` + a future publish time are modeled, but nothing dispatches them yet (no background worker).
+- Networks other than Instagram.
+- Post-publish metrics/insights (likes, reach, etc.).
+- A hard cap on retry attempts.
+- Multiple Instagram accounts connected per client on the same network.
+
+### Deferred Roadmap
+
+| Phase | Item | Status |
+|---|---|---|
+| 2 | Scheduler/dispatcher worker to fire `Scheduled → Publishing` on `ScheduledForUtc` | Deferred — additive, no model change needed |
+| 3 | Additional network connectors (Meta variants, TikTok, YouTube, X) behind `IPublicationConnector` | Deferred — port is channel-agnostic |
+| 4 | Background materialization on generation completion (instead of lazy-on-load) | Deferred |
+| 5 | Blotato multi-network consolidation | Deferred — native per-network adapters ship first |
+| 6 | Published-history recency polish + post-publish metrics/insights | Deferred |

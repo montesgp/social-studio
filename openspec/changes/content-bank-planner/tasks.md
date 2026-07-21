@@ -129,8 +129,8 @@ Chain strategy: pending
 
 ## Phase 14 — Docs Sync, ADR, and Cleanup (PR 5, WU 5) — refs PUB-01–PUB-06, CB-01–CB-04, CS-BANK-01, INT-BANK-01, INT-BANK-02
 
-- [ ] 14.1 Author `docs/architecture/adr/0005-publication-axis-and-two-level-credentials.md` (context, decision, rationale, rejected alternatives, consequences per design §14; depth mirrors `0004-content-studio-review-model.md`).
-- [ ] 14.2 Move `openspec/specs/publishing/spec.md` from the TBD stub to the merged v1 spec (this change's `specs/publishing/spec.md` is canonical); add `openspec/specs/content-bank/spec.md`; merge the `content-studio` and `integrations` deltas into `openspec/specs/content-studio/spec.md` and `openspec/specs/integrations/spec.md`. **Do NOT** merge the older unmerged `content-studio` publishing handoff delta (`openspec/changes/content-studio/specs/publishing/spec-delta.md`) — it is superseded per design §16.
-- [ ] 14.3 Add a Content Bank Planner section to `docs/PRD.md` and `docs/SDD.md` (mirror the Content Studio "Mundo" section); reference ADR 0005.
-- [ ] 14.4 Update `openspec/changes/content-bank-planner/state.yaml` — mark phases 4–7 progress, `migrations[0].applied: true`, `delivery.strategy`/`delivery.prs` recorded.
-- [ ] 14.5 Final gate run: `pwsh -File scripts/gates/Run-Gates.ps1` — all MUST gates green before declaring done; no `--no-verify`, no MUST-gate skip. **PR 5 checkpoint.**
+- [x] 14.1 Author `docs/architecture/adr/0005-publication-axis-and-two-level-credentials.md` (context, decision, rationale, rejected alternatives, consequences per design §14; depth mirrors `0004-content-studio-review-model.md`).
+- [x] 14.2 Actual spec merges into `openspec/specs/` deferred to `sdd-archive` per the SDD dependency graph (spec merge is an archive-phase responsibility, not apply). Added a pointer note in `openspec/specs/publishing/spec.md` marking `openspec/changes/content-bank-planner/specs/publishing/spec.md` as canonical pending archive, and explicitly flagging the older `content-studio` publishing handoff delta as superseded and NOT to be merged (design §16).
+- [x] 14.3 Add a Content Bank Planner section to `docs/PRD.md` (§12) and `docs/SDD.md` (§13); reference ADR 0005. Also updated `docs/architecture/module-roadmap.md` item 5 to point at this change.
+- [x] 14.4 Update `openspec/changes/content-bank-planner/state.yaml` — mark phase 5 (Apply) complete, `migrations[0].applied: true`, work units 1-5 status, `adr` field.
+- [x] 14.5 Final gate run: `pwsh -File scripts/gates/Run-Gates.ps1` — all MUST gates green before declaring done; no `--no-verify`, no MUST-gate skip. **PR 5 checkpoint.**
