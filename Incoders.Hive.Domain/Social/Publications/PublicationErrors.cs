@@ -18,4 +18,11 @@ public static class PublicationErrors
     public static readonly Error DestinationUnresolved = Error.Conflict(
         "social.publications.destination_unresolved",
         "social.publications.errors.destination_unresolved");
+
+    public static readonly Error ConnectorNotFound = Error.Validation(
+        "social.publications.connector_not_found",
+        "social.publications.errors.connector_not_found");
+
+    public static Error ConnectorFailure(string detail) =>
+        Error.Failure("social.publications.connector_failed", detail);
 }

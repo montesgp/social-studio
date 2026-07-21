@@ -29,6 +29,8 @@ using Incoders.Hive.Infrastructure.Persistence.Postgres.Maintenance;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Repositories;
 using Incoders.Hive.Infrastructure.Social.Providers;
 using Incoders.Hive.Infrastructure.Social.Providers.Apify;
+using Incoders.Hive.Infrastructure.Social.Publications;
+using Incoders.Hive.Application.Features.Social.Publications;
 using Incoders.Hive.Infrastructure.Social.Workflow;
 using Incoders.Hive.Infrastructure.Tenancy;
 using Incoders.Hive.Infrastructure.Time;
@@ -140,6 +142,14 @@ public static class DependencyInjection
         services.AddScoped<IContentSetRepository, EfContentSetRepository>();
         services.AddScoped<IPublicationRepository, EfPublicationRepository>();
         services.AddScoped<IClientAccountConnectionRepository, EfClientAccountConnectionRepository>();
+        services.AddScoped<IPublicationDestinationResolver, PublicationDestinationResolver>();
+        services.AddScoped<IPublicationConnectorSelector, PublicationConnectorSelector>();
+        // Native Instagram Graph API adapter — v1's only registered IPublicationConnector. Typed
+        // HttpClient owns the connector; also exposed as IPublicationConnector for the selector's
+        // IEnumerable<IPublicationConnector> composition.
+        services.AddHttpClient<InstagramGraphPublicationConnector>();
+        services.AddScoped<IPublicationConnector>(
+            sp => sp.GetRequiredService<InstagramGraphPublicationConnector>());
         services.AddScoped<IPublicationHandoff, Incoders.Hive.Infrastructure.Social.ContentStudio.LoggingPublicationHandoff>();
         services.AddScoped<SocialNetworkCatalogSeeder>();
         services.AddScoped<PlatformSystemModuleSeeder>();
