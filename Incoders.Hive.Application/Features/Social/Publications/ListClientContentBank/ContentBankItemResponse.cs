@@ -29,10 +29,18 @@ public sealed record ContentBankItemResponse(
     Guid? ReviewerUserId,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc,
-    IReadOnlyList<PublicationSummaryDto> Publications)
+    IReadOnlyList<PublicationSummaryDto> Publications,
+    /// <summary>
+    /// The item's OWNING <c>ContentSet</c> id, resolved via <c>Origin.SourceRunId</c> (the same
+    /// resolution <c>DuplicateItemCommand</c>/<c>SpawnVariantCommand</c> already use). Bank items are
+    /// already materialized — this lets "Open in Studio" load the existing set directly instead of
+    /// re-materializing by analysis id, which fails for runs that are not re-materializable that way.
+    /// Null when no owning set could be resolved (should not normally happen for a materialized item).
+    /// </summary>
+    Guid? SetId)
 {
     public static ContentBankItemResponse FromMapped(
-        ContentItemResponse item, IReadOnlyList<PublicationSummaryDto> publications) =>
+        ContentItemResponse item, IReadOnlyList<PublicationSummaryDto> publications, Guid? setId) =>
         new(
             item.Id,
             item.OrganizationId,
@@ -55,5 +63,6 @@ public sealed record ContentBankItemResponse(
             item.ReviewerUserId,
             item.CreatedAtUtc,
             item.UpdatedAtUtc,
-            publications);
+            publications,
+            setId);
 }

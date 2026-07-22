@@ -104,7 +104,17 @@ import { listClientOwnAccounts } from "@/lib/api/client-own-accounts";
 import type { ContentPlan, ContentPlanSummary } from "@/lib/api/types";
 
 interface ContentStudioPanelProps {
+  /** Analysis-driven entry point: materializes (creates/updates) a studio set from an analysis. */
   analysisId: string | null;
+  /**
+   * Direct entry point for an ALREADY-materialized set (e.g. opened from the Content Bank). When
+   * provided, `analysisId` is ignored and the studio loads this set's items directly — it never
+   * calls `materializeAnalysis`, which is analysis-centric and fails/hangs for content that is not a
+   * re-materializable single-analyzer analysis (e.g. MagicGenerator runs).
+   */
+  setId?: string | null;
+  /** Item to select once the set's items are loaded (only meaningful together with `setId`). */
+  selectedItemId?: string | null;
   clientId: string | null;
   token: string;
   onClose: () => void;
@@ -380,7 +390,14 @@ function useViewportHeight() {
   return height;
 }
 
-export function ContentStudioPanel({ analysisId, clientId, token, onClose }: ContentStudioPanelProps) {
+export function ContentStudioPanel({
+  analysisId,
+  setId = null,
+  selectedItemId = null,
+  clientId,
+  token,
+  onClose,
+}: ContentStudioPanelProps) {
   const [set, setSet] = useState<ContentSet | null>(null);
   const [items, setItems] = useState<ContentItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -416,7 +433,10 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
   // never discarded — discarding it left the studio stuck loading).
   const materializeKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!analysisId || !clientId) return;
+    // The `setId` entry point (Content Bank) is already materialized — never re-materialize by
+    // analysis id here. Doing so is analysis-centric and fails/hangs for content whose source run
+    // is not a re-materializable single-analyzer analysis (e.g. MagicGenerator runs).
+    if (setId || !analysisId || !clientId) return;
     const key = `${analysisId}:${clientId}`;
     if (materializeKeyRef.current === key) return;
     materializeKeyRef.current = key;
@@ -439,7 +459,39 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
         if (materializeKeyRef.current === key) setLoading(false);
       }
     })();
-  }, [analysisId, clientId, token]);
+  }, [analysisId, clientId, setId, token]);
+
+  // Direct entry point (Content Bank "Open in Studio"): the set already exists, so just load it —
+  // no materialize POST, no re-derivation. This also guarantees the blocking loader always resolves
+  // (success or error), unlike a materialize call that can fail against a non-re-materializable run.
+  const loadedSetKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!setId) return;
+    const key = setId;
+    if (loadedSetKeyRef.current === key) return;
+    loadedSetKeyRef.current = key;
+    void (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [loadedSet, list] = await Promise.all([
+          getContentSet(setId, token),
+          listContentItems(setId, undefined, token),
+        ]);
+        if (loadedSetKeyRef.current !== key) return;
+        setSet(loadedSet);
+        setItems(list);
+        setSelectedId(selectedItemId ?? list[0]?.id ?? null);
+      } catch (err) {
+        if (loadedSetKeyRef.current === key) {
+          setError(errorMessage(err));
+          loadedSetKeyRef.current = null; // allow a retry on the next deps change
+        }
+      } finally {
+        if (loadedSetKeyRef.current === key) setLoading(false);
+      }
+    })();
+  }, [setId, selectedItemId, token]);
 
   useEffect(() => {
     if (!clientId) return;
@@ -624,7 +676,7 @@ export function ContentStudioPanel({ analysisId, clientId, token, onClose }: Con
           </div>
         ) : null}
 
-        {!analysisId || !clientId ? (
+        {(!setId && !analysisId) || !clientId ? (
           <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
             Select a client context with a generated package to open Content Studio.
           </div>

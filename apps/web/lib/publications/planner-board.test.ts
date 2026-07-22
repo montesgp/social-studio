@@ -27,6 +27,7 @@ function item(overrides: Partial<ContentBankItemResponse> = {}): ContentBankItem
     createdAtUtc: "2026-07-10T00:00:00.000Z",
     updatedAtUtc: "2026-07-10T00:00:00.000Z",
     publications: [],
+    setId: null,
     ...overrides,
   };
 }

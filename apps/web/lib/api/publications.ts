@@ -76,6 +76,8 @@ export interface ContentBankItemResponse {
   createdAtUtc: string;
   updatedAtUtc: string;
   publications: PublicationSummaryDto[];
+  /** The item's owning `ContentSet` id, when resolvable — lets "Open in Studio" load the existing set directly. */
+  setId: string | null;
 }
 
 /** Token-free projection of a `ClientAccountConnection`. NEVER includes the access token. */

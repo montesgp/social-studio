@@ -27,13 +27,18 @@ public sealed class ListClientContentBankQueryHandler
     private readonly IContentItemRepository _items;
     private readonly IPublicationRepository _publications;
     private readonly IGeneratedAssetStorage? _assetStorage;
+    private readonly IContentSetRepository? _sets;
 
     public ListClientContentBankQueryHandler(
-        IContentItemRepository items, IPublicationRepository publications, IGeneratedAssetStorage? assetStorage = null)
+        IContentItemRepository items,
+        IPublicationRepository publications,
+        IGeneratedAssetStorage? assetStorage = null,
+        IContentSetRepository? sets = null)
     {
         _items = items;
         _publications = publications;
         _assetStorage = assetStorage;
+        _sets = sets;
     }
 
     public async Task<Result<IReadOnlyList<ContentBankItemResponse>>> Handle(
@@ -57,6 +62,10 @@ public sealed class ListClientContentBankQueryHandler
             .GroupBy(p => p.ContentItemId)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<PublicationSummaryDto>)g.Select(PublicationSummaryDto.FromDomain).ToList());
 
+        // "Open in Studio" fix: resolve each item's owning set id once per distinct source-run id
+        // (memoized — a client's Bank listing routinely has many items sharing the same run/set).
+        var setIdByRunId = new Dictionary<Guid, Guid?>();
+
         var response = new List<ContentBankItemResponse>(rows.Count);
         foreach (var item in rows)
         {
@@ -70,10 +79,32 @@ public sealed class ListClientContentBankQueryHandler
                 ? list
                 : (IReadOnlyList<PublicationSummaryDto>)[];
 
-            response.Add(ContentBankItemResponse.FromMapped(mapped with { VisualSpecMarkup = resolvedMarkup }, itemPublications));
+            var setId = await ResolveSetIdAsync(request.OrganizationId, item.Origin.SourceRunId, setIdByRunId, ct);
+
+            response.Add(ContentBankItemResponse.FromMapped(
+                mapped with { VisualSpecMarkup = resolvedMarkup }, itemPublications, setId));
         }
 
         IReadOnlyList<ContentBankItemResponse> result = response;
         return Result.Success(result);
+    }
+
+    private async Task<Guid?> ResolveSetIdAsync(
+        Guid organizationId, Guid sourceRunId, Dictionary<Guid, Guid?> cache, CancellationToken ct)
+    {
+        if (_sets is null)
+        {
+            return null;
+        }
+
+        if (cache.TryGetValue(sourceRunId, out var cached))
+        {
+            return cached;
+        }
+
+        var set = await _sets.GetByRunAsync(organizationId, sourceRunId, ct);
+        var setId = set?.Id.Value;
+        cache[sourceRunId] = setId;
+        return setId;
     }
 }

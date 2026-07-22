@@ -35,6 +35,49 @@ public sealed class ListClientContentBankQueryTests
         Assert.Equal(publication.Id.Value, response.Publications[0].Id);
     }
 
+    /// <summary>
+    /// Issue: "Open in Studio" from the Bank re-materializes by analysisId, which fails for items
+    /// whose owning set is not re-materializable from that id (e.g. MagicGenerator runs). The Bank
+    /// response must carry the item's OWNING set id (resolved the same way
+    /// <c>DuplicateItemCommand</c>/<c>SpawnVariantCommand</c> already do, via
+    /// <see cref="IContentSetRepository.GetByRunAsync"/> on the item's own <c>Origin.SourceRunId</c>)
+    /// so the frontend can open the EXISTING set directly, without re-materializing.
+    /// </summary>
+    [Fact]
+    public async Task Handle_ResolvesOwningSetId_FromItemSourceRunId()
+    {
+        var item = BuildItem();
+        var items = new FakeContentItemRepository([item]);
+        var publications = new FakePublicationRepository([]);
+        var set = ContentSet.CreateForRun(
+            ContentSetId.New(), OrganizationId, ClientId,
+            SetOrigin.ForRun(GeneratorKind.SingleAnalyzer, item.Origin.SourceRunId), Now).Value;
+        var sets = new FakeContentSetRepository([set]);
+        var handler = new ListClientContentBankQueryHandler(items, publications, sets: sets);
+
+        var result = await handler.Handle(
+            new ListClientContentBankQuery(OrganizationId, ClientId, null, null, null), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(set.Id.Value, result.Value[0].SetId);
+    }
+
+    [Fact]
+    public async Task Handle_NoOwningSet_LeavesSetIdNull()
+    {
+        var item = BuildItem();
+        var items = new FakeContentItemRepository([item]);
+        var publications = new FakePublicationRepository([]);
+        var sets = new FakeContentSetRepository([]);
+        var handler = new ListClientContentBankQueryHandler(items, publications, sets: sets);
+
+        var result = await handler.Handle(
+            new ListClientContentBankQuery(OrganizationId, ClientId, null, null, null), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value[0].SetId);
+    }
+
     [Fact]
     public async Task Handle_ForwardsFilterToRepository()
     {
@@ -123,6 +166,26 @@ public sealed class ListClientContentBankQueryTests
         public Task UpdateAsync(ContentItem item, CancellationToken ct) => Task.CompletedTask;
 
         public Task DeleteAsync(Guid organizationId, ContentItemId id, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    private sealed class FakeContentSetRepository : IContentSetRepository
+    {
+        private readonly IReadOnlyList<ContentSet> _sets;
+
+        public FakeContentSetRepository(IReadOnlyList<ContentSet> sets) => _sets = sets;
+
+        public Task<ContentSet?> GetByIdAsync(Guid organizationId, ContentSetId id, CancellationToken ct) =>
+            Task.FromResult(_sets.FirstOrDefault(s => s.Id == id));
+
+        public Task<ContentSet?> GetByRunAsync(Guid organizationId, Guid sourceRunId, CancellationToken ct) =>
+            Task.FromResult(_sets.FirstOrDefault(s => s.Origin.SourceRunId == sourceRunId));
+
+        public Task AddAsync(ContentSet set, CancellationToken ct) => Task.CompletedTask;
+
+        public Task UpdateAsync(ContentSet set, CancellationToken ct) => Task.CompletedTask;
+
+        public Task<ReviewSummary> GetReviewSummaryAsync(Guid organizationId, ContentSetId setId, CancellationToken ct) =>
+            Task.FromResult(ReviewSummary.Empty);
     }
 
     private sealed class FakePublicationRepository : IPublicationRepository
