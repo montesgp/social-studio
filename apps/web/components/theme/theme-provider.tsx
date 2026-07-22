@@ -5,6 +5,7 @@ import { ApiError, DateFormat, ThemeKey } from "@/lib/api/types";
 import { getCurrentUserPreferences, updateCurrentUserPreferences } from "@/lib/api/user-preferences";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { shouldApplyBackendSync } from "@/lib/theme/hydrate-guard";
 
 const DEFAULT_DATE_FORMAT: DateFormat = "dd/MM/yyyy";
 
@@ -39,6 +40,10 @@ export function ThemeProvider({
   const toast = useToast();
   const accessToken = useAccessToken();
   const syncErrorNotified = useRef(false);
+  // Hydrate from the backend at most once per session — a token refresh re-runs the sync effect
+  // below, and a later resync must never clobber a just-made local selection with a stale GET
+  // response (see lib/theme/hydrate-guard.ts).
+  const hasHydratedRef = useRef(false);
   const [themeKey, setThemeKey] = useState<ThemeKey>(initialThemeKey);
   const [dateFormat, setDateFormatState] = useState<DateFormat>(initialDateFormat);
   const [prefersDark, setPrefersDark] = useState(true);
@@ -62,7 +67,7 @@ export function ThemeProvider({
     let cancelled = false;
 
     async function syncFromBackend() {
-      if (!accessToken) {
+      if (!accessToken || !shouldApplyBackendSync(hasHydratedRef.current)) {
         return;
       }
 
@@ -72,6 +77,7 @@ export function ThemeProvider({
           setThemeKey(preferences.themeKey);
           setDateFormatState(preferences.dateFormat ?? DEFAULT_DATE_FORMAT);
           syncErrorNotified.current = false;
+          hasHydratedRef.current = true;
         }
       } catch (error) {
         if (!syncErrorNotified.current) {
