@@ -1,9 +1,10 @@
 import { apiRequest } from "@/lib/api/client";
-import { ThemeKey, UserPreference } from "@/lib/api/types";
+import { DateFormat, ThemeKey, UserPreference } from "@/lib/api/types";
 
 export interface UpdateUserPreferencePayload {
   themeKey: ThemeKey;
   accentTheme?: string | null;
+  dateFormat: DateFormat;
 }
 
 export async function getCurrentUserPreferences(token: string) {
@@ -17,7 +18,8 @@ export async function updateCurrentUserPreferences(payload: UpdateUserPreference
       method: "PUT",
       body: JSON.stringify({
         themeKey: payload.themeKey,
-        accentTheme: payload.accentTheme ?? null
+        accentTheme: payload.accentTheme ?? null,
+        dateFormat: payload.dateFormat
       })
     },
     token

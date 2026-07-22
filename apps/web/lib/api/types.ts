@@ -186,11 +186,14 @@ export interface EmailSmtpConfiguration {
 
 export type ThemeKey = "dark" | "light" | "system";
 
+export type DateFormat = "dd/MM/yyyy" | "MM/dd/yyyy" | "yyyy-MM-dd";
+
 export interface UserPreference {
   id: string | null;
   userId: string;
   themeKey: ThemeKey;
   accentTheme: string | null;
+  dateFormat: DateFormat;
   createdAtUtc: string | null;
   updatedAtUtc: string | null;
 }

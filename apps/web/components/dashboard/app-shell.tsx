@@ -17,11 +17,12 @@ import { SignOutButton } from "@/components/auth/sign-out-button";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeSelector } from "@/components/theme/theme-selector";
+import { DateFormatSelector } from "@/components/theme/date-format-selector";
 import { SidebarAreaSwitcher } from "@/components/dashboard/sidebar-area-switcher";
 import { adminNavigation, getWorkspaceNavigation, workspaceModules } from "@/lib/navigation";
 import type { NavGroup, WorkspaceModule, WorkspaceModuleKey } from "@/lib/navigation";
 import { getWorkspaceModules } from "@/lib/api/me";
-import { ThemeKey } from "@/lib/api/types";
+import { DateFormat, ThemeKey } from "@/lib/api/types";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Button } from "@/components/ui/button";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
@@ -169,11 +170,13 @@ export function AppShell({
   children,
   userEmail,
   initialThemeKey,
+  initialDateFormat,
   isPlatformAdmin
 }: {
   children: React.ReactNode;
   userEmail?: string;
   initialThemeKey: ThemeKey;
+  initialDateFormat?: DateFormat;
   isPlatformAdmin: boolean;
 }) {
   const pathname = usePathname();
@@ -324,7 +327,7 @@ export function AppShell({
   }
 
   return (
-    <ThemeProvider initialThemeKey={initialThemeKey}>
+    <ThemeProvider initialThemeKey={initialThemeKey} initialDateFormat={initialDateFormat}>
       <ProgressBar />
       <BlockingLoader
         visible={waitingForInitialShellData || routeLoading || blockingLoader.isVisible}
@@ -420,6 +423,7 @@ export function AppShell({
                       {userEmail ?? "Authenticated user"}
                     </span>
                     <ThemeSelector />
+                    <DateFormatSelector />
                     <SignOutButton />
                   </div>
                 </div>
