@@ -15,4 +15,8 @@ public static class UserPreferenceErrors
     public static readonly Error AccentThemeTooLong = Error.Validation(
         "user_preferences.accent_theme_too_long",
         "user_preferences.errors.accent_theme_too_long");
+
+    public static readonly Error InvalidDateFormat = Error.Validation(
+        "user_preferences.invalid_date_format",
+        "user_preferences.errors.invalid_date_format");
 }

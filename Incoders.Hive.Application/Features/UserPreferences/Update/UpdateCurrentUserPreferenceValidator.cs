@@ -15,5 +15,10 @@ public sealed class UpdateCurrentUserPreferenceValidator : AbstractValidator<Upd
         RuleFor(x => x.AccentTheme)
             .MaximumLength(64)
             .When(x => !string.IsNullOrWhiteSpace(x.AccentTheme));
+
+        RuleFor(x => x.DateFormat)
+            .NotEmpty()
+            .Must(DateFormats.IsSupported)
+            .WithMessage("DateFormat must be one of: dd/MM/yyyy, MM/dd/yyyy, yyyy-MM-dd.");
     }
 }

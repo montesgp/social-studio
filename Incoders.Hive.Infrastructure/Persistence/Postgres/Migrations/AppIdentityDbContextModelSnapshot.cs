@@ -2770,6 +2770,14 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
 
+                    b.Property<string>("DateFormat")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("dd/MM/yyyy")
+                        .HasColumnName("date_format");
+
                     b.Property<string>("ThemeKey")
                         .IsRequired()
                         .HasMaxLength(32)

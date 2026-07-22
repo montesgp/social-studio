@@ -46,11 +46,11 @@ public static class UserPreferencesEndpointsExtensions
         CancellationToken cancellationToken)
     {
         var result = await sender.Send(
-            new UpdateCurrentUserPreferenceCommand(body.ThemeKey, body.AccentTheme),
+            new UpdateCurrentUserPreferenceCommand(body.ThemeKey, body.AccentTheme, body.DateFormat),
             cancellationToken);
 
         return result.Match(preferences => (IResult)TypedResults.Ok(preferences));
     }
 }
 
-public sealed record UpdateCurrentUserPreferenceRequest(string ThemeKey, string? AccentTheme);
+public sealed record UpdateCurrentUserPreferenceRequest(string ThemeKey, string? AccentTheme, string DateFormat);

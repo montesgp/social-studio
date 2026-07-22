@@ -39,6 +39,7 @@ public sealed class EfUserPreferenceRepository : IUserPreferenceRepository
         {
             tracked.ThemeKey = data.ThemeKey;
             tracked.AccentTheme = data.AccentTheme;
+            tracked.DateFormat = data.DateFormat;
             tracked.UpdatedAtUtc = data.UpdatedAtUtc;
         }
         else
@@ -53,6 +54,7 @@ public sealed class EfUserPreferenceRepository : IUserPreferenceRepository
             row.UserId,
             row.ThemeKey,
             row.AccentTheme,
+            row.DateFormat,
             row.CreatedAtUtc,
             row.UpdatedAtUtc);
 
@@ -63,6 +65,7 @@ public sealed class EfUserPreferenceRepository : IUserPreferenceRepository
             UserId = preference.UserId,
             ThemeKey = preference.ThemeKey,
             AccentTheme = preference.AccentTheme,
+            DateFormat = preference.DateFormat,
             CreatedAtUtc = preference.CreatedAtUtc,
             UpdatedAtUtc = preference.UpdatedAtUtc,
         };

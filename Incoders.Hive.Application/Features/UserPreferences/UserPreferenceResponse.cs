@@ -7,6 +7,7 @@ public sealed record UserPreferenceResponse(
     Guid UserId,
     string ThemeKey,
     string? AccentTheme,
+    string DateFormat,
     DateTime? CreatedAtUtc,
     DateTime? UpdatedAtUtc)
 {
@@ -16,6 +17,7 @@ public sealed record UserPreferenceResponse(
             preference.UserId,
             preference.ThemeKey,
             preference.AccentTheme,
+            preference.DateFormat,
             preference.CreatedAtUtc,
             preference.UpdatedAtUtc);
 }

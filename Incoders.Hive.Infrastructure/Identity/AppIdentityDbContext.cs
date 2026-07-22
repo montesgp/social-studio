@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Incoders.Hive.Domain.Social.ClientBrandManuals;
+using Incoders.Hive.Domain.UserPreferences;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Json;
@@ -286,6 +287,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.UserId).IsRequired();
             entity.Property(x => x.ThemeKey).HasMaxLength(32).IsRequired();
             entity.Property(x => x.AccentTheme).HasMaxLength(64);
+            entity.Property(x => x.DateFormat).HasMaxLength(16).IsRequired().HasDefaultValue(DateFormats.Default);
             entity.HasIndex(x => x.UserId).IsUnique();
         });
 
