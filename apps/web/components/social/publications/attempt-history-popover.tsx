@@ -5,19 +5,12 @@ import { History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { PublicationAttemptDto } from "@/lib/api/publications";
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
+import { useTheme } from "@/components/theme/theme-provider";
+import { formatUserDateTime } from "@/lib/format/date";
 
 /** Popover listing every recorded `PublicationAttempt` (design OQ-5) — full auditability, no cap. */
 export function AttemptHistoryPopover({ attempts }: { attempts: PublicationAttemptDto[] }) {
+  const { dateFormat } = useTheme();
   const [open, setOpen] = useState(false);
 
   if (attempts.length === 0) {
@@ -47,8 +40,10 @@ export function AttemptHistoryPopover({ attempts }: { attempts: PublicationAttem
                   </span>
                 </div>
                 <p className="mt-1 text-muted-foreground">
-                  Started {formatDateTime(attempt.startedAtUtc)}
-                  {attempt.finishedAtUtc ? ` · Finished ${formatDateTime(attempt.finishedAtUtc)}` : " · In progress"}
+                  Started {formatUserDateTime(attempt.startedAtUtc, dateFormat)}
+                  {attempt.finishedAtUtc
+                    ? ` · Finished ${formatUserDateTime(attempt.finishedAtUtc, dateFormat)}`
+                    : " · In progress"}
                 </p>
                 {attempt.errorMessage ? <p className="mt-1 text-rose-600 dark:text-rose-400">{attempt.errorMessage}</p> : null}
                 {attempt.externalReference ? (

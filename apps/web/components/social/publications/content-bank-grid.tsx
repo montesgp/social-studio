@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 import { ReviewStateBadge } from "@/components/social/publications/publication-status-badge";
 import type { ContentBankItemResponse } from "@/lib/api/publications";
 import type { ContentReviewState } from "@/lib/api/content-studio";
+import { useTheme } from "@/components/theme/theme-provider";
+import { formatUserDate } from "@/lib/format/date";
 
 const PLANNER_ACTIONABLE = new Set<ContentReviewState>(["Approved", "ReadyForPublication"]);
 
@@ -57,6 +59,7 @@ export function ContentBankGrid({
   onOpenItem,
   onPublishNow,
 }: ContentBankGridProps) {
+  const { dateFormat } = useTheme();
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-3">
@@ -140,6 +143,9 @@ export function ContentBankGrid({
                       {item.publications.length} publication{item.publications.length === 1 ? "" : "s"}
                     </span>
                   ) : null}
+                  <span className="text-[11px] text-muted-foreground">
+                    Updated {formatUserDate(item.updatedAtUtc, dateFormat)}
+                  </span>
                   {canPublish ? (
                     <Button size="sm" variant="default" onClick={() => onPublishNow(item)}>
                       <Send className="h-3.5 w-3.5" /> Publish now

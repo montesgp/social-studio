@@ -3,16 +3,8 @@
 import { ExternalLink } from "lucide-react";
 import { PublicationStatusBadge } from "@/components/social/publications/publication-status-badge";
 import type { ContentBankItemResponse, PublicationSummaryDto } from "@/lib/api/publications";
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
+import { useTheme } from "@/components/theme/theme-provider";
+import { formatUserDateTime } from "@/lib/format/date";
 
 interface PublishedRow {
   item: ContentBankItemResponse;
@@ -26,6 +18,7 @@ interface PublishedListProps {
 
 /** Published tab (design §10): recency-weighted list of `Published` publications. */
 export function PublishedList({ items, onOpenItem }: PublishedListProps) {
+  const { dateFormat } = useTheme();
   const rows: PublishedRow[] = items
     .flatMap((item) => item.publications.map((publication) => ({ item, publication })))
     .filter((row) => row.publication.status === "Published")
@@ -51,7 +44,7 @@ export function PublishedList({ items, onOpenItem }: PublishedListProps) {
               {item.formatKey}
             </button>
             <span className="text-xs text-muted-foreground">
-              {publication.destination.networkKey} · {formatDateTime(item.updatedAtUtc)}
+              {publication.destination.networkKey} · {formatUserDateTime(item.updatedAtUtc, dateFormat)}
             </span>
           </div>
           <div className="flex items-center gap-2">
