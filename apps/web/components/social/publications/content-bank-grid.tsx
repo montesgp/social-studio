@@ -1,15 +1,17 @@
 "use client";
 
-import { ImageOff, Send } from "lucide-react";
+import { useEffect, useState } from "react";
+import { FileText, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ReviewStateBadge } from "@/components/social/publications/publication-status-badge";
 import type { ContentBankItemResponse } from "@/lib/api/publications";
-import type { ContentReviewState } from "@/lib/api/content-studio";
+import { fetchContentItemAsset, type ContentReviewState } from "@/lib/api/content-studio";
 import { useTheme } from "@/components/theme/theme-provider";
 import { formatUserDate } from "@/lib/format/date";
+import { resolveBankThumbnail } from "@/lib/publications/thumbnail";
 
 const PLANNER_ACTIONABLE = new Set<ContentReviewState>(["Approved", "ReadyForPublication"]);
 
@@ -22,19 +24,6 @@ const STATE_FILTERS: ContentReviewState[] = [
   "ReadyForPublication",
 ];
 
-/** Pulls the flattened background data-URI out of a resolved visual-spec envelope, if any. */
-function resolveThumbnail(visualSpecMarkup: string | null): string | null {
-  if (!visualSpecMarkup) return null;
-  try {
-    const parsed = JSON.parse(visualSpecMarkup) as unknown;
-    const envelope = Array.isArray(parsed) ? parsed[0] : parsed;
-    const ref = (envelope as { flattenedImageRef?: string | null } | undefined)?.flattenedImageRef;
-    return typeof ref === "string" ? ref : null;
-  } catch {
-    return null;
-  }
-}
-
 interface ContentBankGridProps {
   items: ContentBankItemResponse[];
   loading: boolean;
@@ -45,6 +34,77 @@ interface ContentBankGridProps {
   onStateFilterChange: (state: ContentReviewState | null) => void;
   onOpenItem: (item: ContentBankItemResponse) => void;
   onPublishNow: (item: ContentBankItemResponse) => void;
+  token: string;
+}
+
+/** Best-effort snippet of an item's copy for the graceful (no-image) preview card. */
+function previewSnippet(item: ContentBankItemResponse): string {
+  const source = item.caption?.trim() || item.text?.trim() || "";
+  if (!source) return "";
+  return source.length > 90 ? `${source.slice(0, 90)}…` : source;
+}
+
+/**
+ * Renders an item's thumbnail: the resolved markup/background image when one exists, otherwise the
+ * first raw asset (fetched the same way Content Studio's `AssetFallbackImage` does), otherwise a
+ * graceful text/format preview instead of a broken-image icon.
+ */
+function ItemThumbnail({ item, token }: { item: ContentBankItemResponse; token: string }) {
+  const markupThumbnail = resolveBankThumbnail(item.visualSpecMarkup);
+  const [assetUrl, setAssetUrl] = useState<string | null>(null);
+  const firstAsset = item.assets[0];
+
+  useEffect(() => {
+    setAssetUrl(null);
+    if (markupThumbnail || !firstAsset) return;
+
+    if (/^(https?:|data:|blob:|\/)/i.test(firstAsset.storageUri)) {
+      setAssetUrl(firstAsset.storageUri);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    fetchContentItemAsset(item.id, 0, token)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setAssetUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setAssetUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id, markupThumbnail, firstAsset?.storageUri, token]);
+
+  const thumbnail = markupThumbnail ?? assetUrl;
+
+  if (thumbnail) {
+    return (
+      <div
+        className="h-full w-full bg-cover bg-center"
+        style={{ backgroundImage: `url(${thumbnail})` }}
+        aria-hidden="true"
+      />
+    );
+  }
+
+  const snippet = previewSnippet(item);
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 p-3 text-center">
+      <FileText className="h-5 w-5 text-muted-foreground" />
+      {snippet ? (
+        <p className="line-clamp-3 text-[11px] text-muted-foreground">{snippet}</p>
+      ) : (
+        <span className="text-[11px] text-muted-foreground">{item.formatKey}</span>
+      )}
+    </div>
+  );
 }
 
 /** Bank tab (design §10): catalog/grid of item-cards across all sets/origins for the client. */
@@ -58,6 +118,7 @@ export function ContentBankGrid({
   onStateFilterChange,
   onOpenItem,
   onPublishNow,
+  token,
 }: ContentBankGridProps) {
   const { dateFormat } = useTheme();
   return (
@@ -116,7 +177,6 @@ export function ContentBankGrid({
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {items.map((item) => {
-            const thumbnail = resolveThumbnail(item.visualSpecMarkup);
             const canPublish = PLANNER_ACTIONABLE.has(item.state);
             return (
               <div
@@ -126,12 +186,9 @@ export function ContentBankGrid({
                 <button
                   type="button"
                   onClick={() => onOpenItem(item)}
-                  className={cn(
-                    "relative flex aspect-square items-center justify-center bg-muted/40 bg-cover bg-center",
-                  )}
-                  style={thumbnail ? { backgroundImage: `url(${thumbnail})` } : undefined}
+                  className={cn("relative flex aspect-square items-center justify-center bg-muted/40")}
                 >
-                  {!thumbnail ? <ImageOff className="h-6 w-6 text-muted-foreground" /> : null}
+                  <ItemThumbnail item={item} token={token} />
                 </button>
                 <div className="flex flex-col gap-2 p-2">
                   <div className="flex items-center justify-between gap-1">

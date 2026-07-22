@@ -60,7 +60,12 @@ export function PublicationsWorkspace() {
   const [fromUtc, setFromUtc] = useState(defaultRange.fromUtc);
   const [toUtc, setToUtc] = useState(defaultRange.toUtc);
 
-  const [studioTarget, setStudioTarget] = useState<{ analysisId: string; clientId: string } | null>(null);
+  const [studioTarget, setStudioTarget] = useState<{
+    analysisId: string | null;
+    setId: string | null;
+    selectedItemId: string | null;
+    clientId: string;
+  } | null>(null);
   const [publishTarget, setPublishTarget] = useState<ContentBankItemResponse | null>(null);
 
   useEffect(() => {
@@ -103,7 +108,16 @@ export function PublicationsWorkspace() {
   }, [loadItems]);
 
   function openItem(item: ContentBankItemResponse) {
-    setStudioTarget({ analysisId: item.origin.sourceRunId, clientId: item.clientId });
+    // Bank items are already materialized. Prefer opening the EXISTING owning set directly
+    // (`setId`, resolved server-side) so the studio never re-materializes by analysis id — that path
+    // is analysis-centric and fails/hangs for content whose source run is not a re-materializable
+    // single-analyzer analysis (e.g. MagicGenerator runs). Fall back to the analysis-id path only
+    // when the server could not resolve an owning set.
+    setStudioTarget(
+      item.setId
+        ? { analysisId: null, setId: item.setId, selectedItemId: item.id, clientId: item.clientId }
+        : { analysisId: item.origin.sourceRunId, setId: null, selectedItemId: null, clientId: item.clientId },
+    );
   }
 
   async function runAction(action: () => Promise<unknown>) {
@@ -225,6 +239,7 @@ export function PublicationsWorkspace() {
               onStateFilterChange={setStateFilter}
               onOpenItem={openItem}
               onPublishNow={setPublishTarget}
+              token={token}
             />
           </TabsContent>
 
@@ -270,6 +285,8 @@ export function PublicationsWorkspace() {
       {studioTarget ? (
         <ContentStudioPanel
           analysisId={studioTarget.analysisId}
+          setId={studioTarget.setId}
+          selectedItemId={studioTarget.selectedItemId}
           clientId={studioTarget.clientId}
           token={token}
           onClose={() => {
