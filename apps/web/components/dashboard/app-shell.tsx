@@ -17,7 +17,6 @@ import { SignOutButton } from "@/components/auth/sign-out-button";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeSelector } from "@/components/theme/theme-selector";
-import { DateFormatSelector } from "@/components/theme/date-format-selector";
 import { SidebarAreaSwitcher } from "@/components/dashboard/sidebar-area-switcher";
 import { adminNavigation, getWorkspaceNavigation, workspaceModules } from "@/lib/navigation";
 import type { NavGroup, WorkspaceModule, WorkspaceModuleKey } from "@/lib/navigation";
@@ -423,7 +422,6 @@ export function AppShell({
                       {userEmail ?? "Authenticated user"}
                     </span>
                     <ThemeSelector />
-                    <DateFormatSelector />
                     <SignOutButton />
                   </div>
                 </div>

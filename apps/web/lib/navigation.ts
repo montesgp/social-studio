@@ -18,7 +18,8 @@ import {
   Store,
   ShoppingBag,
   Package,
-  Tags
+  Tags,
+  Settings
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -108,7 +109,8 @@ const sharedManagementNavigation: NavGroup[] = [
     label: "Management",
     items: [
       { href: "/clients", label: "Clients", icon: BriefcaseBusiness },
-      { href: "/settings/integrations", label: "Settings / Integrations", icon: PlugZap }
+      { href: "/settings/integrations", label: "Settings / Integrations", icon: PlugZap },
+      { href: "/settings/preferences", label: "Preferences", icon: Settings }
     ]
   }
 ];
