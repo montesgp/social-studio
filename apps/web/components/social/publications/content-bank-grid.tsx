@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Download, Send, X } from "lucide-react";
+import { Check, Download, Send, SendHorizonal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +39,7 @@ interface ContentBankGridProps {
   onPublishNow: (item: ContentBankItemResponse) => void;
   onApprove: (item: ContentBankItemResponse) => void;
   onReject: (item: ContentBankItemResponse, reason: string) => void;
+  onStage: (item: ContentBankItemResponse) => void;
   onDownload: (item: ContentBankItemResponse) => void;
   token: string;
 }
@@ -53,6 +54,7 @@ function ItemActions({
   busy,
   onApprove,
   onReject,
+  onStage,
   onPublishNow,
   onDownload,
 }: {
@@ -60,12 +62,13 @@ function ItemActions({
   busy: boolean;
   onApprove: () => void;
   onReject: (reason: string) => void;
+  onStage: () => void;
   onPublishNow: () => void;
   onDownload: () => void;
 }) {
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
-  const { canApprove, canReject } = reviewActionsFor(item.state);
+  const { canApprove, canReject, canStage } = reviewActionsFor(item.state);
   const canPublish = canPublishItem(item.state, item.isPublishable);
 
   if (rejecting) {
@@ -126,6 +129,13 @@ function ItemActions({
           <X className="h-3.5 w-3.5" /> Reject
         </Button>
       ) : null}
+      {canStage ? (
+        // Approved → ReadyForPublication. Safe again now that staging no longer runs the legacy
+        // handoff that ended in the terminal HandedOff state.
+        <Button size="sm" variant="warning" className="h-7 px-2 text-xs" disabled={busy} onClick={onStage}>
+          <SendHorizonal className="h-3.5 w-3.5" /> Mark ready
+        </Button>
+      ) : null}
       {canPublish ? (
         <Button size="sm" variant="default" className="h-7 px-2 text-xs" disabled={busy} onClick={onPublishNow}>
           <Send className="h-3.5 w-3.5" /> Publish now
@@ -156,6 +166,7 @@ export function ContentBankGrid({
   onPublishNow,
   onApprove,
   onReject,
+  onStage,
   onDownload,
   token,
 }: ContentBankGridProps) {
@@ -246,6 +257,7 @@ export function ContentBankGrid({
                     busy={busy}
                     onApprove={() => onApprove(item)}
                     onReject={(reason) => onReject(item, reason)}
+                    onStage={() => onStage(item)}
                     onPublishNow={() => onPublishNow(item)}
                     onDownload={() => onDownload(item)}
                   />

@@ -153,7 +153,6 @@ public static class DependencyInjection
         services.AddHttpClient<InstagramGraphPublicationConnector>();
         services.AddScoped<IPublicationConnector>(
             sp => sp.GetRequiredService<InstagramGraphPublicationConnector>());
-        services.AddScoped<IPublicationHandoff, Incoders.Hive.Infrastructure.Social.ContentStudio.LoggingPublicationHandoff>();
         services.AddScoped<SocialNetworkCatalogSeeder>();
         services.AddScoped<PlatformSystemModuleSeeder>();
         services.AddScoped<PlatformEmailTemplateSeeder>();

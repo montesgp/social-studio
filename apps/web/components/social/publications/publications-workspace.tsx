@@ -26,6 +26,7 @@ import {
   approveItem,
   fetchContentItemAsset,
   rejectItem,
+  stageItem,
   type ContentReviewState,
 } from "@/lib/api/content-studio";
 import { ContentBankGrid } from "@/components/social/publications/content-bank-grid";
@@ -210,6 +211,11 @@ export function PublicationsWorkspace() {
     void runAction(() => rejectItem(item.id, reason, token));
   }
 
+  /** Approved → ReadyForPublication. Keeps the piece in the Planner rather than retiring it. */
+  function onStageItem(item: ContentBankItemResponse) {
+    void runAction(() => stageItem(item.id, token));
+  }
+
   /**
    * Download for script/copy deliverables, which have no publish path. Assets are fetched through
    * the authenticated content-item asset endpoint, so a plain anchor href would 401.
@@ -326,6 +332,7 @@ export function PublicationsWorkspace() {
               onPublishNow={setPublishTarget}
               onApprove={onApproveItem}
               onReject={onRejectItem}
+              onStage={onStageItem}
               onDownload={(item) => void onDownloadItem(item)}
               token={token}
             />

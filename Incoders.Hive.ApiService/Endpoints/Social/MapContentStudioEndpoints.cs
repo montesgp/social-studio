@@ -405,12 +405,14 @@ public static class ContentStudioEndpointsExtensions
     private static async Task<IResult> StageAsync(
         Guid itemId, ICurrentTenant tenant, ICurrentUser currentUser, ISender sender, CancellationToken ct)
     {
-        if (tenant.TenantId is not { } org || currentUser.UserId is not { } userId)
+        if (tenant.TenantId is not { } org || currentUser.UserId is null)
         {
             return TypedResults.Unauthorized();
         }
 
-        var result = await sender.Send(new StageItemForPublicationCommand(org.Value, itemId, userId), ct);
+        // The approving user is already recorded on the item by ApproveItemCommand; staging only
+        // moves Approved → ReadyForPublication and no longer emits a handoff payload that needed it.
+        var result = await sender.Send(new StageItemForPublicationCommand(org.Value, itemId), ct);
         return result.Match(r => (IResult)TypedResults.Ok(r));
     }
 

@@ -103,8 +103,12 @@ public sealed class ContentItemOperationsAndStageTests
     }
 
     [Fact]
-    public async Task Stage_ApprovedItem_EmitsHandoff_AndMarksHandedOff()
+    public async Task Stage_ApprovedItem_StopsAtReadyForPublication()
     {
+        // Staging used to run the legacy IPublicationHandoff and then mark the item HandedOff, which
+        // ADR 0005 superseded when the Publication aggregate became the publication axis. HandedOff
+        // is terminal, so a staged piece dropped out of the Planner entirely and could never be
+        // published. Staging now just declares the piece ready and leaves it in the flow.
         await using var db = CreateDbContext();
         var items = new EfContentItemRepository(db);
         var item = await SeedItemAsync(items);
@@ -113,30 +117,43 @@ public sealed class ContentItemOperationsAndStageTests
         await new ApproveItemCommandHandler(items, clock)
             .Handle(new ApproveItemCommand(Org, item.Id.Value, Guid.NewGuid()), CancellationToken.None);
 
-        var handoff = new RecordingHandoff();
-        var handler = new StageItemForPublicationCommandHandler(items, handoff, clock);
-        var result = await handler.Handle(new StageItemForPublicationCommand(Org, item.Id.Value, Guid.NewGuid()), CancellationToken.None);
+        var handler = new StageItemForPublicationCommandHandler(items, clock);
+        var result = await handler.Handle(new StageItemForPublicationCommand(Org, item.Id.Value), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal("HandedOff", result.Value.State);
-        Assert.NotNull(handoff.LastPayload);
-        Assert.Equal(PublicationHandoffPayload.CurrentSchemaVersion, handoff.LastPayload!.SchemaVersion);
-        Assert.Equal(item.Id.Value, handoff.LastPayload.ContentItemId);
+        Assert.Equal("ReadyForPublication", result.Value.State);
     }
 
     [Fact]
-    public async Task Stage_NonApprovedItem_Fails_AndEmitsNoHandoff()
+    public async Task Stage_ReadyItem_RemainsPublishable()
+    {
+        await using var db = CreateDbContext();
+        var items = new EfContentItemRepository(db);
+        var item = await SeedItemAsync(items);
+        var clock = new FixedClock(Now);
+
+        await new ApproveItemCommandHandler(items, clock)
+            .Handle(new ApproveItemCommand(Org, item.Id.Value, Guid.NewGuid()), CancellationToken.None);
+        await new StageItemForPublicationCommandHandler(items, clock)
+            .Handle(new StageItemForPublicationCommand(Org, item.Id.Value), CancellationToken.None);
+
+        var reloaded = await items.GetByIdAsync(Org, item.Id, CancellationToken.None);
+
+        Assert.NotNull(reloaded);
+        Assert.Equal(ReviewState.ReadyForPublication, reloaded!.State);
+    }
+
+    [Fact]
+    public async Task Stage_NonApprovedItem_Fails()
     {
         await using var db = CreateDbContext();
         var items = new EfContentItemRepository(db);
         var item = await SeedItemAsync(items); // Draft
 
-        var handoff = new RecordingHandoff();
-        var handler = new StageItemForPublicationCommandHandler(items, handoff, new FixedClock(Now));
-        var result = await handler.Handle(new StageItemForPublicationCommand(Org, item.Id.Value, Guid.NewGuid()), CancellationToken.None);
+        var handler = new StageItemForPublicationCommandHandler(items, new FixedClock(Now));
+        var result = await handler.Handle(new StageItemForPublicationCommand(Org, item.Id.Value), CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        Assert.Null(handoff.LastPayload);
     }
 
     private static async Task<ContentItem> SeedItemAsync(EfContentItemRepository items, string text = "caption")
@@ -164,13 +181,4 @@ file sealed class FixedClock(DateTime utcNow) : IClock
     public DateTime UtcNow { get; } = utcNow;
 }
 
-file sealed class RecordingHandoff : IPublicationHandoff
-{
-    public PublicationHandoffPayload? LastPayload { get; private set; }
 
-    public Task<Result> HandoffAsync(PublicationHandoffPayload payload, CancellationToken ct)
-    {
-        LastPayload = payload;
-        return Task.FromResult(Result.Success());
-    }
-}
