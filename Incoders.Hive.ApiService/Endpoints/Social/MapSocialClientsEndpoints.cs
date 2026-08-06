@@ -116,15 +116,29 @@ public static class SocialClientsEndpointsExtensions
         Guid id,
         ISender sender,
         ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
         CancellationToken cancellationToken)
     {
-        if (currentTenant.TenantId is not { } organizationId)
+        Guid? resolvedOrganizationId;
+
+        // Mirrors ListAsync: a platform admin lists clients across every organization, so the
+        // by-id lookup has to reach the same rows. Scoping it to the admin's own active tenant
+        // made every client outside that tenant 404 straight out of the list.
+        if (currentUser.IsPlatformAdmin)
         {
-            return ClientErrors.OrganizationRequired.ToProblem();
+            resolvedOrganizationId = null;
+        }
+        else
+        {
+            if (currentTenant.TenantId is not { } tenantId)
+            {
+                return ClientErrors.OrganizationRequired.ToProblem();
+            }
+            resolvedOrganizationId = tenantId.Value;
         }
 
         var result = await sender.Send(
-            new GetSocialClientByIdQuery(id, organizationId.Value),
+            new GetSocialClientByIdQuery(id, resolvedOrganizationId),
             cancellationToken);
 
         return result.Match(client => (IResult)TypedResults.Ok(client));

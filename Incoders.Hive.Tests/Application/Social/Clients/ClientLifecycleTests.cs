@@ -56,6 +56,41 @@ public sealed class ClientLifecycleTests
     }
 
     [Fact]
+    public async Task GetById_WithoutOrganization_ResolvesAcrossOrganizations_ForPlatformAdmin()
+    {
+        // The platform-admin clients list spans every organization, including ones the admin is
+        // not a member of. A null organization is how the endpoint expresses that lookup; scoping
+        // it to the admin's own tenant used to 404 exactly the rows the list had just returned.
+        var harness = new SocialClientHarness(Now);
+        var ownerOrganizationId = Guid.NewGuid();
+
+        var created = await harness.Create.Handle(
+            new CreateSocialClientCommand(ownerOrganizationId, "Acme Social", null),
+            CancellationToken.None);
+
+        var fetched = await harness.GetById.Handle(
+            new GetSocialClientByIdQuery(created.Value.Id, null),
+            CancellationToken.None);
+
+        Assert.True(fetched.IsSuccess);
+        Assert.Equal("Acme Social", fetched.Value.Name);
+        Assert.Equal(ownerOrganizationId, fetched.Value.OrganizationId);
+    }
+
+    [Fact]
+    public async Task GetById_WithoutOrganization_StillFailsForUnknownClient()
+    {
+        var harness = new SocialClientHarness(Now);
+
+        var fetched = await harness.GetById.Handle(
+            new GetSocialClientByIdQuery(Guid.NewGuid(), null),
+            CancellationToken.None);
+
+        Assert.True(fetched.IsFailure);
+        Assert.Equal("social.clients.not_found", fetched.Error.Code);
+    }
+
+    [Fact]
     public async Task List_ReturnsOnlyOrganizationClients()
     {
         var harness = new SocialClientHarness(Now);
@@ -406,7 +441,7 @@ public sealed class ClientLifecycleTests
             var clock = new TestClock(nowUtc);
 
             Create = new CreateSocialClientHandler(repository, unitOfWork, clock);
-            GetById = new GetSocialClientByIdHandler(repository);
+            GetById = new GetSocialClientByIdHandler(repository, repository);
             List = new GetSocialClientsHandler(repository);
             Update = new UpdateSocialClientHandler(repository, unitOfWork, clock);
             Deactivate = new DeactivateSocialClientHandler(repository, unitOfWork, clock);
@@ -426,7 +461,7 @@ public sealed class ClientLifecycleTests
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
     }
 
-    private sealed class InMemorySocialClientRepository : ISocialClientRepository
+    private sealed class InMemorySocialClientRepository : ISocialClientRepository, ISocialClientDirectoryRepository
     {
         private readonly Dictionary<ClientId, Client> _clients = new();
 
@@ -437,6 +472,14 @@ public sealed class ClientLifecycleTests
         {
             _clients.TryGetValue(id, out var client);
             return Task.FromResult(client?.OrganizationId == organizationId ? client : null);
+        }
+
+        public Task<Client?> GetByIdAcrossOrganizationsAsync(
+            ClientId id,
+            CancellationToken cancellationToken = default)
+        {
+            _clients.TryGetValue(id, out var client);
+            return Task.FromResult(client);
         }
 
         public Task<(IReadOnlyList<Client> Items, int TotalCount)> ListAsync(

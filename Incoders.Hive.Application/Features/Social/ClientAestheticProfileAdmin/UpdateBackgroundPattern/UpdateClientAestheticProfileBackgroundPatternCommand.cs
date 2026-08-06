@@ -9,8 +9,13 @@ namespace Incoders.Hive.Application.Features.Social.ClientAestheticProfileAdmin.
 /// analysis. Values are supplied as raw strings so the validator can produce a stable,
 /// localizable error for unrecognized tokens instead of a deserialization exception.
 /// </summary>
+/// <param name="OrganizationId">
+/// Organization the client lookup is scoped to. <c>null</c> resolves across every organization and
+/// is reserved for platform admins. The analysis write always uses the resolved client's own
+/// organization, never this value.
+/// </param>
 public sealed record UpdateClientAestheticProfileBackgroundPatternCommand(
-    Guid OrganizationId,
+    Guid? OrganizationId,
     Guid ClientId,
     IReadOnlyList<string> BackgroundPattern) : IRequest<Result<UpdateClientAestheticProfileBackgroundPatternResponse>>;
 

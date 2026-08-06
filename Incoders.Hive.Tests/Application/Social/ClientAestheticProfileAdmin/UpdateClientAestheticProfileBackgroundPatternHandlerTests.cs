@@ -22,6 +22,7 @@ public sealed class UpdateClientAestheticProfileBackgroundPatternHandlerTests
     {
         var handler = new UpdateClientAestheticProfileBackgroundPatternHandler(
             new FakeClientRepository(exists: false),
+            new FakeClientRepository(exists: false),
             new FakeAnalysisRepository(null));
 
         var result = await handler.Handle(
@@ -36,6 +37,7 @@ public sealed class UpdateClientAestheticProfileBackgroundPatternHandlerTests
     public async Task NoAnalysis_ReturnsNoCompletedAnalysisError()
     {
         var handler = new UpdateClientAestheticProfileBackgroundPatternHandler(
+            new FakeClientRepository(exists: true),
             new FakeClientRepository(exists: true),
             new FakeAnalysisRepository(null));
 
@@ -52,6 +54,7 @@ public sealed class UpdateClientAestheticProfileBackgroundPatternHandlerTests
     {
         var summary = new LatestProfileAnalysisSummary(Guid.NewGuid(), "Analyzing", null, "@client", null);
         var handler = new UpdateClientAestheticProfileBackgroundPatternHandler(
+            new FakeClientRepository(exists: true),
             new FakeClientRepository(exists: true),
             new FakeAnalysisRepository(summary));
 
@@ -79,6 +82,7 @@ public sealed class UpdateClientAestheticProfileBackgroundPatternHandlerTests
         var analysisRepo = new FakeAnalysisRepository(summary);
         var handler = new UpdateClientAestheticProfileBackgroundPatternHandler(
             new FakeClientRepository(exists: true),
+            new FakeClientRepository(exists: true),
             analysisRepo);
 
         var result = await handler.Handle(
@@ -101,16 +105,20 @@ public sealed class UpdateClientAestheticProfileBackgroundPatternHandlerTests
 
     // ── Fakes ──────────────────────────────────────────────────────────────
 
-    private sealed class FakeClientRepository : ISocialClientRepository
+    private sealed class FakeClientRepository : ISocialClientRepository, ISocialClientDirectoryRepository
     {
         private readonly bool _exists;
 
         public FakeClientRepository(bool exists) => _exists = exists;
 
         public Task<Client?> GetByIdAsync(ClientId id, Guid organizationId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(_exists
-                ? Client.Restore(id, organizationId, "Test Client", null, true, DateTime.UtcNow, DateTime.UtcNow, null, null, null)
-                : null);
+            Task.FromResult(_exists ? Restore(id, organizationId) : null);
+
+        public Task<Client?> GetByIdAcrossOrganizationsAsync(ClientId id, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_exists ? Restore(id, OrgId) : null);
+
+        private static Client? Restore(ClientId id, Guid organizationId) =>
+            Client.Restore(id, organizationId, "Test Client", null, true, DateTime.UtcNow, DateTime.UtcNow, null, null, null);
 
         public Task<(IReadOnlyList<Client> Items, int TotalCount)> ListAsync(SocialClientQuery query, CancellationToken cancellationToken = default) =>
             Task.FromResult<(IReadOnlyList<Client>, int)>(([], 0));

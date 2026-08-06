@@ -18,15 +18,18 @@ public sealed class GetClientAestheticProfileHandler
     : IRequestHandler<GetClientAestheticProfileQuery, Result<ClientAestheticProfileAdminResponse>>
 {
     private readonly ISocialClientRepository _clients;
+    private readonly ISocialClientDirectoryRepository _directory;
     private readonly IProfileAnalysisRepository _analyses;
     private readonly IClientAestheticProfileReader _profileReader;
 
     public GetClientAestheticProfileHandler(
         ISocialClientRepository clients,
+        ISocialClientDirectoryRepository directory,
         IProfileAnalysisRepository analyses,
         IClientAestheticProfileReader profileReader)
     {
         _clients = clients;
+        _directory = directory;
         _analyses = analyses;
         _profileReader = profileReader;
     }
@@ -36,13 +39,20 @@ public sealed class GetClientAestheticProfileHandler
         CancellationToken cancellationToken)
     {
         var clientId = new ClientId(request.ClientId);
-        var client = await _clients.GetByIdAsync(clientId, request.OrganizationId, cancellationToken);
+        var client = request.OrganizationId is { } scopedOrganizationId
+            ? await _clients.GetByIdAsync(clientId, scopedOrganizationId, cancellationToken)
+            : await _directory.GetByIdAcrossOrganizationsAsync(clientId, cancellationToken);
         if (client is null)
         {
             return Result.Failure<ClientAestheticProfileAdminResponse>(ClientErrors.NotFound);
         }
 
-        var latest = await _analyses.GetLatestForClientAsync(request.OrganizationId, request.ClientId, cancellationToken);
+        // The resolved client is authoritative for its own organization, which is what the
+        // analysis reads below must be scoped to — for the platform-admin lookup the request
+        // carries no organization at all.
+        var organizationId = client.OrganizationId;
+
+        var latest = await _analyses.GetLatestForClientAsync(organizationId, request.ClientId, cancellationToken);
         if (latest is null)
         {
             return Result.Success(ClientAestheticProfileAdminResponse.NoAnalysis);
@@ -51,7 +61,7 @@ public sealed class GetClientAestheticProfileHandler
         ClientAestheticProfile? profile = null;
         if (string.Equals(latest.Status, nameof(ProfileAnalysisStatus.Analyzed), StringComparison.Ordinal))
         {
-            profile = await _profileReader.GetProfileAsync(request.OrganizationId, request.ClientId, cancellationToken);
+            profile = await _profileReader.GetProfileAsync(organizationId, request.ClientId, cancellationToken);
         }
 
         return Result.Success(new ClientAestheticProfileAdminResponse(

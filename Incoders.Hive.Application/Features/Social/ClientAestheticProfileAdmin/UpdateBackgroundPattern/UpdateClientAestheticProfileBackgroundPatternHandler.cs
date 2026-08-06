@@ -18,13 +18,16 @@ public sealed class UpdateClientAestheticProfileBackgroundPatternHandler
     : IRequestHandler<UpdateClientAestheticProfileBackgroundPatternCommand, Result<UpdateClientAestheticProfileBackgroundPatternResponse>>
 {
     private readonly ISocialClientRepository _clients;
+    private readonly ISocialClientDirectoryRepository _directory;
     private readonly IProfileAnalysisRepository _analyses;
 
     public UpdateClientAestheticProfileBackgroundPatternHandler(
         ISocialClientRepository clients,
+        ISocialClientDirectoryRepository directory,
         IProfileAnalysisRepository analyses)
     {
         _clients = clients;
+        _directory = directory;
         _analyses = analyses;
     }
 
@@ -33,13 +36,19 @@ public sealed class UpdateClientAestheticProfileBackgroundPatternHandler
         CancellationToken cancellationToken)
     {
         var clientId = new ClientId(request.ClientId);
-        var client = await _clients.GetByIdAsync(clientId, request.OrganizationId, cancellationToken);
+        var client = request.OrganizationId is { } scopedOrganizationId
+            ? await _clients.GetByIdAsync(clientId, scopedOrganizationId, cancellationToken)
+            : await _directory.GetByIdAcrossOrganizationsAsync(clientId, cancellationToken);
         if (client is null)
         {
             return Result.Failure<UpdateClientAestheticProfileBackgroundPatternResponse>(ClientErrors.NotFound);
         }
 
-        var latest = await _analyses.GetLatestForClientAsync(request.OrganizationId, request.ClientId, cancellationToken);
+        // The resolved client owns the organization the analysis write is scoped to; the
+        // platform-admin lookup carries none on the request.
+        var organizationId = client.OrganizationId;
+
+        var latest = await _analyses.GetLatestForClientAsync(organizationId, request.ClientId, cancellationToken);
         if (latest is null || !string.Equals(latest.Status, nameof(ProfileAnalysisStatus.Analyzed), StringComparison.Ordinal))
         {
             return Result.Failure<UpdateClientAestheticProfileBackgroundPatternResponse>(
@@ -55,7 +64,7 @@ public sealed class UpdateClientAestheticProfileBackgroundPatternHandler
         var patchedJson = AestheticProfilePersistence.WithBackgroundPattern(latest.AestheticProfileJson, kinds);
 
         await _analyses.SetAestheticProfileJsonAsync(
-            latest.AnalysisId, request.OrganizationId, patchedJson, cancellationToken);
+            latest.AnalysisId, organizationId, patchedJson, cancellationToken);
 
         return Result.Success(new UpdateClientAestheticProfileBackgroundPatternResponse(
             latest.AnalysisId,

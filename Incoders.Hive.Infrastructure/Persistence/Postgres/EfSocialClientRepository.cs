@@ -6,7 +6,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Incoders.Hive.Infrastructure.Persistence.Postgres;
 
-public sealed class EfSocialClientRepository : ISocialClientRepository, ISocialClientHardDeleteRepository
+public sealed class EfSocialClientRepository
+    : ISocialClientRepository, ISocialClientHardDeleteRepository, ISocialClientDirectoryRepository
 {
     private readonly AppIdentityDbContext _dbContext;
 
@@ -25,6 +26,17 @@ public sealed class EfSocialClientRepository : ISocialClientRepository, ISocialC
             .FirstOrDefaultAsync(
                 x => x.Id == id.Value && x.OrganizationId == organizationId,
                 cancellationToken);
+
+        return row is null ? null : ToDomain(row);
+    }
+
+    public async Task<Client?> GetByIdAcrossOrganizationsAsync(
+        ClientId id,
+        CancellationToken cancellationToken = default)
+    {
+        var row = await _dbContext.SocialClients
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == id.Value, cancellationToken);
 
         return row is null ? null : ToDomain(row);
     }

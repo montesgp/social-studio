@@ -22,6 +22,7 @@ public sealed class GetClientAestheticProfileHandlerTests
     {
         var handler = new GetClientAestheticProfileHandler(
             new FakeClientRepository(exists: false),
+            new FakeClientRepository(exists: false),
             new FakeAnalysisRepository(null),
             new FakeProfileReader(null));
 
@@ -36,6 +37,7 @@ public sealed class GetClientAestheticProfileHandlerTests
     public async Task NoAnalysisExists_ReturnsNoAnalysisResponse_NotError()
     {
         var handler = new GetClientAestheticProfileHandler(
+            new FakeClientRepository(exists: true),
             new FakeClientRepository(exists: true),
             new FakeAnalysisRepository(null),
             new FakeProfileReader(null));
@@ -55,6 +57,7 @@ public sealed class GetClientAestheticProfileHandlerTests
         var summary = new LatestProfileAnalysisSummary(analysisId, "Analyzing", null, "@client", null);
 
         var handler = new GetClientAestheticProfileHandler(
+            new FakeClientRepository(exists: true),
             new FakeClientRepository(exists: true),
             new FakeAnalysisRepository(summary),
             new FakeProfileReader(null));
@@ -83,6 +86,7 @@ public sealed class GetClientAestheticProfileHandlerTests
 
         var handler = new GetClientAestheticProfileHandler(
             new FakeClientRepository(exists: true),
+            new FakeClientRepository(exists: true),
             new FakeAnalysisRepository(summary),
             new FakeProfileReader(profile));
 
@@ -96,18 +100,45 @@ public sealed class GetClientAestheticProfileHandlerTests
         Assert.Equal(2, result.Value.Profile!.BackgroundPattern!.Count);
     }
 
+    [Fact]
+    public async Task NullOrganization_ResolvesClientAcrossOrganizations_ForPlatformAdmin()
+    {
+        // The Analysis Data tab used to render "social.clients.errors.not_found" for any client
+        // outside the admin's own tenant, because this lookup was tenant-scoped while the clients
+        // list it was opened from was not.
+        var analysisId = Guid.NewGuid();
+        var summary = new LatestProfileAnalysisSummary(analysisId, "Analyzing", null, "@client", null);
+
+        var handler = new GetClientAestheticProfileHandler(
+            new FakeClientRepository(exists: false),
+            new FakeClientRepository(exists: true),
+            new FakeAnalysisRepository(summary),
+            new FakeProfileReader(null));
+
+        var result = await handler.Handle(
+            new GetClientAestheticProfileQuery(null, ClientGuid), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.HasAnalysis);
+        Assert.Equal(analysisId, result.Value.AnalysisId);
+    }
+
     // ── Fakes ──────────────────────────────────────────────────────────────
 
-    private sealed class FakeClientRepository : ISocialClientRepository
+    private sealed class FakeClientRepository : ISocialClientRepository, ISocialClientDirectoryRepository
     {
         private readonly bool _exists;
 
         public FakeClientRepository(bool exists) => _exists = exists;
 
         public Task<Client?> GetByIdAsync(ClientId id, Guid organizationId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(_exists
-                ? Client.Restore(id, organizationId, "Test Client", null, true, DateTime.UtcNow, DateTime.UtcNow, null, null, null)
-                : null);
+            Task.FromResult(_exists ? Restore(id, organizationId) : null);
+
+        public Task<Client?> GetByIdAcrossOrganizationsAsync(ClientId id, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_exists ? Restore(id, OrgId) : null);
+
+        private static Client? Restore(ClientId id, Guid organizationId) =>
+            Client.Restore(id, organizationId, "Test Client", null, true, DateTime.UtcNow, DateTime.UtcNow, null, null, null);
 
         public Task<(IReadOnlyList<Client> Items, int TotalCount)> ListAsync(SocialClientQuery query, CancellationToken cancellationToken = default) =>
             Task.FromResult<(IReadOnlyList<Client>, int)>(([], 0));

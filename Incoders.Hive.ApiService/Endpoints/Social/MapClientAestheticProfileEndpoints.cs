@@ -1,4 +1,5 @@
 using Incoders.Hive.ApiService.Endpoints.Common;
+using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Application.Features.Social.ClientAestheticProfileAdmin.GetProfile;
 using Incoders.Hive.Application.Features.Social.ClientAestheticProfileAdmin.UpdateBackgroundPattern;
@@ -41,16 +42,17 @@ public static class ClientAestheticProfileEndpointsExtensions
     private static async Task<IResult> GetAsync(
         Guid clientId,
         ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
         ISender sender,
         CancellationToken cancellationToken)
     {
-        if (currentTenant.TenantId is not { } organizationId)
+        if (!TryResolveOrganization(currentTenant, currentUser, out var organizationId))
         {
             return Domain.Social.Clients.ClientErrors.NotFound.ToProblem();
         }
 
         var result = await sender.Send(
-            new GetClientAestheticProfileQuery(organizationId.Value, clientId),
+            new GetClientAestheticProfileQuery(organizationId, clientId),
             cancellationToken);
 
         return result.Match(r => (IResult)TypedResults.Ok(r));
@@ -60,22 +62,49 @@ public static class ClientAestheticProfileEndpointsExtensions
         Guid clientId,
         [FromBody] UpdateClientAestheticProfileBackgroundPatternRequest body,
         ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
         ISender sender,
         CancellationToken cancellationToken)
     {
-        if (currentTenant.TenantId is not { } organizationId)
+        if (!TryResolveOrganization(currentTenant, currentUser, out var organizationId))
         {
             return Domain.Social.Clients.ClientErrors.NotFound.ToProblem();
         }
 
         var result = await sender.Send(
             new UpdateClientAestheticProfileBackgroundPatternCommand(
-                organizationId.Value,
+                organizationId,
                 clientId,
                 body.BackgroundPattern),
             cancellationToken);
 
         return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
+    /// <summary>
+    /// Mirrors the by-id client endpoint: a platform admin resolves the client across every
+    /// organization (<c>null</c>), since the admin clients list spans organizations they are not a
+    /// member of. Everyone else stays scoped to their resolved tenant.
+    /// </summary>
+    private static bool TryResolveOrganization(
+        ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
+        out Guid? organizationId)
+    {
+        if (currentUser.IsPlatformAdmin)
+        {
+            organizationId = null;
+            return true;
+        }
+
+        if (currentTenant.TenantId is { } tenantId)
+        {
+            organizationId = tenantId.Value;
+            return true;
+        }
+
+        organizationId = null;
+        return false;
     }
 }
 
