@@ -38,6 +38,12 @@ public sealed class SocialClientData
     public short? MaxPostsToAnalyze { get; set; }
 
     /// <summary>
+    /// Per-client cap on pieces built per generation job. Maps to <c>max_pieces_per_generation</c>
+    /// <c>smallint NULL</c> on <c>social.clients</c>. NULL = no cap. Range 1–20.
+    /// </summary>
+    public short? MaxPiecesPerGeneration { get; set; }
+
+    /// <summary>
     /// Whether the client signs their own slides with an @handle attribution (issue #70). Maps to
     /// the <c>signs_own_slides</c> <c>boolean NOT NULL DEFAULT false</c> column on
     /// <c>social.clients</c>. Plain boolean — no tri-state.

@@ -2,6 +2,7 @@ using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentFormats;
+using Incoders.Hive.Domain.Social.Clients;
 using MediatR;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
@@ -34,12 +35,14 @@ public sealed class GenerateContentPackageCommandHandler
     private readonly IContentGenerationJobRepository _jobRepository;
     private readonly IContentGenerationJobQueue _queue;
     private readonly IContentGenerationFailurePolicy? _failurePolicy;
+    private readonly ISocialClientRepository? _clients;
 
     public GenerateContentPackageCommandHandler(
         ISingleContentAnalysisRepository analysisRepository,
         IContentGenerationJobRepository jobRepository,
         IContentGenerationJobQueue queue,
-        IContentGenerationFailurePolicy? failurePolicy = null)
+        IContentGenerationFailurePolicy? failurePolicy = null,
+        ISocialClientRepository? clients = null)
     {
         ArgumentNullException.ThrowIfNull(analysisRepository);
         ArgumentNullException.ThrowIfNull(jobRepository);
@@ -49,6 +52,7 @@ public sealed class GenerateContentPackageCommandHandler
         _jobRepository = jobRepository;
         _queue = queue;
         _failurePolicy = failurePolicy;
+        _clients = clients;
     }
 
     public async Task<Result<GenerateContentPackageResponse>> Handle(
@@ -107,6 +111,20 @@ public sealed class GenerateContentPackageCommandHandler
         {
             return Result.Failure<GenerateContentPackageResponse>(
                 ContentGenerationErrors.ClientRequired);
+        }
+
+        // Per-client piece cap: trims the request BEFORE the job is persisted, so the job row, the
+        // worker, and the eventual Content Bank all agree on how many pieces this run builds.
+        // Order is preserved, so the formats the caller listed first are the ones that survive.
+        if (_clients is not null)
+        {
+            var client = await _clients.GetByIdAsync(
+                new ClientId(effectiveClientId.Value), command.OrganizationId, cancellationToken);
+
+            if (client is not null)
+            {
+                normalizedRequestedFormats = client.ApplyPieceCap(normalizedRequestedFormats).ToList();
+            }
         }
 
         if (_failurePolicy is not null)

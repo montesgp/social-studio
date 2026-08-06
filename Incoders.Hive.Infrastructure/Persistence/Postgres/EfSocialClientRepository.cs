@@ -95,6 +95,7 @@ public sealed class EfSocialClientRepository
         // CAG-CS-01: explicit assignment required — the predecessor bug was a silent drop here.
         entity.AestheticRefreshThresholdDays = client.AestheticRefreshThresholdDays is { } t ? (short)t : null;
         entity.MaxPostsToAnalyze = client.MaxPostsToAnalyze is { } mp ? (short)mp : null;
+        entity.MaxPiecesPerGeneration = client.MaxPiecesPerGeneration is { } mpg ? (short)mpg : null;
         entity.SignsOwnSlides = client.SignsOwnSlides;
     }
 
@@ -291,7 +292,8 @@ public sealed class EfSocialClientRepository
             row.BackgroundSourcingPolicy is { } policy ? (BackgroundSourcingPolicy)policy : null,
             row.AestheticRefreshThresholdDays is { } t ? (int)t : null,
             row.MaxPostsToAnalyze is { } mp ? (int)mp : null,
-            row.SignsOwnSlides);
+            row.SignsOwnSlides,
+            row.MaxPiecesPerGeneration is { } mpg ? (int)mpg : null);
 
     private static SocialClientData ToData(Client client) =>
         new()
@@ -307,6 +309,7 @@ public sealed class EfSocialClientRepository
             BackgroundSourcingPolicy = client.BackgroundSourcingPolicy is { } policy ? (short)policy : null,
             AestheticRefreshThresholdDays = client.AestheticRefreshThresholdDays is { } t ? (short)t : null,
             MaxPostsToAnalyze = client.MaxPostsToAnalyze is { } mp ? (short)mp : null,
+            MaxPiecesPerGeneration = client.MaxPiecesPerGeneration is { } mpg ? (short)mpg : null,
             SignsOwnSlides = client.SignsOwnSlides,
         };
 }

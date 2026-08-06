@@ -19,6 +19,12 @@ public sealed class Client : Entity<ClientId>
     /// <summary>Default number of profile posts analysed per run when the client sets no override.</summary>
     public const int DefaultPostsToAnalyze = 12;
 
+    public const int MaxPiecesPerGenerationMin = 1;
+    /// <summary>
+    /// Generous ceiling so the cap does not have to move every time the format catalog grows.
+    /// </summary>
+    public const int MaxPiecesPerGenerationMax = 20;
+
     private Client(
         ClientId id,
         Guid organizationId,
@@ -31,7 +37,8 @@ public sealed class Client : Entity<ClientId>
         BackgroundSourcingPolicy? policy = null,
         int? aestheticRefreshThresholdDays = null,
         int? maxPostsToAnalyze = null,
-        bool signsOwnSlides = false)
+        bool signsOwnSlides = false,
+        int? maxPiecesPerGeneration = null)
         : base(id)
     {
         OrganizationId = organizationId;
@@ -45,6 +52,7 @@ public sealed class Client : Entity<ClientId>
         AestheticRefreshThresholdDays = aestheticRefreshThresholdDays;
         MaxPostsToAnalyze = maxPostsToAnalyze;
         SignsOwnSlides = signsOwnSlides;
+        MaxPiecesPerGeneration = maxPiecesPerGeneration;
     }
 
     public Guid OrganizationId { get; private set; }
@@ -80,6 +88,19 @@ public sealed class Client : Entity<ClientId>
     /// Valid range when set: 1–50. Higher values capture a richer aesthetic sample at more Apify cost.
     /// </summary>
     public int? MaxPostsToAnalyze { get; private set; }
+
+    /// <summary>
+    /// Per-client cap on how many pieces (format results) one generation job may build.
+    /// Null means no cap — every requested format is generated.
+    /// Valid range when set: 1–<see cref="MaxPiecesPerGenerationMax"/>.
+    /// </summary>
+    /// <remarks>
+    /// The dominant cost of a generation run is per-slide AI image rendering, so capping the number
+    /// of pieces is a coarse but effective brake for cheap test runs. Which formats survive the cap
+    /// is the CALLER's choice: <see cref="ApplyPieceCap"/> preserves the requested order, so an
+    /// operator who asks for the cheap formats first gets exactly those.
+    /// </remarks>
+    public int? MaxPiecesPerGeneration { get; private set; }
 
     /// <summary>
     /// Whether the client signs their own slides with an @handle attribution (issue #70).
@@ -127,12 +148,14 @@ public sealed class Client : Entity<ClientId>
         BackgroundSourcingPolicy? policy = null,
         int? aestheticRefreshThresholdDays = null,
         int? maxPostsToAnalyze = null,
-        bool signsOwnSlides = false)
+        bool signsOwnSlides = false,
+        int? maxPiecesPerGeneration = null)
     {
         return new Client(
             id, organizationId, name, description, isActive,
             createdAtUtc, updatedAtUtc, sectorOrNiche, policy,
-            aestheticRefreshThresholdDays, maxPostsToAnalyze, signsOwnSlides);
+            aestheticRefreshThresholdDays, maxPostsToAnalyze, signsOwnSlides,
+            maxPiecesPerGeneration);
     }
 
     public Result Rename(string name, string? description, DateTime nowUtc, string? sectorOrNiche = null)
@@ -223,6 +246,37 @@ public sealed class Client : Entity<ClientId>
 
     /// <summary>Effective posts-to-analyze for this client (override or the system default).</summary>
     public int EffectivePostsToAnalyze => MaxPostsToAnalyze ?? DefaultPostsToAnalyze;
+
+    /// <summary>
+    /// Sets the per-client cap on pieces built per generation job. Pass null for no cap.
+    /// Valid non-null range: 1–<see cref="MaxPiecesPerGenerationMax"/>.
+    /// </summary>
+    public Result SetMaxPiecesPerGeneration(int? pieces, DateTime nowUtc)
+    {
+        if (pieces.HasValue
+            && (pieces.Value < MaxPiecesPerGenerationMin || pieces.Value > MaxPiecesPerGenerationMax))
+        {
+            return Result.Failure(ClientErrors.MaxPiecesPerGenerationOutOfRange);
+        }
+
+        MaxPiecesPerGeneration = pieces;
+        UpdatedAtUtc = nowUtc;
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Trims a requested format list to this client's piece cap, preserving the caller's order so
+    /// the highest-priority formats survive. Returns the list unchanged when no cap is set.
+    /// </summary>
+    public IReadOnlyList<string> ApplyPieceCap(IReadOnlyList<string> requestedFormats)
+    {
+        if (MaxPiecesPerGeneration is not { } cap || requestedFormats.Count <= cap)
+        {
+            return requestedFormats;
+        }
+
+        return requestedFormats.Take(cap).ToList();
+    }
 
     /// <summary>
     /// Sets whether this client signs their own slides with an @handle attribution (issue #70).

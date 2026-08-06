@@ -20,4 +20,7 @@ public sealed record UpdateSocialClientCommand(
     int? AestheticRefreshThresholdDays = null,
     // Issue #70: always-explicit opt-in for @handle signature on generated slides. Plain boolean —
     // no tri-state, no "leave unchanged" sentinel; every update sets the flag explicitly.
-    bool SignsOwnSlides = false) : IRequest<Result<SocialClientResponse>>;
+    bool SignsOwnSlides = false,
+    // Per-client generation piece cap. Null = leave the current cap unchanged (mirrors the
+    // threshold pattern above); clearing back to "no cap" needs an explicit sentinel.
+    int? MaxPiecesPerGeneration = null) : IRequest<Result<SocialClientResponse>>;

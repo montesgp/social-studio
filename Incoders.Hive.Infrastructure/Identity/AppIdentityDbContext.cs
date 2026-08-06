@@ -266,6 +266,12 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .HasColumnType("smallint")
                 .IsRequired(false);
 
+            // Per-client generation piece cap — nullable smallint. NULL = no cap.
+            entity.Property(x => x.MaxPiecesPerGeneration)
+                .HasColumnName("max_pieces_per_generation")
+                .HasColumnType("smallint")
+                .IsRequired(false);
+
             // Issue #70: plain boolean opt-in for @handle signature on generated slides.
             // NOT NULL DEFAULT false — existing clients default to not-signed (intended change).
             entity.Property(x => x.SignsOwnSlides)

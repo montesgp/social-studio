@@ -19,7 +19,9 @@ public sealed record SocialClientResponse(
     int? AestheticRefreshThresholdDays = null,
     // Issue #70: expose the client's opt-in for @handle signature on generated slides.
     // Plain boolean; default false = not signed.
-    bool SignsOwnSlides = false)
+    bool SignsOwnSlides = false,
+    // Per-client cap on pieces built per generation job. Null = no cap (every requested format runs).
+    int? MaxPiecesPerGeneration = null)
 {
     public static SocialClientResponse FromDomain(Client client) =>
         new(
@@ -33,5 +35,6 @@ public sealed record SocialClientResponse(
             client.UpdatedAtUtc,
             client.BackgroundSourcingPolicy,
             client.AestheticRefreshThresholdDays,
-            client.SignsOwnSlides);
+            client.SignsOwnSlides,
+            client.MaxPiecesPerGeneration);
 }

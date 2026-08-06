@@ -15,4 +15,5 @@ public sealed record CreateSocialClientCommand(
     int? AestheticRefreshThresholdDays = null,
     // Issue #70: optional opt-in for @handle signature on generated slides; null/omitted = false
     // (not signed). Plain boolean — no tri-state.
+    int? MaxPiecesPerGeneration = null,
     bool SignsOwnSlides = false) : IRequest<Result<SocialClientResponse>>;

@@ -57,6 +57,17 @@ public sealed class CreateSocialClientHandler
             }
         }
 
+        // Per-client generation piece cap when provided; absent = no cap.
+        if (request.MaxPiecesPerGeneration.HasValue)
+        {
+            var capResult = created.Value.SetMaxPiecesPerGeneration(
+                request.MaxPiecesPerGeneration, _clock.UtcNow);
+            if (capResult.IsFailure)
+            {
+                return Result.Failure<SocialClientResponse>(capResult.Error);
+            }
+        }
+
         // Issue #70: set the client's opt-in for @handle signature on creation.
         if (request.SignsOwnSlides)
         {

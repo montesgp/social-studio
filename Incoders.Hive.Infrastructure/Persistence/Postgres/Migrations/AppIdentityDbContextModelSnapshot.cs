@@ -2371,6 +2371,10 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
 
+                    b.Property<short?>("MaxPiecesPerGeneration")
+                        .HasColumnType("smallint")
+                        .HasColumnName("max_pieces_per_generation");
+
                     b.Property<short?>("MaxPostsToAnalyze")
                         .HasColumnType("smallint")
                         .HasColumnName("max_posts_to_analyze");

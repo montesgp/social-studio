@@ -3,6 +3,8 @@ using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.GeneratePackage;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.SingleAnalyzer;
+using DomainClient = Incoders.Hive.Domain.Social.Clients.Client;
+using DomainClientId = Incoders.Hive.Domain.Social.Clients.ClientId;
 
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Orchestration;
 
@@ -53,6 +55,105 @@ public sealed class GenerateContentPackageCommandHandlerTests
         // Job must have been enqueued
         Assert.Single(queue.Enqueued);
         Assert.Equal(result.Value.JobId, queue.Enqueued[0]);
+    }
+
+    // ─── Per-client piece cap ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Handle_ClientWithPieceCap_TrimsRequestedFormatsToTheCap()
+    {
+        // An operator running a cheap test sets the cap to 2 instead of paying for the whole format
+        // set, whose visual formats each drive per-slide AI image renders.
+        var analysisRepo = new FakeAnalysisRepository(MakeAnalysisRecord(OrgId));
+        var jobRepo = new FakeContentGenerationJobRepository();
+        var queue = new FakeContentGenerationJobQueue();
+        var clients = new FakeClientRepositoryWithCap(ClientId, OrgId, maxPiecesPerGeneration: 2);
+
+        var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue, clients: clients);
+
+        var result = await handler.Handle(
+            new GenerateContentPackageCommand(
+                OrganizationId: OrgId,
+                ClientId: ClientId,
+                AnalysisId: AnalysisId,
+                RequestedFormats: ["reel-script", "feed-single", "feed-carousel", "story-single"],
+                CorrelationId: null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(["reel-script", "feed-single"], jobRepo.Inserted[0].RequestedFormats);
+    }
+
+    [Fact]
+    public async Task Handle_ClientWithoutPieceCap_KeepsEveryRequestedFormat()
+    {
+        var analysisRepo = new FakeAnalysisRepository(MakeAnalysisRecord(OrgId));
+        var jobRepo = new FakeContentGenerationJobRepository();
+        var queue = new FakeContentGenerationJobQueue();
+        var clients = new FakeClientRepositoryWithCap(ClientId, OrgId, maxPiecesPerGeneration: null);
+
+        var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue, clients: clients);
+
+        var result = await handler.Handle(
+            new GenerateContentPackageCommand(
+                OrganizationId: OrgId,
+                ClientId: ClientId,
+                AnalysisId: AnalysisId,
+                RequestedFormats: ["reel-script", "feed-single", "feed-carousel"],
+                CorrelationId: null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3, jobRepo.Inserted[0].RequestedFormats.Count);
+    }
+
+    [Fact]
+    public async Task Handle_WithNoClientRepositoryWired_StillGeneratesEveryRequestedFormat()
+    {
+        // The cap dependency is optional so existing call sites and tests keep working unchanged.
+        var analysisRepo = new FakeAnalysisRepository(MakeAnalysisRecord(OrgId));
+        var jobRepo = new FakeContentGenerationJobRepository();
+        var queue = new FakeContentGenerationJobQueue();
+
+        var handler = new GenerateContentPackageCommandHandler(analysisRepo, jobRepo, queue);
+
+        var result = await handler.Handle(
+            new GenerateContentPackageCommand(
+                OrganizationId: OrgId,
+                ClientId: ClientId,
+                AnalysisId: AnalysisId,
+                RequestedFormats: ["reel-script", "feed-single", "feed-carousel"],
+                CorrelationId: null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3, jobRepo.Inserted[0].RequestedFormats.Count);
+    }
+
+    private sealed class FakeClientRepositoryWithCap : ISocialClientRepository
+    {
+        private readonly DomainClient _client;
+
+        public FakeClientRepositoryWithCap(Guid clientId, Guid organizationId, int? maxPiecesPerGeneration)
+        {
+            _client = DomainClient.Restore(
+                new DomainClientId(clientId), organizationId, "Acme", null, true,
+                DateTime.UtcNow, DateTime.UtcNow,
+                maxPiecesPerGeneration: maxPiecesPerGeneration);
+        }
+
+        public Task<DomainClient?> GetByIdAsync(
+            DomainClientId id, Guid organizationId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<DomainClient?>(_client.Id == id ? _client : null);
+
+        public Task<(IReadOnlyList<DomainClient> Items, int TotalCount)> ListAsync(
+            SocialClientQuery query, CancellationToken cancellationToken = default) =>
+            Task.FromResult<(IReadOnlyList<DomainClient>, int)>(([], 0));
+
+        public Task AddAsync(DomainClient client, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public void Update(DomainClient client) { }
     }
 
     [Fact]

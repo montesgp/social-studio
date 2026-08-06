@@ -16,6 +16,8 @@ export interface SocialClientPayload {
   backgroundSourcingPolicy?: BackgroundSourcingPolicy;
   /** Per-client aesthetic refresh staleness threshold in days. Null/undefined = system default (30 days). */
   aestheticRefreshThresholdDays?: number | null;
+  /** Cap on how many pieces one generation job builds. Null/undefined = no cap. */
+  maxPiecesPerGeneration?: number | null;
   /** Issue #70: whether this client signs their own slides with an @handle attribution. Plain boolean, default false (not signed). */
   signsOwnSlides?: boolean;
 }

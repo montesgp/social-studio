@@ -47,4 +47,8 @@ public static class ClientErrors
     public static readonly Error MaxPostsToAnalyzeOutOfRange = Error.Validation(
         "social.clients.max_posts_to_analyze_out_of_range",
         "social.clients.errors.max_posts_to_analyze_out_of_range");
+
+    public static readonly Error MaxPiecesPerGenerationOutOfRange = Error.Validation(
+        "social.clients.max_pieces_per_generation_out_of_range",
+        "social.clients.errors.max_pieces_per_generation_out_of_range");
 }

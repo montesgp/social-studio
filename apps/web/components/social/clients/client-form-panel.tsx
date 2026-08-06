@@ -49,6 +49,7 @@ interface ClientFormPanelProps {
   sectorOrNiche: string | null;
   backgroundSourcingPolicy: BackgroundSourcingPolicy;
   aestheticRefreshThresholdDays: number | null;
+  maxPiecesPerGeneration: number | null;
   signsOwnSlides: boolean;
   fieldErrors: ClientFormFieldErrors;
   referentAccounts: ClientReferentAccount[];
@@ -63,6 +64,7 @@ interface ClientFormPanelProps {
   onSectorOrNicheChange: (value: string | null) => void;
   onBackgroundSourcingPolicyChange: (value: BackgroundSourcingPolicy) => void;
   onAestheticRefreshThresholdDaysChange: (value: number | null) => void;
+  onMaxPiecesPerGenerationChange: (value: number | null) => void;
   onSignsOwnSlidesChange: (value: boolean) => void;
   onReferentAccountsChange: (value: ClientReferentAccount[]) => void;
   onCompetitorAccountsChange: (value: ClientCompetitorAccount[]) => void;
@@ -80,6 +82,7 @@ export function ClientFormPanel({
   sectorOrNiche,
   backgroundSourcingPolicy,
   aestheticRefreshThresholdDays,
+  maxPiecesPerGeneration,
   signsOwnSlides,
   fieldErrors,
   referentAccounts,
@@ -94,6 +97,7 @@ export function ClientFormPanel({
   onSectorOrNicheChange,
   onBackgroundSourcingPolicyChange,
   onAestheticRefreshThresholdDaysChange,
+  onMaxPiecesPerGenerationChange,
   onSignsOwnSlidesChange,
   onReferentAccountsChange,
   onCompetitorAccountsChange,
@@ -215,6 +219,30 @@ export function ClientFormPanel({
         />
         <p className="text-xs text-muted-foreground">
           How many days before the AI aesthetic profile is refreshed for this client. Leave empty to use the system default of 30 days.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="panel-max-pieces-per-generation" className="text-sm font-medium">
+          Max pieces per generation{" "}
+          <span className="text-muted-foreground text-xs">(optional)</span>
+        </label>
+        <Input
+          id="panel-max-pieces-per-generation"
+          type="number"
+          min={1}
+          max={20}
+          value={maxPiecesPerGeneration ?? ""}
+          onChange={(e) => {
+            const raw = e.target.value;
+            onMaxPiecesPerGenerationChange(raw === "" ? null : Number(raw));
+          }}
+          placeholder="Leave empty for no limit"
+        />
+        <p className="text-xs text-muted-foreground">
+          Caps how many pieces a single generation run builds for this client. Useful for cheap test
+          runs: set it to 2 and only the first two requested formats are generated. Leave empty to
+          generate every requested format.
         </p>
       </div>
 

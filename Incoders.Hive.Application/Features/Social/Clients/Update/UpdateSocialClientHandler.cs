@@ -62,6 +62,18 @@ public sealed class UpdateSocialClientHandler
             }
         }
 
+        // Per-client generation piece cap; null = leave current unchanged (same convention as the
+        // threshold above).
+        if (request.MaxPiecesPerGeneration.HasValue)
+        {
+            var capResult = client.SetMaxPiecesPerGeneration(
+                request.MaxPiecesPerGeneration, _clock.UtcNow);
+            if (capResult.IsFailure)
+            {
+                return Result.Failure<SocialClientResponse>(capResult.Error);
+            }
+        }
+
         // Issue #70: always-explicit opt-in for @handle signature — plain boolean, every update
         // sets the flag (no "leave unchanged" sentinel, unlike the nullable-override fields above).
         client.SetSignsOwnSlides(request.SignsOwnSlides, _clock.UtcNow);

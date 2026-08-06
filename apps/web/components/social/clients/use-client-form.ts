@@ -44,6 +44,7 @@ interface UseClientFormReturn {
   sectorOrNiche: string | null;
   backgroundSourcingPolicy: BackgroundSourcingPolicy;
   aestheticRefreshThresholdDays: number | null;
+  maxPiecesPerGeneration: number | null;
   signsOwnSlides: boolean;
   fieldErrors: ClientFormFieldErrors;
   referentAccounts: ClientReferentAccount[];
@@ -58,6 +59,7 @@ interface UseClientFormReturn {
   setSectorOrNiche: (value: string | null) => void;
   setBackgroundSourcingPolicy: (value: BackgroundSourcingPolicy) => void;
   setAestheticRefreshThresholdDays: (value: number | null) => void;
+  setMaxPiecesPerGeneration: (value: number | null) => void;
   setSignsOwnSlides: (value: boolean) => void;
   setReferentAccounts: (value: ClientReferentAccount[]) => void;
   setCompetitorAccounts: (value: ClientCompetitorAccount[]) => void;
@@ -133,6 +135,7 @@ export function useClientForm({
   const [sectorOrNiche, setSectorOrNiche] = useState<string | null>(null);
   const [backgroundSourcingPolicy, setBackgroundSourcingPolicyState] = useState<BackgroundSourcingPolicy>(null);
   const [aestheticRefreshThresholdDays, setAestheticRefreshThresholdDaysState] = useState<number | null>(null);
+  const [maxPiecesPerGeneration, setMaxPiecesPerGeneration] = useState<number | null>(null);
   const [signsOwnSlides, setSignsOwnSlidesState] = useState<boolean>(false);
   const [fieldErrors, setFieldErrors] = useState<ClientFormFieldErrors>({});
   const [referentAccounts, setReferentAccountsState] = useState<ClientReferentAccount[]>([]);
@@ -206,6 +209,7 @@ export function useClientForm({
     setSectorOrNiche(item.sectorOrNiche ?? null);
     setBackgroundSourcingPolicyState(item.backgroundSourcingPolicy ?? null);
     setAestheticRefreshThresholdDaysState(item.aestheticRefreshThresholdDays ?? null);
+    setMaxPiecesPerGeneration(item.maxPiecesPerGeneration ?? null);
     setSignsOwnSlidesState(item.signsOwnSlides ?? false);
     setFieldErrors({});
     setReferentAccountsState([]);
@@ -335,6 +339,7 @@ export function useClientForm({
         sectorOrNiche: sectorOrNiche?.trim() || null,
         backgroundSourcingPolicy: backgroundSourcingPolicy ?? undefined,
         aestheticRefreshThresholdDays: aestheticRefreshThresholdDays,
+        maxPiecesPerGeneration: maxPiecesPerGeneration,
         signsOwnSlides,
       };
 
@@ -405,6 +410,8 @@ export function useClientForm({
     sectorOrNiche,
     backgroundSourcingPolicy,
     aestheticRefreshThresholdDays,
+    maxPiecesPerGeneration,
+    setMaxPiecesPerGeneration,
     signsOwnSlides,
     fieldErrors,
     referentAccounts,

@@ -758,6 +758,25 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [packageRequestedFormats, setPackageRequestedFormats] = useState<ContentFormatKey[]>(
     SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS
   );
+
+  // Which formats the operator wants this run to build. Defaults to the full set (previous
+  // behavior), but every visual format drives per-slide AI image renders, so being able to drop to
+  // one or two formats is the difference between a ~40 minute run and a quick check.
+  const [selectedFormatKeys, setSelectedFormatKeys] = useState<ContentFormatKey[]>(
+    SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS
+  );
+
+  function toggleFormatKey(formatKey: ContentFormatKey) {
+    setSelectedFormatKeys((current) =>
+      current.includes(formatKey)
+        ? current.filter((key) => key !== formatKey)
+        // Keep the canonical catalog order regardless of click order, so the per-client piece cap
+        // (which keeps the FIRST n) trims predictably.
+        : SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS.filter(
+            (key) => key === formatKey || current.includes(key)
+          )
+    );
+  }
   const [packageJobError, setPackageJobError] = useState<{ message: string } | null>(null);
   const [isRequestingPackage, setIsRequestingPackage] = useState(false);
   // True while we are reattaching a pre-existing job loaded from history (initial status check).
@@ -2033,23 +2052,23 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }
 
   async function startAllFormatsGeneration(regenerationObjection?: string | null) {
-    await startRequestedFormatsGeneration(SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS, regenerationObjection);
+    await startRequestedFormatsGeneration(selectedFormatKeys, regenerationObjection);
   }
 
   async function handleConvertAll(includeObjection = false) {
-    if (!videoResult || isRequestingPackage) return;
-    const blockedHint = getRegenerationBlockedHint(SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS);
+    if (!videoResult || isRequestingPackage || selectedFormatKeys.length === 0) return;
+    const blockedHint = getRegenerationBlockedHint(selectedFormatKeys);
     if (blockedHint) {
       setPackageJobError({ message: blockedHint });
       return;
     }
     const currentObjection = resolveRegenerationObjection(includeObjection);
     if (includeObjection && !currentObjection) return;
-    const existingFormats = getExistingGeneratedFormats(SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS);
+    const existingFormats = getExistingGeneratedFormats(selectedFormatKeys);
     if (existingFormats.length > 0) {
       setPendingRegeneration({
         kind: "all",
-        formats: SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS,
+        formats: selectedFormatKeys,
         existingFormats,
         regenerationObjection: currentObjection,
       });
@@ -2870,6 +2889,33 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             </p>
                           </div>
                         </div>
+                        <div className="mb-2 flex flex-wrap gap-1.5">
+                          {SINGLE_ANALYZER_ACTIVE_FORMAT_KEYS.map((formatKey) => {
+                            const checked = selectedFormatKeys.includes(formatKey);
+                            return (
+                              <button
+                                key={formatKey}
+                                type="button"
+                                disabled={packageGenerationIsRunning}
+                                onClick={() => toggleFormatKey(formatKey)}
+                                className={
+                                  "rounded-full border px-2 py-0.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 " +
+                                  (checked
+                                    ? "border-primary bg-primary/10 text-primary"
+                                    : "border-border text-muted-foreground hover:bg-muted")
+                                }
+                              >
+                                {formatKey}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {selectedFormatKeys.length === 0 ? (
+                          <p className="mb-2 text-[11px] text-amber-600 dark:text-amber-400">
+                            Pick at least one format to generate.
+                          </p>
+                        ) : null}
+
                         <div className="flex gap-2">
                           <Button
                             size="sm"
@@ -2886,6 +2932,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                             disabled={
                                 packageGenerationIsRunning ||
                                 packageGenerationClientMissing ||
+                                selectedFormatKeys.length === 0 ||
                                 Boolean(allFormatsRegenerationBlockedHint)
                               }
                             title={

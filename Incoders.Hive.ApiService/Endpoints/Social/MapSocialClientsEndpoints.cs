@@ -163,6 +163,7 @@ public static class SocialClientsEndpointsExtensions
                 body.SectorOrNiche,
                 body.BackgroundSourcingPolicy,
                 body.AestheticRefreshThresholdDays,
+                body.MaxPiecesPerGeneration,
                 body.SignsOwnSlides),
             cancellationToken);
 
@@ -190,7 +191,8 @@ public static class SocialClientsEndpointsExtensions
                 body.SectorOrNiche,
                 body.BackgroundSourcingPolicy,
                 body.AestheticRefreshThresholdDays,
-                body.SignsOwnSlides),
+                body.SignsOwnSlides,
+                body.MaxPiecesPerGeneration),
             cancellationToken);
 
         return result.Match(client => (IResult)TypedResults.Ok(client));
@@ -255,7 +257,9 @@ public sealed record CreateSocialClientRequest(
     int? AestheticRefreshThresholdDays = null,
     // Issue #70: optional opt-in for @handle signature on generated slides. Plain boolean,
     // default false = not signed.
-    bool SignsOwnSlides = false);
+    bool SignsOwnSlides = false,
+    // Per-client cap on pieces built per generation job. Null = no cap.
+    int? MaxPiecesPerGeneration = null);
 
 public sealed record UpdateSocialClientRequest(
     string Name,
@@ -266,4 +270,6 @@ public sealed record UpdateSocialClientRequest(
     // WU-7 (CAG-CS-02): optional threshold update in days. Null = leave current threshold unchanged.
     int? AestheticRefreshThresholdDays = null,
     // Issue #70: always-explicit opt-in for @handle signature on generated slides. Plain boolean.
-    bool SignsOwnSlides = false);
+    bool SignsOwnSlides = false,
+    // Per-client generation piece cap. Null = leave the current cap unchanged.
+    int? MaxPiecesPerGeneration = null);
