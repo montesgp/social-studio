@@ -11,8 +11,8 @@ export function AuthCard({ title, description, children }: AuthCardProps) {
     <main className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-3">
         <div className="text-center">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Incoders Hive</p>
-          <h1 className="text-2xl font-semibold">Hive Social</h1>
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">Incoders</p>
+          <h1 className="text-2xl font-semibold">Hive</h1>
         </div>
         <Card className="w-full">
           <CardHeader>
