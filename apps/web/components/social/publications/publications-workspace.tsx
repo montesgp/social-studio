@@ -26,7 +26,6 @@ import {
   approveItem,
   fetchContentItemAsset,
   rejectItem,
-  stageItem,
   type ContentReviewState,
 } from "@/lib/api/content-studio";
 import { ContentBankGrid } from "@/components/social/publications/content-bank-grid";
@@ -141,16 +140,24 @@ export function PublicationsWorkspace() {
   }, [loadItems]);
 
   function openItem(item: ContentBankItemResponse) {
-    // Bank items are already materialized. Prefer opening the EXISTING owning set directly
-    // (`setId`, resolved server-side) so the studio never re-materializes by analysis id — that path
-    // is analysis-centric and fails/hangs for content whose source run is not a re-materializable
-    // single-analyzer analysis (e.g. MagicGenerator runs). Fall back to the analysis-id path only
-    // when the server could not resolve an owning set.
-    setStudioTarget(
-      item.setId
-        ? { analysisId: null, setId: item.setId, selectedItemId: item.id, clientId: item.clientId }
-        : { analysisId: item.origin.sourceRunId, setId: null, selectedItemId: null, clientId: item.clientId },
-    );
+    // Bank items are already materialized, so the ONLY correct entry point is the existing owning
+    // set. The old fallback passed item.origin.sourceRunId as an analysis id, but that field holds
+    // the generation JOB id — materializing by it could never succeed and surfaced the misleading
+    // "This analysis produced no successful formats to materialize." Fail loudly instead.
+    if (!item.setId) {
+      setError(
+        "This piece has no owning content set, so it cannot be opened in Studio. Reload the Bank; if it persists the item's set membership is missing.",
+      );
+      return;
+    }
+
+    setError(null);
+    setStudioTarget({
+      analysisId: null,
+      setId: item.setId,
+      selectedItemId: item.id,
+      clientId: item.clientId,
+    });
   }
 
   async function runAction(action: () => Promise<unknown>) {
@@ -201,10 +208,6 @@ export function PublicationsWorkspace() {
 
   function onRejectItem(item: ContentBankItemResponse, reason: string) {
     void runAction(() => rejectItem(item.id, reason, token));
-  }
-
-  function onStageItem(item: ContentBankItemResponse) {
-    void runAction(() => stageItem(item.id, token));
   }
 
   /**
@@ -323,7 +326,6 @@ export function PublicationsWorkspace() {
               onPublishNow={setPublishTarget}
               onApprove={onApproveItem}
               onReject={onRejectItem}
-              onStage={onStageItem}
               onDownload={(item) => void onDownloadItem(item)}
               token={token}
             />
@@ -343,6 +345,7 @@ export function PublicationsWorkspace() {
             </div>
             <PublicationPlannerBoard
               items={items}
+              token={token}
               busy={busy}
               loading={loading}
               showCancelled={showCancelled}

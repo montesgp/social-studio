@@ -35,6 +35,37 @@ public sealed class EfContentSetRepository : IContentSetRepository
         return row is null ? null : ToDomain(row);
     }
 
+    public async Task<IReadOnlyDictionary<Guid, Guid>> GetSetIdsByItemIdsAsync(
+        Guid organizationId,
+        IReadOnlyCollection<Guid> itemIds,
+        CancellationToken ct)
+    {
+        if (itemIds.Count == 0)
+        {
+            return new Dictionary<Guid, Guid>();
+        }
+
+        // Join through the membership table and back to the set so the org scope is enforced on the
+        // set row (the join table itself carries no organization column).
+        var pairs = await _dbContext.ContentStudioSetItems
+            .AsNoTracking()
+            .Where(link => itemIds.Contains(link.ItemId)
+                && _dbContext.ContentStudioSets.Any(set =>
+                    set.Id == link.SetId && set.OrganizationId == organizationId))
+            .Select(link => new { link.ItemId, link.SetId })
+            .ToListAsync(ct);
+
+        var map = new Dictionary<Guid, Guid>(pairs.Count);
+        foreach (var pair in pairs)
+        {
+            // An item should belong to exactly one set; if history ever produced more, the first
+            // wins deterministically rather than throwing on a read path.
+            map.TryAdd(pair.ItemId, pair.SetId);
+        }
+
+        return map;
+    }
+
     public async Task AddAsync(ContentSet set, CancellationToken ct)
     {
         _dbContext.ContentStudioSets.Add(ToData(set));

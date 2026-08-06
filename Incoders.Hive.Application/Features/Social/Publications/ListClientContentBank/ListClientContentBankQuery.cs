@@ -62,9 +62,14 @@ public sealed class ListClientContentBankQueryHandler
             .GroupBy(p => p.ContentItemId)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<PublicationSummaryDto>)g.Select(PublicationSummaryDto.FromDomain).ToList());
 
-        // "Open in Studio" fix: resolve each item's owning set id once per distinct source-run id
-        // (memoized — a client's Bank listing routinely has many items sharing the same run/set).
-        var setIdByRunId = new Dictionary<Guid, Guid?>();
+        // "Open in Studio": resolve each item's OWNING set through set membership, in one batched
+        // query. This used to look the set up by the item's Origin.SourceRunId, but that is the
+        // generation JOB id while a GenerationRun set is keyed by a run id derived from
+        // (analysisId, clientId) — they never match, so every item came back with a null set id and
+        // the client fell through to a re-materialize path that could not succeed.
+        var setIdByItemId = _sets is null || itemIds.Count == 0
+            ? new Dictionary<Guid, Guid>()
+            : await _sets.GetSetIdsByItemIdsAsync(request.OrganizationId, itemIds, ct);
 
         var response = new List<ContentBankItemResponse>(rows.Count);
         foreach (var item in rows)
@@ -79,7 +84,9 @@ public sealed class ListClientContentBankQueryHandler
                 ? list
                 : (IReadOnlyList<PublicationSummaryDto>)[];
 
-            var setId = await ResolveSetIdAsync(request.OrganizationId, item.Origin.SourceRunId, setIdByRunId, ct);
+            var setId = setIdByItemId.TryGetValue(item.Id.Value, out var owningSetId)
+                ? owningSetId
+                : (Guid?)null;
 
             response.Add(ContentBankItemResponse.FromMapped(
                 mapped with { VisualSpecMarkup = resolvedMarkup }, itemPublications, setId));
@@ -89,22 +96,4 @@ public sealed class ListClientContentBankQueryHandler
         return Result.Success(result);
     }
 
-    private async Task<Guid?> ResolveSetIdAsync(
-        Guid organizationId, Guid sourceRunId, Dictionary<Guid, Guid?> cache, CancellationToken ct)
-    {
-        if (_sets is null)
-        {
-            return null;
-        }
-
-        if (cache.TryGetValue(sourceRunId, out var cached))
-        {
-            return cached;
-        }
-
-        var set = await _sets.GetByRunAsync(organizationId, sourceRunId, ct);
-        var setId = set?.Id.Value;
-        cache[sourceRunId] = setId;
-        return setId;
-    }
 }

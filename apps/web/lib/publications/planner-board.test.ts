@@ -110,3 +110,24 @@ test("projectPlannerBoard: multi-destination items render as multiple independen
   assert.equal(board.publishing.length, 2);
   assert.notEqual(board.publishing[0].publication.id, board.publishing[1].publication.id);
 });
+
+test("a HandedOff item with no publication lands in the handedOff column, not nowhere", () => {
+  // It used to fall through every column: invisible in Planner and in Published, visible only under
+  // the Bank's "All" filter, which read as the piece having vanished.
+  const board = projectPlannerBoard([item({ state: "HandedOff" })]);
+
+  assert.equal(board.handedOff.length, 1);
+  assert.equal(board.ready.length, 0);
+});
+
+test("HandedOff items with a publication still render as publication cards", () => {
+  const board = projectPlannerBoard([
+    item({
+      state: "HandedOff",
+      publications: [publication({ status: "Published" })],
+    }),
+  ]);
+
+  assert.equal(board.handedOff.length, 0);
+  assert.equal(board.published.length, 1);
+});

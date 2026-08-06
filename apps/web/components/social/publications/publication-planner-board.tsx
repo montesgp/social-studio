@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ItemThumbnail } from "@/components/social/publications/item-thumbnail";
 import { ReviewStateBadge } from "@/components/social/publications/publication-status-badge";
 import { PublicationCard } from "@/components/social/publications/publication-card";
 import { projectPlannerBoard, type PlannerItemCard, type PlannerPublicationCard } from "@/lib/publications/planner-board";
@@ -10,6 +11,7 @@ import type { ContentBankItemResponse, PublicationSummaryDto } from "@/lib/api/p
 
 interface PublicationPlannerBoardProps {
   items: ContentBankItemResponse[];
+  token: string;
   busy?: boolean;
   loading?: boolean;
   showCancelled: boolean;
@@ -39,14 +41,36 @@ function Column({ title, count, children }: ColumnProps) {
   );
 }
 
-function ItemCardView({ card, onOpen, onPublishNow }: { card: PlannerItemCard; onOpen: () => void; onPublishNow: () => void }) {
+function ItemCardView({
+  card,
+  token,
+  onOpen,
+  onPublishNow,
+}: {
+  card: PlannerItemCard;
+  token: string;
+  onOpen: () => void;
+  onPublishNow: () => void;
+}) {
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-background p-3 text-sm shadow-sm">
-      <div className="flex items-start justify-between gap-2">
-        <button type="button" onClick={onOpen} className="truncate text-left font-medium hover:underline">
-          {card.item.formatKey}
+      <div className="flex items-start gap-2">
+        {/* Small but real preview: the board decides what gets published, and a bare format key
+            gave the operator no way to tell one carousel from another. */}
+        <button
+          type="button"
+          onClick={onOpen}
+          className="h-12 w-12 shrink-0 overflow-hidden rounded border border-border bg-muted/40"
+          title="Open in Studio"
+        >
+          <ItemThumbnail item={card.item} token={token} compact />
         </button>
-        <ReviewStateBadge state={card.item.state} />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <button type="button" onClick={onOpen} className="truncate text-left font-medium hover:underline">
+            {card.item.formatKey}
+          </button>
+          <ReviewStateBadge state={card.item.state} />
+        </div>
       </div>
       {card.item.isPublishable ? (
         <Button size="sm" variant="default" onClick={onPublishNow}>
@@ -69,6 +93,7 @@ function ItemCardView({ card, onOpen, onPublishNow }: { card: PlannerItemCard; o
  */
 export function PublicationPlannerBoard({
   items,
+  token,
   busy,
   loading = false,
   showCancelled,
@@ -102,6 +127,18 @@ export function PublicationPlannerBoard({
             <ItemCardView
               key={card.item.id}
               card={card}
+              token={token}
+              onOpen={() => onOpenItem(card.item)}
+              onPublishNow={() => onPublishNow(card.item)}
+            />
+          ))}
+        </Column>
+        <Column title="Handed off" count={board.handedOff.length}>
+          {board.handedOff.map((card) => (
+            <ItemCardView
+              key={card.item.id}
+              card={card}
+              token={token}
               onOpen={() => onOpenItem(card.item)}
               onPublishNow={() => onPublishNow(card.item)}
             />

@@ -1,19 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Check, Download, FileText, Send, SendHorizonal, X } from "lucide-react";
+import { useState } from "react";
+import { Check, Download, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ReviewStateBadge } from "@/components/social/publications/publication-status-badge";
 import type { ContentBankItemResponse } from "@/lib/api/publications";
-import { fetchContentItemAsset, type ContentReviewState } from "@/lib/api/content-studio";
+import type { ContentReviewState } from "@/lib/api/content-studio";
 import { useTheme } from "@/components/theme/theme-provider";
 import { formatUserDate } from "@/lib/format/date";
-import { resolveBankThumbnail } from "@/lib/publications/thumbnail";
 import { canPublishItem, reviewActionsFor } from "@/lib/publications/review-actions";
-import { textPreviewLines } from "@/lib/publications/reel-script";
+import { ItemThumbnail } from "@/components/social/publications/item-thumbnail";
 
 const STATE_FILTERS: ContentReviewState[] = [
   "Draft",
@@ -22,6 +21,9 @@ const STATE_FILTERS: ContentReviewState[] = [
   "Approved",
   "Rejected",
   "ReadyForPublication",
+  // Terminal, but it must still be reachable: a HandedOff piece was previously visible only under
+  // the "All" filter, which read as the piece having disappeared.
+  "HandedOff",
 ];
 
 interface ContentBankGridProps {
@@ -37,7 +39,6 @@ interface ContentBankGridProps {
   onPublishNow: (item: ContentBankItemResponse) => void;
   onApprove: (item: ContentBankItemResponse) => void;
   onReject: (item: ContentBankItemResponse, reason: string) => void;
-  onStage: (item: ContentBankItemResponse) => void;
   onDownload: (item: ContentBankItemResponse) => void;
   token: string;
 }
@@ -52,7 +53,6 @@ function ItemActions({
   busy,
   onApprove,
   onReject,
-  onStage,
   onPublishNow,
   onDownload,
 }: {
@@ -60,13 +60,12 @@ function ItemActions({
   busy: boolean;
   onApprove: () => void;
   onReject: (reason: string) => void;
-  onStage: () => void;
   onPublishNow: () => void;
   onDownload: () => void;
 }) {
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
-  const { canApprove, canReject, canStage } = reviewActionsFor(item.state);
+  const { canApprove, canReject } = reviewActionsFor(item.state);
   const canPublish = canPublishItem(item.state, item.isPublishable);
 
   if (rejecting) {
@@ -127,11 +126,6 @@ function ItemActions({
           <X className="h-3.5 w-3.5" /> Reject
         </Button>
       ) : null}
-      {canStage ? (
-        <Button size="sm" variant="warning" className="h-7 px-2 text-xs" disabled={busy} onClick={onStage}>
-          <SendHorizonal className="h-3.5 w-3.5" /> Mark ready
-        </Button>
-      ) : null}
       {canPublish ? (
         <Button size="sm" variant="default" className="h-7 px-2 text-xs" disabled={busy} onClick={onPublishNow}>
           <Send className="h-3.5 w-3.5" /> Publish now
@@ -148,99 +142,6 @@ function ItemActions({
   );
 }
 
-/**
- * Readable preview for a text/script item, mirroring what Content Studio shows in its detail pane.
- * Script items (reel-script) previously fell through to a bare file icon plus a 90-character slice
- * of raw JSON, which told the operator nothing about the piece.
- */
-function TextPreview({ item }: { item: ContentBankItemResponse }) {
-  const body = item.text?.trim() || item.caption?.trim() || "";
-  const lines = body ? textPreviewLines(body) : [];
-
-  if (lines.length === 0) {
-    return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 p-3 text-center">
-        <FileText className="h-5 w-5 text-muted-foreground" />
-        <span className="text-[11px] text-muted-foreground">{item.formatKey}</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-full w-full flex-col gap-1 overflow-hidden p-2.5 text-left">
-      <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        <FileText className="h-3 w-3" /> {item.formatKey}
-      </span>
-      <div className="flex flex-col gap-0.5 overflow-hidden">
-        {lines.slice(0, 5).map((line, index) => (
-          <p key={index} className="truncate text-[11px] leading-snug text-foreground/80">
-            {line}
-          </p>
-        ))}
-      </div>
-      {lines.length > 5 ? (
-        <span className="text-[10px] text-muted-foreground">+{lines.length - 5} more</span>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * Renders an item's thumbnail: the resolved markup/background image when one exists, otherwise the
- * first raw asset (fetched the same way Content Studio's `AssetFallbackImage` does), otherwise a
- * graceful text/format preview instead of a broken-image icon.
- */
-function ItemThumbnail({ item, token }: { item: ContentBankItemResponse; token: string }) {
-  const markupThumbnail = resolveBankThumbnail(item.visualSpecMarkup);
-  const [assetUrl, setAssetUrl] = useState<string | null>(null);
-  // Text items render their body, never an asset: a script's stored asset is a .md/.txt file, and
-  // pointing an <img>/background at it yields a broken image rather than a preview.
-  const isText = item.medium === "Text";
-  const firstAsset = isText ? undefined : item.assets[0];
-
-  useEffect(() => {
-    setAssetUrl(null);
-    if (markupThumbnail || !firstAsset) return;
-
-    if (/^(https?:|data:|blob:|\/)/i.test(firstAsset.storageUri)) {
-      setAssetUrl(firstAsset.storageUri);
-      return;
-    }
-
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    fetchContentItemAsset(item.id, 0, token)
-      .then((blob) => {
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setAssetUrl(objectUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setAssetUrl(null);
-      });
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.id, markupThumbnail, firstAsset?.storageUri, token]);
-
-  const thumbnail = isText ? null : markupThumbnail ?? assetUrl;
-
-  if (thumbnail) {
-    return (
-      <div
-        className="h-full w-full bg-cover bg-center"
-        style={{ backgroundImage: `url(${thumbnail})` }}
-        aria-hidden="true"
-      />
-    );
-  }
-
-  return <TextPreview item={item} />;
-}
-
 /** Bank tab (design §10): catalog/grid of item-cards across all sets/origins for the client. */
 export function ContentBankGrid({
   items,
@@ -255,7 +156,6 @@ export function ContentBankGrid({
   onPublishNow,
   onApprove,
   onReject,
-  onStage,
   onDownload,
   token,
 }: ContentBankGridProps) {
@@ -346,7 +246,6 @@ export function ContentBankGrid({
                     busy={busy}
                     onApprove={() => onApprove(item)}
                     onReject={(reason) => onReject(item, reason)}
-                    onStage={() => onStage(item)}
                     onPublishNow={() => onPublishNow(item)}
                     onDownload={() => onDownload(item)}
                   />

@@ -36,15 +36,41 @@ public sealed class ListClientContentBankQueryTests
     }
 
     /// <summary>
-    /// Issue: "Open in Studio" from the Bank re-materializes by analysisId, which fails for items
-    /// whose owning set is not re-materializable from that id (e.g. MagicGenerator runs). The Bank
-    /// response must carry the item's OWNING set id (resolved the same way
-    /// <c>DuplicateItemCommand</c>/<c>SpawnVariantCommand</c> already do, via
-    /// <see cref="IContentSetRepository.GetByRunAsync"/> on the item's own <c>Origin.SourceRunId</c>)
-    /// so the frontend can open the EXISTING set directly, without re-materializing.
+    /// The Bank response must carry the item's OWNING set id so "Open in Studio" loads the existing
+    /// set instead of re-materializing.
+    ///
+    /// Ownership is resolved through SET MEMBERSHIP, not through the item's
+    /// <c>Origin.SourceRunId</c>. That id is the generation JOB id, while a GenerationRun set is
+    /// keyed by a run id derived from (analysisId, clientId) — the two never match, so the previous
+    /// by-run lookup returned null for every item and the client fell through to a re-materialize
+    /// path that could not succeed ("This analysis produced no successful formats to materialize").
     /// </summary>
     [Fact]
-    public async Task Handle_ResolvesOwningSetId_FromItemSourceRunId()
+    public async Task Handle_ResolvesOwningSetId_ThroughSetMembership()
+    {
+        var item = BuildItem();
+        var items = new FakeContentItemRepository([item]);
+        var publications = new FakePublicationRepository([]);
+
+        // Deliberately give the set a run id that is NOT the item's SourceRunId — that mismatch is
+        // exactly the production shape, and membership must still resolve it.
+        var set = ContentSet.CreateForRun(
+            ContentSetId.New(), OrganizationId, ClientId,
+            SetOrigin.ForRun(GeneratorKind.SingleAnalyzer, Guid.NewGuid()), Now).Value;
+        Assert.True(set.AddMember(item.Id, 0).IsSuccess);
+
+        var sets = new FakeContentSetRepository([set]);
+        var handler = new ListClientContentBankQueryHandler(items, publications, sets: sets);
+
+        var result = await handler.Handle(
+            new ListClientContentBankQuery(OrganizationId, ClientId, null, null, null), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(set.Id.Value, result.Value[0].SetId);
+    }
+
+    [Fact]
+    public async Task Handle_ItemBelongingToNoSet_LeavesSetIdNull()
     {
         var item = BuildItem();
         var items = new FakeContentItemRepository([item]);
@@ -59,7 +85,8 @@ public sealed class ListClientContentBankQueryTests
             new ListClientContentBankQuery(OrganizationId, ClientId, null, null, null), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(set.Id.Value, result.Value[0].SetId);
+        // Matching the set's run id is NOT enough — only membership counts.
+        Assert.Null(result.Value[0].SetId);
     }
 
     [Fact]
@@ -179,6 +206,25 @@ public sealed class ListClientContentBankQueryTests
 
         public Task<ContentSet?> GetByRunAsync(Guid organizationId, Guid sourceRunId, CancellationToken ct) =>
             Task.FromResult(_sets.FirstOrDefault(s => s.Origin.SourceRunId == sourceRunId));
+
+        /// <summary>Resolves ownership through set membership, the way the real repository does.</summary>
+        public Task<IReadOnlyDictionary<Guid, Guid>> GetSetIdsByItemIdsAsync(
+            Guid organizationId, IReadOnlyCollection<Guid> itemIds, CancellationToken ct)
+        {
+            var map = new Dictionary<Guid, Guid>();
+            foreach (var set in _sets)
+            {
+                foreach (var member in set.Members)
+                {
+                    if (itemIds.Contains(member.ItemId.Value))
+                    {
+                        map.TryAdd(member.ItemId.Value, set.Id.Value);
+                    }
+                }
+            }
+
+            return Task.FromResult<IReadOnlyDictionary<Guid, Guid>>(map);
+        }
 
         public Task AddAsync(ContentSet set, CancellationToken ct) => Task.CompletedTask;
 

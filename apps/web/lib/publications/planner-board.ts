@@ -17,6 +17,12 @@ export type PlannerCard = PlannerItemCard | PlannerPublicationCard;
 
 export interface PlannerBoard {
   ready: PlannerItemCard[];
+  /**
+   * Editorially terminal items that carry no publication. Without this column a HandedOff piece
+   * vanished from the Planner AND from Published — the operator saw it only under the Bank's "All"
+   * filter, with no way to tell what had happened to it.
+   */
+  handedOff: PlannerItemCard[];
   scheduled: PlannerPublicationCard[];
   publishing: PlannerPublicationCard[];
   published: PlannerPublicationCard[];
@@ -29,7 +35,7 @@ export interface PlannerBoard {
 export const PLANNER_READY_STATES = new Set(["Approved", "ReadyForPublication"]);
 
 function emptyBoard(): PlannerBoard {
-  return { ready: [], scheduled: [], publishing: [], published: [], failed: [], cancelled: [] };
+  return { ready: [], handedOff: [], scheduled: [], publishing: [], published: [], failed: [], cancelled: [] };
 }
 
 /**
@@ -45,6 +51,8 @@ export function projectPlannerBoard(items: ContentBankItemResponse[]): PlannerBo
     if (item.publications.length === 0) {
       if (PLANNER_READY_STATES.has(item.state)) {
         board.ready.push({ kind: "item", item });
+      } else if (item.state === "HandedOff") {
+        board.handedOff.push({ kind: "item", item });
       }
       continue;
     }
