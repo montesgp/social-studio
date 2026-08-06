@@ -1,6 +1,7 @@
 using FluentValidation;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Integrations;
+using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.Publications;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ClientAccountConnections;
@@ -38,13 +39,16 @@ public sealed class RotateClientAccountTokenCommandHandler
     : IRequestHandler<RotateClientAccountTokenCommand, Result<ClientAccountConnectionResponse>>
 {
     private readonly IClientAccountConnectionRepository _connections;
+    private readonly ISocialNetworkRepository _networks;
     private readonly IIntegrationSecretProtector _protector;
     private readonly IClock _clock;
 
     public RotateClientAccountTokenCommandHandler(
-        IClientAccountConnectionRepository connections, IIntegrationSecretProtector protector, IClock clock)
+        IClientAccountConnectionRepository connections,
+        ISocialNetworkRepository networks, IIntegrationSecretProtector protector, IClock clock)
     {
         _connections = connections;
+        _networks = networks;
         _protector = protector;
         _clock = clock;
     }
@@ -69,6 +73,7 @@ public sealed class RotateClientAccountTokenCommandHandler
         }
 
         await _connections.UpdateAsync(connection, ct);
-        return Result.Success(ClientAccountConnectionResponse.FromDomain(connection));
+        return Result.Success(ClientAccountConnectionResponse.FromDomain(
+            connection, await _networks.GetByIdAsync(connection.SocialNetworkId, ct)));
     }
 }

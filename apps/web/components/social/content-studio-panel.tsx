@@ -102,6 +102,11 @@ import {
 import { getContentPlan, listContentPlans } from "@/lib/api/content-plans";
 import { listClientOwnAccounts } from "@/lib/api/client-own-accounts";
 import type { ContentPlan, ContentPlanSummary } from "@/lib/api/types";
+import {
+  tryParseReelScript,
+  type ReelScript,
+  type ReelScriptScene,
+} from "@/lib/publications/reel-script";
 
 interface ContentStudioPanelProps {
   /** Analysis-driven entry point: materializes (creates/updates) a studio set from an analysis. */
@@ -443,20 +448,30 @@ export function ContentStudioPanel({
     void (async () => {
       setLoading(true);
       setError(null);
+      // `owned` tracks whether THIS run still owns the slot. It cannot be derived from the ref in
+      // `finally`, because the error path deliberately clears the ref to allow a retry — reading
+      // the ref there made the comparison false and skipped `setLoading(false)`, leaving the studio
+      // spinning on "Entering Content Studio…" forever behind the error banner.
+      let owned = true;
       try {
         const materialized = await materializeAnalysis(analysisId, clientId, token);
         const list = await listContentItems(materialized.id, undefined, token);
-        if (materializeKeyRef.current !== key) return;
+        if (materializeKeyRef.current !== key) {
+          owned = false;
+          return;
+        }
         setSet(materialized);
         setItems(list);
         setSelectedId((prev) => prev ?? list[0]?.id ?? null);
       } catch (err) {
-        if (materializeKeyRef.current === key) {
-          setError(errorMessage(err));
-          materializeKeyRef.current = null; // allow a retry on the next deps change
+        if (materializeKeyRef.current !== key) {
+          owned = false;
+          return;
         }
+        setError(errorMessage(err));
+        materializeKeyRef.current = null; // allow a retry on the next deps change
       } finally {
-        if (materializeKeyRef.current === key) setLoading(false);
+        if (owned) setLoading(false);
       }
     })();
   }, [analysisId, clientId, setId, token]);
@@ -473,22 +488,30 @@ export function ContentStudioPanel({
     void (async () => {
       setLoading(true);
       setError(null);
+      // See the materialize effect above: `owned` must not be re-derived from the ref in `finally`,
+      // because the error path clears it to allow a retry and would otherwise strand the loader.
+      let owned = true;
       try {
         const [loadedSet, list] = await Promise.all([
           getContentSet(setId, token),
           listContentItems(setId, undefined, token),
         ]);
-        if (loadedSetKeyRef.current !== key) return;
+        if (loadedSetKeyRef.current !== key) {
+          owned = false;
+          return;
+        }
         setSet(loadedSet);
         setItems(list);
         setSelectedId(selectedItemId ?? list[0]?.id ?? null);
       } catch (err) {
-        if (loadedSetKeyRef.current === key) {
-          setError(errorMessage(err));
-          loadedSetKeyRef.current = null; // allow a retry on the next deps change
+        if (loadedSetKeyRef.current !== key) {
+          owned = false;
+          return;
         }
+        setError(errorMessage(err));
+        loadedSetKeyRef.current = null; // allow a retry on the next deps change
       } finally {
-        if (loadedSetKeyRef.current === key) setLoading(false);
+        if (owned) setLoading(false);
       }
     })();
   }, [setId, selectedItemId, token]);
@@ -1185,27 +1208,6 @@ function ItemDetail(props: ItemDetailProps) {
   );
 }
 
-interface ReelScriptScene {
-  timestamp?: string;
-  voiceover?: string;
-  onScreenText?: string;
-}
-
-interface ReelScript {
-  hook?: string;
-  scenes?: ReelScriptScene[];
-  ctaText?: string;
-  suggestedMusicMood?: string;
-}
-
-function tryParseReelScript(text: string): ReelScript | null {
-  try {
-    const parsed = JSON.parse(text) as ReelScript;
-    return parsed && Array.isArray(parsed.scenes) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
 
 /** Readable view for text formats (reel scripts etc.): one cue per row with its timecode in bold. */
 function ScriptPreview({ text }: { text: string }) {

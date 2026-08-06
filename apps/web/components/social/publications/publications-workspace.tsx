@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { useProgress } from "@/hooks/use-progress";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { listSocialClients } from "@/lib/api/social-clients";
 import type { SocialClient } from "@/lib/api/types";
@@ -21,13 +22,31 @@ import {
   type ContentBankItemResponse,
   type PublicationSummaryDto,
 } from "@/lib/api/publications";
-import type { ContentReviewState } from "@/lib/api/content-studio";
+import {
+  approveItem,
+  fetchContentItemAsset,
+  rejectItem,
+  stageItem,
+  type ContentReviewState,
+} from "@/lib/api/content-studio";
 import { ContentBankGrid } from "@/components/social/publications/content-bank-grid";
 import { PublicationPlannerBoard } from "@/components/social/publications/publication-planner-board";
 import { PublishedList } from "@/components/social/publications/published-list";
 import { DestinationPicker } from "@/components/social/publications/destination-picker";
 import { ClientAccountConnectionsPanel } from "@/components/social/publications/client-account-connections-panel";
 import { ContentStudioPanel } from "@/components/social/content-studio-panel";
+
+/** Saves a fetched blob to disk via a transient object URL. */
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 
 function errorMessage(err: unknown): string {
   if (err && typeof err === "object" && "message" in err) {
@@ -44,6 +63,7 @@ function errorMessage(err: unknown): string {
 export function PublicationsWorkspace() {
   const token = useAccessToken();
   const { orgId, isInitialized } = useActiveOrg();
+  const progress = useProgress();
 
   const [clients, setClients] = useState<SocialClient[]>([]);
   const [clientId, setClientId] = useState("");
@@ -89,18 +109,31 @@ export function PublicationsWorkspace() {
     if (!clientId || !token) return;
     setLoading(true);
     setError(null);
+
+    // Loading the Bank also triggers server-side lazy materialization of any completed analysis that
+    // was never opened in Studio, so this call can run for a while on a client with a lot of output.
+    // The tab skeletons alone left the operator staring at a frozen page with no idea work was
+    // happening; the shared progress card gives the load a visible, page-level identity.
+    progress.start("Loading Content Bank");
     try {
+      progress.update(35, "Loading Content Bank", "Materializing generated content…");
       const [bankItems, clientConnections] = await Promise.all([
         listContentBankItems(clientId, { fromUtc, toUtc, state: stateFilter ?? undefined }, token),
         listClientAccountConnections(clientId, token),
       ]);
+      progress.update(90, "Loading Content Bank", `${bankItems.length} pieces`);
       setItems(bankItems);
       setConnections(clientConnections);
+      progress.complete();
     } catch (err) {
       setError(errorMessage(err));
+      progress.reset();
     } finally {
       setLoading(false);
     }
+    // `progress` is a stable façade over a module store; including it would rebuild this callback
+    // on every render and re-fire the load effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, token, fromUtc, toUtc, stateFilter]);
 
   useEffect(() => {
@@ -137,6 +170,15 @@ export function PublicationsWorkspace() {
     if (!publishTarget) return;
     const target = publishTarget;
     setPublishTarget(null);
+
+    // The network key comes from the CHOSEN connection. It used to be hardcoded to "instagram",
+    // which silently routed every destination through the Instagram connector no matter which
+    // account the operator picked.
+    if (!connection.networkKey) {
+      setError("This connection has no resolvable network. Fix it in Connections settings first.");
+      return;
+    }
+
     void runAction(() =>
       publishItemNow(
         target.id,
@@ -144,11 +186,50 @@ export function PublicationsWorkspace() {
           clientId: target.clientId,
           clientAccountConnectionId: connection.id,
           socialNetworkId: connection.socialNetworkId,
-          networkKey: "instagram",
+          networkKey: connection.networkKey,
         },
         token,
       ),
     );
+  }
+
+  // Editorial-axis actions, available straight from the Bank cards so an operator can triage a whole
+  // client's output without opening each piece in Content Studio.
+  function onApproveItem(item: ContentBankItemResponse) {
+    void runAction(() => approveItem(item.id, token));
+  }
+
+  function onRejectItem(item: ContentBankItemResponse, reason: string) {
+    void runAction(() => rejectItem(item.id, reason, token));
+  }
+
+  function onStageItem(item: ContentBankItemResponse) {
+    void runAction(() => stageItem(item.id, token));
+  }
+
+  /**
+   * Download for script/copy deliverables, which have no publish path. Assets are fetched through
+   * the authenticated content-item asset endpoint, so a plain anchor href would 401.
+   */
+  async function onDownloadItem(item: ContentBankItemResponse) {
+    setError(null);
+    if (item.assets.length === 0) {
+      // Text-only pieces carry their body inline rather than as a stored asset.
+      const body = item.text ?? item.caption ?? "";
+      if (!body) {
+        setError("This item has nothing to download yet.");
+        return;
+      }
+      triggerBlobDownload(new Blob([body], { type: "text/markdown" }), `${item.formatKey}.md`);
+      return;
+    }
+
+    try {
+      const blob = await fetchContentItemAsset(item.id, 0, token);
+      triggerBlobDownload(blob, item.assets[0].storageUri.split("/").pop() || item.formatKey);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
   }
 
   function onRetry(_item: ContentBankItemResponse, publication: PublicationSummaryDto) {
@@ -229,6 +310,7 @@ export function PublicationsWorkspace() {
             <ContentBankGrid
               items={items}
               loading={loading}
+              busy={busy}
               fromUtc={fromUtc}
               toUtc={toUtc}
               onRangeChange={(next1, next2) => {
@@ -239,6 +321,10 @@ export function PublicationsWorkspace() {
               onStateFilterChange={setStateFilter}
               onOpenItem={openItem}
               onPublishNow={setPublishTarget}
+              onApprove={onApproveItem}
+              onReject={onRejectItem}
+              onStage={onStageItem}
+              onDownload={(item) => void onDownloadItem(item)}
               token={token}
             />
           </TabsContent>
@@ -258,6 +344,7 @@ export function PublicationsWorkspace() {
             <PublicationPlannerBoard
               items={items}
               busy={busy}
+              loading={loading}
               showCancelled={showCancelled}
               onOpenItem={openItem}
               onPublishNow={setPublishTarget}
@@ -267,7 +354,7 @@ export function PublicationsWorkspace() {
           </TabsContent>
 
           <TabsContent value="published">
-            <PublishedList items={items} onOpenItem={openItem} />
+            <PublishedList items={items} loading={loading} onOpenItem={openItem} />
           </TabsContent>
         </Tabs>
       )}

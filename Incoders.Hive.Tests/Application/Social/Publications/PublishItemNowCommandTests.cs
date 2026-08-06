@@ -40,6 +40,26 @@ public sealed class PublishItemNowCommandTests
     }
 
     [Fact]
+    public async Task Handle_TextMediumItem_IsRejected_EvenWhenApproved()
+    {
+        // reel-script and other Script/Text formats are operator deliverables: downloadable, never
+        // posted to a network API. The editorial gate blocked Video but let Text through, so an
+        // approved script could be pushed to Instagram as if it were a visual piece.
+        var item = BuildItem(ReviewState.Approved, ContentMedium.Text);
+        var items = new FakeContentItemRepository(item);
+        var publications = new FakePublicationRepository();
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection(ClientId));
+        var runner = BuildRunner(succeed: true, externalReference: "media-1");
+        var handler = new PublishItemNowCommandHandler(items, publications, connections, runner, new FixedClock(Now));
+
+        var result = await handler.Handle(BuildCommand(item.Id.Value), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Empty(publications.Added);
+        Assert.False(items.WasUpdated);
+    }
+
+    [Fact]
     public async Task Handle_HappyPath_PersistsBeforeCallingConnectorThenMarksPublished()
     {
         var item = BuildItem(ReviewState.Approved);
@@ -158,7 +178,9 @@ public sealed class PublishItemNowCommandTests
         return created.Value;
     }
 
-    private static ContentItem BuildItem(ReviewState state)
+    private static ContentItem BuildItem(ReviewState state) => BuildItem(state, ContentMedium.Visual);
+
+    private static ContentItem BuildItem(ReviewState state, ContentMedium medium)
     {
         var draft = new ContentDraft(
             null,
@@ -172,7 +194,7 @@ public sealed class PublishItemNowCommandTests
             OrganizationId,
             ClientId,
             new ContentOrigin(GeneratorKind.SingleAnalyzer, Guid.NewGuid(), null, Guid.NewGuid(), "ig_feed_carousel"),
-            new ContentKind("ig_feed_carousel", ContentMedium.Visual),
+            new ContentKind("ig_feed_carousel", medium),
             draft,
             Now);
 

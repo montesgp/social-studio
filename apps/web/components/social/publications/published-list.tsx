@@ -13,12 +13,26 @@ interface PublishedRow {
 
 interface PublishedListProps {
   items: ContentBankItemResponse[];
+  loading?: boolean;
   onOpenItem: (item: ContentBankItemResponse) => void;
 }
 
 /** Published tab (design §10): recency-weighted list of `Published` publications. */
-export function PublishedList({ items, onOpenItem }: PublishedListProps) {
+export function PublishedList({ items, loading = false, onOpenItem }: PublishedListProps) {
   const { dateFormat } = useTheme();
+
+  // Without this the tab rendered its "nothing published" empty state while the fetch was still in
+  // flight, which reads as a wrong answer rather than as work in progress.
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-16 animate-pulse rounded-lg border border-border bg-muted/40" />
+        ))}
+      </div>
+    );
+  }
+
   const rows: PublishedRow[] = items
     .flatMap((item) => item.publications.map((publication) => ({ item, publication })))
     .filter((row) => row.publication.status === "Published")

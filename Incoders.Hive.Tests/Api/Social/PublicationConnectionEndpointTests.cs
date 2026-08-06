@@ -77,7 +77,7 @@ public sealed class PublicationConnectionEndpointTests
             tokenExpiresAtUtc: null,
             DateTime.UtcNow).Value;
 
-        var response = ClientAccountConnectionResponse.FromDomain(connection);
+        var response = ClientAccountConnectionResponse.FromDomain(connection, network: null);
 
         var properties = response.GetType().GetProperties().Select(p => p.Name);
         Assert.DoesNotContain(properties, name => name.Contains("AccessToken", StringComparison.OrdinalIgnoreCase));

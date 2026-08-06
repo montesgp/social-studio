@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FileText, Send } from "lucide-react";
+import { Check, Download, FileText, Send, SendHorizonal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -12,8 +12,8 @@ import { fetchContentItemAsset, type ContentReviewState } from "@/lib/api/conten
 import { useTheme } from "@/components/theme/theme-provider";
 import { formatUserDate } from "@/lib/format/date";
 import { resolveBankThumbnail } from "@/lib/publications/thumbnail";
-
-const PLANNER_ACTIONABLE = new Set<ContentReviewState>(["Approved", "ReadyForPublication"]);
+import { canPublishItem, reviewActionsFor } from "@/lib/publications/review-actions";
+import { textPreviewLines } from "@/lib/publications/reel-script";
 
 const STATE_FILTERS: ContentReviewState[] = [
   "Draft",
@@ -27,6 +27,7 @@ const STATE_FILTERS: ContentReviewState[] = [
 interface ContentBankGridProps {
   items: ContentBankItemResponse[];
   loading: boolean;
+  busy?: boolean;
   fromUtc: string;
   toUtc: string;
   onRangeChange: (fromUtc: string, toUtc: string) => void;
@@ -34,14 +35,154 @@ interface ContentBankGridProps {
   onStateFilterChange: (state: ContentReviewState | null) => void;
   onOpenItem: (item: ContentBankItemResponse) => void;
   onPublishNow: (item: ContentBankItemResponse) => void;
+  onApprove: (item: ContentBankItemResponse) => void;
+  onReject: (item: ContentBankItemResponse, reason: string) => void;
+  onStage: (item: ContentBankItemResponse) => void;
+  onDownload: (item: ContentBankItemResponse) => void;
   token: string;
 }
 
-/** Best-effort snippet of an item's copy for the graceful (no-image) preview card. */
-function previewSnippet(item: ContentBankItemResponse): string {
-  const source = item.caption?.trim() || item.text?.trim() || "";
-  if (!source) return "";
-  return source.length > 90 ? `${source.slice(0, 90)}…` : source;
+/**
+ * Editorial + publication actions for one card. The Bank is where an operator triages in bulk, so
+ * the whole lifecycle has to be reachable here — previously the card rendered a state pill and the
+ * only way to move an item was to open it in Content Studio one at a time.
+ */
+function ItemActions({
+  item,
+  busy,
+  onApprove,
+  onReject,
+  onStage,
+  onPublishNow,
+  onDownload,
+}: {
+  item: ContentBankItemResponse;
+  busy: boolean;
+  onApprove: () => void;
+  onReject: (reason: string) => void;
+  onStage: () => void;
+  onPublishNow: () => void;
+  onDownload: () => void;
+}) {
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
+  const { canApprove, canReject, canStage } = reviewActionsFor(item.state);
+  const canPublish = canPublishItem(item.state, item.isPublishable);
+
+  if (rejecting) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <Input
+          autoFocus
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Rejection reason"
+          className="h-7 text-xs"
+        />
+        <div className="flex gap-1.5">
+          <Button
+            size="sm"
+            variant="destructive"
+            className="h-7 flex-1 text-xs"
+            disabled={busy || reason.trim().length === 0}
+            onClick={() => {
+              onReject(reason.trim());
+              setRejecting(false);
+              setReason("");
+            }}
+          >
+            Confirm
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs"
+            onClick={() => {
+              setRejecting(false);
+              setReason("");
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {canApprove ? (
+        <Button size="sm" variant="secondary" className="h-7 px-2 text-xs" disabled={busy} onClick={onApprove}>
+          <Check className="h-3.5 w-3.5" /> Approve
+        </Button>
+      ) : null}
+      {canReject ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 px-2 text-xs"
+          disabled={busy}
+          onClick={() => setRejecting(true)}
+        >
+          <X className="h-3.5 w-3.5" /> Reject
+        </Button>
+      ) : null}
+      {canStage ? (
+        <Button size="sm" variant="warning" className="h-7 px-2 text-xs" disabled={busy} onClick={onStage}>
+          <SendHorizonal className="h-3.5 w-3.5" /> Mark ready
+        </Button>
+      ) : null}
+      {canPublish ? (
+        <Button size="sm" variant="default" className="h-7 px-2 text-xs" disabled={busy} onClick={onPublishNow}>
+          <Send className="h-3.5 w-3.5" /> Publish now
+        </Button>
+      ) : null}
+      {!item.isPublishable ? (
+        // Script/copy deliverables have no network API to post to — the only meaningful delivery is
+        // handing the operator the file.
+        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={busy} onClick={onDownload}>
+          <Download className="h-3.5 w-3.5" /> Download
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Readable preview for a text/script item, mirroring what Content Studio shows in its detail pane.
+ * Script items (reel-script) previously fell through to a bare file icon plus a 90-character slice
+ * of raw JSON, which told the operator nothing about the piece.
+ */
+function TextPreview({ item }: { item: ContentBankItemResponse }) {
+  const body = item.text?.trim() || item.caption?.trim() || "";
+  const lines = body ? textPreviewLines(body) : [];
+
+  if (lines.length === 0) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 p-3 text-center">
+        <FileText className="h-5 w-5 text-muted-foreground" />
+        <span className="text-[11px] text-muted-foreground">{item.formatKey}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full w-full flex-col gap-1 overflow-hidden p-2.5 text-left">
+      <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <FileText className="h-3 w-3" /> {item.formatKey}
+      </span>
+      <div className="flex flex-col gap-0.5 overflow-hidden">
+        {lines.slice(0, 5).map((line, index) => (
+          <p key={index} className="truncate text-[11px] leading-snug text-foreground/80">
+            {line}
+          </p>
+        ))}
+      </div>
+      {lines.length > 5 ? (
+        <span className="text-[10px] text-muted-foreground">+{lines.length - 5} more</span>
+      ) : null}
+    </div>
+  );
 }
 
 /**
@@ -52,7 +193,10 @@ function previewSnippet(item: ContentBankItemResponse): string {
 function ItemThumbnail({ item, token }: { item: ContentBankItemResponse; token: string }) {
   const markupThumbnail = resolveBankThumbnail(item.visualSpecMarkup);
   const [assetUrl, setAssetUrl] = useState<string | null>(null);
-  const firstAsset = item.assets[0];
+  // Text items render their body, never an asset: a script's stored asset is a .md/.txt file, and
+  // pointing an <img>/background at it yields a broken image rather than a preview.
+  const isText = item.medium === "Text";
+  const firstAsset = isText ? undefined : item.assets[0];
 
   useEffect(() => {
     setAssetUrl(null);
@@ -82,7 +226,7 @@ function ItemThumbnail({ item, token }: { item: ContentBankItemResponse; token: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id, markupThumbnail, firstAsset?.storageUri, token]);
 
-  const thumbnail = markupThumbnail ?? assetUrl;
+  const thumbnail = isText ? null : markupThumbnail ?? assetUrl;
 
   if (thumbnail) {
     return (
@@ -94,23 +238,14 @@ function ItemThumbnail({ item, token }: { item: ContentBankItemResponse; token: 
     );
   }
 
-  const snippet = previewSnippet(item);
-  return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 p-3 text-center">
-      <FileText className="h-5 w-5 text-muted-foreground" />
-      {snippet ? (
-        <p className="line-clamp-3 text-[11px] text-muted-foreground">{snippet}</p>
-      ) : (
-        <span className="text-[11px] text-muted-foreground">{item.formatKey}</span>
-      )}
-    </div>
-  );
+  return <TextPreview item={item} />;
 }
 
 /** Bank tab (design §10): catalog/grid of item-cards across all sets/origins for the client. */
 export function ContentBankGrid({
   items,
   loading,
+  busy = false,
   fromUtc,
   toUtc,
   onRangeChange,
@@ -118,6 +253,10 @@ export function ContentBankGrid({
   onStateFilterChange,
   onOpenItem,
   onPublishNow,
+  onApprove,
+  onReject,
+  onStage,
+  onDownload,
   token,
 }: ContentBankGridProps) {
   const { dateFormat } = useTheme();
@@ -177,7 +316,6 @@ export function ContentBankGrid({
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {items.map((item) => {
-            const canPublish = PLANNER_ACTIONABLE.has(item.state);
             return (
               <div
                 key={item.id}
@@ -203,11 +341,15 @@ export function ContentBankGrid({
                   <span className="text-[11px] text-muted-foreground">
                     Updated {formatUserDate(item.updatedAtUtc, dateFormat)}
                   </span>
-                  {canPublish ? (
-                    <Button size="sm" variant="default" onClick={() => onPublishNow(item)}>
-                      <Send className="h-3.5 w-3.5" /> Publish now
-                    </Button>
-                  ) : null}
+                  <ItemActions
+                    item={item}
+                    busy={busy}
+                    onApprove={() => onApprove(item)}
+                    onReject={(reason) => onReject(item, reason)}
+                    onStage={() => onStage(item)}
+                    onPublishNow={() => onPublishNow(item)}
+                    onDownload={() => onDownload(item)}
+                  />
                 </div>
               </div>
             );

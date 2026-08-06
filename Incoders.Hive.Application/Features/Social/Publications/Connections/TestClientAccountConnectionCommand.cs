@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions;
+using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.Publications;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ClientAccountConnections;
@@ -23,15 +24,18 @@ public sealed class TestClientAccountConnectionCommandHandler
     : IRequestHandler<TestClientAccountConnectionCommand, Result<ClientAccountConnectionResponse>>
 {
     private readonly IClientAccountConnectionRepository _connections;
+    private readonly ISocialNetworkRepository _networks;
     private readonly IPublicationDestinationResolver _destinationResolver;
     private readonly IClock _clock;
 
     public TestClientAccountConnectionCommandHandler(
         IClientAccountConnectionRepository connections,
+        ISocialNetworkRepository networks,
         IPublicationDestinationResolver destinationResolver,
         IClock clock)
     {
         _connections = connections;
+        _networks = networks;
         _destinationResolver = destinationResolver;
         _clock = clock;
     }
@@ -58,6 +62,7 @@ public sealed class TestClientAccountConnectionCommandHandler
             resolved.IsSuccess, resolved.IsSuccess ? null : resolved.Error.MessageKey, _clock.UtcNow);
 
         await _connections.UpdateAsync(connection, ct);
-        return Result.Success(ClientAccountConnectionResponse.FromDomain(connection));
+        return Result.Success(ClientAccountConnectionResponse.FromDomain(
+            connection, await _networks.GetByIdAsync(connection.SocialNetworkId, ct)));
     }
 }

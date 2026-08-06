@@ -1,6 +1,8 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Integrations;
+using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.Publications;
+using Incoders.Hive.Application.Common.Pagination;
 using Incoders.Hive.Application.Features.Social.Publications.Connections;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
@@ -27,7 +29,7 @@ public sealed class ClientAccountConnectionCommandsTests
     {
         var connections = new FakeClientAccountConnectionRepository();
         var protector = new FakeProtector();
-        var handler = new CreateClientAccountConnectionCommandHandler(connections, protector, new FixedClock(Now));
+        var handler = new CreateClientAccountConnectionCommandHandler(connections, new FakeSocialNetworkRepository(BuildNetwork()), protector, new FixedClock(Now));
 
         var command = new CreateClientAccountConnectionCommand(
             OrganizationId, ClientId, SocialNetworkId, OrganizationIntegrationId,
@@ -51,7 +53,7 @@ public sealed class ClientAccountConnectionCommandsTests
         var existing = BuildConnection();
         var connections = new FakeClientAccountConnectionRepository(existing);
         var protector = new FakeProtector();
-        var handler = new RotateClientAccountTokenCommandHandler(connections, protector, new FixedClock(Now));
+        var handler = new RotateClientAccountTokenCommandHandler(connections, new FakeSocialNetworkRepository(BuildNetwork()), protector, new FixedClock(Now));
 
         var command = new RotateClientAccountTokenCommand(
             OrganizationId, existing.Id.Value, "new-plaintext-token", TokenExpiresAtUtc: null);
@@ -72,7 +74,7 @@ public sealed class ClientAccountConnectionCommandsTests
         var existing = BuildConnection();
         var connections = new FakeClientAccountConnectionRepository(existing);
         var resolver = new FakeDestinationResolver(succeed: true);
-        var handler = new TestClientAccountConnectionCommandHandler(connections, resolver, new FixedClock(Now));
+        var handler = new TestClientAccountConnectionCommandHandler(connections, new FakeSocialNetworkRepository(BuildNetwork()), resolver, new FixedClock(Now));
 
         var result = await handler.Handle(
             new TestClientAccountConnectionCommand(OrganizationId, existing.Id.Value), CancellationToken.None);
@@ -87,7 +89,7 @@ public sealed class ClientAccountConnectionCommandsTests
         var existing = BuildConnection();
         var connections = new FakeClientAccountConnectionRepository(existing);
         var resolver = new FakeDestinationResolver(succeed: false);
-        var handler = new TestClientAccountConnectionCommandHandler(connections, resolver, new FixedClock(Now));
+        var handler = new TestClientAccountConnectionCommandHandler(connections, new FakeSocialNetworkRepository(BuildNetwork()), resolver, new FixedClock(Now));
 
         var result = await handler.Handle(
             new TestClientAccountConnectionCommand(OrganizationId, existing.Id.Value), CancellationToken.None);
@@ -103,7 +105,7 @@ public sealed class ClientAccountConnectionCommandsTests
     {
         var existing = BuildConnection();
         var connections = new FakeClientAccountConnectionRepository(existing);
-        var handler = new ListClientAccountConnectionsQueryHandler(connections);
+        var handler = new ListClientAccountConnectionsQueryHandler(connections, new FakeSocialNetworkRepository(BuildNetwork()));
 
         var result = await handler.Handle(
             new ListClientAccountConnectionsQuery(OrganizationId, ClientId), CancellationToken.None);
@@ -115,6 +117,38 @@ public sealed class ClientAccountConnectionCommandsTests
         var properties = response.GetType().GetProperties().Select(p => p.Name);
         // TokenExpiresAtUtc (metadata) is fine — only the raw/access token value itself must be absent.
         Assert.DoesNotContain(properties, name => name.Contains("AccessToken", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task List_ProjectsTheNetworkCode_SoCallersNeverHardcodeANetworkKey()
+    {
+        // The projection used to expose only an opaque SocialNetworkId, which forced the publish UI
+        // to send a hardcoded "instagram" network key for EVERY destination — publishing through the
+        // wrong connector as soon as a second network existed.
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection());
+        var handler = new ListClientAccountConnectionsQueryHandler(
+            connections, new FakeSocialNetworkRepository(BuildNetwork()));
+
+        var result = await handler.Handle(
+            new ListClientAccountConnectionsQuery(OrganizationId, ClientId), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("instagram", result.Value[0].NetworkKey);
+        Assert.Equal("Instagram", result.Value[0].NetworkDisplayName);
+    }
+
+    [Fact]
+    public async Task List_UnresolvableNetwork_YieldsEmptyKeyInsteadOfThrowing()
+    {
+        var connections = new FakeClientAccountConnectionRepository(BuildConnection());
+        var handler = new ListClientAccountConnectionsQueryHandler(
+            connections, new FakeSocialNetworkRepository(network: null));
+
+        var result = await handler.Handle(
+            new ListClientAccountConnectionsQuery(OrganizationId, ClientId), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(string.Empty, result.Value[0].NetworkKey);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -135,6 +169,39 @@ public sealed class ClientAccountConnectionCommandsTests
         Assert.True(created.IsSuccess);
         return created.Value;
     }
+
+    /// <summary>Resolves the one network the fixture's connections point at, so the projection can
+    /// carry its code instead of the caller hardcoding a network key.</summary>
+    private sealed class FakeSocialNetworkRepository : ISocialNetworkRepository
+    {
+        private readonly SocialNetwork? _network;
+
+        public FakeSocialNetworkRepository(SocialNetwork? network = null) => _network = network;
+
+        public Task<SocialNetwork?> GetByIdAsync(SocialNetworkId id, CancellationToken cancellationToken) =>
+            Task.FromResult(_network is not null && _network.Id == id ? _network : null);
+
+        public Task<IReadOnlyList<SocialNetwork>> GetByIdsAsync(
+            IReadOnlyCollection<SocialNetworkId> ids, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<SocialNetwork>>(
+                _network is not null && ids.Contains(_network.Id) ? [_network] : []);
+
+        public Task<SocialNetwork?> GetByCodeAsync(string code, CancellationToken cancellationToken) =>
+            Task.FromResult<SocialNetwork?>(null);
+
+        public Task<PageResult<SocialNetwork>> ListAsync(
+            SocialNetworkListQuery query, CancellationToken cancellationToken) =>
+            Task.FromResult(new PageResult<SocialNetwork>([], 0, 1, 20));
+
+        public Task AddAsync(SocialNetwork network, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public void Update(SocialNetwork network) { }
+
+        public Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private static SocialNetwork BuildNetwork() => SocialNetwork.Restore(
+        new SocialNetworkId(SocialNetworkId), "instagram", "Instagram", "instagram", isActive: true, Now, Now);
 
     private sealed class FakeClientAccountConnectionRepository : IClientAccountConnectionRepository
     {

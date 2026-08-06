@@ -78,6 +78,12 @@ export interface ContentBankItemResponse {
   publications: PublicationSummaryDto[];
   /** The item's owning `ContentSet` id, when resolvable — lets "Open in Studio" load the existing set directly. */
   setId: string | null;
+  /**
+   * Whether this item can be sent to a social network publishing API. False for script/copy
+   * deliverables such as `reel-script`, which are download-only. Mirrors exactly what
+   * `PublicationEditorialGate` enforces server-side.
+   */
+  isPublishable: boolean;
 }
 
 /** Token-free projection of a `ClientAccountConnection`. NEVER includes the access token. */
@@ -93,6 +99,12 @@ export interface ClientAccountConnectionResponse {
   lastError: string | null;
   createdAtUtc: string;
   updatedAtUtc: string;
+  /** Target network catalog code (e.g. `instagram`) — the value publish/schedule commands need. */
+  networkKey: string;
+  /** Human label for the network, for destination pickers. */
+  networkDisplayName: string;
+  /** Catalog icon key for the network. */
+  networkIconKey: string;
 }
 
 export interface ContentBankFilterQuery {

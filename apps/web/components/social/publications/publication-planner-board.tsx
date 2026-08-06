@@ -11,6 +11,7 @@ import type { ContentBankItemResponse, PublicationSummaryDto } from "@/lib/api/p
 interface PublicationPlannerBoardProps {
   items: ContentBankItemResponse[];
   busy?: boolean;
+  loading?: boolean;
   showCancelled: boolean;
   onOpenItem: (item: ContentBankItemResponse) => void;
   onPublishNow: (item: ContentBankItemResponse) => void;
@@ -47,9 +48,17 @@ function ItemCardView({ card, onOpen, onPublishNow }: { card: PlannerItemCard; o
         </button>
         <ReviewStateBadge state={card.item.state} />
       </div>
-      <Button size="sm" variant="default" onClick={onPublishNow}>
-        <Send className="h-3.5 w-3.5" /> Publish now
-      </Button>
+      {card.item.isPublishable ? (
+        <Button size="sm" variant="default" onClick={onPublishNow}>
+          <Send className="h-3.5 w-3.5" /> Publish now
+        </Button>
+      ) : (
+        // Script/copy deliverables reach "Ready" like any other piece, but there is no network API
+        // to post them to — offering Publish here would just surface a server-side rejection.
+        <p className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted-foreground">
+          Script deliverable — download only
+        </p>
+      )}
     </div>
   );
 }
@@ -61,12 +70,28 @@ function ItemCardView({ card, onOpen, onPublishNow }: { card: PlannerItemCard; o
 export function PublicationPlannerBoard({
   items,
   busy,
+  loading = false,
   showCancelled,
   onOpenItem,
   onPublishNow,
   onRetry,
   onCancel,
 }: PublicationPlannerBoardProps) {
+  // The board is a projection of the same fetch the Bank uses; while it is in flight every column
+  // would otherwise read "Empty", which is indistinguishable from a client that has no content.
+  if (loading) {
+    return (
+      <div className="flex flex-wrap gap-3 overflow-x-auto pb-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="flex min-w-[220px] flex-1 flex-col gap-2">
+            <div className="h-4 w-24 animate-pulse rounded bg-muted/40" />
+            <div className="h-40 animate-pulse rounded-lg border border-dashed border-border bg-muted/20" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   const board = projectPlannerBoard(items);
 
   return (

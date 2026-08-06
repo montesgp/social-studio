@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Features.Social.ContentStudio;
+using Incoders.Hive.Domain.Social.ContentStudio;
 
 namespace Incoders.Hive.Application.Features.Social.Publications.ListClientContentBank;
 
@@ -37,7 +38,14 @@ public sealed record ContentBankItemResponse(
     /// re-materializing by analysis id, which fails for runs that are not re-materializable that way.
     /// Null when no owning set could be resolved (should not normally happen for a materialized item).
     /// </summary>
-    Guid? SetId)
+    Guid? SetId,
+    /// <summary>
+    /// Whether this item can be sent to a social network publishing API. False for script/copy
+    /// deliverables such as <c>reel-script</c>, which are downloadable only. Mirrors exactly what
+    /// <c>PublicationEditorialGate</c> enforces server-side, so the Bank never offers a "Publish"
+    /// action the publish command would reject.
+    /// </summary>
+    bool IsPublishable)
 {
     public static ContentBankItemResponse FromMapped(
         ContentItemResponse item, IReadOnlyList<PublicationSummaryDto> publications, Guid? setId) =>
@@ -64,5 +72,7 @@ public sealed record ContentBankItemResponse(
             item.CreatedAtUtc,
             item.UpdatedAtUtc,
             publications,
-            setId);
+            setId,
+            Enum.TryParse<ContentMedium>(item.Medium, ignoreCase: true, out var medium)
+                && PublicationEditorialGate.IsPublishableMedium(medium));
 }

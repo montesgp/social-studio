@@ -1,6 +1,7 @@
 using FluentValidation;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Integrations;
+using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.Publications;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
@@ -48,13 +49,16 @@ public sealed class CreateClientAccountConnectionCommandHandler
     : IRequestHandler<CreateClientAccountConnectionCommand, Result<ClientAccountConnectionResponse>>
 {
     private readonly IClientAccountConnectionRepository _connections;
+    private readonly ISocialNetworkRepository _networks;
     private readonly IIntegrationSecretProtector _protector;
     private readonly IClock _clock;
 
     public CreateClientAccountConnectionCommandHandler(
-        IClientAccountConnectionRepository connections, IIntegrationSecretProtector protector, IClock clock)
+        IClientAccountConnectionRepository connections,
+        ISocialNetworkRepository networks, IIntegrationSecretProtector protector, IClock clock)
     {
         _connections = connections;
+        _networks = networks;
         _protector = protector;
         _clock = clock;
     }
@@ -82,6 +86,7 @@ public sealed class CreateClientAccountConnectionCommandHandler
         }
 
         await _connections.AddAsync(created.Value, ct);
-        return Result.Success(ClientAccountConnectionResponse.FromDomain(created.Value));
+        return Result.Success(ClientAccountConnectionResponse.FromDomain(
+            created.Value, await _networks.GetByIdAsync(created.Value.SocialNetworkId, ct)));
     }
 }
