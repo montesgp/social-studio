@@ -93,6 +93,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
     sectorOrNiche,
     backgroundSourcingPolicy,
     aestheticRefreshThresholdDays,
+    maxPiecesPerGeneration,
     signsOwnSlides,
     fieldErrors,
     referentAccounts,
@@ -107,6 +108,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
     setSectorOrNiche,
     setBackgroundSourcingPolicy,
     setAestheticRefreshThresholdDays,
+    setMaxPiecesPerGeneration,
     setSignsOwnSlides,
     setReferentAccounts,
     setCompetitorAccounts,
@@ -231,8 +233,13 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
     try {
       const client = await getSocialClient(id, effectiveToken || undefined);
       setDetails(client);
-    } catch {
-      setDetails(null);
+    } catch (err) {
+      // Keep whatever openDetails already put in the panel instead of blanking it, and
+      // surface why the refresh failed — silently resetting to the empty state made the
+      // panel look like it flashed and lost the selection with no explanation.
+      const message = (err as ApiError).message;
+      setError(message);
+      pushErrorToast(message);
     }
   }
 
@@ -359,6 +366,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
                   sectorOrNiche={sectorOrNiche}
                   backgroundSourcingPolicy={backgroundSourcingPolicy}
                   aestheticRefreshThresholdDays={aestheticRefreshThresholdDays}
+                  maxPiecesPerGeneration={maxPiecesPerGeneration}
                   signsOwnSlides={signsOwnSlides}
                   fieldErrors={fieldErrors}
                   referentAccounts={referentAccounts}
@@ -373,6 +381,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
                   onSectorOrNicheChange={setSectorOrNiche}
                   onBackgroundSourcingPolicyChange={setBackgroundSourcingPolicy}
                   onAestheticRefreshThresholdDaysChange={setAestheticRefreshThresholdDays}
+                  onMaxPiecesPerGenerationChange={setMaxPiecesPerGeneration}
                   onSignsOwnSlidesChange={setSignsOwnSlides}
                   onReferentAccountsChange={setReferentAccounts}
                   onCompetitorAccountsChange={setCompetitorAccounts}
@@ -390,7 +399,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
         )}
       </AnimatePresence>
 
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={Users} label="Visible" value={stats.visible} hint="Rows in current view" />
         <MetricCard icon={CheckCircle2} label="Active" value={stats.active} hint="Ready for campaigns" />
         <MetricCard icon={Archive} label="Archived" value={stats.archived} hint="Recoverable records" />
@@ -399,7 +408,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
 
       <Card>
         <CardContent className="p-4">
-          <form className="grid gap-3 lg:grid-cols-[1fr_auto_auto_auto]" onSubmit={applyFilters}>
+          <form className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto]" onSubmit={applyFilters}>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
@@ -411,7 +420,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
             </div>
             {isPlatformAdmin ? (
               <Select
-                className="min-w-[220px]"
+                className="w-full lg:min-w-[220px]"
                 value={selectedOrganizationId}
                 onChange={(event) => changeOrganizationFilter(event.target.value)}
               >
@@ -432,12 +441,12 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
       {error ? <Notice tone="error" message={error} onDismiss={() => setError(null)} /> : null}
       {success ? <Notice tone="success" message={success} onDismiss={() => setSuccess(null)} /> : null}
 
-      <div className={cn("grid gap-6", !formOpen && "xl:grid-cols-[1fr_420px]")}>
+      <div className={cn("grid gap-6", !formOpen && "xl:grid-cols-[minmax(0,1fr)_420px]")}>
         <Card className="overflow-hidden">
           <CardHeader className="border-b border-border">
-            <CardTitle className="flex items-center justify-between text-base">
+            <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
               <span>Clients</span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
                   variant={viewMode === "grid" ? "default" : "outline"}
@@ -465,7 +474,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
           <CardContent className="p-0">
             {viewMode === "grid" ? (
               loading ? (
-                <div className="grid gap-3 p-4 md:grid-cols-2">
+                <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                   {Array.from({ length: 4 }).map((_, index) => (
                     <div key={index} className="h-36 animate-pulse rounded-2xl border border-border bg-muted/40" />
                   ))}
@@ -473,7 +482,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
               ) : items.length === 0 ? (
                 <EmptyState onCreate={openCreate} />
               ) : (
-                <div className="grid gap-3 p-4 md:grid-cols-2">
+                <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                   {items.map((item, index) => (
                     <motion.article
                       key={item.id}
@@ -486,28 +495,34 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
                       )}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h2 className="font-semibold">{item.name}</h2>
-                            <Badge variant={item.isActive ? "success" : "muted"}>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <h2 className="min-w-0 truncate font-semibold">{item.name}</h2>
+                            <Badge variant={item.isActive ? "success" : "muted"} className="shrink-0">
                               {item.isActive ? "Active" : "Archived"}
                             </Badge>
                           </div>
                           {isPlatformAdmin ? (
-                            <p className="mt-1 text-xs text-muted-foreground">{resolveOrganizationName(item)}</p>
+                            <p className="mt-1 truncate text-xs text-muted-foreground">{resolveOrganizationName(item)}</p>
                           ) : null}
                           {item.description ? (
-                            <p className="mt-1 max-w-[32rem] truncate text-xs text-muted-foreground">{item.description}</p>
+                            <p className="mt-1 truncate text-xs text-muted-foreground">{item.description}</p>
                           ) : (
-                            <p className="mt-2 max-w-[32rem] truncate text-xs text-muted-foreground">{item.id}</p>
+                            <p className="mt-2 truncate text-xs text-muted-foreground">{item.id}</p>
                           )}
                         </div>
-                        <Button variant="outline" size="sm" onClick={() => void openDetails(item)}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                          title="View details"
+                          onClick={() => void openDetails(item)}
+                        >
                           <Eye className="h-4 w-4" />
                         </Button>
                       </div>
 
-                      <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                      <div className="mt-4 grid grid-cols-1 gap-2 text-xs text-muted-foreground sm:grid-cols-2">
                         {isPlatformAdmin ? <Fact label="Organization" value={resolveOrganizationName(item)} /> : null}
                         <Fact label="Updated" value={formatDate(item.updatedAtUtc)} />
                         <Fact label="Created" value={formatDate(item.createdAtUtc)} />
@@ -640,7 +655,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
               </Table>
             )}
 
-            <div className="flex items-center justify-between border-t border-border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4">
               <Button
                 variant="outline"
                 disabled={!page?.hasPreviousPage || loading}
@@ -739,7 +754,7 @@ function StatusTabs({ value, onChange }: { value: StatusFilter; onChange: (value
   ];
 
   return (
-    <div className="inline-flex rounded-md border border-border bg-background p-1">
+    <div className="flex flex-wrap rounded-md border border-border bg-background p-1 lg:inline-flex lg:flex-nowrap">
       {options.map((option) => (
         <Button
           key={option.value}
@@ -794,11 +809,11 @@ function ClientDetailsPanel({
     <Card className="sticky top-6 min-h-[28rem]">
       <CardHeader className="border-b border-border">
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle>{client.name}</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">{client.id}</p>
+          <div className="min-w-0 flex-1">
+            <CardTitle className="break-words">{client.name}</CardTitle>
+            <p className="mt-1 break-all text-xs text-muted-foreground">{client.id}</p>
           </div>
-          <Badge variant={client.isActive ? "success" : "muted"}>
+          <Badge variant={client.isActive ? "success" : "muted"} className="shrink-0">
             {client.isActive ? "Active" : "Archived"}
           </Badge>
         </div>
