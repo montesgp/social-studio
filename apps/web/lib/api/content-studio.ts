@@ -132,6 +132,19 @@ export function getContentSet(setId: string, token?: string): Promise<ContentSet
   return apiRequest<ContentSet>(`${base}/sets/${setId}`, undefined, token);
 }
 
+/**
+ * Loads an explicit, possibly CROSS-SET selection of pieces, preserving the requested order.
+ * Backs "open several Bank pieces in one Studio session" — those pieces need share no set.
+ * POST because a triage selection can carry dozens of ids, which a query string would truncate.
+ */
+export function listContentItemsByIds(itemIds: string[], token?: string): Promise<ContentItem[]> {
+  return apiRequest<ContentItem[]>(
+    `${base}/items/by-ids`,
+    { method: "POST", body: JSON.stringify({ itemIds }) },
+    token,
+  );
+}
+
 export function listContentItems(setId: string, state: string | undefined, token?: string): Promise<ContentItem[]> {
   const query = state ? `?state=${encodeURIComponent(state)}` : "";
   return apiRequest<ContentItem[]>(`${base}/sets/${setId}/items${query}`, undefined, token);
@@ -195,6 +208,14 @@ export function rejectItem(itemId: string, reason: string, token?: string): Prom
 
 export function discardItem(itemId: string, token?: string): Promise<ContentItem> {
   return apiRequest<ContentItem>(`${base}/items/${itemId}/discard`, { method: "POST" }, token);
+}
+
+/**
+ * Brings a discarded/rejected piece back into review so it becomes editable again. The domain allows
+ * `Discarded -> InReview`; without this the piece stayed permanently read-only in Studio.
+ */
+export function reopenItem(itemId: string, token?: string): Promise<ContentItem> {
+  return apiRequest<ContentItem>(`${base}/items/${itemId}/reopen`, { method: "POST" }, token);
 }
 
 export function duplicateItem(itemId: string, token?: string): Promise<ContentItem> {
