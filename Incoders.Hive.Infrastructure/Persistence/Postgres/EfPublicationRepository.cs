@@ -56,6 +56,32 @@ public sealed class EfPublicationRepository : IPublicationRepository
         return rows.Select(ToDomain).ToList();
     }
 
+    public async Task<int> DeleteByContentItemsAsync(
+        Guid organizationId, IReadOnlyCollection<Guid> contentItemIds, CancellationToken ct)
+    {
+        if (contentItemIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var ids = contentItemIds.ToHashSet();
+        var rows = await _dbContext.Publications
+            .Include(x => x.Attempts)
+            .Where(x => x.OrganizationId == organizationId && ids.Contains(x.ContentItemId))
+            .ToListAsync(ct);
+
+        if (rows.Count == 0)
+        {
+            return 0;
+        }
+
+        // Attempts are a dependent collection of the publication, so removing the parent takes them
+        // with it; they are loaded above so EF tracks and cascades them in this same transaction.
+        _dbContext.Publications.RemoveRange(rows);
+        await _dbContext.SaveChangesAsync(ct);
+        return rows.Count;
+    }
+
     public async Task AddAsync(Publication publication, CancellationToken ct)
     {
         _dbContext.Publications.Add(ToData(publication));

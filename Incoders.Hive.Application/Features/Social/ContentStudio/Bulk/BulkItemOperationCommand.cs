@@ -1,5 +1,6 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social.ContentStudio;
+using Incoders.Hive.Application.Features.Social.ContentStudio.Operations;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentStudio;
 using MediatR;
@@ -40,11 +41,14 @@ public sealed class BulkItemOperationCommandHandler
     : IRequestHandler<BulkItemOperationCommand, Result<BulkOperationResult>>
 {
     private readonly IContentItemRepository _items;
+    private readonly ContentItemPurger _purger;
     private readonly IClock _clock;
 
-    public BulkItemOperationCommandHandler(IContentItemRepository items, IClock clock)
+    public BulkItemOperationCommandHandler(
+        IContentItemRepository items, ContentItemPurger purger, IClock clock)
     {
         _items = items;
+        _purger = purger;
         _clock = clock;
     }
 
@@ -70,8 +74,14 @@ public sealed class BulkItemOperationCommandHandler
 
             if (request.Operation == BulkItemOperation.Delete)
             {
-                await _items.DeleteAsync(request.OrganizationId, id, ct);
-                outcomes.Add(new BulkItemOutcome(rawId, Succeeded: true, ErrorCode: null));
+                // Delete is a full purge (assets, publications, set membership, row). It can legally
+                // fail per item — a piece with a live publication is refused — so it reports through
+                // the same partial-success outcome list as every other operation instead of always
+                // claiming success.
+                var purge = await _purger.PurgeAsync(request.OrganizationId, id, ct);
+                outcomes.Add(purge.IsSuccess
+                    ? new BulkItemOutcome(rawId, Succeeded: true, ErrorCode: null)
+                    : new BulkItemOutcome(rawId, Succeeded: false, ErrorCode: purge.Error.Code));
                 continue;
             }
 

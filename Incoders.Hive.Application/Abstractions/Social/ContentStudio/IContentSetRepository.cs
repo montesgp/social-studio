@@ -28,6 +28,16 @@ public interface IContentSetRepository
         IReadOnlyCollection<Guid> itemIds,
         CancellationToken ct);
 
+    /// <summary>
+    /// Removes the given items from every set that holds them, returning the number of membership
+    /// rows deleted. Used by the purge path: membership rows carry no FK to the item, so deleting an
+    /// item without this leaves a dangling row that makes the set report a member it cannot load.
+    /// </summary>
+    Task<int> RemoveItemMembershipsAsync(
+        Guid organizationId,
+        IReadOnlyCollection<Guid> itemIds,
+        CancellationToken ct);
+
     Task AddAsync(ContentSet set, CancellationToken ct);
 
     Task UpdateAsync(ContentSet set, CancellationToken ct);

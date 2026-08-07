@@ -66,6 +66,32 @@ public sealed class EfContentSetRepository : IContentSetRepository
         return map;
     }
 
+    public async Task<int> RemoveItemMembershipsAsync(
+        Guid organizationId, IReadOnlyCollection<Guid> itemIds, CancellationToken ct)
+    {
+        if (itemIds.Count == 0)
+        {
+            return 0;
+        }
+
+        // Same org-scoping shape as GetSetIdsByItemIdsAsync: the join table carries no organization
+        // column, so the scope is enforced on the owning set row.
+        var rows = await _dbContext.ContentStudioSetItems
+            .Where(link => itemIds.Contains(link.ItemId)
+                && _dbContext.ContentStudioSets.Any(set =>
+                    set.Id == link.SetId && set.OrganizationId == organizationId))
+            .ToListAsync(ct);
+
+        if (rows.Count == 0)
+        {
+            return 0;
+        }
+
+        _dbContext.ContentStudioSetItems.RemoveRange(rows);
+        await _dbContext.SaveChangesAsync(ct);
+        return rows.Count;
+    }
+
     public async Task AddAsync(ContentSet set, CancellationToken ct)
     {
         _dbContext.ContentStudioSets.Add(ToData(set));

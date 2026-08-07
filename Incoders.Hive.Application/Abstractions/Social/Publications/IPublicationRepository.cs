@@ -16,6 +16,16 @@ public interface IPublicationRepository
     /// <summary>All publications for a client, across all content items and destinations.</summary>
     Task<IReadOnlyList<Publication>> ListByClientAsync(Guid organizationId, Guid clientId, CancellationToken ct);
 
+    /// <summary>
+    /// Permanently removes every publication (and its attempts) recorded against the given content
+    /// items, returning the number of publication rows deleted. Only the purge path calls this, and
+    /// only after it has established that none of those publications is live.
+    /// </summary>
+    Task<int> DeleteByContentItemsAsync(
+        Guid organizationId,
+        IReadOnlyCollection<Guid> contentItemIds,
+        CancellationToken ct);
+
     Task AddAsync(Publication publication, CancellationToken ct);
 
     Task UpdateAsync(Publication publication, CancellationToken ct);

@@ -47,6 +47,15 @@ public static class ContentStudioErrors
         "social.content_studio.caption_too_long",
         "social.content_studio.errors.caption_too_long");
 
+    /// <summary>
+    /// A purge was requested for an item that still carries a live publication record
+    /// (Scheduled, Publishing or Published). Purging is permanent and would destroy the record of
+    /// what actually went out to a network, so the item must be unpublished/cancelled first.
+    /// </summary>
+    public static readonly Error PurgeBlockedByPublication = Error.Conflict(
+        "social.content_studio.purge_blocked_by_publication",
+        "social.content_studio.errors.purge_blocked_by_publication");
+
     public static readonly Error CaptionTooManyHashtags = Error.Validation(
         "social.content_studio.caption_too_many_hashtags",
         "social.content_studio.errors.caption_too_many_hashtags");
