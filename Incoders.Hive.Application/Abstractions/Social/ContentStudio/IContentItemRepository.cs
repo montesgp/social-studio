@@ -16,6 +16,14 @@ public interface IContentItemRepository
     Task<IReadOnlyList<ContentItem>> ListBySetAsync(Guid organizationId, ContentSetId setId, CancellationToken ct);
 
     /// <summary>
+    /// An explicit, possibly cross-set selection of items. Ids that do not exist (or belong to
+    /// another organization) are omitted rather than failing the batch. Order is not guaranteed —
+    /// the caller re-orders, since the meaningful order is the one it asked in.
+    /// </summary>
+    Task<IReadOnlyList<ContentItem>> ListByIdsAsync(
+        Guid organizationId, IReadOnlyCollection<Guid> itemIds, CancellationToken ct);
+
+    /// <summary>
     /// Client-wide Content Bank listing (design §5.1) — ALL items for a client, across every set and
     /// origin, optionally filtered by created-at range and/or review state. Ordered
     /// <c>created_at_utc DESC</c> (recency-weighted; last-7-days is a UI default, not a query

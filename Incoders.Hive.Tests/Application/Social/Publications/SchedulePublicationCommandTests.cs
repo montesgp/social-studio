@@ -180,6 +180,10 @@ public sealed class SchedulePublicationCommandTests
         public Task<IReadOnlyList<ContentItem>> ListBySetAsync(Guid organizationId, ContentSetId setId, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<ContentItem>>([]);
 
+        public Task<IReadOnlyList<ContentItem>> ListByIdsAsync(
+            Guid organizationId, IReadOnlyCollection<Guid> itemIds, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<ContentItem>>([]);
+
         public Task<IReadOnlyList<ContentItem>> ListByClientAsync(
             Guid organizationId, Guid clientId, ContentBankFilter filter, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<ContentItem>>([]);
@@ -204,6 +208,10 @@ public sealed class SchedulePublicationCommandTests
 
         public Task<IReadOnlyList<Publication>> ListByClientAsync(Guid organizationId, Guid clientId, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<Publication>>([]);
+
+        public Task<int> DeleteByContentItemsAsync(
+            Guid organizationId, IReadOnlyCollection<Guid> contentItemIds, CancellationToken ct) =>
+            Task.FromResult(0);
 
         public Task AddAsync(Publication publication, CancellationToken ct)
         {

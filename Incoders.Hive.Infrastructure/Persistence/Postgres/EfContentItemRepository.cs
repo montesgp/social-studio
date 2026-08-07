@@ -65,6 +65,23 @@ public sealed class EfContentItemRepository : IContentItemRepository
             .ToList();
     }
 
+    public async Task<IReadOnlyList<ContentItem>> ListByIdsAsync(
+        Guid organizationId, IReadOnlyCollection<Guid> itemIds, CancellationToken ct)
+    {
+        if (itemIds.Count == 0)
+        {
+            return [];
+        }
+
+        var ids = itemIds.ToHashSet();
+        var rows = await _dbContext.ContentStudioItems
+            .AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && ids.Contains(x.Id))
+            .ToListAsync(ct);
+
+        return rows.Select(ToDomain).ToList();
+    }
+
     public async Task<IReadOnlyList<ContentItem>> ListByClientAsync(
         Guid organizationId, Guid clientId, ContentBankFilter filter, CancellationToken ct)
     {

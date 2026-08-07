@@ -181,6 +181,10 @@ public sealed class ListClientContentBankQueryTests
         public Task<IReadOnlyList<ContentItem>> ListBySetAsync(Guid organizationId, ContentSetId setId, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<ContentItem>>([]);
 
+        public Task<IReadOnlyList<ContentItem>> ListByIdsAsync(
+            Guid organizationId, IReadOnlyCollection<Guid> itemIds, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<ContentItem>>([]);
+
         public Task<IReadOnlyList<ContentItem>> ListByClientAsync(
             Guid organizationId, Guid clientId, ContentBankFilter filter, CancellationToken ct)
         {
@@ -206,6 +210,10 @@ public sealed class ListClientContentBankQueryTests
 
         public Task<ContentSet?> GetByRunAsync(Guid organizationId, Guid sourceRunId, CancellationToken ct) =>
             Task.FromResult(_sets.FirstOrDefault(s => s.Origin.SourceRunId == sourceRunId));
+
+        public Task<int> RemoveItemMembershipsAsync(
+            Guid organizationId, IReadOnlyCollection<Guid> itemIds, CancellationToken ct) =>
+            Task.FromResult(0);
 
         /// <summary>Resolves ownership through set membership, the way the real repository does.</summary>
         public Task<IReadOnlyDictionary<Guid, Guid>> GetSetIdsByItemIdsAsync(
@@ -250,6 +258,10 @@ public sealed class ListClientContentBankQueryTests
 
         public Task<IReadOnlyList<Publication>> ListByClientAsync(Guid organizationId, Guid clientId, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<Publication>>([]);
+
+        public Task<int> DeleteByContentItemsAsync(
+            Guid organizationId, IReadOnlyCollection<Guid> contentItemIds, CancellationToken ct) =>
+            Task.FromResult(0);
 
         public Task AddAsync(Publication publication, CancellationToken ct) => Task.CompletedTask;
 

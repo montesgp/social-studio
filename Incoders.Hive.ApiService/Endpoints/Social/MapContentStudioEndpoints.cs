@@ -50,6 +50,12 @@ public static class ContentStudioEndpointsExtensions
             .WithName("ListContentStudioItems")
             .Produces<IReadOnlyList<ContentItemResponse>>(StatusCodes.Status200OK);
 
+        group.MapPost("/items/by-ids", ListItemsByIdsAsync)
+            .WithName("ListContentStudioItemsByIds")
+            .WithSummary("Load an explicit, possibly cross-set selection of items for review")
+            .Produces<IReadOnlyList<ContentItemResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
+
         group.MapGet("/sets/{setId:guid}/export.pptx", ExportPptxAsync)
             .WithName("ExportContentStudioPresentationPptx")
             .WithSummary("Export the set's reviewed visual content as a client-presentation PPTX deck")
@@ -125,6 +131,12 @@ public static class ContentStudioEndpointsExtensions
             .Produces<ContentItemResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        group.MapPost("/items/{itemId:guid}/reopen", ReopenAsync)
+            .WithName("ReopenContentStudioItem")
+            .WithSummary("Bring a discarded/rejected item back into review so it becomes editable again")
+            .Produces<ContentItemResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
         group.MapPost("/items/{itemId:guid}/duplicate", DuplicateAsync)
             .WithName("DuplicateContentStudioItem")
             .Produces<ContentItemResponse>(StatusCodes.Status200OK);
@@ -193,6 +205,20 @@ public static class ContentStudioEndpointsExtensions
         }
 
         var result = await sender.Send(new ListContentItemsQuery(org.Value, setId, state), ct);
+        return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
+    // POST for a read: the selection is a request BODY because a Bank triage can carry dozens of ids,
+    // which a query string would push against URL length limits and truncate silently.
+    private static async Task<IResult> ListItemsByIdsAsync(
+        [FromBody] ListItemsByIdsRequest body, ICurrentTenant tenant, ISender sender, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } org)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var result = await sender.Send(new ListContentItemsByIdsQuery(org.Value, body.ItemIds ?? []), ct);
         return result.Match(r => (IResult)TypedResults.Ok(r));
     }
 
@@ -378,6 +404,18 @@ public static class ContentStudioEndpointsExtensions
         return result.Match(r => (IResult)TypedResults.Ok(r));
     }
 
+    private static async Task<IResult> ReopenAsync(
+        Guid itemId, ICurrentTenant tenant, ISender sender, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } org)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var result = await sender.Send(new ReopenItemCommand(org.Value, itemId), ct);
+        return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
     private static async Task<IResult> DuplicateAsync(
         Guid itemId, ICurrentTenant tenant, ISender sender, CancellationToken ct)
     {
@@ -450,5 +488,7 @@ public sealed record RejectRequest(string Reason);
 public sealed record EditVisualRequest(string? VisualSpecMarkup, IReadOnlyList<VisualAssetInput>? Assets);
 
 public sealed record BulkOperationRequest(IReadOnlyList<Guid> ItemIds, string Operation, string? Reason);
+
+public sealed record ListItemsByIdsRequest(IReadOnlyList<Guid> ItemIds);
 
 public sealed record PlanLinkRequest(Guid ContentPlanId, short PeriodKind, int Year, int Month, Guid CalendarSlotId);
