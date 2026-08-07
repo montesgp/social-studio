@@ -1,5 +1,6 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Features.Social.ContentStudio.Bulk;
+using Incoders.Hive.Application.Features.Social.ContentStudio.Operations;
 using Incoders.Hive.Domain.Social.ContentStudio;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
@@ -24,7 +25,7 @@ public sealed class BulkItemOperationCommandHandlerTests
         var discarded = await SeedAsync(items, discard: true); // Approve from Discarded is illegal
         var missing = Guid.NewGuid();
 
-        var handler = new BulkItemOperationCommandHandler(items, new FixedClock(Now));
+        var handler = CreateHandler(db, items);
         var result = await handler.Handle(
             new BulkItemOperationCommand(
                 Org, Guid.NewGuid(),
@@ -48,7 +49,7 @@ public sealed class BulkItemOperationCommandHandlerTests
         var items = new EfContentItemRepository(db);
         var item = await SeedAsync(items);
 
-        var handler = new BulkItemOperationCommandHandler(items, new FixedClock(Now));
+        var handler = CreateHandler(db, items);
         var result = await handler.Handle(
             new BulkItemOperationCommand(Org, Guid.NewGuid(), new[] { item.Id.Value }, BulkItemOperation.Reject, "  "),
             CancellationToken.None);
@@ -65,7 +66,7 @@ public sealed class BulkItemOperationCommandHandlerTests
         var a = await SeedAsync(items);
         var b = await SeedAsync(items);
 
-        var handler = new BulkItemOperationCommandHandler(items, new FixedClock(Now));
+        var handler = CreateHandler(db, items);
         var result = await handler.Handle(
             new BulkItemOperationCommand(Org, Guid.NewGuid(), new[] { a.Id.Value, b.Id.Value }, BulkItemOperation.Delete, null),
             CancellationToken.None);
@@ -75,6 +76,13 @@ public sealed class BulkItemOperationCommandHandlerTests
         Assert.Null(await items.GetByIdAsync(Org, a.Id, CancellationToken.None));
         Assert.Null(await items.GetByIdAsync(Org, b.Id, CancellationToken.None));
     }
+
+    private static BulkItemOperationCommandHandler CreateHandler(
+        AppIdentityDbContext db, EfContentItemRepository items) =>
+        new(
+            items,
+            new ContentItemPurger(items, new EfPublicationRepository(db), new EfContentSetRepository(db)),
+            new FixedClock(Now));
 
     private static async Task<ContentItem> SeedAsync(EfContentItemRepository items, bool discard = false)
     {
