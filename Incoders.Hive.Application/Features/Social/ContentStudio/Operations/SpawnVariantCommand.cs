@@ -36,14 +36,31 @@ public sealed class SpawnVariantCommandHandler
 
         var variant = item.SpawnVariant(ContentItemId.New(), _clock.UtcNow);
         await _items.AddRangeAsync(new[] { variant }, ct);
-        await AddToRunSetAsync(request.OrganizationId, item.Origin.SourceRunId, variant.Id, ct);
+        await AddToOwningSetAsync(request.OrganizationId, item.Id, variant.Id, ct);
 
         return Result.Success(ContentItemResponse.FromDomain(variant));
     }
 
-    private async Task AddToRunSetAsync(Guid organizationId, Guid sourceRunId, ContentItemId newItemId, CancellationToken ct)
+    /// <summary>
+    /// Adds the new item to the set that owns the SOURCE item.
+    /// </summary>
+    /// <remarks>
+    /// This used to look the set up with <c>GetByRunAsync(item.Origin.SourceRunId)</c>. That id is
+    /// the generation JOB id, while a GenerationRun set is keyed by a run id derived from
+    /// (analysisId, clientId) — they never match, so the lookup always returned null and the new item
+    /// was created as an ORPHAN: listed in the Content Bank but belonging to no set, and therefore
+    /// impossible to open in Studio.
+    /// </remarks>
+    private async Task AddToOwningSetAsync(
+        Guid organizationId, ContentItemId sourceItemId, ContentItemId newItemId, CancellationToken ct)
     {
-        var set = await _sets.GetByRunAsync(organizationId, sourceRunId, ct);
+        var owning = await _sets.GetSetIdsByItemIdsAsync(organizationId, [sourceItemId.Value], ct);
+        if (!owning.TryGetValue(sourceItemId.Value, out var setId))
+        {
+            return;
+        }
+
+        var set = await _sets.GetByIdAsync(organizationId, new ContentSetId(setId), ct);
         if (set is null)
         {
             return;

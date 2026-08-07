@@ -156,6 +156,61 @@ public sealed class ContentItemOperationsAndStageTests
         Assert.True(result.IsFailure);
     }
 
+    [Fact]
+    public async Task SpawnVariant_AddsTheVariantToTheSourceItemsOwningSet()
+    {
+        // Variants used to be created as ORPHANS: the set was looked up by the item's
+        // Origin.SourceRunId (a generation JOB id) while a set is keyed by a run id derived from
+        // (analysisId, clientId). The lookup silently found nothing, so the variant appeared in the
+        // Content Bank but belonged to no set and could not be opened in Studio.
+        await using var db = CreateDbContext();
+        var items = new EfContentItemRepository(db);
+        var sets = new EfContentSetRepository(db);
+        var source = await SeedItemAsync(items);
+        var set = await SeedSetOwningAsync(sets, source.Id);
+
+        var handler = new SpawnVariantCommandHandler(items, sets, new FixedClock(Now));
+        var result = await handler.Handle(
+            new SpawnVariantCommand(Org, source.Id.Value), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var owning = await sets.GetSetIdsByItemIdsAsync(Org, [result.Value.Id], CancellationToken.None);
+        Assert.True(owning.ContainsKey(result.Value.Id));
+        Assert.Equal(set.Id.Value, owning[result.Value.Id]);
+    }
+
+    [Fact]
+    public async Task DuplicateItem_AddsTheCopyToTheSourceItemsOwningSet()
+    {
+        await using var db = CreateDbContext();
+        var items = new EfContentItemRepository(db);
+        var sets = new EfContentSetRepository(db);
+        var source = await SeedItemAsync(items);
+        var set = await SeedSetOwningAsync(sets, source.Id);
+
+        var handler = new DuplicateItemCommandHandler(items, sets, new FixedClock(Now));
+        var result = await handler.Handle(
+            new DuplicateItemCommand(Org, source.Id.Value), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var owning = await sets.GetSetIdsByItemIdsAsync(Org, [result.Value.Id], CancellationToken.None);
+        Assert.Equal(set.Id.Value, owning[result.Value.Id]);
+    }
+
+    /// <summary>
+    /// Seeds a set that OWNS the given item while deliberately using a run id unrelated to the
+    /// item's <c>Origin.SourceRunId</c> — the production shape that the old by-run lookup missed.
+    /// </summary>
+    private static async Task<ContentSet> SeedSetOwningAsync(EfContentSetRepository sets, ContentItemId itemId)
+    {
+        var set = ContentSet.CreateForRun(
+            ContentSetId.New(), Org, Client,
+            SetOrigin.ForRun(GeneratorKind.SingleAnalyzer, Guid.NewGuid()), Now).Value;
+        Assert.True(set.AddMember(itemId, 0).IsSuccess);
+        await sets.AddAsync(set, CancellationToken.None);
+        return set;
+    }
+
     private static async Task<ContentItem> SeedItemAsync(EfContentItemRepository items, string text = "caption")
     {
         var id = ContentItemId.New();
