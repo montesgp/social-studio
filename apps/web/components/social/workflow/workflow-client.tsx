@@ -1,5 +1,6 @@
 "use client";
 
+import { useDateFormatter } from "@/lib/format/use-date-formatter";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bookmark,
@@ -173,6 +174,7 @@ interface WorkflowClientProps {
 }
 
 export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
+  const { formatDateTime: formatDate } = useDateFormatter();
   const token = useAccessToken();
   const toast = useToast();
   const { orgId: activeOrgId, isInitialized: orgInitialized } = useActiveOrg();
@@ -2041,7 +2043,4 @@ function SocialTabletPreview({
   );
 }
 
-function formatDate(value: string) {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
-}
+

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useDateFormatter } from "@/lib/format/use-date-formatter";
 import { motion } from "framer-motion";
 import {
   Archive,
@@ -61,6 +62,7 @@ type OrganizationViewMode = "grid" | "table";
 const tokenStorageKey = "incoders.hive.apiToken";
 
 export function OrganizationsClient() {
+  const { formatDate } = useDateFormatter();
   const sessionToken = useAccessToken();
   const toast = useToast();
   const lastErrorToastRef = useRef<{ message: string; at: number } | null>(null);
@@ -753,6 +755,7 @@ function OrganizationDetailsPanel({
   onDelete: (organization: Organization) => void;
   acting: boolean;
 }) {
+  const { formatDateTime } = useDateFormatter();
   const [detailTab, setDetailTab] = useState<"overview" | "connectors" | "modules">("overview");
   const [connectors, setConnectors] = useState<OrgConnector[]>([]);
   const [addingConnector, setAddingConnector] = useState(false);
@@ -1237,20 +1240,6 @@ function Fact({ label, value }: { label: string; value: string }) {
       <p className="mt-1 break-all text-sm">{value}</p>
     </div>
   );
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(value));
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value));
 }
 
 function shortId(value: string) {

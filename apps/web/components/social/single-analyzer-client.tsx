@@ -1,5 +1,6 @@
 "use client";
 
+import { useDateFormatter } from "@/lib/format/use-date-formatter";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, SyntheticEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -216,14 +217,6 @@ function strategyBadgeVariant(strategy: string): BadgeVariant {
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }
 
 function formatDuration(seconds: number | null | undefined): string {
@@ -668,6 +661,7 @@ function isSameRegenerationTarget(
 }
 
 export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientProps) {
+  const { formatDate } = useDateFormatter();
   const router = useRouter();
   const toast = useToast();
   const contentExportRef = useRef<HTMLDivElement>(null);
@@ -3613,6 +3607,7 @@ function PackageTabContent({
   onDeleteFormat,
   onDeleteAsset,
 }: PackageTabContentProps) {
+  const { formatTime } = useDateFormatter();
   const allFormatKeys = Array.from(
     new Set([...Object.keys(localFormats) as ContentFormatKey[], ...packageSucceededFormats])
   );
@@ -3779,10 +3774,7 @@ function PackageTabContent({
                     )}
                     {local?.generatedAt && (
                       <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-                        {new Date(local.generatedAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {formatTime(local.generatedAt)}
                       </span>
                     )}
                     {isSucceeded && !local && (
@@ -3904,6 +3896,7 @@ interface SavedAnalysisRowProps {
 }
 
 function SavedAnalysisRow({ item, isActive, isDeleting, onOpen, onDownload, onDelete }: SavedAnalysisRowProps) {
+  const { formatDate } = useDateFormatter();
   const gen = item.latestContentGeneration;
   const canDownload = gen?.hasPackage === true && gen.packageJobId !== null;
 

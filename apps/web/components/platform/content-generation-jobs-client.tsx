@@ -1,5 +1,6 @@
 "use client";
 
+import { useDateFormatter } from "@/lib/format/use-date-formatter";
 import { useEffect, useState } from "react";
 import {
   AlertOctagon,
@@ -194,6 +195,7 @@ function JobIndexView({
 }
 
 function JobRow({ item, onOpen }: { item: ContentGenerationJobListItem; onOpen: () => void }) {
+  const { formatDateTime } = useDateFormatter();
   const incomplete = item.persistedFormatCount < item.requestedFormatCount;
 
   return (
@@ -395,6 +397,7 @@ function JobTimelineDetail({ timeline }: { timeline: ContentGenerationJobTimelin
 }
 
 function JobHeader({ timeline }: { timeline: ContentGenerationJobTimeline }) {
+  const { formatDateTime } = useDateFormatter();
   return (
     <Card>
       <CardContent className="space-y-4 p-6">
@@ -451,6 +454,7 @@ function JobHeader({ timeline }: { timeline: ContentGenerationJobTimeline }) {
 }
 
 function StepRow({ step }: { step: ContentGenerationTimelineStep }) {
+  const { formatTime } = useDateFormatter();
   const retried = hadRetry(step);
 
   return (
@@ -546,6 +550,7 @@ function StepOutcome({ step, retried }: { step: ContentGenerationTimelineStep; r
 }
 
 function FormatOutputCard({ format }: { format: ContentGenerationTimelineFormatOutput }) {
+  const { formatDateTime } = useDateFormatter();
   const tone = getJobStatusTone(format.status);
 
   return (
@@ -659,24 +664,6 @@ function IdValue({ label, value, block }: { label: string; value: string; block?
 
 function shortId(value: string) {
   return value.length > 13 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value;
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value));
-}
-
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  }).format(new Date(value));
 }
 
 function formatJobDuration(startedAt: string | null, completedAt: string | null) {

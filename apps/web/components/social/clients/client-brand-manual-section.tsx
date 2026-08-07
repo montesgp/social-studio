@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { useDateFormatter } from "@/lib/format/use-date-formatter";
 import { HexColorPicker } from "react-colorful";
 import {
   Plus,
@@ -469,6 +470,7 @@ function SelectedFontCard({
 // --- Main section ---
 
 export function ClientBrandManualSection({ clientId }: { clientId: string }) {
+  const { formatDate } = useDateFormatter();
   const token = useAccessToken();
   const toast = useToast();
   const effectiveToken = token ?? undefined;
@@ -809,7 +811,7 @@ export function ClientBrandManualSection({ clientId }: { clientId: string }) {
                 <div>
                   <span className="text-sm">{m.title}</span>
                   <span className="text-xs text-muted-foreground ml-2">
-                    {new Date(m.updatedAtUtc).toLocaleDateString()}
+                    {formatDate(m.updatedAtUtc)}
                   </span>
                 </div>
                 <Button

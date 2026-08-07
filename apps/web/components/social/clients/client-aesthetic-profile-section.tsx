@@ -8,6 +8,7 @@ import {
 import type { ClientAestheticProfileAdmin, SlideBackgroundKind } from "@/lib/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useDateFormatter } from "@/lib/format/use-date-formatter";
 
 interface ClientAestheticProfileSectionProps {
   clientId: string;
@@ -15,15 +16,6 @@ interface ClientAestheticProfileSectionProps {
 }
 
 const SLIDE_KIND_OPTIONS: SlideBackgroundKind[] = ["Photo", "FlatColor", "Decorator"];
-
-function formatDate(value: string | null): string {
-  if (!value) return "—";
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
-  }
-}
 
 function EmptyValue() {
   return <span className="text-xs italic text-muted-foreground">missing</span>;
@@ -38,6 +30,7 @@ function EmptyValue() {
  * for now; a future change can extend the same edit flow to them.
  */
 export function ClientAestheticProfileSection({ clientId, token }: ClientAestheticProfileSectionProps) {
+  const { formatDateTime: formatDate } = useDateFormatter();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ClientAestheticProfileAdmin | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);

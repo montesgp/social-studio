@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useDateFormatter } from "@/lib/format/use-date-formatter";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Archive,
@@ -53,6 +54,7 @@ interface ClientsClientProps {
 }
 
 export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
+  const { formatDate } = useDateFormatter();
   const sessionToken = useAccessToken();
   const { orgId, isInitialized: orgInitialized } = useActiveOrg();
   const toast = useToast();
@@ -789,6 +791,8 @@ function ClientDetailsPanel({
   canDelete: boolean;
   acting: boolean;
 }) {
+  const { formatDateTime } = useDateFormatter();
+
   if (!client) {
     return (
       <Card className="min-h-[28rem]">
@@ -898,18 +902,4 @@ function Fact({ label, value }: { label: string; value: string }) {
       <p className="mt-1 break-all text-sm">{value}</p>
     </div>
   );
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(value));
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value));
 }
