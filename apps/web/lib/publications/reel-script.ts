@@ -43,6 +43,40 @@ export function scriptPreviewLines(script: ReelScript): string[] {
   return lines;
 }
 
+/** One preview row: an optional timestamp/label cue, rendered apart from the line it introduces. */
+export interface TextPreviewEntry {
+  cue: string | null;
+  text: string;
+}
+
+/**
+ * Structured variant of {@link textPreviewLines}, keeping the timestamp SEPARATE from its cue text.
+ *
+ * The flattened `"0:00–0:03 Cada mañana…"` string cannot be styled: a preview that wants the
+ * timestamp in bold has no way to tell where it ends, and splitting on whitespace would break on any
+ * timestamp format that contains one.
+ */
+export function textPreviewEntries(text: string): TextPreviewEntry[] {
+  const script = tryParseReelScript(text);
+  if (!script) {
+    return text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => ({ cue: null, text: line }));
+  }
+
+  const entries: TextPreviewEntry[] = [];
+  if (script.hook) entries.push({ cue: null, text: script.hook });
+  for (const [index, scene] of (script.scenes ?? []).entries()) {
+    const body = scene.voiceover || scene.onScreenText;
+    if (!body) continue;
+    entries.push({ cue: scene.timestamp ?? `#${index + 1}`, text: body });
+  }
+  if (script.ctaText) entries.push({ cue: null, text: script.ctaText });
+  return entries;
+}
+
 /**
  * Best-effort readable snippet for ANY text item: a parsed script's flattened lines, otherwise the
  * raw body. Used where only a couple of lines fit.

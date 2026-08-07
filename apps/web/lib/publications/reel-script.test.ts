@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scriptPreviewLines, textPreviewLines, tryParseReelScript } from "./reel-script.ts";
+import { scriptPreviewLines, textPreviewEntries, textPreviewLines, tryParseReelScript } from "./reel-script.ts";
 
 test("tryParseReelScript returns null for plain prose", () => {
   assert.equal(tryParseReelScript("just some copy"), null);
@@ -44,4 +44,27 @@ test("textPreviewLines prefers the structured script when the body is one", () =
   // The reel-script body is stored as JSON; showing a raw JSON slice told the operator nothing.
   const lines = textPreviewLines('{"hook":"Hooked","scenes":[{"timestamp":"0:00","voiceover":"Go"}]}');
   assert.deepEqual(lines, ["Hooked", "0:00 Go"]);
+});
+
+test("textPreviewEntries keeps the timestamp separate so it can be styled", () => {
+  const entries = textPreviewEntries(
+    '{"hook":"Hooked","scenes":[{"timestamp":"0:00–0:03","voiceover":"Go"}],"ctaText":"Follow"}',
+  );
+  assert.deepEqual(entries, [
+    { cue: null, text: "Hooked" },
+    { cue: "0:00–0:03", text: "Go" },
+    { cue: null, text: "Follow" },
+  ]);
+});
+
+test("textPreviewEntries falls back to plain prose lines with no cue", () => {
+  assert.deepEqual(textPreviewEntries("line one\n\n  line two  "), [
+    { cue: null, text: "line one" },
+    { cue: null, text: "line two" },
+  ]);
+});
+
+test("textPreviewEntries numbers a scene that carries no timestamp", () => {
+  const entries = textPreviewEntries('{"scenes":[{"voiceover":"No timestamp here"}]}');
+  assert.deepEqual(entries, [{ cue: "#1", text: "No timestamp here" }]);
 });

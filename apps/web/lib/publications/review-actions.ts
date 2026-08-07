@@ -40,3 +40,16 @@ export function reviewActionsFor(state: ContentReviewState) {
 export function canPublishItem(state: ContentReviewState, isPublishable: boolean): boolean {
   return isPublishable && (state === "Approved" || state === "ReadyForPublication");
 }
+
+/**
+ * Whether a Bank piece is ORPHANED: it has no owning content set, so Content Studio cannot open it
+ * and no editorial action on it is meaningful.
+ *
+ * `setId` is resolved server-side through set membership. A null means the membership row is
+ * missing — pieces produced by the variant/duplicate bug fixed in `SpawnVariantCommand` and
+ * `DuplicateItemCommand`, which that fix deliberately did not retro-adopt. The only resolution from
+ * the UI is a permanent purge.
+ */
+export function isOrphanedItem(item: { setId: string | null }): boolean {
+  return !item.setId;
+}

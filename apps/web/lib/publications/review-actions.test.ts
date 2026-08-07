@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canPublishItem, reviewActionsFor } from "./review-actions.ts";
+import { canPublishItem, isOrphanedItem, reviewActionsFor } from "./review-actions.ts";
 
 test("canPublishItem requires BOTH an approved editorial state and a publishable format", () => {
   assert.equal(canPublishItem("Approved", true), true);
@@ -43,4 +43,10 @@ test("reviewActionsFor offers nothing further on terminal states", () => {
 test("reviewActionsFor does not re-offer the state an item is already in", () => {
   assert.equal(reviewActionsFor("Approved").canApprove, false);
   assert.equal(reviewActionsFor("Rejected").canReject, false);
+});
+
+test("isOrphanedItem flags a piece with no owning content set", () => {
+  assert.equal(isOrphanedItem({ setId: null }), true);
+  assert.equal(isOrphanedItem({ setId: "" }), true);
+  assert.equal(isOrphanedItem({ setId: "1e6a1f2c-0000-4000-8000-000000000000" }), false);
 });

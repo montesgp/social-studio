@@ -24,12 +24,15 @@ import {
 } from "@/lib/api/publications";
 import {
   approveItem,
+  bulkOperation,
+  deleteItem,
   fetchContentItemAsset,
   rejectItem,
   stageItem,
   type ContentReviewState,
 } from "@/lib/api/content-studio";
 import { ContentBankGrid } from "@/components/social/publications/content-bank-grid";
+import { isOrphanedItem } from "@/lib/publications/review-actions";
 import { PublicationPlannerBoard } from "@/components/social/publications/publication-planner-board";
 import { PublishedList } from "@/components/social/publications/published-list";
 import { DestinationPicker } from "@/components/social/publications/destination-picker";
@@ -83,6 +86,8 @@ export function PublicationsWorkspace() {
   const [studioTarget, setStudioTarget] = useState<{
     analysisId: string | null;
     setId: string | null;
+    /** Explicit multi-piece selection; when set, the studio ignores `setId` and loads exactly these. */
+    itemIds: string[] | null;
     selectedItemId: string | null;
     clientId: string;
   } | null>(null);
@@ -136,9 +141,17 @@ export function PublicationsWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, token, fromUtc, toUtc, stateFilter]);
 
+  // The Bank reload is suppressed while Content Studio is open.
+  //
+  // `loadItems` is rebuilt whenever its inputs change — including `token`, which the auth hook
+  // refreshes on its own schedule — and it drives the PAGE-LEVEL progress card. An operator editing
+  // a slide would suddenly see "Loading Content Bank" run across a screen that is not even showing
+  // the Bank. Studio's own `onClose` already reloads, so nothing goes stale.
+  const studioOpen = studioTarget !== null;
   useEffect(() => {
+    if (studioOpen) return;
     void loadItems();
-  }, [loadItems]);
+  }, [loadItems, studioOpen]);
 
   function openItem(item: ContentBankItemResponse) {
     // Bank items are already materialized, so the ONLY correct entry point is the existing owning
@@ -156,8 +169,38 @@ export function PublicationsWorkspace() {
     setStudioTarget({
       analysisId: null,
       setId: item.setId,
+      itemIds: null,
       selectedItemId: item.id,
       clientId: item.clientId,
+    });
+  }
+
+  /**
+   * Opens a whole Bank selection in ONE Studio session. The pieces may come from different sets, so
+   * this does NOT go through the set entry point — the studio loads the explicit id list and its
+   * left rail lists every selected piece, which is the point: reviewing a triaged batch in a single
+   * pass instead of reopening the studio per piece.
+   */
+  function openItems(itemIds: string[]) {
+    const selectable = items.filter((i) => itemIds.includes(i.id) && !isOrphanedItem(i));
+    if (selectable.length === 0) {
+      setError("None of the selected pieces can be opened in Studio. Orphaned pieces can only be deleted.");
+      return;
+    }
+
+    const skipped = itemIds.length - selectable.length;
+    setError(
+      skipped > 0
+        ? `${skipped} orphaned piece${skipped === 1 ? "" : "s"} left out of the Studio session — orphans can only be deleted.`
+        : null,
+    );
+
+    setStudioTarget({
+      analysisId: null,
+      setId: null,
+      itemIds: selectable.map((i) => i.id),
+      selectedItemId: selectable[0].id,
+      clientId: selectable[0].clientId,
     });
   }
 
@@ -214,6 +257,46 @@ export function PublicationsWorkspace() {
   /** Approved → ReadyForPublication. Keeps the piece in the Planner rather than retiring it. */
   function onStageItem(item: ContentBankItemResponse) {
     void runAction(() => stageItem(item.id, token));
+  }
+
+  /**
+   * Permanent purge of one piece: the item, its stored assets, its set membership and its
+   * publication records. This is the only resolution for an orphaned piece, which the Bank can show
+   * but Studio cannot open.
+   */
+  function onDeleteItem(item: ContentBankItemResponse) {
+    void runAction(() => deleteItem(item.id, token));
+  }
+
+  /**
+   * Same purge across a selection. The endpoint answers 200 with per-item outcomes rather than
+   * throwing, so a partial failure has to be read out of the result — otherwise a refused piece
+   * would silently look deleted until the next reload put it back on screen.
+   */
+  async function onDeleteItems(itemIds: string[]) {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await bulkOperation(itemIds, "Delete", null, token);
+
+      // The reload clears the error banner on its way in, so the partial-failure report has to be
+      // written after it or the operator never sees which pieces were refused.
+      await loadItems();
+
+      if (result.failed > 0) {
+        const blocked = result.outcomes.filter(
+          (o) => o.errorCode === "social.content_studio.purge_blocked_by_publication",
+        ).length;
+        setError(
+          `${result.succeeded} of ${result.total} pieces deleted. ${result.failed} could not be deleted` +
+            (blocked > 0 ? ` (${blocked} still scheduled or already published).` : "."),
+        );
+      }
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   /**
@@ -334,6 +417,9 @@ export function PublicationsWorkspace() {
               onReject={onRejectItem}
               onStage={onStageItem}
               onDownload={(item) => void onDownloadItem(item)}
+              onDelete={onDeleteItem}
+              onDeleteMany={(itemIds) => void onDeleteItems(itemIds)}
+              onOpenMany={openItems}
               token={token}
             />
           </TabsContent>
@@ -383,6 +469,7 @@ export function PublicationsWorkspace() {
         <ContentStudioPanel
           analysisId={studioTarget.analysisId}
           setId={studioTarget.setId}
+          itemIds={studioTarget.itemIds}
           selectedItemId={studioTarget.selectedItemId}
           clientId={studioTarget.clientId}
           token={token}

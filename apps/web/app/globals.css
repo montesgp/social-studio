@@ -58,3 +58,38 @@ body {
     color-scheme: light;
   }
 }
+
+/* ── Teleprompter scroll (Content Bank script previews) ─────────────────────── */
+/*
+ * A script card cannot show its whole body at thumbnail size, and truncating it to a few clipped
+ * lines told the operator almost nothing. The body scrolls instead, so the card is readable at a
+ * glance. Pure CSS, paused on hover so a line can actually be read, and disabled outright when the
+ * viewer asked for reduced motion.
+ *
+ * The track renders the lines TWICE and travels exactly -50%, so the moment the first copy has left
+ * through the top the second copy sits precisely where the first started: the reset is invisible and
+ * the text re-enters from the bottom in a continuous loop. A bounce (`alternate`) would instead run
+ * the script backwards, which reads as a glitch.
+ */
+@keyframes teleprompter-scroll {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+.teleprompter-track {
+  animation: teleprompter-scroll var(--teleprompter-duration, 18s) linear infinite;
+}
+
+.teleprompter:hover .teleprompter-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .teleprompter-track {
+    animation: none;
+  }
+}
