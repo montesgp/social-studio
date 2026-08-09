@@ -43,6 +43,32 @@ body {
   @apply bg-background text-foreground antialiased;
 }
 
+/* ── Hive comb backdrop (sign-in) ───────────────────────────────────────────── */
+/*
+ * A handful of accent cells breathe so the field reads as a living hive rather than wallpaper. The
+ * cycle is long and the opacity swing small on purpose: at sign-in the card must stay the only thing
+ * competing for attention.
+ */
+@keyframes hive-cell-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.hive-cell-pulse {
+  animation: hive-cell-pulse 7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hive-cell-pulse {
+    animation: none;
+  }
+}
+
 /* ── Print / PDF export ─────────────────────────────────────────────────────── */
 @media print {
   /* Override to light theme so PDFs render with white backgrounds and dark text. */

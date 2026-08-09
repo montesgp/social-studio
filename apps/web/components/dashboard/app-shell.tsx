@@ -18,6 +18,7 @@ import { useAccessToken } from "@/components/auth/use-access-token";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeSelector } from "@/components/theme/theme-selector";
 import { SidebarAreaSwitcher } from "@/components/dashboard/sidebar-area-switcher";
+import { BatchProgressIndicator } from "@/components/social/generator/batch-progress-indicator";
 import { adminNavigation, getWorkspaceNavigation, workspaceModules } from "@/lib/navigation";
 import type { NavGroup, WorkspaceModule, WorkspaceModuleKey } from "@/lib/navigation";
 import { getWorkspaceModules } from "@/lib/api/me";
@@ -427,6 +428,15 @@ export function AppShell({
                 </div>
               </div>
             </header>
+
+            {/*
+              Batch progress sits ABOVE the page content and outside it on purpose: background
+              generation is only useful if the operator can leave the Generator and still see it.
+              Renders nothing when no batch is running.
+            */}
+            <div className="px-3 pt-3 empty:hidden">
+              <BatchProgressIndicator />
+            </div>
 
             <main className="flex-1 p-3">
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>

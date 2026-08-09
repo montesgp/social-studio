@@ -192,7 +192,12 @@ public sealed class OrganizationIntegrationsFlowTests
             CancellationToken.None);
 
         Assert.True(overview.IsSuccess);
-        Assert.All(overview.Value.ChecklistGroups, group => Assert.All(group.Items, item => Assert.True(item.IsCompleted)));
+
+        // Only REQUIRED items must be completed: "generator-niche-search-actor" is optional
+        // (INT-DISC-03) and stays unsatisfied here — no niche-search route was configured.
+        Assert.All(
+            overview.Value.ChecklistGroups,
+            group => Assert.All(group.Items.Where(item => item.IsRequired), item => Assert.True(item.IsCompleted)));
         Assert.DoesNotContain(overview.Value.Checklist, item => item.Key.Contains("canva", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(overview.Value.Checklist, item => item.Key.Contains("blotato", StringComparison.OrdinalIgnoreCase));
     }
@@ -263,11 +268,123 @@ public sealed class OrganizationIntegrationsFlowTests
         Assert.Equal(actorMappingsJson, loaded.Value.CredentialValues["actor_mappings_json"]);
     }
 
+    [Fact]
+    public async Task Overview_GeneratorChecklist_ContainsOptionalNicheSearchActorItem_UnsatisfiedByDefault()
+    {
+        var harness = new IntegrationsHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var generatorGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "generator");
+        var item = generatorGroup.Items.Single(x => x.Key == "generator-niche-search-actor");
+
+        // INT-DISC-03: optional — discovery still works on references/own with the niche stage unconfigured.
+        Assert.False(item.IsRequired);
+        Assert.False(item.IsCompleted);
+    }
+
+    [Fact]
+    public async Task Overview_GeneratorChecklist_NicheSearchActorItem_SatisfiedWhenAnEnabledRouteResolves()
+    {
+        var organizationId = Guid.NewGuid();
+        var stepConfigurations = new InMemoryWorkflowStepConfigurationRepository();
+        await stepConfigurations.ReplaceWorkflowAsync(
+            organizationId,
+            "generator",
+            [
+                new WorkflowStepConfigurationRecord(
+                    Guid.NewGuid(),
+                    organizationId,
+                    "generator",
+                    "content-discovery",
+                    "discover-niche-content",
+                    "niche-search",
+                    "tiktok",
+                    Guid.NewGuid(),
+                    "apify",
+                    Guid.NewGuid(),
+                    ModelId: null,
+                    ActorId: "operator-configured-actor",
+                    Priority: 1,
+                    IsEnabled: true,
+                    Now,
+                    Now)
+            ]);
+
+        var harness = new IntegrationsHarness(Now, stepConfigurations);
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var generatorGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "generator");
+        var item = generatorGroup.Items.Single(x => x.Key == "generator-niche-search-actor");
+
+        Assert.False(item.IsRequired);
+        Assert.True(item.IsCompleted);
+    }
+
+    private sealed class InMemoryWorkflowStepConfigurationRepository : IWorkflowStepConfigurationRepository
+    {
+        private readonly List<WorkflowStepConfigurationRecord> _items = [];
+
+        public Task<IReadOnlyList<WorkflowStepConfigurationRecord>> ListAsync(
+            Guid organizationId,
+            string? workflowKey = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<WorkflowStepConfigurationRecord>>(
+                _items
+                    .Where(x => x.OrganizationId == organizationId)
+                    .Where(x => string.IsNullOrWhiteSpace(workflowKey)
+                        || string.Equals(x.WorkflowKey, workflowKey, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(x => x.Priority)
+                    .ToList());
+
+        public Task<IReadOnlyList<WorkflowStepConfigurationRecord>> ListForStepAsync(
+            WorkflowStepResolutionRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<WorkflowStepConfigurationRecord>>(
+                _items
+                    .Where(x => x.OrganizationId == request.OrganizationId)
+                    .Where(x => string.Equals(x.WorkflowKey, request.WorkflowKey, StringComparison.OrdinalIgnoreCase))
+                    .Where(x => string.Equals(x.AnalysisType, request.AnalysisType, StringComparison.OrdinalIgnoreCase))
+                    .Where(x => string.Equals(x.StepKey, request.StepKey, StringComparison.OrdinalIgnoreCase))
+                    .Where(x => request.OperationKey is null
+                        || x.OperationKey is null
+                        || string.Equals(x.OperationKey, request.OperationKey, StringComparison.OrdinalIgnoreCase))
+                    .Where(x => request.NetworkKey is null
+                        || x.NetworkKey is null
+                        || string.Equals(x.NetworkKey, request.NetworkKey, StringComparison.OrdinalIgnoreCase))
+                    .Where(x => x.IsEnabled)
+                    .OrderBy(x => x.Priority)
+                    .ToList());
+
+        public Task ReplaceWorkflowAsync(
+            Guid organizationId,
+            string workflowKey,
+            IReadOnlyList<WorkflowStepConfigurationRecord> rows,
+            CancellationToken cancellationToken = default)
+        {
+            _items.RemoveAll(x =>
+                x.OrganizationId == organizationId
+                && string.Equals(x.WorkflowKey, workflowKey, StringComparison.OrdinalIgnoreCase));
+            _items.AddRange(rows);
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class IntegrationsHarness
     {
         private readonly InMemoryIntegrationProviderCatalogRepository _providers;
 
-        public IntegrationsHarness(DateTime nowUtc)
+        public IntegrationsHarness(DateTime nowUtc, IWorkflowStepConfigurationRepository? stepConfigurations = null)
         {
             _providers = new InMemoryIntegrationProviderCatalogRepository(nowUtc);
             Integrations = new InMemoryOrganizationIntegrationRepository(_providers);
@@ -289,7 +406,8 @@ public sealed class OrganizationIntegrationsFlowTests
             GetOverview = new GetOrganizationIntegrationsHandler(
                 _providers,
                 Integrations,
-                Credentials);
+                Credentials,
+                stepConfigurations: stepConfigurations);
 
             GetByProvider = new GetOrganizationIntegrationByProviderHandler(
                 _providers,

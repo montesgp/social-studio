@@ -18,7 +18,6 @@ const nextConfig: NextConfig = {
       // Clean workspace URLs → existing pages
       { source: "/content-generator", destination: "/workflow" },
       { source: "/single-analyzer", destination: "/analyzer" },
-      { source: "/ai-ideas", destination: "/ideas" },
       // Admin URLs → existing pages
       { source: "/admin/organizations", destination: "/organizations" },
       { source: "/admin/users", destination: "/members" },

@@ -61,4 +61,8 @@ public sealed record ContentGenerationJob(
     DateTime UpdatedAt,
     DateTime? StartedAt,
     DateTime? CompletedAt,
-    string? RegenerationObjection = null);
+    string? RegenerationObjection = null,
+    // Set when this job is one piece of a multi-piece batch; null on the original single-package
+    // path. Optional/last so existing positional constructions keep compiling.
+    Guid? BatchId = null,
+    int? BatchPieceIndex = null);

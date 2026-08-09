@@ -97,6 +97,7 @@ import {
 } from "@/lib/single-analyzer-ui-state";
 import { AnalysisOverlay } from "@/components/social/analysis-overlay";
 import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
+import { BatchGenerationPanel } from "@/components/social/generator/batch-generation-panel";
 import { exportElementToPdf } from "@/lib/export/pdf-export";
 
 // ── Async/poll constants ───────────────────────────────────────────────────────
@@ -3380,6 +3381,18 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
             </div>
           )}
         </div>
+      </div>
+
+      {/* Batch generation — order N pieces at once and let the worker grind while the operator
+          moves on. Deliberately a sibling of the analysis grid rather than a control inside it:
+          the single-format buttons above act on THIS screen, this one hands work to the background
+          and is tracked by the global indicator in the app shell. */}
+      <div data-pdf-exclude="true">
+        <BatchGenerationPanel
+          analysisId={videoResult?.id ?? null}
+          clientId={selectedClientId || null}
+          disabled={generatingConversion !== null || packageGenerationIsRunning}
+        />
       </div>
 
       {/* History — saved analyses owned by the current user. Click to reload everything as if

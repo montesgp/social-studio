@@ -5,64 +5,86 @@ using Incoders.Hive.Application.Common.Pagination;
 using Incoders.Hive.Application.Features.Social.Workflow;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.Workflow;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Incoders.Hive.Infrastructure.Social.Workflow;
 
 public sealed class InMemoryContentWorkflowService : IContentWorkflowService
 {
     private const int DefaultResultCount = 72;
+
+    /// <summary>
+    /// Formats built for each selected proposal until the screen exposes the composition cart.
+    /// Surface-scoped keys on purpose: the bare "carousel" alias is rejected on write paths.
+    /// </summary>
+    private static readonly string[] DefaultProposalFormats = ["reel-script", "feed-carousel"];
     private const int HistoryDefaultLimit = 12;
     private const double ProgressPhaseDurationSeconds = 2.2;
 
     private readonly IClock _clock;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ConcurrentDictionary<Guid, WorkflowSessionState> _sessions = new();
 
-    public InMemoryContentWorkflowService(IClock clock)
+    /// <param name="scopeFactory">
+    /// Discovery is a SCOPED service (it reaches EF and the scraping providers) while this service is
+    /// a SINGLETON, because the workflow sessions it holds must outlive a request. Resolving discovery
+    /// through a scope is therefore mandatory rather than stylistic.
+    /// </param>
+    public InMemoryContentWorkflowService(IClock clock, IServiceScopeFactory scopeFactory)
     {
+        ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(scopeFactory);
+
         _clock = clock;
+        _scopeFactory = scopeFactory;
     }
 
-    public Task<Result<ContentWorkflowSessionResponse>> StartAsync(
+    public async Task<Result<ContentWorkflowSessionResponse>> StartAsync(
         Guid organizationId,
         ContentWorkflowStartInput input,
         CancellationToken cancellationToken = default)
     {
         if (organizationId == Guid.Empty)
         {
-            return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.OrganizationRequired));
+            return Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.OrganizationRequired);
         }
 
         if (input.ClientId == Guid.Empty || string.IsNullOrWhiteSpace(input.ClientName))
         {
-            return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.ClientRequired));
+            return Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.ClientRequired);
         }
 
         var searchCriterion = ContentWorkflowCatalog.NormalizeSearchCriterion(input.SearchCriterion);
         if (searchCriterion.Length == 0)
         {
-            return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.SearchCriterionInvalid));
+            return Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.SearchCriterionInvalid);
         }
 
         var strategyMode = ContentWorkflowCatalog.NormalizeStrategyMode(input.StrategyMode);
         if (strategyMode.Length == 0)
         {
-            return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.StrategyModeInvalid));
+            return Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.StrategyModeInvalid);
         }
 
         var normalizedNetworks = ContentWorkflowCatalog.NormalizeNetworkSources(input.NetworkSources);
         if (normalizedNetworks.Count == 0)
         {
-            return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.NetworkSourcesRequired));
+            return Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.NetworkSourcesRequired);
         }
 
         var nowUtc = _clock.UtcNow;
         var workflowId = Guid.NewGuid();
-        var results = GenerateResults(
-            workflowId,
+
+        // Real discovery against the client's reference accounts. An empty proposal is reported as
+        // empty: falling back to invented rows would hide a missing Apify route or a client with no
+        // references behind data that looks real.
+        var results = await DiscoverResultsAsync(
+            organizationId,
+            input.ClientId,
             searchCriterion,
             strategyMode,
             normalizedNetworks,
-            DefaultResultCount);
+            cancellationToken);
 
         var session = new WorkflowSessionState(
             workflowId,
@@ -86,9 +108,49 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
             var snapshot = ComputeProgressSnapshot(session, nowUtc);
             session.Status = snapshot.WorkflowStatus;
             session.UpdatedAtUtc = nowUtc;
-            return Task.FromResult(Result.Success(ToSessionResponse(session, snapshot)));
+            return Result.Success(ToSessionResponse(session, snapshot));
         }
     }
+
+    /// <summary>
+    /// Resolves discovery in its own scope and projects the findings onto the workflow's result shape.
+    /// </summary>
+    private async Task<IReadOnlyList<WorkflowResultState>> DiscoverResultsAsync(
+        Guid organizationId,
+        Guid clientId,
+        string searchCriterion,
+        string strategyMode,
+        IReadOnlyList<string> networks,
+        CancellationToken ct)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var discovery = scope.ServiceProvider.GetRequiredService<IContentDiscoveryService>();
+
+        var found = await discovery.DiscoverAsync(
+            new ContentDiscoveryRequest(organizationId, clientId, networks, DefaultResultCount),
+            ct);
+
+        return found
+            .Select(item => new WorkflowResultState(
+                Guid.NewGuid(),
+                item.Title,
+                item.NetworkSource,
+                searchCriterion,
+                strategyMode,
+                item.ContentUrl,
+                item.ThumbnailUrl ?? string.Empty,
+                item.Summary,
+                // The workflow contract predates these being real and types them as int; the source
+                // values are long. Clamp rather than wrap, so an unusually viral post cannot come back
+                // as a negative view count.
+                ClampToInt(item.Views),
+                ClampToInt(item.Likes),
+                ClampToInt(item.Comments)))
+            .ToList();
+    }
+
+    private static int ClampToInt(long value) =>
+        value >= int.MaxValue ? int.MaxValue : value <= 0 ? 0 : (int)value;
 
     public Task<Result<ContentWorkflowStatusResponse>> GetStatusAsync(
         Guid organizationId,
@@ -302,7 +364,7 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
         }
     }
 
-    public Task<Result<ContentWorkflowPackageResponse>> GeneratePackageAsync(
+    public async Task<Result<ContentWorkflowPackageResponse>> GeneratePackageAsync(
         Guid organizationId,
         Guid workflowId,
         CancellationToken cancellationToken = default)
@@ -310,24 +372,61 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
         var sessionResult = GetOwnedSession(organizationId, workflowId);
         if (sessionResult.IsFailure)
         {
-            return Task.FromResult(Result.Failure<ContentWorkflowPackageResponse>(sessionResult.Error));
+            return Result.Failure<ContentWorkflowPackageResponse>(sessionResult.Error);
         }
+
+        // Snapshot what was selected under the lock, then start generation OUTSIDE it: queuing touches
+        // the database and the job queue, and holding a session lock across that would block every
+        // other call on this workflow for the duration.
+        List<SelectedProposal> proposals;
+        Guid clientId;
 
         lock (sessionResult.Value.SyncRoot)
         {
             if (sessionResult.Value.SelectedResultIds.Count == 0)
             {
-                return Task.FromResult(Result.Failure<ContentWorkflowPackageResponse>(ContentWorkflowErrors.PackageSelectionRequired));
+                return Result.Failure<ContentWorkflowPackageResponse>(ContentWorkflowErrors.PackageSelectionRequired);
             }
+
+            clientId = sessionResult.Value.ClientId;
+            proposals = sessionResult.Value.Results
+                .Where(result => sessionResult.Value.SelectedResultIds.Contains(result.Id))
+                .Select(result => new SelectedProposal(result.Title, result.Summary, result.VideoUrl))
+                .ToList();
+        }
+
+        ProposalGenerationStarted started;
+
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var starter = scope.ServiceProvider.GetRequiredService<IProposalGenerationStarter>();
+
+            started = await starter.StartAsync(
+                new ProposalGenerationRequest(
+                    organizationId,
+                    clientId,
+                    proposals,
+                    // Default composition until the screen exposes the cart. Script plus feed carousel
+                    // is the pairing the operator picks by hand today.
+                    DefaultProposalFormats),
+                cancellationToken);
+        }
+
+        lock (sessionResult.Value.SyncRoot)
+        {
 
             var nowUtc = _clock.UtcNow;
             var fileName = $"content-plan-{sessionResult.Value.WorkflowId:N}.zip";
+
+            // The pieces are QUEUED, not ready: they drain through the content generation worker and
+            // land in the content bank. Saying "ready" here would send the operator looking for a
+            // download that does not exist yet.
             var package = new ContentWorkflowPackageResponse(
                 sessionResult.Value.WorkflowId,
                 fileName,
-                $"/downloads/simulated/{fileName}",
-                "simulated_ready",
-                sessionResult.Value.SelectedResultIds.Count,
+                $"/api/social/content-generation-batches/{started.BatchId}/progress",
+                "generation_queued",
+                started.TotalPieces,
                 nowUtc);
 
             sessionResult.Value.Actions.Add(new ContentWorkflowActionResponse(
@@ -336,11 +435,11 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
                 "generate_package",
                 "completed",
                 sessionResult.Value.SelectedResultIds.OrderBy(x => x).ToList(),
-                $"Generated simulated package with {sessionResult.Value.SelectedResultIds.Count} selected contents.",
+                $"Queued {started.TotalPieces} piece(s) from {proposals.Count} selected proposal(s).",
                 nowUtc));
 
             sessionResult.Value.UpdatedAtUtc = nowUtc;
-            return Task.FromResult(Result.Success(package));
+            return Result.Success(package);
         }
     }
 
@@ -403,44 +502,6 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
         return Result.Success(session);
     }
 
-    private static IReadOnlyList<WorkflowResultState> GenerateResults(
-        Guid workflowId,
-        string searchCriterion,
-        string strategyMode,
-        IReadOnlyList<string> networkSources,
-        int count)
-    {
-        var results = new List<WorkflowResultState>(count);
-        var seed = workflowId.GetHashCode();
-        var random = new Random(seed);
-        var networks = networkSources.Count == 0 ? new[] { "tiktok" } : networkSources.ToArray();
-
-        for (var index = 0; index < count; index++)
-        {
-            var bytes = new byte[16];
-            random.NextBytes(bytes);
-            var id = new Guid(bytes);
-            var network = networks[index % networks.Length];
-            var views = random.Next(7_500, 250_000);
-            var likes = Math.Max(120, views / random.Next(8, 17));
-            var comments = Math.Max(12, likes / random.Next(4, 9));
-
-            results.Add(new WorkflowResultState(
-                id,
-                $"{searchCriterion} {strategyMode} concept #{index + 1}",
-                network,
-                searchCriterion,
-                strategyMode,
-                $"https://example.com/{network}/video/{id:N}",
-                $"https://picsum.photos/seed/{id:N}/640/360",
-                $"Top-performing {strategyMode} candidate for {searchCriterion} exploration.",
-                views,
-                likes,
-                comments));
-        }
-
-        return results;
-    }
 
     private static ContentWorkflowResultResponse ToResultResponse(WorkflowResultState result, bool isSelected) =>
         new(

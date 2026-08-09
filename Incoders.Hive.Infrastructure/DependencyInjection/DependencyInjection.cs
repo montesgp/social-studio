@@ -8,6 +8,8 @@ using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Social.ContentStudio;
 using Incoders.Hive.Application.Abstractions.Social.Publications;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Batches;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Ideas;
 using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
 using Incoders.Hive.Infrastructure.Ai;
 using Incoders.Hive.Infrastructure.Packaging;
@@ -184,6 +186,54 @@ public static class DependencyInjection
         services.AddScoped<IProfileMetricCalculator, ProfileMetricCalculator>();
         services.AddScoped<IClientBrandSnapshotLoader, EfClientBrandSnapshotLoader>();
         services.AddScoped<IContentGenerationJobRepository, EfContentGenerationJobRepository>();
+        services.AddScoped<IContentGenerationBatchRepository, EfContentGenerationBatchRepository>();
+
+        // Batch composition: narrow read ports adapted over the existing repositories, plus the
+        // platform piece ceiling. The cap lookup is the seam that later becomes billing-aware.
+        services.AddScoped<IBatchAnalysisLookup, BatchAnalysisLookup>();
+        services.AddScoped<IBatchPieceCapLookup, ClientBatchPieceCapLookup>();
+
+        // Idea sources, in preference order. The ORDER argument decides precedence, never this
+        // registration order — see ContentIdeaChain, which sorts on it. Adding a source (Google
+        // Trends, market discovery, a second agent) is one more line here and nothing else.
+        //
+        // Both entries are the SAME generator with a different grounding: the first stands on the
+        // strategy the client actually authored, the second on everything else we know about them, so
+        // a client with no strategy still gets ideas instead of an empty batch.
+        services.AddScoped<IContentIdeaSource>(sp => new AiClientIdeaSource(
+            ClientStrategyIdeaGrounding.Key,
+            order: 1,
+            new ClientStrategyIdeaGrounding(sp.GetRequiredService<IClientBrandSnapshotLoader>()),
+            sp.GetRequiredService<IAiCompletionGateway>(),
+            // "ai-generation" is an EXISTING routed capability. A new key here would resolve to no
+            // provider route and fail at runtime with AiRouteNotConfigured.
+            capabilityKey: "ai-generation",
+            promptVersionKey: "content-ideas/v1"));
+
+        // Order 2: the only source grounded in EVIDENCE rather than belief — it mines the client's
+        // referent accounts for posts that actually performed, so its ideas carry a real signal.
+        services.AddScoped<IContentIdeaSource, ReferenceAccountIdeaSource>();
+
+        // Proposal phase of the Content Generator: real content with real metrics for a human to pick
+        // from. Same scraping as the idea source above, but it keeps the whole post because a person
+        // is going to judge it.
+        services.AddScoped<IContentDiscoveryService, ReferenceAccountContentDiscovery>();
+
+        // Selection -> generation: turns the proposals the operator ticked into queued pieces.
+        services.AddScoped<IProposalGenerationStarter, ProposalGenerationStarter>();
+
+        services.AddScoped<IContentIdeaSource>(sp => new AiClientIdeaSource(
+            ClientKnowledgeIdeaGrounding.Key,
+            order: 4,
+            new ClientKnowledgeIdeaGrounding(sp.GetRequiredService<IClientBrandSnapshotLoader>()),
+            sp.GetRequiredService<IAiCompletionGateway>(),
+            capabilityKey: "ai-generation",
+            promptVersionKey: "content-ideas/v1"));
+
+        services.AddScoped<ContentIdeaChain>();
+        services.Configure<ContentGenerationBatchOptions>(
+            configuration.GetSection(ContentGenerationBatchOptions.SectionName));
+        services.AddScoped(sp => sp.GetRequiredService<IOptions<ContentGenerationBatchOptions>>().Value);
         services.AddScoped<IContentGenerationFormatResultRepository, EfContentGenerationFormatResultRepository>();
         services.AddScoped<IContentGenerationFailurePolicy, EfContentGenerationFailurePolicy>();
         services.AddScoped<IGeneratedPackageRepository, EfGeneratedPackageRepository>();
@@ -293,6 +343,7 @@ public static class DependencyInjection
         services.AddScoped<IntegrationCatalogSeeder>();
         services.AddScoped<ClaudePromptCliOrganizationSeeder>();
         services.AddScoped<ComfyUiOrganizationSeeder>();
+        services.AddScoped<TikTokNicheSearchWorkflowStepSeeder>();
         services.AddScoped<ApifyActorMappingBackfill>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 

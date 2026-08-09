@@ -608,6 +608,70 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("client_referent_accounts", "social");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationBatchData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<Guid?>("ClientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_id");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("CompositionJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("composition_json")
+                        .HasDefaultValueSql("'[]'");
+
+                    b.Property<Guid>("CorrelationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<int>("TotalPieces")
+                        .HasColumnType("integer")
+                        .HasColumnName("total_pieces");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_content_generation_batches");
+
+                    b.HasIndex("OrganizationId", "CreatedAt")
+                        .HasDatabaseName("ix_content_generation_batches_org_created");
+
+                    b.HasIndex("OrganizationId", "Status")
+                        .HasDatabaseName("ix_content_generation_batches_org_status");
+
+                    b.ToTable("content_generation_batches", "social");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationFormatAssetData", b =>
                 {
                     b.Property<Guid>("Id")
@@ -753,6 +817,14 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("analysis_id");
 
+                    b.Property<Guid?>("BatchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("batch_id");
+
+                    b.Property<int?>("BatchPieceIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("batch_piece_index");
+
                     b.Property<string>("BrandSnapshotJson")
                         .IsRequired()
                         .HasColumnType("jsonb")
@@ -823,6 +895,9 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
 
                     b.HasIndex("AnalysisId")
                         .HasDatabaseName("ix_content_generation_jobs_analysis_id");
+
+                    b.HasIndex("BatchId")
+                        .HasDatabaseName("ix_content_generation_jobs_batch_id");
 
                     b.HasIndex("Status")
                         .HasDatabaseName("ix_content_generation_jobs_status");
@@ -3057,6 +3132,16 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_client_referent_accounts_social_networks_social_network_id");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationBatchData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_content_generation_batches_organizations_organization_id");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentGenerationFormatAssetData", b =>

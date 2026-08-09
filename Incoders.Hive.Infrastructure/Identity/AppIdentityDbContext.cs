@@ -816,6 +816,37 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .HasDatabaseName("ix_provider_cost_rates_provider_model_effective_from");
         });
 
+        builder.Entity<ContentGenerationBatchData>(entity =>
+        {
+            entity.ToTable("content_generation_batches", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id");
+            entity.Property(x => x.AnalysisId).HasColumnName("analysis_id").IsRequired();
+            entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.CompositionJson)
+                .HasColumnName("composition_json")
+                .HasColumnType("jsonb")
+                .IsRequired()
+                .HasDefaultValueSql("'[]'");
+            entity.Property(x => x.TotalPieces).HasColumnName("total_pieces").IsRequired();
+            entity.Property(x => x.CorrelationId).HasColumnName("correlation_id").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+            entity.Property(x => x.CompletedAt).HasColumnName("completed_at");
+
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedAt })
+                .HasDatabaseName("ix_content_generation_batches_org_created");
+            // The global progress surface polls active batches per tenant on an interval.
+            entity.HasIndex(x => new { x.OrganizationId, x.Status })
+                .HasDatabaseName("ix_content_generation_batches_org_status");
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         builder.Entity<ContentGenerationJobData>(entity =>
         {
             entity.ToTable("content_generation_jobs", PostgresDatabaseNames.SocialSchema);
@@ -823,6 +854,8 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
             entity.Property(x => x.ClientId).HasColumnName("client_id");
             entity.Property(x => x.AnalysisId).HasColumnName("analysis_id").IsRequired();
+            entity.Property(x => x.BatchId).HasColumnName("batch_id");
+            entity.Property(x => x.BatchPieceIndex).HasColumnName("batch_piece_index");
             entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
             entity.Property(x => x.StatusReason).HasColumnName("status_reason").HasMaxLength(500);
             entity.Property(x => x.StartedAt).HasColumnName("started_at");
@@ -857,6 +890,9 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .HasDatabaseName("ix_content_generation_jobs_analysis_id");
             entity.HasIndex(x => x.Status)
                 .HasDatabaseName("ix_content_generation_jobs_status");
+            // Progress is counted from the child jobs on every poll, so this lookup must be indexed.
+            entity.HasIndex(x => x.BatchId)
+                .HasDatabaseName("ix_content_generation_jobs_batch_id");
 
             entity.HasOne<TenantData>()
                 .WithMany()

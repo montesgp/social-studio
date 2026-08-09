@@ -14,6 +14,16 @@ public sealed class ContentGenerationJobData
 
     public Guid AnalysisId { get; set; }
 
+    /// <summary>
+    /// Owning batch, when this job is one piece of a multi-piece cart. NULL for the original
+    /// single-package path, which keeps working untouched — that is why this is nullable rather
+    /// than a required back-reference.
+    /// </summary>
+    public Guid? BatchId { get; set; }
+
+    /// <summary>Zero-based position of this piece within its batch. NULL outside a batch.</summary>
+    public int? BatchPieceIndex { get; set; }
+
     public List<string> RequestedFormats { get; set; } = new();
 
     public string Status { get; set; } = string.Empty;

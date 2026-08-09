@@ -1,7 +1,6 @@
 import {
   LayoutDashboard,
   Clapperboard,
-  Sparkles,
   Send,
   BriefcaseBusiness,
   Building2,
@@ -70,7 +69,7 @@ export const workspaceModules: WorkspaceModule[] = [
  *
  * Route rewrites (next.config.ts) map clean URLs to existing pages:
  *   /content-generator → /workflow
- *   /ai-ideas         → /ideas
+ *   /single-analyzer   → /analyzer
  */
 const workspaceHomeNavigation: NavGroup[] = [
   {
@@ -83,10 +82,11 @@ const workspaceHomeNavigation: NavGroup[] = [
 const socialModuleNavigation: NavGroup[] = [
   {
     label: "Content",
+    // Ordered to follow the operator's actual path through the module: analyse a reference first,
+    // generate pieces from it, then decide in Publications what ships and where.
     items: [
-      { href: "/content-generator", label: "Generator", icon: Clapperboard },
       { href: "/single-analyzer", label: "Single Analyzer", icon: ScanSearch },
-      { href: "/ai-ideas", label: "AI Ideas", icon: Sparkles },
+      { href: "/content-generator", label: "Generator", icon: Clapperboard },
       { href: "/publications", label: "Publications", icon: Send }
     ]
   }

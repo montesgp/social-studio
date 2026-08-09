@@ -59,8 +59,11 @@ public sealed class EfContentGenerationFormatResultRepository : IContentGenerati
         Guid clientId,
         CancellationToken ct)
     {
+        // Include (not just filter on) the job: the studio needs its BatchId to tell sibling batch
+        // pieces apart from a regenerated format. Filtering through a navigation does NOT load it.
         var entities = await _db.ContentGenerationFormatResults
             .AsNoTracking()
+            .Include(x => x.Job)
             .Where(x => x.Job != null
                 && x.Job.OrganizationId == organizationId
                 && x.Job.AnalysisId == analysisId
@@ -142,5 +145,8 @@ public sealed class EfContentGenerationFormatResultRepository : IContentGenerati
         PromptVersion: e.PromptVersion,
         ErrorCode: e.ErrorCode,
         CreatedAt: e.CreatedAt,
-        UpdatedAt: e.UpdatedAt);
+        UpdatedAt: e.UpdatedAt,
+        // Only populated on queries that Include the job. Callers that do not need batch awareness
+        // (job-scoped reads) legitimately see null here.
+        BatchId: e.Job?.BatchId);
 }

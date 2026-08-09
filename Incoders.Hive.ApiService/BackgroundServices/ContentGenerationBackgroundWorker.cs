@@ -141,6 +141,47 @@ internal sealed class ContentGenerationBackgroundWorker : BackgroundService
                 "ContentGeneration worker: UNHANDLED EXCEPTION on job {JobId} after {ElapsedMs} ms.",
                 jobId, sw.ElapsedMilliseconds);
         }
+        finally
+        {
+            // Roll the owning batch up on EVERY exit path, including timeout and crash. A batch whose
+            // last piece failed must still stop being "active", or the operator's progress bar hangs
+            // at 9/10 forever.
+            await ReconcileOwningBatchAsync(jobId);
+        }
+    }
+
+    /// <summary>
+    /// Recomputes the owning batch's status from its pieces. No-op for jobs outside a batch.
+    /// Failures here are logged and swallowed: a bookkeeping problem must never take down the
+    /// consumer that is draining real work.
+    /// </summary>
+    private async Task ReconcileOwningBatchAsync(Guid jobId)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+
+            var jobRepo = scope.ServiceProvider.GetRequiredService<IContentGenerationJobRepository>();
+
+            // Deliberately CancellationToken.None: on host shutdown the job's terminal status was
+            // already written, and skipping the roll-up would strand the batch as active.
+            var job = await jobRepo.GetByIdInternalAsync(jobId, CancellationToken.None);
+
+            if (job?.BatchId is not { } batchId)
+            {
+                return;
+            }
+
+            var batchRepo = scope.ServiceProvider.GetRequiredService<IContentGenerationBatchRepository>();
+            await batchRepo.ReconcileStatusAsync(batchId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "ContentGeneration worker: batch roll-up failed after job {JobId}.",
+                jobId);
+        }
     }
 
     /// <summary>

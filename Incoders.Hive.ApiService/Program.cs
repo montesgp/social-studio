@@ -122,6 +122,10 @@ if (app.Configuration.GetValue("StartupTasks:SeedData", true))
     // Idempotent backfill: re-tags legacy "default" actor_mappings_json entries
     // to "profile" / "social-extraction" with isPrimary flags.
     await app.Services.RunApifyActorMappingBackfillAsync();
+    // Idempotent: seeds a disabled, unassigned discover-niche-content step configuration for every
+    // organization with a connected Apify integration, so the discovery stage is pre-created in
+    // settings without ever forcing an actor (INT-DISC-02, D13).
+    await app.Services.SeedTikTokNicheSearchWorkflowStepsAsync();
 }
 
 // Configure the HTTP request pipeline.
@@ -166,6 +170,7 @@ app.MapSocialContentWorkflowEndpoints();
 app.MapSingleAnalyzerEndpoints();
 app.MapProfileAnalyzerEndpoints();
 app.MapContentGenerationEndpoints();
+app.MapContentGenerationBatches();
 app.MapContentStudioEndpoints();
 app.MapPublicationConnectionEndpoints();
 app.MapContentBankEndpoints();

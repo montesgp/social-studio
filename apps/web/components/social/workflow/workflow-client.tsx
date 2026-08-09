@@ -146,7 +146,15 @@ const bulkActionOptions: Array<{ value: ContentWorkflowActionType; label: string
   { value: "build_carousel", label: "Build carousel", icon: WandSparkles }
 ];
 
-const USE_MOCK_WORKFLOW_DATA = true;
+/**
+ * The Generator now talks to the real backend: discovery scrapes the client's reference accounts
+ * through Apify and returns real posts with real metrics.
+ *
+ * Kept as a switch (rather than deleted along with every branch below) so the screen can be put back
+ * on canned data in one edit while the remaining phases are wired. It must stay false: with it on,
+ * the screen silently ignores the backend and shows invented numbers that look entirely real.
+ */
+const USE_MOCK_WORKFLOW_DATA = false;
 
 type PreviewNetworkTab = "instagram" | "tiktok" | "youtube";
 type CandidateViewMode = "grid" | "video";

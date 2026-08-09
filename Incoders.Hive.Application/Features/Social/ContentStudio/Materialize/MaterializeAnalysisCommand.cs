@@ -49,6 +49,21 @@ public sealed class MaterializeAnalysisCommandHandler
         _logger = logger ?? NullLogger<MaterializeAnalysisCommandHandler>.Instance;
     }
 
+    /// <summary>
+    /// The identity of a PIECE, which is what the studio holds one item per.
+    ///
+    /// A batch piece is its own job and its own format result, so it is identified by that result: its
+    /// siblings share a format key but are separate pieces the operator ordered and paid for. Outside
+    /// a batch the format key remains the identity, which is what makes a regenerated format replace
+    /// the previous one instead of piling up next to it.
+    /// </summary>
+    private static string PieceIdentity(ContentGenerationFormatResult result) =>
+        result.BatchId is null
+            ? FormatIdentity(result.FormatKey)
+            : $"piece:{result.Id}";
+
+    private static string FormatIdentity(string formatKey) => $"format:{formatKey}";
+
     public async Task<Result<ContentSetResponse>> Handle(MaterializeAnalysisCommand request, CancellationToken ct)
     {
         // One studio set per (analysis, client). The set table's idempotency unique index is on
@@ -60,12 +75,21 @@ public sealed class MaterializeAnalysisCommandHandler
         var results = await _formatResults.ListByAnalysisAndClientAsync(
             request.OrganizationId, request.AnalysisId, request.ClientId, ct);
 
-        // Latest materializable result per format key — a regenerated format supersedes the older job's.
+        // One entry per DISTINCT PIECE.
+        //
+        // Outside a batch, two results sharing a format key are the same piece regenerated, so the
+        // newest wins. Inside a batch they are SIBLINGS — four ordered carousels are four pieces, not
+        // one carousel revised three times. Collapsing them by format silently threw away work the
+        // operator had already paid for in tokens.
         var latestByFormat = results
             .Where(IsMaterializable)
-            .GroupBy(r => r.FormatKey, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(PieceIdentity, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.OrderByDescending(r => r.UpdatedAt).ThenByDescending(r => r.CreatedAt).First())
             .ToList();
+
+        // Maps each result back to the identity used above, so the incremental pass below matches
+        // existing items on exactly the same notion of "the same piece".
+        var identityByResultId = latestByFormat.ToDictionary(r => r.Id, PieceIdentity);
 
         if (latestByFormat.Count == 0)
         {
@@ -128,20 +152,28 @@ public sealed class MaterializeAnalysisCommandHandler
         // Incremental: add items for newly generated formats, and REFRESH pristine items whose source
         // format was regenerated (newer result). Edited/reviewed items are protected by the aggregate.
         var existingItems = await _items.ListBySetAsync(request.OrganizationId, existing.Id, ct);
+
+        // Identify an already-stored item by the piece it came from. A batch piece is anchored to its
+        // own format result; anything else falls back to the format key, preserving the original
+        // "one item per format, newest wins" behaviour for the single-format path.
+        string IdentityOf(ContentItem item) =>
+            identityByResultId.TryGetValue(item.Origin.FormatResultId, out var identity)
+                ? identity
+                : FormatIdentity(item.Kind.FormatKey);
+
         var existingFormatKeys = existingItems
-            .Select(i => i.Kind.FormatKey)
+            .Select(IdentityOf)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        // First item per format key (sets hold one item per format on the single-analyzer surface).
         var itemByFormat = existingItems
-            .GroupBy(i => i.Kind.FormatKey, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(IdentityOf, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         // Refresh in place: a regenerated result has a newer UpdatedAt than the item's last snapshot.
         var refreshed = new List<ContentItem>();
         foreach (var result in latestByFormat)
         {
-            if (!itemByFormat.TryGetValue(result.FormatKey, out var item)
+            if (!itemByFormat.TryGetValue(PieceIdentity(result), out var item)
                 || result.UpdatedAt <= item.UpdatedAtUtc)
             {
                 continue;
@@ -160,7 +192,7 @@ public sealed class MaterializeAnalysisCommandHandler
         }
 
         var toAdd = latestByFormat
-            .Where(r => !existingFormatKeys.Contains(r.FormatKey))
+            .Where(r => !existingFormatKeys.Contains(PieceIdentity(r)))
             .ToList();
 
         if (toAdd.Count > 0)

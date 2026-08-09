@@ -146,6 +146,8 @@ public sealed class EfContentGenerationJobRepository : IContentGenerationJobRepo
         OrganizationId = job.OrganizationId,
         ClientId = job.ClientId,
         AnalysisId = job.AnalysisId,
+        BatchId = job.BatchId,
+        BatchPieceIndex = job.BatchPieceIndex,
         RequestedFormats = job.RequestedFormats.ToList(),
         Status = job.Status,
         StatusReason = job.StatusReason,
@@ -176,5 +178,7 @@ public sealed class EfContentGenerationJobRepository : IContentGenerationJobRepo
         UpdatedAt: e.UpdatedAt,
         StartedAt: e.StartedAt,
         CompletedAt: e.CompletedAt,
-        RegenerationObjection: e.RegenerationObjection);
+        RegenerationObjection: e.RegenerationObjection,
+        BatchId: e.BatchId,
+        BatchPieceIndex: e.BatchPieceIndex);
 }

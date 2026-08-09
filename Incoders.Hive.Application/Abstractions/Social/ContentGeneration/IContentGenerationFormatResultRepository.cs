@@ -60,4 +60,10 @@ public sealed record ContentGenerationFormatResult(
     string? PromptVersion,
     string? ErrorCode,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    // Batch the owning job belongs to, when it is one piece of a multi-piece cart.
+    //
+    // The studio needs this to tell SIBLINGS from REVISIONS: two results with the same format key are
+    // the same piece regenerated when there is no batch, but two distinct pieces when there is.
+    // Optional/last so existing positional constructions keep compiling.
+    Guid? BatchId = null);

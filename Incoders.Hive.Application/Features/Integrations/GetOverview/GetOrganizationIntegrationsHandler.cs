@@ -14,19 +14,22 @@ public sealed class GetOrganizationIntegrationsHandler
     private readonly IOrganizationIntegrationCredentialRepository _credentials;
     private readonly IOrganizationAiModelRepository? _models;
     private readonly IExternalProviderClientFactory? _clientFactory;
+    private readonly IWorkflowStepConfigurationRepository? _stepConfigurations;
 
     public GetOrganizationIntegrationsHandler(
         IIntegrationProviderCatalogRepository providers,
         IOrganizationIntegrationRepository integrations,
         IOrganizationIntegrationCredentialRepository credentials,
         IOrganizationAiModelRepository? models = null,
-        IExternalProviderClientFactory? clientFactory = null)
+        IExternalProviderClientFactory? clientFactory = null,
+        IWorkflowStepConfigurationRepository? stepConfigurations = null)
     {
         _providers = providers;
         _integrations = integrations;
         _credentials = credentials;
         _models = models;
         _clientFactory = clientFactory;
+        _stepConfigurations = stepConfigurations;
     }
 
     public async Task<Result<OrganizationIntegrationsOverviewResponse>> Handle(
@@ -115,6 +118,11 @@ public sealed class GetOrganizationIntegrationsHandler
                 "At least one AI model provider must be connected to analyze resolved content.")
         };
 
+        // Optional (INT-DISC-03): discovery still works on references/own with the niche stage
+        // unconfigured. This item is the operator's pointer to the discover-niche-content step, not
+        // a gate — satisfied when an enabled (tiktok, niche-search) route resolves (D11/D12/CD-12).
+        var hasNicheSearchRoute = await ResolvesNicheSearchRouteAsync(request.OrganizationId, cancellationToken);
+
         var generatorChecklist = new List<IntegrationSetupChecklistItemResponse>
         {
             new(
@@ -128,7 +136,14 @@ public sealed class GetOrganizationIntegrationsHandler
                 "Connect at least one AI model provider",
                 true,
                 hasAiProvider,
-                "At least one AI model provider must be connected to generate content ideas.")
+                "At least one AI model provider must be connected to generate content ideas."),
+            new(
+                "generator-niche-search-actor",
+                "Configure a TikTok niche-search actor",
+                false,
+                hasNicheSearchRoute,
+                "OPTIONAL. Configure and enable a TikTok niche-search actor to turn on content " +
+                "discovery. Discovery still works from reference/own accounts without it.")
         };
 
         var checklistGroups = new List<IntegrationSetupChecklistResponse>
@@ -171,5 +186,25 @@ public sealed class GetOrganizationIntegrationsHandler
         return synced.Count == 0
             ? provider.ModelsFor(category)
             : synced.Select(x => x.ModelId).ToList();
+    }
+
+    private async Task<bool> ResolvesNicheSearchRouteAsync(Guid organizationId, CancellationToken cancellationToken)
+    {
+        if (_stepConfigurations is null)
+        {
+            return false;
+        }
+
+        var rows = await _stepConfigurations.ListForStepAsync(
+            new WorkflowStepResolutionRequest(
+                organizationId,
+                "generator",
+                "content-discovery",
+                "discover-niche-content",
+                "niche-search",
+                "tiktok"),
+            cancellationToken);
+
+        return rows.Any(x => !string.IsNullOrWhiteSpace(x.ActorId));
     }
 }
