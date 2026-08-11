@@ -193,7 +193,7 @@ public sealed class OrganizationIntegrationsFlowTests
 
         Assert.True(overview.IsSuccess);
 
-        // Only REQUIRED items must be completed: "generator-niche-search-actor" is optional
+        // Only REQUIRED items must be completed: "single-analyzer-niche-search-actor" is optional
         // (INT-DISC-03) and stays unsatisfied here — no niche-search route was configured.
         Assert.All(
             overview.Value.ChecklistGroups,
@@ -269,7 +269,7 @@ public sealed class OrganizationIntegrationsFlowTests
     }
 
     [Fact]
-    public async Task Overview_GeneratorChecklist_ContainsOptionalNicheSearchActorItem_UnsatisfiedByDefault()
+    public async Task Overview_SingleAnalyzerChecklist_ContainsOptionalNicheSearchActorItem_UnsatisfiedByDefault()
     {
         var harness = new IntegrationsHarness(Now);
         var organizationId = Guid.NewGuid();
@@ -280,8 +280,8 @@ public sealed class OrganizationIntegrationsFlowTests
 
         Assert.True(overview.IsSuccess);
 
-        var generatorGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "generator");
-        var item = generatorGroup.Items.Single(x => x.Key == "generator-niche-search-actor");
+        var singleAnalyzerGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "single-analyzer");
+        var item = singleAnalyzerGroup.Items.Single(x => x.Key == "single-analyzer-niche-search-actor");
 
         // INT-DISC-03: optional — discovery still works on references/own with the niche stage unconfigured.
         Assert.False(item.IsRequired);
@@ -289,18 +289,18 @@ public sealed class OrganizationIntegrationsFlowTests
     }
 
     [Fact]
-    public async Task Overview_GeneratorChecklist_NicheSearchActorItem_SatisfiedWhenAnEnabledRouteResolves()
+    public async Task Overview_SingleAnalyzerChecklist_NicheSearchActorItem_SatisfiedWhenAnEnabledRouteResolves()
     {
         var organizationId = Guid.NewGuid();
         var stepConfigurations = new InMemoryWorkflowStepConfigurationRepository();
         await stepConfigurations.ReplaceWorkflowAsync(
             organizationId,
-            "generator",
+            "single-analyzer",
             [
                 new WorkflowStepConfigurationRecord(
                     Guid.NewGuid(),
                     organizationId,
-                    "generator",
+                    "single-analyzer",
                     "content-discovery",
                     "discover-niche-content",
                     "niche-search",
@@ -324,11 +324,55 @@ public sealed class OrganizationIntegrationsFlowTests
 
         Assert.True(overview.IsSuccess);
 
-        var generatorGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "generator");
-        var item = generatorGroup.Items.Single(x => x.Key == "generator-niche-search-actor");
+        var singleAnalyzerGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "single-analyzer");
+        var item = singleAnalyzerGroup.Items.Single(x => x.Key == "single-analyzer-niche-search-actor");
 
         Assert.False(item.IsRequired);
         Assert.True(item.IsCompleted);
+    }
+
+    [Fact]
+    public async Task Overview_SingleAnalyzerChecklist_NicheSearchActorItem_DoesNotResolveUnderGeneratorRoute()
+    {
+        // A stray "generator"-keyed row (e.g. leftover from a previous placement) must NOT satisfy
+        // the relocated item — the item now resolves strictly under "single-analyzer".
+        var organizationId = Guid.NewGuid();
+        var stepConfigurations = new InMemoryWorkflowStepConfigurationRepository();
+        await stepConfigurations.ReplaceWorkflowAsync(
+            organizationId,
+            "generator",
+            [
+                new WorkflowStepConfigurationRecord(
+                    Guid.NewGuid(),
+                    organizationId,
+                    "generator",
+                    "content-discovery",
+                    "discover-niche-content",
+                    "niche-search",
+                    "tiktok",
+                    Guid.NewGuid(),
+                    "apify",
+                    Guid.NewGuid(),
+                    ModelId: null,
+                    ActorId: "stale-actor",
+                    Priority: 1,
+                    IsEnabled: true,
+                    Now,
+                    Now)
+            ]);
+
+        var harness = new IntegrationsHarness(Now, stepConfigurations);
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var singleAnalyzerGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "single-analyzer");
+        var item = singleAnalyzerGroup.Items.Single(x => x.Key == "single-analyzer-niche-search-actor");
+
+        Assert.False(item.IsCompleted);
     }
 
     private sealed class InMemoryWorkflowStepConfigurationRepository : IWorkflowStepConfigurationRepository

@@ -1,26 +1,30 @@
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Abstractions.Social.ContentDiscovery;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
 
-namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Ideas;
+namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Discovery;
 
 /// <summary>
 /// Discovers real, high-performing content from the client's reference accounts and proposes it for
 /// generation.
 ///
-/// This is the Content Generator's proposal phase. It differs from
-/// <see cref="ReferenceAccountIdeaSource"/> on purpose: an idea source distils a post down to a topic
-/// for the machine to write from, while a PROPOSAL keeps the whole post — metrics, thumbnail, link —
-/// because a human is going to look at it and decide. Same scraping underneath, different audience.
+/// Moved from <c>ReferenceAccountContentDiscovery</c> (WU-3): now an <see cref="IContentDiscoverySource"/>,
+/// <c>Order: 1</c>, <c>Supports("references")</c> only. This is the Content Generator's proposal
+/// phase. It differs from <c>ReferenceAccountIdeaSource</c> on purpose: an idea source distils a post
+/// down to a topic for the machine to write from, while a PROPOSAL keeps the whole post — metrics,
+/// thumbnail, link — because a human is going to look at it and decide. Same scraping underneath,
+/// different audience.
 /// </summary>
-public sealed class ReferenceAccountContentDiscovery : IContentDiscoveryService
+public sealed class ReferenceAccountDiscoverySource : IContentDiscoverySource
 {
     private const string InstagramNetwork = "instagram";
+    private const string SourceKeyValue = "references";
 
     private readonly IClientBrandSnapshotLoader _snapshots;
     private readonly IProfileScrapeResolver _scraper;
 
-    public ReferenceAccountContentDiscovery(
+    public ReferenceAccountDiscoverySource(
         IClientBrandSnapshotLoader snapshots,
         IProfileScrapeResolver scraper)
     {
@@ -31,7 +35,14 @@ public sealed class ReferenceAccountContentDiscovery : IContentDiscoveryService
         _scraper = scraper;
     }
 
-    public async Task<IReadOnlyList<DiscoveredContent>> DiscoverAsync(
+    public string SourceKey => SourceKeyValue;
+
+    public int Order => 1;
+
+    public bool Supports(string searchCriterion) =>
+        string.Equals(searchCriterion, SourceKeyValue, StringComparison.OrdinalIgnoreCase);
+
+    public async Task<SourceDiscoveryResult> DiscoverAsync(
         ContentDiscoveryRequest request,
         CancellationToken ct = default)
     {
@@ -39,7 +50,7 @@ public sealed class ReferenceAccountContentDiscovery : IContentDiscoveryService
 
         if (request.MaxResults <= 0)
         {
-            return [];
+            return new SourceDiscoveryResult(SourceOutcome.Ran, []);
         }
 
         var snapshot = await _snapshots.LoadAsync(request.OrganizationId, request.ClientId, ct);
@@ -51,7 +62,7 @@ public sealed class ReferenceAccountContentDiscovery : IContentDiscoveryService
 
         if (!wantsInstagram)
         {
-            return [];
+            return new SourceDiscoveryResult(SourceOutcome.Ran, []);
         }
 
         var referents = snapshot.ReferentAccounts
@@ -63,7 +74,7 @@ public sealed class ReferenceAccountContentDiscovery : IContentDiscoveryService
 
         if (referents.Count == 0)
         {
-            return [];
+            return new SourceDiscoveryResult(SourceOutcome.Ran, []);
         }
 
         var found = new List<DiscoveredContent>();
@@ -102,11 +113,13 @@ public sealed class ReferenceAccountContentDiscovery : IContentDiscoveryService
         }
 
         // Strongest first, then capped: the operator's screen should open on the winners.
-        return found
-            .OrderByDescending(item => item.Views)
-            .ThenByDescending(item => item.Likes + item.Comments)
+        var ranked = found
+            .OrderByDescending(item => item.Views ?? -1)
+            .ThenByDescending(item => (item.Likes ?? 0) + (item.Comments ?? 0))
             .Take(request.MaxResults)
             .ToList();
+
+        return new SourceDiscoveryResult(SourceOutcome.Ran, ranked);
     }
 
     private static DiscoveredContent ToDiscovered(ProfilePost post, string handle)
@@ -125,10 +138,16 @@ public sealed class ReferenceAccountContentDiscovery : IContentDiscoveryService
             NetworkSource: InstagramNetwork,
             ContentUrl: $"https://www.instagram.com/p/{post.PostId}/",
             ThumbnailUrl: post.ImageUrls?.FirstOrDefault(),
-            Views: post.VideoViewCount ?? 0,
+            // WAS `post.VideoViewCount ?? 0` — that zero-fill is deleted by this change (D2): unavailable
+            // stays null, never invented as a reported zero.
+            Views: post.VideoViewCount,
             Likes: post.LikesCount,
             Comments: post.CommentsCount,
-            SourceHandle: handle);
+            Shares: null,
+            Saves: null,
+            PublishedAtUtc: post.Timestamp,
+            SourceHandle: handle,
+            SourceKey: SourceKeyValue);
     }
 
     private static string FirstLine(string caption)

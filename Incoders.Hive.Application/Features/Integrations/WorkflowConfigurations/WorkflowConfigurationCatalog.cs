@@ -115,6 +115,48 @@ public static class WorkflowConfigurationCatalog
                             SupportsModelSelection: true,
                             SupportsActorSelection: false,
                             ActorVariantKey: null)
+                    ]),
+
+                // Content discovery — mines candidate high-performing content for the operator to
+                // review and select one at a time (content-discovery-intelligence). This is a
+                // SIBLING of content-analysis, not a copy of it: once the operator-selected candidate
+                // becomes a SingleContentAnalysis, the downstream pipeline (CreateContentGenerationBatchCommand,
+                // GenerateContentPackageCommand) anchors to that AnalysisId, not to a URL — it is
+                // IDENTICAL to the by-URL content-analysis flow. Same pipeline means the SAME
+                // configuration: this analysis type therefore carries ONLY the discovery step
+                // (discover-niche-content); the AI analysis/generation/image steps are intentionally
+                // NOT duplicated here — they are reused from content-analysis (design D11,
+                // INT-DISC-02/03). Placing it under "single-analyzer" also matches the operator's
+                // mental model: it is a way of finding a candidate to feed the Single Analyzer, not a
+                // second Content Generator tool.
+                //
+                // NOTE — a workflow key still needs a matching checklistGroups entry (currently
+                // "single-analyzer" + "generator") to render as configurable in the settings UI; a
+                // workflow key with no matching group renders "not configurable yet".
+                new(
+                    "content-discovery",
+                    "Content discovery",
+                    [
+                        new(
+                            "discover-niche-content",
+                            "Discover niche content candidates",
+                            "niche-search",
+                            "Niche search",
+                            "Choose the extraction provider and actor used to search for candidate " +
+                            "high-performing content in the client's niche. No actor is forced by the " +
+                            "platform — configure and enable an actor here to turn the discovery stage " +
+                            "on. The CONFIGURATION surface matches scrape-video's: restricting it to " +
+                            "TikTok would be artificial. What is genuinely limited is which per-network " +
+                            "discovery adapter exists today (only TikTok) — a network configured " +
+                            "without a working adapter degrades through the Unconfigured/unsupported " +
+                            "path at runtime, never a crash.",
+                            RequiresNetwork: true,
+                            SupportedNetworkKeys: ["instagram", "tiktok", "youtube"],
+                            AllowedProviderCategories: [IntegrationProviderCategory.DataExtraction],
+                            AllowedProviderKeys: ["apify"],
+                            SupportsModelSelection: false,
+                            SupportsActorSelection: true,
+                            ActorVariantKey: "niche-search")
                     ])
             ]),
 
@@ -131,79 +173,6 @@ public static class WorkflowConfigurationCatalog
             "generator",
             "Content Generator",
             [
-                // Content discovery — mines candidate high-performing content for the operator to
-                // review and analyze one at a time (content-discovery-intelligence). Deliberately
-                // modeled on single-analyzer/content-analysis: the extraction step is replaced by a
-                // niche/candidate discovery step, and the rest of the pipeline (AI analysis,
-                // generation, optional imagery) is the same downstream flow. This analysis type lives
-                // under the EXISTING "generator" key, not a new top-level workflow key — the settings
-                // selector is built from checklistGroups (currently "single-analyzer" + "generator"),
-                // and a workflow key with no matching group renders "not configurable yet" (see the
-                // comment above this array). Reusing "generator" makes the discovery stage
-                // configurable/visible by construction (design D11, INT-DISC-02/03).
-                new(
-                    "content-discovery",
-                    "Content discovery",
-                    [
-                        new(
-                            "discover-niche-content",
-                            "Discover niche content candidates",
-                            "niche-search",
-                            "Niche search",
-                            "Choose the extraction provider and actor used to search TikTok for " +
-                            "candidate high-performing content in the client's niche. No actor is " +
-                            "forced by the platform — configure and enable an actor here to turn the " +
-                            "discovery stage on.",
-                            RequiresNetwork: true,
-                            SupportedNetworkKeys: ["tiktok"],
-                            AllowedProviderCategories: [IntegrationProviderCategory.DataExtraction],
-                            AllowedProviderKeys: ["apify"],
-                            SupportsModelSelection: false,
-                            SupportsActorSelection: true,
-                            ActorVariantKey: "niche-search"),
-                        new(
-                            "analyze-content",
-                            "Analyze the selected candidate with AI",
-                            "ai-analysis",
-                            "AI analysis",
-                            "Choose the AI provider/model that analyzes the operator-selected candidate.",
-                            RequiresNetwork: false,
-                            SupportedNetworkKeys: [],
-                            AllowedProviderCategories: [IntegrationProviderCategory.AiModel],
-                            AllowedProviderKeys: [],
-                            SupportsModelSelection: true,
-                            SupportsActorSelection: false,
-                            ActorVariantKey: null),
-                        new(
-                            "generate-content",
-                            "Generate content with AI",
-                            "ai-generation",
-                            "AI generation",
-                            "Choose the AI provider/model that generates the downstream content package " +
-                            "from the analyzed candidate.",
-                            RequiresNetwork: false,
-                            SupportedNetworkKeys: [],
-                            AllowedProviderCategories: [IntegrationProviderCategory.AiModel],
-                            AllowedProviderKeys: [],
-                            SupportsModelSelection: true,
-                            SupportsActorSelection: false,
-                            ActorVariantKey: null),
-                        new(
-                            "generate-image",
-                            "Generate images with AI",
-                            "ai-image",
-                            "AI image generation",
-                            "OPTIONAL. Choose the AI image provider/model that generates raster " +
-                            "backgrounds for the generated package's creative slides. Leave " +
-                            "unconfigured to use CSS designer backgrounds for all slides.",
-                            RequiresNetwork: false,
-                            SupportedNetworkKeys: [],
-                            AllowedProviderCategories: [IntegrationProviderCategory.MediaGeneration],
-                            AllowedProviderKeys: [],
-                            SupportsModelSelection: true,
-                            SupportsActorSelection: false,
-                            ActorVariantKey: null)
-                    ]),
                 new(
                     "batch-generation",
                     "Batch generation",

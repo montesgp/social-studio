@@ -4,11 +4,13 @@ using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Observability;
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Abstractions.Social.ContentDiscovery;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Abstractions.Social.ContentStudio;
 using Incoders.Hive.Application.Abstractions.Social.Publications;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Batches;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Discovery;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Ideas;
 using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
 using Incoders.Hive.Infrastructure.Ai;
@@ -163,6 +165,7 @@ public static class DependencyInjection
         services.AddScoped<IOrganizationIntegrationRepository, EfOrganizationIntegrationRepository>();
         services.AddScoped<IOrganizationIntegrationCredentialRepository, EfOrganizationIntegrationCredentialRepository>();
         services.AddScoped<IOrganizationAiModelRepository, EfOrganizationAiModelRepository>();
+        services.AddScoped<IOrganizationActorRepository, EfOrganizationActorRepository>();
         services.AddScoped<IWorkflowStepConfigurationRepository, EfWorkflowStepConfigurationRepository>();
         services.AddScoped<ICanvaUserTokenRepository, EfCanvaUserTokenRepository>();
 
@@ -214,10 +217,29 @@ public static class DependencyInjection
         // referent accounts for posts that actually performed, so its ideas carry a real signal.
         services.AddScoped<IContentIdeaSource, ReferenceAccountIdeaSource>();
 
+        // Discovery sources, in preference order. The ORDER argument decides precedence, never this
+        // registration order — see ContentDiscoveryChain, which sorts on it.
+        //
         // Proposal phase of the Content Generator: real content with real metrics for a human to pick
         // from. Same scraping as the idea source above, but it keeps the whole post because a person
         // is going to judge it.
-        services.AddScoped<IContentDiscoveryService, ReferenceAccountContentDiscovery>();
+        services.AddScoped<IContentDiscoverySource, ReferenceAccountDiscoverySource>();   // Order 1
+        services.AddScoped<IContentDiscoverySource, OwnAccountDiscoverySource>();         // Order 2
+        services.AddScoped<IContentDiscoverySource, TikTokNicheSearchSource>();           // Order 3
+        // Actor resolution is exclusively configuration-driven (CD-12/D13) — see ApifyNicheSearchResolver.
+        services.AddScoped<INicheSearchResolver, ApifyNicheSearchResolver>();
+
+        // The chain IS the discovery service. Exactly ONE registration of IContentDiscoveryService may
+        // exist — a second AddScoped<IContentDiscoveryService, …> would silently win GetRequiredService
+        // with no compile or runtime error (see DiscoveryCompositionTests).
+        services.AddScoped<IContentDiscoveryService, ContentDiscoveryChain>();
+
+        // WU-4/WU-5: scoring/persistence support for the discovery chain. AccountBaselineProvider is
+        // plain (not a port) — it is a read-through cache wrapper the call site uses directly, not an
+        // interface with multiple implementations.
+        services.AddScoped<IContentCandidateRepository, EfContentCandidateRepository>();
+        services.AddScoped<IAccountBaselineRepository, EfAccountBaselineRepository>();
+        services.AddScoped<AccountBaselineProvider>();
 
         // Selection -> generation: turns the proposals the operator ticked into queued pieces.
         services.AddScoped<IProposalGenerationStarter, ProposalGenerationStarter>();
@@ -260,6 +282,9 @@ public static class DependencyInjection
         [
             nameof(Incoders.Hive.Infrastructure.Social.Providers.ApifySocialContentExtractor),
             nameof(Incoders.Hive.Infrastructure.Social.Providers.ApifyProfileScrapeResolver),
+            nameof(Incoders.Hive.Infrastructure.Social.Providers.ApifyNicheSearchResolver),
+            // Actor catalog paging can walk several 1000-record pages on a busy account.
+            nameof(Incoders.Hive.Infrastructure.Social.Providers.ApifyActorCatalogClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.ClaudeModelClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.ClaudeModelCatalogClient),
             nameof(Incoders.Hive.Infrastructure.Ai.Providers.OpenAiModelClient),

@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Abstractions.Social.ContentDiscovery;
 using Incoders.Hive.Application.Features.Social.Workflow;
 using Incoders.Hive.Infrastructure.Social.Workflow;
 using Incoders.Hive.Tests.Common;
@@ -130,7 +131,8 @@ public sealed class ContentWorkflowServiceTests
         var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
         var discovered = new DiscoveredContent(
             "Un reel ganador", "resumen", "instagram", "https://ig.com/p/1", "https://ig.com/t.jpg",
-            Views: 120_000, Likes: 4_000, Comments: 210, SourceHandle: "@ref");
+            Views: 120_000, Likes: 4_000, Comments: 210, Shares: null, Saves: null,
+            PublishedAtUtc: DateTimeOffset.UtcNow, SourceHandle: "@ref", SourceKey: "references");
 
         var service = new InMemoryContentWorkflowService(clock, ScopeFactoryWith([discovered]));
         var organizationId = Guid.NewGuid();
@@ -148,13 +150,52 @@ public sealed class ContentWorkflowServiceTests
         Assert.Equal(210, item.Comments);
     }
 
+    [Fact]
+    public async Task Start_WithOwnCriterion_NoLongerReturnsSearchCriterionInvalid()
+    {
+        // CR-DISC-02 scenario 1: selecting "own" used to fail validation because
+        // ContentWorkflowCatalog.SearchCriterionAliases had no "own" entry.
+        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var service = new InMemoryContentWorkflowService(clock, ScopeFactoryWith(Discovered(3)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "own", "mixed", ["instagram"]));
+
+        Assert.True(started.IsSuccess);
+        Assert.Equal("own", started.Value.SearchCriterion);
+    }
+
+    [Fact]
+    public async Task Start_WithOwnCriterion_PassesTheNormalizedCriterionIntoTheDiscoveryRequest()
+    {
+        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var spy = new SpyDiscovery(Discovered(3));
+        var services = new ServiceCollection();
+        services.AddScoped<IContentDiscoveryService>(_ => spy);
+        services.AddScoped<IProposalGenerationStarter, StubStarter>();
+        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+
+        var service = new InMemoryContentWorkflowService(clock, scopeFactory);
+        var organizationId = Guid.NewGuid();
+
+        // "propios" is the Spanish-language alias for the same canonical "own" criterion.
+        await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "propios", "mixed", ["instagram"]));
+
+        Assert.Equal("own", spy.LastRequest?.SearchCriterion);
+    }
+
     // ── harness ──────────────────────────────────────────────────────────────
 
     private static IReadOnlyList<DiscoveredContent> Discovered(int count) =>
         Enumerable.Range(1, count)
             .Select(i => new DiscoveredContent(
                 $"Contenido {i}", $"resumen {i}", "instagram", $"https://ig.com/p/{i}", null,
-                Views: 1_000 - i, Likes: 10, Comments: 1, SourceHandle: "@ref"))
+                Views: 1_000 - i, Likes: 10, Comments: 1, Shares: null, Saves: null,
+                PublishedAtUtc: DateTimeOffset.UtcNow, SourceHandle: "@ref", SourceKey: "references"))
             .ToList();
 
     private static IServiceScopeFactory ScopeFactoryWith(IReadOnlyList<DiscoveredContent> discovered)
@@ -176,8 +217,20 @@ public sealed class ContentWorkflowServiceTests
 
     private sealed class StubDiscovery(IReadOnlyList<DiscoveredContent> discovered) : IContentDiscoveryService
     {
-        public Task<IReadOnlyList<DiscoveredContent>> DiscoverAsync(
+        public Task<ContentDiscoveryPlan> DiscoverAsync(
             ContentDiscoveryRequest request, CancellationToken ct = default) =>
-            Task.FromResult(discovered);
+            Task.FromResult(new ContentDiscoveryPlan(discovered, 0, [], []));
+    }
+
+    private sealed class SpyDiscovery(IReadOnlyList<DiscoveredContent> discovered) : IContentDiscoveryService
+    {
+        public ContentDiscoveryRequest? LastRequest { get; private set; }
+
+        public Task<ContentDiscoveryPlan> DiscoverAsync(
+            ContentDiscoveryRequest request, CancellationToken ct = default)
+        {
+            LastRequest = request;
+            return Task.FromResult(new ContentDiscoveryPlan(discovered, 0, [], []));
+        }
     }
 }

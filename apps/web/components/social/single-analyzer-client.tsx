@@ -36,8 +36,13 @@ import { Input } from "@/components/ui/input";
 import { OptionCardSelector, type OptionCardSelectorOption } from "@/components/ui/option-card-selector";
 import { Select } from "@/components/ui/select";
 import { getMockClients, getMockOrganizations } from "@/lib/mocks/content-workflow";
-import { listWorkflowClients } from "@/lib/api/content-workflow";
-import { getOrganizationIntegration } from "@/lib/api/integrations";
+import {
+  getContentWorkflowStatus,
+  listContentWorkflowResults,
+  listWorkflowClients,
+  startContentWorkflow,
+} from "@/lib/api/content-workflow";
+import { getOrganizationIntegration, listOrganizationIntegrations } from "@/lib/api/integrations";
 import type {
   Organization,
   SingleContentAnalysisStatus,
@@ -45,6 +50,7 @@ import type {
   SocialClient,
   ContentFormatKey,
   ContentGenerationJobStatus,
+  ContentWorkflowStrategyMode,
   GeneratedPackageManifest,
   PackageActionState,
 } from "@/lib/api/types";
@@ -55,7 +61,6 @@ import { ContentStudioPanel } from "@/components/social/content-studio-panel";
 import { useToast } from "@/components/ui/toaster";
 import { show as showBlockingLoader, hide as hideBlockingLoader } from "@/lib/loading/blocking-loader-store";
 import {
-  getMockVideoBySearch,
   analyzeMockVideo,
   type SingleAnalyzerResult,
 } from "@/lib/mocks/single-analyzer";
@@ -99,12 +104,31 @@ import { AnalysisOverlay } from "@/components/social/analysis-overlay";
 import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
 import { BatchGenerationPanel } from "@/components/social/generator/batch-generation-panel";
 import { exportElementToPdf } from "@/lib/export/pdf-export";
+import {
+  ContentDiscoveryShortlist,
+  type ContentDiscoveryShortlistCandidate,
+} from "@/components/social/discovery/content-discovery-shortlist";
+import {
+  isNicheSearchUnconfigured,
+  isSingleAnalyzerNicheSearchActorConfigured,
+  mapDiscoveryResultsToShortlistCandidates,
+} from "@/lib/social/content-discovery-shortlist";
 
 // ── Async/poll constants ───────────────────────────────────────────────────────
 
 const POLL_INTERVAL_MS = 2500;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min hard cap so the overlay can't hang forever
 const FALLBACK_THUMBNAIL_PATH = "/images/thumbnail-unavailable.svg";
+// Discovery (WU-7, design D8/§8.2): the workflow session that runs the discovery chain finishes in a
+// few seconds (ComputeProgressSnapshot phases), well under the 5-min single-analysis cap above — a
+// short, separate poll loop rather than reusing POLL_INTERVAL_MS/POLL_TIMEOUT_MS.
+const DISCOVERY_POLL_INTERVAL_MS = 500;
+const DISCOVERY_POLL_TIMEOUT_MS = 20 * 1000;
+const DISCOVERY_CRITERION_OPTIONS: Array<{ value: "references" | "own" | "niche"; label: string }> = [
+  { value: "references", label: "Reference accounts" },
+  { value: "own", label: "Own accounts" },
+  { value: "niche", label: "Niche search" },
+];
 const MAX_REGENERATION_OBJECTION_LENGTH = 1000;
 const MAX_FORMAT_FAILURE_ATTEMPTS = 2;
 const MAX_AI_ANALYSIS_FAILURE_ATTEMPTS = 2;
@@ -681,9 +705,21 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const { networks: socialNetworks, loading: networksLoading } = useSocialNetworks(effectiveToken);
   const [inputMode, setInputMode] = useState<"url" | "search">("url");
   const [urlInput, setUrlInput] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
   const [searchNetwork, setSearchNetwork] = useState("");
   const [searchStrategy, setSearchStrategy] = useState("educational");
+  // Discovery shortlist (WU-7, design D8/§8.2): the operator picks a criterion, the chain proposes
+  // ranked candidates through the EXISTING content-workflow endpoints, and selecting exactly one
+  // reuses the EXISTING single-analysis start+poll path below — no new backend transport.
+  const [discoveryCriterion, setDiscoveryCriterion] =
+    useState<"references" | "own" | "niche">("references");
+  const [discoveryCandidates, setDiscoveryCandidates] =
+    useState<ContentDiscoveryShortlistCandidate[]>([]);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const [discoveryRan, setDiscoveryRan] = useState(false);
+  // null = not checked yet; only relevant for the "niche" criterion (CD-13/D12 — distinct from an
+  // empty result set).
+  const [nicheSearchActorConfigured, setNicheSearchActorConfigured] = useState<boolean | null>(null);
   const [videoResult, setVideoResult] = useState<SingleAnalyzerResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -1438,7 +1474,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     resetVideoState();
     setInputMode("url");
     setUrlInput("");
-    setSearchQuery("");
+    setDiscoveryCandidates([]);
+    setDiscoveryError(null);
+    setDiscoveryRan(false);
+    setNicheSearchActorConfigured(null);
     setSelectedClientId("");
     setDuplicateAnalysisPrompt(null);
     setRightPanelTab("conversion");
@@ -1654,25 +1693,131 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     );
   }
 
-  async function findBestMatch() {
-    if (!searchQuery.trim()) return;
+  /**
+   * Discovery shortlist (WU-7, design D8/§8.2). Runs the discovery chain through the EXISTING
+   * content-workflow endpoints (`startContentWorkflow` → poll status → `listContentWorkflowResults`)
+   * — the only HTTP surface that already exercises `IContentDiscoveryService` — and projects the
+   * results onto the ranked shortlist. Authors no backend call this change did not already have.
+   */
+  async function runDiscovery() {
+    if (!selectedClientId || isDiscovering) return;
+
+    setDiscoveryError(null);
+    setDiscoveryCandidates([]);
+    setDiscoveryRan(false);
+
+    if (discoveryCriterion === "niche") {
+      try {
+        const overview = await listOrganizationIntegrations(selectedOrganizationId, effectiveToken);
+        const configured = isSingleAnalyzerNicheSearchActorConfigured(overview.checklistGroups);
+        setNicheSearchActorConfigured(configured);
+        if (isNicheSearchUnconfigured(discoveryCriterion, configured)) {
+          setDiscoveryRan(true);
+          return;
+        }
+      } catch {
+        // Checklist lookup is best-effort UX; an unconfigured actor still degrades cleanly to an
+        // empty, non-throwing "Ran" result at the discovery chain itself, so we do not block on it.
+      }
+    }
+
+    setIsDiscovering(true);
+    try {
+      const client = clients.find((c) => c.id === selectedClientId) ?? null;
+      const networkSources = searchNetwork ? [searchNetwork] : networkOptions.map((n) => n.value);
+
+      const session = await startContentWorkflow(
+        selectedOrganizationId,
+        {
+          clientId: selectedClientId,
+          clientName: client?.name ?? "",
+          searchCriterion: discoveryCriterion,
+          strategyMode: searchStrategy as ContentWorkflowStrategyMode,
+          networkSources,
+        },
+        effectiveToken
+      );
+
+      const deadline = Date.now() + DISCOVERY_POLL_TIMEOUT_MS;
+      let status = session.status;
+      while (status !== "completed" && Date.now() < deadline) {
+        await sleep(DISCOVERY_POLL_INTERVAL_MS);
+        const statusResponse = await getContentWorkflowStatus(
+          selectedOrganizationId,
+          session.workflowId,
+          effectiveToken
+        );
+        status = statusResponse.status;
+      }
+
+      const page = await listContentWorkflowResults(
+        selectedOrganizationId,
+        session.workflowId,
+        1,
+        24,
+        effectiveToken
+      );
+      setDiscoveryCandidates(mapDiscoveryResultsToShortlistCandidates(page.items));
+      setDiscoveryRan(true);
+    } catch (e) {
+      const err = e as { message?: string };
+      setDiscoveryError(err?.message || "Discovery failed. Try again.");
+    } finally {
+      setIsDiscovering(false);
+    }
+  }
+
+  /**
+   * The shortlist already POSTed exactly once to the EXISTING single-analysis start endpoint
+   * (`analyzeSingleContent`) and hands us the returned analysis id here. From this point on it is
+   * the SAME overlay/poll path `loadVideoByUrl` uses after its own `analyzeSingleContent` call —
+   * intentionally duplicated rather than factored out, to avoid touching that already-working path.
+   */
+  async function handleDiscoveryAnalysisStarted(analysisId: string) {
+    setDuplicateAnalysisPrompt(null);
     setIsLoading(true);
     resetVideoState();
     setIsSavedAnalysisView(false);
-    await sleep(700);
+    setAnalysisStatus("Requested");
+    pollCancelRef.current = false;
     try {
-      const result = getMockVideoBySearch(
-        selectedOrganizationId,
-        searchQuery.trim(),
-        searchNetwork,
-        searchStrategy
-      );
+      const final = await pollUntilTerminal(analysisId);
+      if (!final) return; // cancelled (component unmounted)
+
+      if (final.status === "Failed") {
+        if (final.snapshot) {
+          const partial = mapBackendResponseToResult(final, selectedOrganizationId);
+          setVideoResult(partial);
+        }
+        setError({
+          code: final.failureCode ?? "social.single_analyzer.analysis_failed",
+          message: final.failureMessageKey ?? "Analysis failed. Please try again.",
+        });
+        return;
+      }
+
+      const result = mapBackendResponseToResult(final, selectedOrganizationId);
       setVideoResult(result);
-    } catch {
-      setError({ message: "Search failed. Try a different keyword." });
+      setSelectedClientId(final.clientId ?? "");
+      setIsAnalyzed(true);
+      void loadHistory({ silent: true });
+    } catch (e) {
+      const err = e as { message?: string; problem?: Record<string, unknown> };
+      const code = typeof err.problem?.code === "string" ? err.problem.code : undefined;
+      setError({
+        code,
+        message:
+          err?.message ||
+          "Analysis failed. The URL may be unsupported or the backend took too long. Try again.",
+      });
     } finally {
       setIsLoading(false);
+      setAnalysisStatus(null);
     }
+  }
+
+  function handleDiscoveryError(message: string) {
+    setDiscoveryError(message);
   }
 
   async function runAnalysis() {
@@ -2581,6 +2726,36 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                   </div>
                 ) : (
                   <div className="space-y-2">
+                    {/* Discovery shortlist (WU-7, design D8/§8.2): runs the real discovery chain for
+                        the selected client + criterion through the EXISTING content-workflow
+                        endpoints; the operator selects EXACTLY ONE candidate for instant analysis
+                        through the EXISTING single-analysis start+poll path (no new backend transport). */}
+                    <div className="flex gap-2">
+                      <Select
+                        size="sm"
+                        className="w-40"
+                        value={selectedClientId}
+                        onChange={(e) => changeClientContext(e.target.value)}
+                        disabled={clientsLoading || clients.length === 0}
+                      >
+                        <option value="">Select a client…</option>
+                        {clients.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </Select>
+                      <Select
+                        size="sm"
+                        className="w-36"
+                        value={discoveryCriterion}
+                        onChange={(e) =>
+                          setDiscoveryCriterion(e.target.value as "references" | "own" | "niche")
+                        }
+                      >
+                        {DISCOVERY_CRITERION_OPTIONS.map((c) => (
+                          <option key={c.value} value={c.value}>{c.label}</option>
+                        ))}
+                      </Select>
+                    </div>
                     <div className="flex gap-2">
                       <Select
                         size="sm"
@@ -2603,24 +2778,58 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                           <option key={s.value} value={s.value}>{s.label}</option>
                         ))}
                       </Select>
-                    </div>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Search by keyword or topic…"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && void findBestMatch()}
-                        className="h-8 text-xs flex-1"
-                      />
                       <Button
                         size="sm"
-                        onClick={() => void findBestMatch()}
-                        disabled={isLoading || !searchQuery.trim()}
+                        onClick={() => void runDiscovery()}
+                        disabled={isDiscovering || !selectedClientId}
                         className="h-8 px-3 text-xs"
                       >
-                        {isLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+                        {isDiscovering ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+                        Discover
                       </Button>
                     </div>
+
+                    {!selectedClientId && (
+                      <p className="text-xs text-muted-foreground/70">
+                        Select a client to discover candidates for.
+                      </p>
+                    )}
+
+                    {discoveryError && (
+                      <p className="text-xs text-destructive">{discoveryError}</p>
+                    )}
+
+                    {isNicheSearchUnconfigured(discoveryCriterion, nicheSearchActorConfigured ?? false) && (
+                      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                          <p className="text-xs text-foreground">
+                            Niche search isn&apos;t configured yet. Configure a TikTok niche-search
+                            actor under Single Analyzer to use this stage.
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => router.push("/settings/integrations")}
+                        >
+                          Go to Settings / Integrations
+                        </Button>
+                      </div>
+                    )}
+
+                    {!videoResult &&
+                      discoveryRan &&
+                      !isNicheSearchUnconfigured(discoveryCriterion, nicheSearchActorConfigured ?? false) && (
+                        <ContentDiscoveryShortlist
+                          candidates={discoveryCandidates}
+                          clientId={selectedClientId || undefined}
+                          token={effectiveToken}
+                          onAnalysisStarted={(analysisId) => void handleDiscoveryAnalysisStarted(analysisId)}
+                          onError={handleDiscoveryError}
+                        />
+                      )}
                   </div>
                 )}
               </CardContent>

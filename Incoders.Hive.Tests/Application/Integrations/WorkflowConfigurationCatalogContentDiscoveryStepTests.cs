@@ -4,17 +4,19 @@ using Incoders.Hive.Domain.Integrations;
 namespace Incoders.Hive.Tests.Application.Integrations;
 
 /// <summary>
-/// WU-6 RED tests (task 6.10) for the <c>content-discovery</c> analysis type and its
-/// <c>discover-niche-content</c> step, added under the EXISTING <c>generator</c> workflow key
-/// (design D11 — not a new top-level workflow key, so the settings selector, which is built from
-/// checklist groups, renders the stage without a new group). Refs: INT-DISC-02.
+/// WU-6 tests for the <c>content-discovery</c> analysis type and its <c>discover-niche-content</c>
+/// step, placed under the EXISTING <c>single-analyzer</c> workflow key (corrected placement — see
+/// design D11 amendment): once the operator-selected candidate becomes a
+/// <c>SingleContentAnalysis</c>, the downstream pipeline (AI analysis, generation, optional imagery)
+/// is IDENTICAL to the by-URL <c>content-analysis</c> flow, so it reuses the SAME configuration
+/// rather than duplicating the AI steps. Refs: INT-DISC-02, INT-DISC-03.
 /// </summary>
 public sealed class WorkflowConfigurationCatalogContentDiscoveryStepTests
 {
     [Fact]
-    public void DiscoverNicheContentStep_IsPresent_UnderExistingGeneratorWorkflow()
+    public void DiscoverNicheContentStep_IsPresent_UnderSingleAnalyzerWorkflow()
     {
-        var step = WorkflowConfigurationCatalog.FindStep("generator", "content-discovery", "discover-niche-content");
+        var step = WorkflowConfigurationCatalog.FindStep("single-analyzer", "content-discovery", "discover-niche-content");
 
         Assert.NotNull(step);
     }
@@ -22,26 +24,31 @@ public sealed class WorkflowConfigurationCatalogContentDiscoveryStepTests
     [Fact]
     public void DiscoverNicheContentStep_CarriesTheNicheSearchOperationKey()
     {
-        var step = WorkflowConfigurationCatalog.FindStep("generator", "content-discovery", "discover-niche-content");
+        var step = WorkflowConfigurationCatalog.FindStep("single-analyzer", "content-discovery", "discover-niche-content");
 
         Assert.NotNull(step);
         Assert.Equal("niche-search", step!.OperationKey);
     }
 
     [Fact]
-    public void DiscoverNicheContentStep_RequiresNetwork_SupportingOnlyTikTok()
+    public void DiscoverNicheContentStep_RequiresNetwork_SupportingTheSameNetworksAsScrapeVideo()
     {
-        var step = WorkflowConfigurationCatalog.FindStep("generator", "content-discovery", "discover-niche-content");
+        var step = WorkflowConfigurationCatalog.FindStep("single-analyzer", "content-discovery", "discover-niche-content");
 
         Assert.NotNull(step);
         Assert.True(step!.RequiresNetwork);
-        Assert.Equal(["tiktok"], step.SupportedNetworkKeys);
+
+        // The CONFIGURATION surface matches scrape-video's: restricting it to TikTok would be
+        // artificial. What is genuinely limited today is which per-network discovery adapter
+        // exists (only TikTok) — that adapter gap degrades through Unconfigured/unsupported at
+        // runtime, never here at the catalog level.
+        Assert.Equal(["instagram", "tiktok", "youtube"], step.SupportedNetworkKeys);
     }
 
     [Fact]
     public void DiscoverNicheContentStep_AllowsOnlyDataExtractionApifyProviders()
     {
-        var step = WorkflowConfigurationCatalog.FindStep("generator", "content-discovery", "discover-niche-content");
+        var step = WorkflowConfigurationCatalog.FindStep("single-analyzer", "content-discovery", "discover-niche-content");
 
         Assert.NotNull(step);
         Assert.Contains(IntegrationProviderCategory.DataExtraction, step!.AllowedProviderCategories);
@@ -51,7 +58,7 @@ public sealed class WorkflowConfigurationCatalogContentDiscoveryStepTests
     [Fact]
     public void DiscoverNicheContentStep_SupportsActorSelection_WithTheNicheSearchVariantKey()
     {
-        var step = WorkflowConfigurationCatalog.FindStep("generator", "content-discovery", "discover-niche-content");
+        var step = WorkflowConfigurationCatalog.FindStep("single-analyzer", "content-discovery", "discover-niche-content");
 
         Assert.NotNull(step);
         Assert.True(step!.SupportsActorSelection);
@@ -61,23 +68,54 @@ public sealed class WorkflowConfigurationCatalogContentDiscoveryStepTests
     [Fact]
     public void DiscoverNicheContentStep_DoesNotSupportModelSelection()
     {
-        var step = WorkflowConfigurationCatalog.FindStep("generator", "content-discovery", "discover-niche-content");
+        var step = WorkflowConfigurationCatalog.FindStep("single-analyzer", "content-discovery", "discover-niche-content");
 
         Assert.NotNull(step);
         Assert.False(step!.SupportsModelSelection);
     }
 
     [Fact]
-    public void ContentDiscoveryAnalysisType_IsUnderGeneratorWorkflow_NotANewTopLevelKey()
+    public void ContentDiscoveryAnalysisType_IsUnderSingleAnalyzerWorkflow_NotANewTopLevelKey()
     {
         var workflows = WorkflowConfigurationCatalog.Workflows;
 
-        // D11: reusing the existing "generator" key rather than introducing a new one.
+        // D11 (corrected): reusing the existing "single-analyzer" key, sibling to "content-analysis",
+        // rather than the "generator" key or a new one — same pipeline, same configuration.
         Assert.Equal(["single-analyzer", "generator"], workflows.Select(x => x.Key));
 
-        var generator = WorkflowConfigurationCatalog.FindWorkflow("generator");
-        Assert.NotNull(generator);
-        Assert.Contains(generator!.AnalysisTypes, x => x.Key == "content-discovery");
+        var singleAnalyzer = WorkflowConfigurationCatalog.FindWorkflow("single-analyzer");
+        Assert.NotNull(singleAnalyzer);
+        Assert.Contains(singleAnalyzer!.AnalysisTypes, x => x.Key == "content-discovery");
+    }
+
+    [Fact]
+    public void ContentDiscoveryAnalysisType_HasOnlyTheDiscoveryStep_NoDuplicatedAiSteps()
+    {
+        var analysisType = WorkflowConfigurationCatalog.FindAnalysisType("single-analyzer", "content-discovery");
+
+        Assert.NotNull(analysisType);
+
+        // Same pipeline ⇒ one configuration: analyze/generate/image steps live only under
+        // content-analysis and MUST NOT be duplicated here.
+        Assert.Equal(["discover-niche-content"], analysisType!.Steps.Select(x => x.Key));
+    }
+
+    [Fact]
+    public void AiSteps_StillPresent_UnderContentAnalysis_NotDuplicated()
+    {
+        Assert.NotNull(WorkflowConfigurationCatalog.FindStep("single-analyzer", "content-analysis", "analyze-content"));
+        Assert.NotNull(WorkflowConfigurationCatalog.FindStep("single-analyzer", "content-analysis", "generate-content"));
+        Assert.NotNull(WorkflowConfigurationCatalog.FindStep("single-analyzer", "content-analysis", "generate-image"));
+
+        Assert.Null(WorkflowConfigurationCatalog.FindStep("single-analyzer", "content-discovery", "analyze-content"));
+        Assert.Null(WorkflowConfigurationCatalog.FindStep("single-analyzer", "content-discovery", "generate-content"));
+        Assert.Null(WorkflowConfigurationCatalog.FindStep("single-analyzer", "content-discovery", "generate-image"));
+    }
+
+    [Fact]
+    public void ContentDiscoveryAnalysisType_IsNoLongerUnderGeneratorWorkflow()
+    {
+        Assert.Null(WorkflowConfigurationCatalog.FindAnalysisType("generator", "content-discovery"));
     }
 
     [Fact]

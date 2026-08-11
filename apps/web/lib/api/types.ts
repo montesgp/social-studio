@@ -282,6 +282,30 @@ export interface OrganizationAiModelsResponse {
   models: OrganizationAiModel[];
 }
 
+export interface OrganizationActor {
+  id: string;
+  organizationId: string;
+  organizationIntegrationId: string;
+  providerKey: string;
+  actorId: string;
+  name: string;
+  username: string;
+  /** "username/name" — the addressable form stored in the connector's actor-mapping rows. */
+  slug: string;
+  displayName: string;
+  /** True for actors the connected account owns; false for public-store actors it merely uses. */
+  isOwned: boolean;
+  isAvailable: boolean;
+  syncedAtUtc: string;
+}
+
+export interface OrganizationActorsResponse {
+  organizationId: string;
+  providerKey: string;
+  lastSyncedAtUtc: string | null;
+  actors: OrganizationActor[];
+}
+
 export interface WorkflowStepConfiguration {
   id: string;
   organizationId: string;

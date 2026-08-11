@@ -9,6 +9,8 @@ public static class ContentWorkflowCatalog
         ["references"] = "references",
         ["reference"] = "references",
         ["referentes"] = "references",
+        ["own"] = "own",
+        ["propios"] = "own",
         ["viral"] = "viral",
         ["virales"] = "viral",
         ["competitors"] = "competitors",

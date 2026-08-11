@@ -75,6 +75,15 @@ public sealed class ExternalProviderClientFactory : IExternalProviderClientFacto
             };
         }
 
+        if (clientType == typeof(IActorCatalogClient))
+        {
+            return normalized switch
+            {
+                "apify" => typeof(ApifyActorCatalogClient),
+                _ => null,
+            };
+        }
+
         if (clientType == typeof(ISocialContentExtractor))
         {
             return normalized switch

@@ -395,37 +395,8 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
     internal static IReadOnlyList<string> GetAllMappedActors(
         string actorMappingsJson,
         string networkKey,
-        string variantKey)
-    {
-        try
-        {
-            var mappings = JsonSerializer.Deserialize<List<ApifyActorMappingEntry>>(
-                actorMappingsJson, JsonOptions) ?? [];
-
-            var matches = mappings
-                .Where(m =>
-                    !string.IsNullOrWhiteSpace(m.ActorId)
-                    && Matches(m.NetworkKey, networkKey)
-                    && Matches(m.VariantKey, variantKey))
-                .ToList();
-
-            if (matches.Count == 0)
-            {
-                return [];
-            }
-
-            // Primary first, then the remaining in original array order.
-            // OrderBy is stable: non-primary entries preserve their relative JSON order.
-            return matches
-                .OrderByDescending(m => m.IsPrimary)
-                .Select(m => m.ActorId.Trim())
-                .ToList();
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
-    }
+        string variantKey) =>
+        ApifyActorMappingLookup.GetAllMappedActors(actorMappingsJson, networkKey, variantKey);
 
     private static Result<ProviderFailureDiagnostic> CreateDiagnostic(
         string actorId,
@@ -451,15 +422,6 @@ public sealed class ApifyProfileScrapeResolver : IProfileScrapeResolver
             >= 500 => IntegrationErrors.ExternalProviderUnavailable,
             _ => IntegrationErrors.ExternalProviderUnavailable,
         };
-
-    private static bool Matches(string? value, string expected) =>
-        string.Equals(value?.Trim(), expected.Trim(), StringComparison.OrdinalIgnoreCase);
-
-    private sealed record ApifyActorMappingEntry(
-        string NetworkKey,
-        string VariantKey,
-        string ActorId,
-        bool IsPrimary = false);
 
     // ── Test helpers ──────────────────────────────────────────────────────────
 

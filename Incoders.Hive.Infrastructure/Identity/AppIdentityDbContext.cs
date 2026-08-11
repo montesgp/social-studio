@@ -48,6 +48,8 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<OrganizationAiModelData> OrganizationAiModels => Set<OrganizationAiModelData>();
 
+    public DbSet<OrganizationActorData> OrganizationActors => Set<OrganizationActorData>();
+
     public DbSet<OrganizationWorkflowStepConfigurationData> OrganizationWorkflowStepConfigurations => Set<OrganizationWorkflowStepConfigurationData>();
 
     public DbSet<SocialNetworkData> SocialNetworks => Set<SocialNetworkData>();
@@ -97,6 +99,10 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
     public DbSet<PublicationAttemptData> PublicationAttempts => Set<PublicationAttemptData>();
 
     public DbSet<ClientAccountConnectionData> ClientAccountConnections => Set<ClientAccountConnectionData>();
+
+    public DbSet<DiscoveredCandidateData> DiscoveredCandidates => Set<DiscoveredCandidateData>();
+
+    public DbSet<AccountBaselineData> AccountBaselines => Set<AccountBaselineData>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -394,6 +400,45 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasIndex(x => new { x.OrganizationId, x.ProviderId, x.ModelId })
                 .IsUnique()
                 .HasDatabaseName("ix_organization_ai_models_org_provider_model");
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.OrganizationIntegration)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationIntegrationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Provider)
+                .WithMany()
+                .HasForeignKey(x => x.ProviderId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<OrganizationActorData>(entity =>
+        {
+            entity.ToTable("organization_actors", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.OrganizationIntegrationId).HasColumnName("organization_integration_id").IsRequired();
+            entity.Property(x => x.ProviderId).HasColumnName("provider_id").IsRequired();
+            entity.Property(x => x.ProviderKey).HasColumnName("provider_key").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ActorId).HasColumnName("actor_id").HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Username).HasColumnName("username").HasMaxLength(200).IsRequired();
+            entity.Property(x => x.DisplayName).HasColumnName("display_name").HasMaxLength(240).IsRequired();
+            entity.Property(x => x.MetadataJson).HasColumnName("metadata_json").IsRequired();
+            entity.Property(x => x.IsOwned).HasColumnName("is_owned").IsRequired();
+            entity.Property(x => x.IsAvailable).HasColumnName("is_available").IsRequired();
+            entity.Property(x => x.SyncedAtUtc).HasColumnName("synced_at_utc").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasIndex(x => new { x.OrganizationId, x.ProviderId, x.ActorId })
+                .IsUnique()
+                .HasDatabaseName("ix_organization_actors_org_provider_actor");
 
             entity.HasOne(x => x.Organization)
                 .WithMany()
@@ -928,6 +973,79 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasOne(x => x.Job)
                 .WithMany(x => x.FormatResults)
                 .HasForeignKey(x => x.JobId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<DiscoveredCandidateData>(entity =>
+        {
+            entity.ToTable("discovered_candidates", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.CandidateKey).HasColumnName("candidate_key").HasMaxLength(1024).IsRequired();
+            entity.Property(x => x.NetworkKey).HasColumnName("network_key").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.SourceKey).HasColumnName("source_key").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.SearchCriterion).HasColumnName("search_criterion").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ContentUrl).HasColumnName("content_url").HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.AuthorHandle).HasColumnName("author_handle").HasMaxLength(256).IsRequired();
+            entity.Property(x => x.Title).HasColumnName("title").HasMaxLength(1000).IsRequired();
+            entity.Property(x => x.Summary).HasColumnName("summary");
+            entity.Property(x => x.ThumbnailUrl).HasColumnName("thumbnail_url").HasMaxLength(2048);
+            entity.Property(x => x.PublishedAt).HasColumnName("published_at");
+            entity.Property(x => x.Views).HasColumnName("views");
+            entity.Property(x => x.Likes).HasColumnName("likes");
+            entity.Property(x => x.Comments).HasColumnName("comments");
+            entity.Property(x => x.Shares).HasColumnName("shares");
+            entity.Property(x => x.Saves).HasColumnName("saves");
+            entity.Property(x => x.OpportunityScore).HasColumnName("opportunity_score");
+            entity.Property(x => x.Classification).HasColumnName("classification");
+            entity.Property(x => x.ObservedAt).HasColumnName("observed_at").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+
+            // Identity lookup — "has this content been observed before, and when".
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId, x.CandidateKey })
+                .HasDatabaseName("ix_discovered_candidates_org_client_key");
+
+            // History reads AND the future ranged purge (D9) — this table grows unbounded by design in
+            // this change; a later purge is a one-line ranged delete keyed on this index.
+            entity.HasIndex(x => new { x.OrganizationId, x.ObservedAt })
+                .HasDatabaseName("ix_discovered_candidates_org_observed");
+
+            // A double-write of the SAME candidate inside the SAME run is a hard error, not a silent
+            // duplicate (CD-08).
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId, x.CandidateKey, x.ObservedAt })
+                .IsUnique()
+                .HasDatabaseName("ux_discovered_candidates_key_observed");
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<AccountBaselineData>(entity =>
+        {
+            entity.ToTable("account_baselines", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.NetworkKey).HasColumnName("network_key").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.AuthorHandle).HasColumnName("author_handle").HasMaxLength(256).IsRequired();
+            entity.Property(x => x.MedianViews).HasColumnName("median_views");
+            entity.Property(x => x.MedianEngagement).HasColumnName("median_engagement");
+            entity.Property(x => x.PostCount).HasColumnName("post_count").IsRequired();
+            entity.Property(x => x.ComputedAt).HasColumnName("computed_at").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+
+            // The upsert target (design §5.2). No client_id anywhere on this table: a baseline is a
+            // property of the author, not of whichever client discovered them.
+            entity.HasIndex(x => new { x.OrganizationId, x.NetworkKey, x.AuthorHandle })
+                .IsUnique()
+                .HasDatabaseName("ux_account_baselines_org_network_handle");
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

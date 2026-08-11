@@ -38,7 +38,7 @@ change (new Application port family + new persistence model + DI registration re
 | **D8** | Analysing the chosen candidate (CD-10, OQ-6 now moot) | **Single selection reuses the existing path verbatim**: the frontend sends the selected candidate's `ContentUrl` to the existing `AnalyzeSingleContentCommand` endpoint and polls the existing status endpoint, rendering the existing overlay. **No new Application command, no new endpoint, no new queue usage authored by this change.** | The "screen-blocking progress bar" is not a synchronous HTTP call: `AnalyzeSingleContentHandler` does `StartAsync` → `ISingleAnalysisJobQueue.EnqueueAsync` → return id, and `single-analyzer-client.tsx` polls `GET` every 2500 ms (`POLL_INTERVAL_MS`) mapping `SingleContentAnalysisStatus` onto `ANALYSIS_STEPS`. Reusing *that* is literally "the same UX"; anything synchronous would be a second mechanism. |
 | **D9** | Retention (OQ-4) | No purge in this change; index `(organization_id, observed_at)` so a later purge is one ranged delete | A purge policy with no operator-visible growth data yet would be guesswork. Named follow-up. |
 | **D10** | Domain | **Untouched — confirmed** (§9) | Candidates carry no invariant and no lifecycle. Revisit trigger named. |
-| **D11** | Where the discovery stage is configured (CD-12, INT-DISC-02/03) | New **analysis type** `content-discovery` under the **existing `generator` workflow key**, holding the `discover-niche-content` step — *not* a new top-level workflow key | The settings selector is built from `checklistGroups` (`integrations-settings-client.tsx:519-530`), today `single-analyzer` + `generator` (`GetOrganizationIntegrationsHandler.cs:134-138`). A key with no group renders "not configurable yet" — the trap at `WorkflowConfigurationCatalog.cs:123-126`. Reusing `generator` makes INT-DISC-03 true **by construction** and cannot regress. Analysis types render inside the selected workflow (`integrations-settings-client.tsx:1844`), so the stage is visible the day it lands. Discovery already has a sibling step under `generator` (`discover-reference-content`). |
+| **D11** (corrected) | Where the discovery stage is configured (CD-12, INT-DISC-02/03) | New **analysis type** `content-discovery` under the **existing `single-analyzer` workflow key**, holding ONLY the `discover-niche-content` step — sibling of `content-analysis`/`profile-analysis`, *not* a new top-level workflow key and *not* placed under `generator` | Once the operator-selected candidate becomes a `SingleContentAnalysis`, the downstream pipeline (`CreateContentGenerationBatchCommand`, `GenerateContentPackageCommand`) anchors to that `AnalysisId`, not to a URL — it is IDENTICAL to the by-URL `content-analysis` flow. Same pipeline ⇒ SAME configuration: the `analyze-content`/`generate-content`/`generate-image` steps are reused from `content-analysis`, never duplicated. (An earlier iteration placed this under `generator` and duplicated those three AI steps to make the group self-sufficient — rejected: the operator would have to configure the same AI providers twice, and the settings UI would hide the stage under the wrong tool.) The settings selector is built from `checklistGroups` (`integrations-settings-client.tsx:519-530`), today `single-analyzer` + `generator` (`GetOrganizationIntegrationsHandler.cs:134-138`); a workflow key with no matching group still renders "not configurable yet" — the trap at `WorkflowConfigurationCatalog.cs:123-126` — but `single-analyzer` already has one. Analysis types render inside the selected workflow (`integrations-settings-client.tsx:1844`), so the stage is visible under Single Analyzer, where the operator actually looks for it. |
 | **D12** | Unconfigured ≠ empty (CD-13) | **`ContentDiscoveryPlan` gains `UnconfiguredSourceKeys`** — a third list, distinct from `FailedSourceKeys` | Confirmed, not assumed: `FailedSourceKeys` alone cannot carry it. "Actor mapping absent" and "Apify returned 500" are the same key in the same list, so the operator cannot be told *"configure this stage"* rather than *"the provider is down"*. One extra list is cheaper than an error taxonomy the UI would have to parse. |
 | **D13** | Actor identity (CD-12, INT-DISC-01/04) | **No literal actor id exists anywhere in Application or Infrastructure** — including tests, fixtures' filenames and the adapter. Resolution is `(networkKey="tiktok", variantKey="niche-search")` → `actor_mappings_json`, exactly `ApifyProfileScrapeResolver.cs:146-163`, which returns a structured failure on an empty mapping instead of substituting a default | The house pattern already refuses to invent an actor. A code-level default would make every organization silently depend on one vendor actor and would make the operator's configuration a lie. |
 
@@ -379,16 +379,20 @@ This is the case the first pass left unstated, and it is not the same as "unconf
 
 ## 8. Configuration-driven routing, and the single selected analysis
 
-### 8.1 Where the operator configures the discovery actor (D11, D13 — CD-12, INT-DISC-02/03/04)
+### 8.1 Where the operator configures the discovery actor (D11 corrected, D13 — CD-12, INT-DISC-02/03/04)
 
 New `ActorVariantKey` `"niche-search"`, carried by the existing generic `(networkKey, variantKey)` → actor-id mapping
-with **no framework change**. A new **analysis type** is added to the **existing `generator` workflow key** — chosen
-over a new top-level workflow key precisely because the selector is built from checklist groups:
+with **no framework change**. A new **analysis type** is added to the **existing `single-analyzer` workflow key**, as a
+sibling of `content-analysis`/`profile-analysis` — chosen because the discovery step feeds the SAME downstream pipeline
+as `content-analysis` once a candidate is selected, so it must share the SAME AI-step configuration rather than
+duplicate it:
 
 ```
-generator                          (existing key — already has a checklist group, so it is already selectable)
+single-analyzer                    (existing key — already has a checklist group, so it is already selectable)
+├── content-analysis               (existing — by URL: scrape-video, analyze-content, generate-content, generate-image)
+├── profile-analysis               (existing)
 └── content-discovery              NEW WorkflowAnalysisTypeDefinition, label "Content discovery"
-    └── discover-niche-content     NEW WorkflowStepDefinition
+    └── discover-niche-content     NEW WorkflowStepDefinition — the ONLY step; no duplicated AI steps
         operationKey "niche-search", operationLabel "Niche search",
         RequiresNetwork: true, SupportedNetworkKeys: ["tiktok"],
         AllowedProviderCategories: [DataExtraction], AllowedProviderKeys: ["apify"],
@@ -400,7 +404,7 @@ Resolution at run time — the **only** way an actor id enters the process:
 ```
 ApifyNicheSearchResolver
   └─ IWorkflowConfigurationResolver.ResolveStepAsync(
-         WorkflowStepResolutionRequest(orgId, "generator", "content-discovery",
+         WorkflowStepResolutionRequest(orgId, "single-analyzer", "content-discovery",
                                        "discover-niche-content", "niche-search", "tiktok"))
      → WorkflowStepRouteCandidate[]  →  .Where(IsEnabled).OrderBy(Priority).FirstOrDefault()
         null / no ActorId  →  fall back to GetAllMappedActors(actor_mappings_json, "tiktok", "niche-search")
@@ -409,20 +413,25 @@ ApifyNicheSearchResolver
         otherwise          →  dispatch in order, then §7.1 shape rules
 ```
 
-**Why `generator` and not a new key (INT-DISC-03, satisfied by construction).** `integrations-settings-client.tsx:519-530`
-builds `workflowOptions` from `overview.checklistGroups`, which `GetOrganizationIntegrationsHandler.cs:134-138` returns
-as exactly `single-analyzer` + `generator`. A third workflow key would need a third checklist group whose items would
-be verbatim copies of the generator's ("Connect Apify or Data365", "Connect an AI model provider") — new surface, no
-new information, and one forgotten line away from the "not configurable yet" trap documented at
-`WorkflowConfigurationCatalog.cs:123-126`. Analysis types render inside the selected workflow
-(`integrations-settings-client.tsx:1844`), so `content-discovery` appears the moment the catalog entry lands.
-**Rejected alternative**: a new `discovery` workflow key with its own group — better conceptual separation, but it buys
-a duplicated checklist and a new way to regress a trap this project has already been bitten by once.
+**Why `single-analyzer` and not `generator` (corrected; INT-DISC-03 still satisfied by construction).** Once the
+operator selects one discovered candidate, it becomes a `SingleContentAnalysis` and the rest of the pipeline
+(`CreateContentGenerationBatchCommand`, `GenerateContentPackageCommand`) anchors to that `AnalysisId` — identical to
+the by-URL flow already configured under `single-analyzer`/`content-analysis`. Placing discovery under `generator`
+would have forced a duplicate of `analyze-content`/`generate-content`/`generate-image` (a second, redundant AI-provider
+configuration for the operator to maintain) purely so the `generator` checklist group would render the stage — a
+mechanical UI justification, not a product one. `single-analyzer` already has a checklist group, so no new group is
+needed and no AI steps are duplicated: `content-discovery` reuses `content-analysis`'s AI steps by construction, and
+the settings UI shows the discovery stage where the operator actually looks for a Single Analyzer input — under Single
+Analyzer.
+**Rejected alternatives**: (a) the original `generator` placement — rejected because it forces double AI-provider
+configuration; (b) a new `discovery` workflow key with its own group — rejected for the same duplicated-checklist
+reason documented in the original D11.
 
-**Operator visibility, additive.** One checklist **item** is appended to the existing `generatorChecklist`:
-`("generator-niche-search-actor", "Configure a TikTok niche-search actor", Required: false, …)`, satisfied when an
-enabled `(tiktok, niche-search)` route resolves. Optional, not required — discovery still works on `references`/`own`
-with the niche stage unconfigured; the item is the operator's pointer to the stage, not a gate.
+**Operator visibility, additive.** One checklist **item** is appended to the existing `singleAnalyzerChecklist`:
+`("single-analyzer-niche-search-actor", "Configure a TikTok niche-search actor", Required: false, …)`, satisfied when
+an enabled `(single-analyzer, content-discovery, discover-niche-content, niche-search, tiktok)` route resolves.
+Optional, not required — discovery still works on `references`/`own` with the niche stage unconfigured; the item is
+the operator's pointer to the stage, not a gate.
 
 **Seed, not fallback (INT-DISC-02).** A placeholder `(tiktok, niche-search)` mapping MAY be seeded as **data** so the
 configuration surface is non-empty. It is fully editable and removable; clearing it degrades to `Unconfigured`, never
@@ -512,8 +521,8 @@ process integration. The only new external surface is one HTTPS call to Apify th
 | Unit | `TikTokNicheSearchAdapter.MapItem` | Against the §7 recorded fixture — **no live calls** |
 | Unit | `TikTokNicheSearchAdapter`: unmappable item is skipped; **zero-of-many mapped → `Failed`**; partial → `Ran` (§7.1) | Mutated copies of the recorded fixture |
 | Unit | `ApifyNicheSearchResolver`: configured route → that id; **no enabled route → `Unconfigured`, no id substituted** (CD-12) | Fake `IWorkflowConfigurationResolver` + recorded `actor_mappings_json`; the `ApifyProfileScrapeResolverTests` pattern |
-| Unit | Catalog: `generator`/`content-discovery`/`discover-niche-content` resolves and carries `ActorVariantKey: "niche-search"` | `WorkflowConfigurationCatalog.FindStep` |
-| Unit | `GetOrganizationIntegrationsHandler` returns a `generator` checklist group containing the niche-search item (INT-DISC-03) | Existing handler test host |
+| Unit | Catalog: `single-analyzer`/`content-discovery`/`discover-niche-content` resolves and carries `ActorVariantKey: "niche-search"`; `content-discovery` carries no duplicated `analyze-content`/`generate-content`/`generate-image` steps | `WorkflowConfigurationCatalog.FindStep` / `FindAnalysisType` |
+| Unit | `GetOrganizationIntegrationsHandler` returns a `single-analyzer` checklist group containing the niche-search item (INT-DISC-03) | Existing handler test host |
 | Unit | `ApifyActorMappingBackfill.Transform` **never** emits `niche-search` (INT-DISC-04) | Legacy `default`/empty entries in, assert absent out; existing `profile`/`social-extraction` unaffected |
 | **Guard** | **No literal actor id in shipped source** (CD-12/D13) | Repository-wide assertion over `Incoders.Hive.Application` + `Incoders.Hive.Infrastructure` sources: no Apify actor-id-shaped literal (17-char alphanumeric token, and no `"clockworks/…"`) outside test fixtures. Written RED first — it is the assertion that makes "no forced actor" enforceable rather than aspirational |
 | Unit | `AccountBaselineProvider`: fresh hit → 0 scrapes; stale → 1 recompute; ≤N scrapes for 100 candidates | Fake repository + counting resolver |
@@ -559,7 +568,7 @@ Commands: `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release
 |---|---|---|
 | Apify niche-search schema still unverified for whatever actor the operator configures | **High** | §7 schema spike blocks adapter code; §7.1 defines the unmappable-shape behavior; `playCount` absent = escalate, not ship |
 | A literal actor id creeping into code as a "temporary" convenience | **High** | CD-12/D13; the §11 repository-wide no-actor-literal guard, written RED first |
-| Discovery stage invisible in settings (the `WorkflowConfigurationCatalog.cs:123-126` trap) | Medium | D11 reuses the `generator` key, which already has a checklist group; asserted by the checklist-group test |
+| Discovery stage invisible in settings (the `WorkflowConfigurationCatalog.cs:123-126` trap) | Medium | D11 reuses the `single-analyzer` key, which already has a checklist group; asserted by the checklist-group test |
 | Operator cannot tell "unconfigured" from "found nothing" | Medium | D12 `UnconfiguredSourceKeys` as a distinct channel; disjointness asserted |
 | Silent DI override erasing the chain | **High** | Line 220 replaced; `GetServices<IContentDiscoveryService>().Count() == 1` written RED first |
 | Contract change ripples through consumers | **High (certain)** | One coordinated unit; compiler blocks partial application; §11 ordering |

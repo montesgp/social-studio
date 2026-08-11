@@ -50,7 +50,9 @@ import {
   getOrganizationIntegration,
   listIntegrationProviders,
   listOrganizationIntegrations,
+  listOrganizationActors,
   listWorkflowConfigurations,
+  syncOrganizationActors,
   syncOrganizationAiModels,
   testOrganizationIntegration,
   upsertWorkflowConfigurations
@@ -63,6 +65,7 @@ import {
   IntegrationProviderCategory,
   IntegrationStatus,
   Organization,
+  OrganizationActor,
   OrganizationIntegration,
   OrganizationIntegrationsOverview,
   SocialNetwork,
@@ -72,6 +75,7 @@ import {
   WorkflowStepConfigurationInput
 } from "@/lib/api/types";
 import { listSocialNetworks } from "@/lib/api/social-networks";
+import { buildActorSelectOptions, describeActor } from "@/lib/integrations/actor-catalog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -149,9 +153,13 @@ interface WorkflowStageDraft {
 }
 
 const apifyActorMappingsCredentialKey = "actor_mappings_json";
+// Must stay in sync with the ActorVariantKey values declared in WorkflowConfigurationCatalog.
+// A variant missing here cannot be mapped in the connector, which leaves every workflow step
+// routed to that variant with a permanently empty actor dropdown.
 const APIFY_VARIANT_OPTIONS: { value: string; label: string }[] = [
   { value: "social-extraction", label: "Análisis de contenido" },
-  { value: "profile", label: "Análisis de perfil" }
+  { value: "profile", label: "Análisis de perfil" },
+  { value: "niche-search", label: "Búsqueda por nicho" }
 ];
 
 interface WorkflowSelectOption {
@@ -442,6 +450,15 @@ interface IntegrationsSettingsClientProps {
  * add a provider key here (and its authorize helper) when another OAuth connector is introduced.
  */
 const OAUTH_CONNECT_PROVIDERS = new Set<string>(["canva"]);
+
+// Connectors whose available actors can be pulled from the provider account, exactly like the
+// AI-model sync. The synced catalog only FEEDS the actor picker — routing keeps living in the
+// connector's own actor-mapping rows.
+const ACTOR_SYNC_PROVIDERS = new Set<string>(["apify"]);
+
+// Sentinel option that lets an operator type an actor id the catalog does not contain, so an actor
+// that was never synced (or has just been created) stays routable.
+const MANUAL_ACTOR_OPTION = "__manual__";
 const SETTINGS_INTEGRATIONS_BLOCKING_LOADER_ID = "settings-integrations.initial-resources";
 
 export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSettingsClientProps) {
@@ -475,6 +492,13 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
   const [modal, setModal] = useState<ModalState | null>(null);
   const [deleteConfirmIntegration, setDeleteConfirmIntegration] = useState<OrganizationIntegration | null>(null);
   const [syncingModelsProviderKey, setSyncingModelsProviderKey] = useState<string | null>(null);
+  const [syncingActorsProviderKey, setSyncingActorsProviderKey] = useState<string | null>(null);
+  // Actor catalog of the connector currently open in the modal.
+  const [actorCatalog, setActorCatalog] = useState<OrganizationActor[]>([]);
+  // Same catalog, loaded for the workflow section so routes can show actor names instead of ids.
+  const [workflowActorCatalog, setWorkflowActorCatalog] = useState<OrganizationActor[]>([]);
+  // Rows the operator switched to manual actor entry (row id set).
+  const [manualActorRows, setManualActorRows] = useState<Record<string, boolean>>({});
   const [selectedWorkflowKey, setSelectedWorkflowKey] = useState<string>("single-analyzer");
   const [workflowRows, setWorkflowRows] = useState<WorkflowStepDraft[]>([]);
   const [workflowLoading, setWorkflowLoading] = useState(false);
@@ -657,6 +681,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     if (!isPlatformAdmin || !token || !selectedOrganizationId || !hasConnectedWorkflowApify) {
       workflowActorRequestIdRef.current += 1;
       setWorkflowApifyActors([]);
+      setWorkflowActorCatalog([]);
       setWorkflowActorsLoading(false);
       return;
     }
@@ -673,6 +698,21 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
         setWorkflowApifyActors(
           parseApifyActorMappings(integration.credentialValues?.[apifyActorMappingsCredentialKey])
         );
+
+        // Routes persist the canonical actor id, which is unreadable on its own. The synced catalog
+        // is what turns it into a name here, so it has to be loaded for the workflow section too and
+        // not only for the connector modal. A failure is silent: labels fall back to the raw id.
+        void listOrganizationActors(selectedOrganizationId, "apify", token)
+          .then((result) => {
+            if (requestId === workflowActorRequestIdRef.current) {
+              setWorkflowActorCatalog(result.actors);
+            }
+          })
+          .catch(() => {
+            if (requestId === workflowActorRequestIdRef.current) {
+              setWorkflowActorCatalog([]);
+            }
+          });
       })
       .catch((err) => {
         if (requestId !== workflowActorRequestIdRef.current) {
@@ -971,10 +1011,15 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
     const options = workflowApifyActors
       .filter((mapping) => mapping.networkKey === networkKey && mapping.variantKey === step.actorVariantKey)
-      .map((mapping) => ({
-        value: mapping.actorId,
-        label: mapping.isPrimary ? `${mapping.actorId} (primary)` : `${mapping.actorId} (fallback)`
-      }));
+      .map((mapping) => {
+        const described = describeActor(workflowActorCatalog, mapping.actorId);
+        const name = described === mapping.actorId ? mapping.actorId : `${described} — ${mapping.actorId}`;
+
+        return {
+          value: mapping.actorId,
+          label: mapping.isPrimary ? `${name} (primary)` : `${name} (fallback)`
+        };
+      });
 
     return appendCurrentOption(options, currentValue, `${currentValue} (not in connector)`);
   }
@@ -1359,6 +1404,48 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
     }
   }
 
+  /**
+   * Loads the last synced actor catalog for a connector. A failure is not surfaced as an error:
+   * the picker degrades to manual entry, which is exactly what the operator does today.
+   */
+  async function loadActorCatalog(providerKey: string) {
+    if (!selectedOrganizationId || !token || !ACTOR_SYNC_PROVIDERS.has(providerKey)) {
+      setActorCatalog([]);
+      return;
+    }
+
+    try {
+      const result = await listOrganizationActors(selectedOrganizationId, providerKey, token);
+      setActorCatalog(result.actors);
+    } catch {
+      setActorCatalog([]);
+    }
+  }
+
+  async function runActorSync(integration: OrganizationIntegration) {
+    if (!selectedOrganizationId || !token) {
+      return;
+    }
+
+    setSyncingActorsProviderKey(integration.providerKey);
+    setError(null);
+
+    try {
+      const result = await syncOrganizationActors(selectedOrganizationId, integration.providerKey, token);
+      setActorCatalog(result.actors);
+      toast.success(
+        "Actors synchronized",
+        `${integration.providerDisplayName}: ${result.actors.length} available actor(s).`
+      );
+    } catch (err) {
+      const message = (err as ApiError).message;
+      setError(message);
+      toast.error("Could not synchronize actors", message);
+    } finally {
+      setSyncingActorsProviderKey(null);
+    }
+  }
+
   function addApifyActorMapping() {
     const defaultNetworkKey = socialNetworkOptions[0]?.value ?? "";
     if (!defaultNetworkKey) {
@@ -1442,6 +1529,8 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
         credentials: detail.credentialValues ?? {},
         apifyActorMappings: parseApifyActorMappings(detail.credentialValues?.[apifyActorMappingsCredentialKey])
       });
+      setManualActorRows({});
+      await loadActorCatalog(detail.providerKey);
     } catch (err) {
       const message = (err as ApiError).message;
       setError(message);
@@ -2067,7 +2156,9 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                                       const routeTitle = [
                                         route.providerKey ? providerDisplayName(route.providerKey) : "",
                                         step?.supportsModelSelection ? route.modelId : "",
-                                        step?.supportsActorSelection ? route.actorId : ""
+                                        step?.supportsActorSelection
+                                          ? describeActor(workflowActorCatalog, route.actorId)
+                                          : ""
                                       ]
                                         .filter((value) => value && value.trim().length > 0)
                                         .join(" · ");
@@ -2261,6 +2352,22 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                             Sync models
                           </Button>
                         ) : null}
+                        {ACTOR_SYNC_PROVIDERS.has(integration.providerKey) && integration.status === "Connected" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void runActorSync(integration)}
+                            disabled={syncingActorsProviderKey === integration.providerKey}
+                          >
+                            <RefreshCcw
+                              className={cn(
+                                "h-4 w-4",
+                                syncingActorsProviderKey === integration.providerKey && "animate-spin"
+                              )}
+                            />
+                            Sync actors
+                          </Button>
+                        ) : null}
                         {integration.integrationId ? (
                           <Button variant="destructive" size="sm" onClick={() => setDeleteConfirmIntegration(integration)}>
                             <Unplug className="h-4 w-4" /> Delete config
@@ -2426,18 +2533,39 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                     <div>
                       <p className="text-sm font-medium">Actor routing</p>
                       <p className="text-xs text-muted-foreground">
-                        Map Apify actors by active social network.
+                        {actorCatalog.length > 0
+                          ? `Map Apify actors by active social network. ${actorCatalog.length} synchronized actor(s) available.`
+                          : "Map Apify actors by active social network. Sync actors to pick them from a list; manual entry always works."}
                       </p>
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={addApifyActorMapping}
-                      disabled={socialNetworkOptions.length === 0}
-                    >
-                      <Plus className="h-4 w-4" /> Add actor
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      {modal.integration.status === "Connected" ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void runActorSync(modal.integration)}
+                          disabled={syncingActorsProviderKey === modal.integration.providerKey}
+                        >
+                          <RefreshCcw
+                            className={cn(
+                              "h-4 w-4",
+                              syncingActorsProviderKey === modal.integration.providerKey && "animate-spin"
+                            )}
+                          />
+                          Sync actors
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={addApifyActorMapping}
+                        disabled={socialNetworkOptions.length === 0}
+                      >
+                        <Plus className="h-4 w-4" /> Add actor
+                      </Button>
+                    </div>
                   </div>
 
                   {socialNetworkOptions.length === 0 ? (
@@ -2459,6 +2587,10 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                       </div>
                       {modal.apifyActorMappings.map((mapping) => {
                         const isKnownNetwork = socialNetworkOptions.some((option) => option.value === mapping.networkKey);
+                        const actorOptions = buildActorSelectOptions(actorCatalog, mapping.actorId);
+                        // Manual entry stays reachable: an actor the catalog does not know (never
+                        // synced, or just created in Apify) must still be routable.
+                        const useManualActorEntry = actorOptions.length === 0 || manualActorRows[mapping.id] === true;
 
                         return (
                           <div key={mapping.id} className="grid gap-2 rounded-lg border border-border/70 p-2 md:grid-cols-[minmax(8rem,1fr)_minmax(10rem,1fr)_minmax(16rem,2fr)_auto_auto]">
@@ -2493,13 +2625,48 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
                                 </option>
                               ))}
                             </Select>
-                            <Input
-                              value={mapping.actorId}
-                              onChange={(event) =>
-                                patchApifyActorMapping(mapping.id, { actorId: event.target.value })
-                              }
-                              placeholder="Apify actor ID"
-                            />
+                            {useManualActorEntry ? (
+                              <div className="space-y-1">
+                                <Input
+                                  value={mapping.actorId}
+                                  onChange={(event) =>
+                                    patchApifyActorMapping(mapping.id, { actorId: event.target.value })
+                                  }
+                                  placeholder="Apify actor ID"
+                                />
+                                {actorOptions.length > 0 ? (
+                                  <button
+                                    type="button"
+                                    className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                                    onClick={() =>
+                                      setManualActorRows((prev) => ({ ...prev, [mapping.id]: false }))
+                                    }
+                                  >
+                                    Elegir del catálogo
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <Select
+                                value={mapping.actorId}
+                                onChange={(event) => {
+                                  if (event.target.value === MANUAL_ACTOR_OPTION) {
+                                    setManualActorRows((prev) => ({ ...prev, [mapping.id]: true }));
+                                    return;
+                                  }
+
+                                  patchApifyActorMapping(mapping.id, { actorId: event.target.value });
+                                }}
+                              >
+                                {!mapping.actorId.trim() ? <option value="">Seleccionar actor…</option> : null}
+                                {actorOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                                <option value={MANUAL_ACTOR_OPTION}>Otro… (ID manual)</option>
+                              </Select>
+                            )}
                             <label
                               className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none whitespace-nowrap"
                               title="Marcar como actor principal para esta red y área"

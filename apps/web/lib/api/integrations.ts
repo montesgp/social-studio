@@ -2,6 +2,7 @@ import { apiRequest } from "@/lib/api/client";
 import {
   IntegrationConnectionMode,
   IntegrationProvider,
+  OrganizationActorsResponse,
   OrganizationAiModelsResponse,
   OrganizationIntegration,
   OrganizationIntegrationsOverview,
@@ -126,6 +127,27 @@ export async function listOrganizationAiModels(organizationId: string, providerK
 export async function syncOrganizationAiModels(organizationId: string, providerKey: string, token?: string) {
   return apiRequest<OrganizationAiModelsResponse>(
     `/api/integrations/organization/${providerKey}/models/sync`,
+    {
+      method: "POST",
+      headers: organizationHeaders(organizationId)
+    },
+    token
+  );
+}
+
+export async function listOrganizationActors(organizationId: string, providerKey: string, token?: string) {
+  return apiRequest<OrganizationActorsResponse>(
+    `/api/integrations/organization/${providerKey}/actors`,
+    {
+      headers: organizationHeaders(organizationId)
+    },
+    token
+  );
+}
+
+export async function syncOrganizationActors(organizationId: string, providerKey: string, token?: string) {
+  return apiRequest<OrganizationActorsResponse>(
+    `/api/integrations/organization/${providerKey}/actors/sync`,
     {
       method: "POST",
       headers: organizationHeaders(organizationId)

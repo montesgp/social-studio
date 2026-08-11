@@ -1,7 +1,8 @@
 # ADR 0012 - Content Discovery Source Chain and Candidate Persistence
 
 ## Status
-Proposed
+Accepted — implemented (2026-08-10). See "Amendment — spike waived" below for one deviation from
+Consequences.
 
 > Numbering note: `docs/architecture/adr/` contains two `0005-*` and two `0006-*` files. `0012` is the next
 > unambiguously free number (max in use is `0011`).
@@ -87,14 +88,20 @@ second observation of the same candidate; the observation table is the enabler, 
 
 ### 6. `niche-search` actor variant, resolved only from configuration
 
-*(Amended 2026-08-09 — owner correction 1.)*
+*(Amended 2026-08-09 — owner correction 1; placement corrected 2026-08-09 — owner correction 3.)*
 
 A new `ActorVariantKey` `"niche-search"` rides the existing generic `(networkKey, variantKey)` → actor-id mapping with
-no framework change. It is carried by a new `content-discovery` analysis type holding a `discover-niche-content` step,
-added under the **existing `generator` workflow key** rather than a new top-level key: the settings selector is built
-from the integration overview's checklist groups, so a workflow key without a matching group renders "not configurable
-yet". Reusing `generator`, which already has a group, makes the stage visible by construction instead of by a second
-edit that can be forgotten. One optional checklist item points the operator at the new stage.
+no framework change. It is carried by a new `content-discovery` analysis type holding ONLY a `discover-niche-content`
+step, added under the **existing `single-analyzer` workflow key**, as a sibling of `content-analysis`/`profile-analysis`
+— not under `generator` and not a new top-level key. Once the operator selects one discovered candidate it becomes a
+`SingleContentAnalysis`, and the downstream pipeline (`CreateContentGenerationBatchCommand`,
+`GenerateContentPackageCommand`) anchors to that `AnalysisId`, identical to the by-URL flow already configured under
+`single-analyzer`/`content-analysis` — so `content-discovery` reuses those AI steps rather than duplicating them.
+(An earlier iteration placed the analysis type under `generator` and duplicated the `analyze-content`/`generate-content`/
+`generate-image` steps to make that group self-sufficient; this was corrected because it forced the operator to
+configure the same AI providers twice for one pipeline, and because the settings selector, while built from checklist
+groups, correctly already has a `single-analyzer` group — no new group is required either way.) One optional checklist
+item, `single-analyzer-niche-search-actor`, points the operator at the new stage.
 
 **No actor id is ever forced.** No literal actor id may exist in Application or Infrastructure code, for any network or
 capability. Resolution goes through `IWorkflowConfigurationResolver.ResolveStepAsync` and `actor_mappings_json`,
@@ -165,6 +172,22 @@ invariants and becomes a Domain aggregate. That follow-up also owns the retentio
   prerequisite before any adapter code is committed. If the response carries no play count the source is unrankable
   and ships nowhere without an explicit owner decision. If a configured actor answers with a shape the adapter cannot
   map at all, the source reports a failure naming the configured actor — never an invented or defaulted candidate.
+
+## Amendment — spike waived, adapter shipped documentation-derived (2026-08-10)
+
+The Consequences section above states the live schema spike is "a blocking prerequisite before any
+adapter code is committed." The owner explicitly waived that prerequisite: no organization has a
+`(tiktok, niche-search)` actor configured yet, so there was nothing to call. `TikTokNicheSearchAdapter`
+was implemented anyway, against the DOCUMENTED TikTok Apify item shape — the same field family already
+verified live for the single-video flow (`TikTokApifyScrapeAdapter`, obs 426) — with every metric
+nullable and every absent field degrading to `null` rather than throwing or zero-filling, per the
+Decision's own D2 rule. The mapping is isolated to `TikTokNicheSearchAdapter.MapItem`, one place, so a
+single correction fixes it once the owner configures a real actor and the first live call is recorded.
+Both the adapter and its test fixture (`tiktok-niche-search.json`) carry an explicit
+"PENDING LIVE VERIFICATION" comment. Until an actor is configured, `ApifyNicheSearchResolver` correctly
+returns `SourceOutcome.Unconfigured` — the specified behavior, not a defect — so this deviation carries
+no runtime risk: the niche source simply does not run until the owner finishes configuring it, exactly
+as CD-13/D12 already require for any unconfigured stage.
 
 ## Related
 

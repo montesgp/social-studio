@@ -48,7 +48,7 @@ public sealed class TikTokNicheSearchWorkflowStepSeederTests
 
         await seeder.SeedAsync();
 
-        var rows = await stepConfigurations.ListAsync(tenant.Id.Value, "generator");
+        var rows = await stepConfigurations.ListAsync(tenant.Id.Value, "single-analyzer");
         var seeded = Assert.Single(rows, x =>
             x.AnalysisType == "content-discovery" && x.StepKey == "discover-niche-content");
 
@@ -81,7 +81,7 @@ public sealed class TikTokNicheSearchWorkflowStepSeederTests
 
         await seeder.SeedAsync();
 
-        Assert.Empty(await stepConfigurations.ListAsync(tenant.Id.Value, "generator"));
+        Assert.Empty(await stepConfigurations.ListAsync(tenant.Id.Value, "single-analyzer"));
     }
 
     [Fact]
@@ -102,12 +102,12 @@ public sealed class TikTokNicheSearchWorkflowStepSeederTests
         // The operator already configured and enabled the niche-search step with a real actor.
         await stepConfigurations.ReplaceWorkflowAsync(
             tenant.Id.Value,
-            "generator",
+            "single-analyzer",
             [
                 new WorkflowStepConfigurationRecord(
                     Guid.NewGuid(),
                     tenant.Id.Value,
-                    "generator",
+                    "single-analyzer",
                     "content-discovery",
                     "discover-niche-content",
                     "niche-search",
@@ -134,7 +134,7 @@ public sealed class TikTokNicheSearchWorkflowStepSeederTests
         await seeder.SeedAsync();
         await seeder.SeedAsync();
 
-        var rows = await stepConfigurations.ListAsync(tenant.Id.Value, "generator");
+        var rows = await stepConfigurations.ListAsync(tenant.Id.Value, "single-analyzer");
         var row = Assert.Single(rows, x =>
             x.AnalysisType == "content-discovery" && x.StepKey == "discover-niche-content");
 
@@ -157,25 +157,25 @@ public sealed class TikTokNicheSearchWorkflowStepSeederTests
 
         var stepConfigurations = new InMemoryWorkflowStepConfigurationRepository();
 
-        var existingIdeaRow = new WorkflowStepConfigurationRecord(
+        var existingScrapeRow = new WorkflowStepConfigurationRecord(
             Guid.NewGuid(),
             tenant.Id.Value,
-            "generator",
-            "batch-generation",
-            "discover-reference-content",
-            "profile",
+            "single-analyzer",
+            "profile-analysis",
+            "scrape-profile",
+            "scrape-profile",
             "instagram",
             apify!.Id.Value,
             "apify",
             apifyIntegration.Id.Value,
             ModelId: null,
-            ActorId: "reference-actor",
+            ActorId: "profile-actor",
             Priority: 1,
             IsEnabled: true,
             Now,
             Now);
 
-        await stepConfigurations.ReplaceWorkflowAsync(tenant.Id.Value, "generator", [existingIdeaRow]);
+        await stepConfigurations.ReplaceWorkflowAsync(tenant.Id.Value, "single-analyzer", [existingScrapeRow]);
 
         var seeder = new TikTokNicheSearchWorkflowStepSeeder(
             providers,
@@ -187,9 +187,87 @@ public sealed class TikTokNicheSearchWorkflowStepSeederTests
 
         await seeder.SeedAsync();
 
-        var rows = await stepConfigurations.ListAsync(tenant.Id.Value, "generator");
+        var rows = await stepConfigurations.ListAsync(tenant.Id.Value, "single-analyzer");
         Assert.Equal(2, rows.Count);
-        Assert.Contains(rows, x => x.StepKey == "discover-reference-content" && x.ActorId == "reference-actor");
+        Assert.Contains(rows, x => x.StepKey == "scrape-profile" && x.ActorId == "profile-actor");
+        Assert.Contains(rows, x => x.StepKey == "discover-niche-content" && x.ActorId == null);
+    }
+
+    [Fact]
+    public async Task DoesNotDisturb_ExistingOperatorConfiguredContentAnalysisAndProfileAnalysisSteps()
+    {
+        // The single most dangerous line in this seeder: ReplaceWorkflowAsync replaces ALL rows for
+        // (org, workflowKey). Now that the seeded workflow key is "single-analyzer" — which already
+        // carries REAL operator configuration for content-analysis and profile-analysis — the seeder
+        // MUST read the existing rows and concatenate before calling ReplaceWorkflowAsync, or it
+        // would silently wipe the operator's setup.
+        var providers = new CanvaConnectorSeederTests.InMemorySeederProviderRepository();
+        await new IntegrationCatalogSeeder(providers, new NoopUnitOfWork(), new TestClock(Now)).SeedAsync();
+
+        var tenant = NewTenant("Org E — already configured single-analyzer");
+        var tenants = new InMemoryTenantRepository(tenant);
+        var apify = await providers.GetByKeyAsync("apify");
+        var integrations = new InMemoryOrganizationIntegrationRepository();
+        var apifyIntegration = ConnectedIntegration(tenant.Id.Value, apify!.Id);
+        await integrations.AddAsync(apifyIntegration);
+
+        var stepConfigurations = new InMemoryWorkflowStepConfigurationRepository();
+
+        var scrapeVideoRow = new WorkflowStepConfigurationRecord(
+            Guid.NewGuid(),
+            tenant.Id.Value,
+            "single-analyzer",
+            "content-analysis",
+            "scrape-video",
+            "scrape-video",
+            "tiktok",
+            apify!.Id.Value,
+            "apify",
+            apifyIntegration.Id.Value,
+            ModelId: null,
+            ActorId: "video-actor",
+            Priority: 1,
+            IsEnabled: true,
+            Now,
+            Now);
+
+        var scrapeProfileRow = new WorkflowStepConfigurationRecord(
+            Guid.NewGuid(),
+            tenant.Id.Value,
+            "single-analyzer",
+            "profile-analysis",
+            "scrape-profile",
+            "scrape-profile",
+            "instagram",
+            apify!.Id.Value,
+            "apify",
+            apifyIntegration.Id.Value,
+            ModelId: null,
+            ActorId: "profile-actor",
+            Priority: 1,
+            IsEnabled: true,
+            Now,
+            Now);
+
+        await stepConfigurations.ReplaceWorkflowAsync(
+            tenant.Id.Value,
+            "single-analyzer",
+            [scrapeVideoRow, scrapeProfileRow]);
+
+        var seeder = new TikTokNicheSearchWorkflowStepSeeder(
+            providers,
+            integrations,
+            stepConfigurations,
+            tenants,
+            new NoopUnitOfWork(),
+            new TestClock(Now));
+
+        await seeder.SeedAsync();
+
+        var rows = await stepConfigurations.ListAsync(tenant.Id.Value, "single-analyzer");
+        Assert.Equal(3, rows.Count);
+        Assert.Contains(rows, x => x.StepKey == "scrape-video" && x.ActorId == "video-actor");
+        Assert.Contains(rows, x => x.StepKey == "scrape-profile" && x.ActorId == "profile-actor");
         Assert.Contains(rows, x => x.StepKey == "discover-niche-content" && x.ActorId == null);
     }
 

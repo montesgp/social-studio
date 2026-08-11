@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Abstractions.Social.ContentDiscovery;
 using Incoders.Hive.Application.Common.Pagination;
 using Incoders.Hive.Application.Features.Social.Workflow;
 using Incoders.Hive.Domain.Common;
@@ -126,11 +127,14 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
         using var scope = _scopeFactory.CreateScope();
         var discovery = scope.ServiceProvider.GetRequiredService<IContentDiscoveryService>();
 
-        var found = await discovery.DiscoverAsync(
-            new ContentDiscoveryRequest(organizationId, clientId, networks, DefaultResultCount),
+        // The session's normalized SearchCriterion drives which sources the chain consults
+        // (CD-03/D4); Shortfall/FailedSourceKeys/UnconfiguredSourceKeys are not yet surfaced to the
+        // workflow session response — that projection is a later work unit (WU-8).
+        var plan = await discovery.DiscoverAsync(
+            new ContentDiscoveryRequest(organizationId, clientId, networks, DefaultResultCount, searchCriterion),
             ct);
 
-        return found
+        return plan.Candidates
             .Select(item => new WorkflowResultState(
                 Guid.NewGuid(),
                 item.Title,
@@ -149,8 +153,10 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
             .ToList();
     }
 
-    private static int ClampToInt(long value) =>
-        value >= int.MaxValue ? int.MaxValue : value <= 0 ? 0 : (int)value;
+    // Metrics are nullable at the port now (D2): a network that does not report a metric renders as
+    // 0 on this int-typed workflow contract, same as it always has for "not scraped yet".
+    private static int ClampToInt(long? value) =>
+        value is null or <= 0 ? 0 : value >= int.MaxValue ? int.MaxValue : (int)value;
 
     public Task<Result<ContentWorkflowStatusResponse>> GetStatusAsync(
         Guid organizationId,

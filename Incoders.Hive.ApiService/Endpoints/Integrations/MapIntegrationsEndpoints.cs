@@ -3,6 +3,7 @@ using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Application.Features.Integrations;
+using Incoders.Hive.Application.Features.Integrations.Actors;
 using Incoders.Hive.Application.Features.Integrations.Configure;
 using Incoders.Hive.Application.Features.Integrations.Delete;
 using Incoders.Hive.Application.Features.Integrations.GetAllProviders;
@@ -81,6 +82,20 @@ public static class IntegrationsEndpointsExtensions
             .WithName("SyncOrganizationAiModels")
             .WithSummary("Synchronize AI models for the resolved organization/provider using configured credentials")
             .Produces<OrganizationAiModelsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/organization/{providerKey}/actors", ListOrganizationActorsAsync)
+            .WithName("ListOrganizationActors")
+            .WithSummary("List the synchronized actor catalog for the resolved organization/provider")
+            .Produces<OrganizationActorsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/organization/{providerKey}/actors/sync", SyncOrganizationActorsAsync)
+            .WithName("SyncOrganizationActors")
+            .WithSummary("Synchronize the actor catalog for the resolved organization/provider using configured credentials")
+            .Produces<OrganizationActorsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -269,6 +284,42 @@ public static class IntegrationsEndpointsExtensions
 
         var result = await sender.Send(
             new SyncOrganizationAiModelsCommand(organizationId.Value, providerKey),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    private static async Task<IResult> ListOrganizationActorsAsync(
+        string providerKey,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } organizationId)
+        {
+            return IntegrationErrors.OrganizationRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new ListOrganizationActorsQuery(organizationId.Value, providerKey),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    private static async Task<IResult> SyncOrganizationActorsAsync(
+        string providerKey,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } organizationId)
+        {
+            return IntegrationErrors.OrganizationRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new SyncOrganizationActorsCommand(organizationId.Value, providerKey),
             cancellationToken);
 
         return result.Match(response => (IResult)TypedResults.Ok(response));

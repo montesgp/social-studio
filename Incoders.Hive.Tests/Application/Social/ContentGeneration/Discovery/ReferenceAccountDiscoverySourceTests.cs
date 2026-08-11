@@ -1,74 +1,86 @@
 using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Abstractions.Social.ContentDiscovery;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
-using Incoders.Hive.Application.Features.Social.ContentGeneration.Ideas;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Discovery;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
 
-namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Ideas;
+namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Discovery;
 
 /// <summary>
-/// The Content Generator's PROPOSAL phase: bring back real content with real metrics so the operator
-/// can pick what to generate from.
-///
-/// Unlike the idea sources, this keeps the full post — views, likes, comments, thumbnail — because a
-/// proposal the operator cannot judge is just a list.
+/// WU-3: <see cref="ReferenceAccountDiscoverySource"/> — moved from
+/// <c>ReferenceAccountContentDiscovery</c>, now an <see cref="IContentDiscoverySource"/>,
+/// <c>Order: 1</c>, <c>Supports("references")</c>. Metrics are nullable now (D2) — the
+/// <c>?? 0</c> zero-fill is gone.
 /// </summary>
-public sealed class ReferenceAccountContentDiscoveryTests
+public sealed class ReferenceAccountDiscoverySourceTests
 {
     private static readonly Guid Org = Guid.NewGuid();
     private static readonly Guid Client = Guid.NewGuid();
 
     [Fact]
-    public async Task Discover_ReturnsRealMetrics()
+    public void SourceKey_And_Order_And_Supports()
     {
-        var service = Build(["@ref"], Scrape("@ref", Post("Un reel", views: 120_000, likes: 4_000, comments: 210)));
+        var source = Build([], new Dictionary<string, Result<ProfileScrapeResult>>());
 
-        var found = await service.DiscoverAsync(Request(10), CancellationToken.None);
+        Assert.Equal("references", source.SourceKey);
+        Assert.Equal(1, source.Order);
+        Assert.True(source.Supports("references"));
+        Assert.False(source.Supports("niche"));
+        Assert.False(source.Supports("own"));
+    }
 
-        var item = Assert.Single(found);
+    [Fact]
+    public async Task Discover_ReturnsRealMetrics_AsNullableLongs()
+    {
+        var source = Build(["@ref"], Scrape("@ref", Post("Un reel", views: 120_000, likes: 4_000, comments: 210)));
+
+        var result = await source.DiscoverAsync(Request(10), CancellationToken.None);
+
+        Assert.Equal(SourceOutcome.Ran, result.Outcome);
+        var item = Assert.Single(result.Candidates);
         Assert.Equal(120_000, item.Views);
         Assert.Equal(4_000, item.Likes);
         Assert.Equal(210, item.Comments);
         Assert.Equal("@ref", item.SourceHandle);
+        Assert.Equal("references", item.SourceKey);
+    }
+
+    [Fact]
+    public async Task Discover_DoesNotZeroFillAMissingViewCount()
+    {
+        var source = Build(["@ref"], Scrape("@ref", Post("Sin vistas", views: null)));
+
+        var result = await source.DiscoverAsync(Request(10), CancellationToken.None);
+
+        // The `?? 0` zero-fill this change deletes: unavailable stays null, never 0.
+        Assert.Null(Assert.Single(result.Candidates).Views);
     }
 
     [Fact]
     public async Task Discover_RanksTheStrongestFirst()
     {
-        var service = Build(["@ref"], Scrape(
+        var source = Build(["@ref"], Scrape(
             "@ref",
             Post("flojo", views: 900),
             Post("ganador", views: 500_000),
             Post("medio", views: 30_000)));
 
-        var found = await service.DiscoverAsync(Request(10), CancellationToken.None);
+        var result = await source.DiscoverAsync(Request(10), CancellationToken.None);
 
-        Assert.Equal(["ganador", "medio", "flojo"], found.Select(f => f.Title).ToArray());
+        Assert.Equal(["ganador", "medio", "flojo"], result.Candidates.Select(c => c.Title).ToArray());
     }
 
     [Fact]
-    public async Task Discover_RespectsTheResultCap()
+    public async Task Discover_ReturnsRanWithEmptyCandidates_WhenTheClientHasNoReferents()
     {
-        var service = Build(["@ref"], Scrape(
-            "@ref",
-            Post("a", views: 10),
-            Post("b", views: 20),
-            Post("c", views: 30)));
+        var source = Build([], new Dictionary<string, Result<ProfileScrapeResult>>());
 
-        var found = await service.DiscoverAsync(Request(2), CancellationToken.None);
+        var result = await source.DiscoverAsync(Request(10), CancellationToken.None);
 
-        // Scraping bills per item; an uncapped proposal is an uncapped invoice.
-        Assert.Equal(2, found.Count);
-    }
-
-    [Fact]
-    public async Task Discover_ReturnsEmptyWhenTheClientHasNoReferents()
-    {
-        var service = Build([], new Dictionary<string, Result<ProfileScrapeResult>>());
-
-        // An empty proposal is a legitimate outcome the UI can explain; an exception is not.
-        Assert.Empty(await service.DiscoverAsync(Request(10), CancellationToken.None));
+        Assert.Equal(SourceOutcome.Ran, result.Outcome);
+        Assert.Empty(result.Candidates);
     }
 
     [Fact]
@@ -80,55 +92,30 @@ public sealed class ReferenceAccountContentDiscoveryTests
             ["@ok"] = Scrape("@ok", Post("vivo", views: 1_000))["@ok"]
         };
 
-        var found = await Build(["@broken", "@ok"], scrapes).DiscoverAsync(Request(10), CancellationToken.None);
+        var result = await Build(["@broken", "@ok"], scrapes).DiscoverAsync(Request(10), CancellationToken.None);
 
-        Assert.Single(found);
-    }
-
-    [Fact]
-    public async Task Discover_KeepsPostsWithoutACaptionButTitlesThemFromTheAccount()
-    {
-        // Unlike an idea, a proposal card is still useful without a caption: the operator judges it by
-        // its metrics and thumbnail.
-        var service = Build(["@ref"], Scrape("@ref", Post(null, views: 90_000)));
-
-        var found = await service.DiscoverAsync(Request(10), CancellationToken.None);
-
-        Assert.Single(found);
-        Assert.Contains("@ref", found[0].Title);
+        Assert.Single(result.Candidates);
     }
 
     [Fact]
     public async Task Discover_ExcludesPaidPartnerships()
     {
-        var service = Build(["@ref"], Scrape(
+        var source = Build(["@ref"], Scrape(
             "@ref",
             Post("pauta", views: 900_000, isPaid: true),
             Post("orgánico", views: 100)));
 
-        var found = await service.DiscoverAsync(Request(10), CancellationToken.None);
+        var result = await source.DiscoverAsync(Request(10), CancellationToken.None);
 
-        // A sponsored post performed because it was paid to; proposing it misleads the operator about
-        // what this audience organically rewards.
-        Assert.Single(found);
-        Assert.Equal("orgánico", found[0].Title);
-    }
-
-    [Fact]
-    public async Task Discover_ReportsTheNetworkItCameFrom()
-    {
-        var service = Build(["@ref"], Scrape("@ref", Post("un tema", views: 10)));
-
-        var found = await service.DiscoverAsync(Request(10), CancellationToken.None);
-
-        Assert.Equal("instagram", found[0].NetworkSource);
+        Assert.Single(result.Candidates);
+        Assert.Equal("orgánico", result.Candidates[0].Title);
     }
 
     // ── harness ──────────────────────────────────────────────────────────────
 
-    private static ContentDiscoveryRequest Request(int max) => new(Org, Client, [], max);
+    private static ContentDiscoveryRequest Request(int max) => new(Org, Client, [], max, "references");
 
-    private static ReferenceAccountContentDiscovery Build(
+    private static ReferenceAccountDiscoverySource Build(
         IReadOnlyList<string> referents,
         IReadOnlyDictionary<string, Result<ProfileScrapeResult>> scrapes)
     {
@@ -136,14 +123,14 @@ public sealed class ReferenceAccountContentDiscoveryTests
             .Select(h => new ClientAccountSnapshot("instagram", "Instagram", $"https://ig.com/{h}", h, null, null))
             .ToList();
 
-        return new ReferenceAccountContentDiscovery(
+        return new ReferenceAccountDiscoverySource(
             new StubLoader(BrandSnapshot.FromBrandData(null, null, null, null, accounts, null)),
             new StubScraper(scrapes));
     }
 
     private static ProfilePost Post(
         string? caption,
-        long views,
+        long? views,
         long likes = 10,
         long comments = 1,
         bool isPaid = false) =>

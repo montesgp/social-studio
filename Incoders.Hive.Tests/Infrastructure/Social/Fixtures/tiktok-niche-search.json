@@ -1,0 +1,64 @@
+[
+  {
+    "_comment": "DOCUMENTATION-DERIVED, NOT a verified live response (owner-waived spike, 2026-08-10). Field names are the same TikTok Apify field family already verified live for the single-video flow (see apify-tiktok-item.json, obs 426) and documented for a search/hashtag-scraper actor response shape. This fixture is a capability-named placeholder, not an actor-named one, and names no actor id anywhere in this repository. PENDING LIVE VERIFICATION: correct once the operator configures a real (tiktok, niche-search) actor and a first real call is recorded — see TikTokNicheSearchAdapter.MapItem for the single place that needs correcting.",
+    "id": "7391000000000000001",
+    "text": "3 hooks that stopped the scroll this week #contentstrategy",
+    "createTimeISO": "2026-07-20T09:15:00.000Z",
+    "authorMeta": {
+      "id": "6900000000001",
+      "name": "Niche Creator One",
+      "nickName": "nichecreator1",
+      "verified": false,
+      "avatar": "https://p16-sign.tiktokcdn-us.com/niche/avatar1.jpg"
+    },
+    "videoMeta": {
+      "height": 1024,
+      "width": 576,
+      "duration": 27,
+      "coverUrl": "https://p16-sign.tiktokcdn-us.com/niche/cover1.jpg",
+      "originalCoverUrl": "https://p16-sign.tiktokcdn-us.com/niche/original-cover1.jpg"
+    },
+    "hashtags": [
+      { "id": "10", "name": "contentstrategy", "title": "contentstrategy" },
+      { "id": "11", "name": "creatoreconomy", "title": "creatoreconomy" }
+    ],
+    "playCount": 84000,
+    "diggCount": 6100,
+    "commentCount": 210,
+    "shareCount": 540,
+    "collectCount": 390,
+    "webVideoUrl": "https://www.tiktok.com/@nichecreator1/video/7391000000000000001",
+    "isSlideshow": false
+  },
+  {
+    "id": "7391000000000000002",
+    "text": "why your niche audience is not engaging (and the fix)",
+    "createTimeISO": "2026-07-18T14:40:00.000Z",
+    "authorMeta": {
+      "id": "6900000000002",
+      "name": "Niche Creator Two",
+      "nickName": "nichecreator2",
+      "verified": false,
+      "avatar": "https://p16-sign.tiktokcdn-us.com/niche/avatar2.jpg"
+    },
+    "videoMeta": {
+      "height": 1024,
+      "width": 576,
+      "duration": 41,
+      "coverUrl": "https://p16-sign.tiktokcdn-us.com/niche/cover2.jpg"
+    },
+    "hashtags": [
+      { "id": "12", "name": "creatoreconomy", "title": "creatoreconomy" }
+    ],
+    "playCount": 51000,
+    "diggCount": 3200,
+    "commentCount": 95,
+    "webVideoUrl": "https://www.tiktok.com/@nichecreator2/video/7391000000000000002",
+    "isSlideshow": false
+  },
+  {
+    "id": "7391000000000000003",
+    "text": "an item shaped like a quality/bandwidth report, never mappable",
+    "resultType": "bandwidth_report"
+  }
+]

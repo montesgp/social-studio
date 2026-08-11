@@ -6,7 +6,7 @@ using Incoders.Hive.Domain.Integrations;
 namespace Incoders.Hive.Infrastructure.Integrations;
 
 /// <summary>
-/// Seeds a placeholder <c>(generator, content-discovery, discover-niche-content)</c> step
+/// Seeds a placeholder <c>(single-analyzer, content-discovery, discover-niche-content)</c> step
 /// configuration for every ACTIVE organization that already has a CONNECTED Apify integration, so
 /// the discovery stage appears pre-created in the settings UI (INT-DISC-02). The seeded row is
 /// bound to the organization's existing Apify integration but carries <c>ActorId: null</c> and
@@ -15,13 +15,20 @@ namespace Incoders.Hive.Infrastructure.Integrations;
 /// ANY row for this step (operator-configured or previously seeded) is skipped, so a manual
 /// configuration is never overwritten. Organizations without a connected data-extraction
 /// integration get nothing seeded — there would be no integration to bind the row to.
+/// <para>
+/// IMPORTANT: <c>single-analyzer</c> already carries REAL operator configuration for
+/// <c>content-analysis</c> and <c>profile-analysis</c>. <see cref="IWorkflowStepConfigurationRepository.ReplaceWorkflowAsync"/>
+/// replaces ALL rows for the given (organization, workflowKey) pair, so this seeder reads the
+/// existing rows first and concatenates the new placeholder onto them — never calling
+/// ReplaceWorkflowAsync with a partial set — or it would silently wipe that operator setup.
+/// </para>
 /// Mirrors <see cref="ComfyUiOrganizationSeeder"/> / <see cref="ClaudePromptCliOrganizationSeeder"/>.
 /// Refs: INT-DISC-02, D11, D13, CD-12; design §8.1.
 /// </summary>
 public sealed class TikTokNicheSearchWorkflowStepSeeder
 {
     private const string ApifyProviderKey = "apify";
-    private const string WorkflowKey = "generator";
+    private const string WorkflowKey = "single-analyzer";
     private const string AnalysisType = "content-discovery";
     private const string StepKey = "discover-niche-content";
     private const string OperationKey = "niche-search";
