@@ -1,0 +1,132 @@
+change: niche-discovery-engine
+status: tasks-complete
+adr: docs/architecture/adr/0013-niche-discovery-multi-origin-provider-and-opportunity-evidence-model.md
+adr_status: pending
+
+phases_completed:
+  - explore
+  - propose
+  - spec
+  - design
+  - tasks
+
+artifacts:
+  exploration: openspec/changes/niche-discovery-engine/exploration.md
+  proposal: openspec/changes/niche-discovery-engine/proposal.md
+  design: openspec/changes/niche-discovery-engine/design.md
+  tasks: openspec/changes/niche-discovery-engine/tasks.md
+  diagram: null
+  specs:
+    - openspec/changes/niche-discovery-engine/specs/niche-discovery/spec.md
+    - openspec/changes/niche-discovery-engine/specs/integrations/spec-delta.md
+  merged_specs: []
+
+capabilities:
+  new:
+    - niche-discovery
+  modified:
+    - integrations
+
+scope:
+  phase: 1
+  name: >
+    Multi-origin (YouTube Data API v3 primary, Apify wire-capable) niche discovery: DiscoveryRun
+    aggregate, deterministic Evidence->Metric->Signal->Score pipeline, independent AI semantic
+    layer (labels only), source-vs-target market comparison, availability-aware OpportunityScore
+    plus a genuinely independent ConfidenceScore, append-only opportunity + evidence persistence,
+    and the viability dashboard + opportunity detail view.
+  roadmap:
+    - phase: 2
+      name: "Apify as a second sourcing origin adapter"
+      status: deferred
+      notes: "Port and per-stage routing support it; building two adapters at once doubles unverified provider schema risk (proposal non-goal)."
+    - phase: 3
+      name: "Instagram/TikTok cross-platform validation data"
+      status: deferred
+      notes: "CrossPlatformValidation stays NotSupportedYet, renormalized out, until a second platform's data exists."
+    - phase: 4
+      name: "Opportunity lifecycle (pursued/dismissed/snoozed)"
+      status: deferred
+      notes: "N5 revisit trigger: the first time an operator can act on an opportunity, it acquires invariants and becomes a Domain aggregate; also owns retention."
+    - phase: 5
+      name: "Content Generator activation"
+      status: deferred
+      notes: "INicheOpportunityActivationSource is named and shaped in this change, not implemented or registered (ND-17)."
+    - phase: 6
+      name: "Google Trends / external demand signals"
+      status: deferred
+      notes: "A second unverified provider integration on top of the first (proposal non-goal)."
+
+decisions:
+  - "N1 One INicheDiscoverySource port with Supports(DiscoveryStage); origins are adapters selected per stage by configuration, never a per-provider port."
+  - "N2 NicheSourceOutcome re-declared, never imported from ContentDiscovery's SourceOutcome — vocabulary guard forbids cross-capability coupling."
+  - "N3 A Metric is structurally impossible to fabricate: private ctor, single internal factory, reflection-guarded; no Semantics type carries a numeric member; no Scoring/Analytics signature references a Semantics type."
+  - "N4 AI-observed labels cross into scoring only as a closed enum (FormatTrait, ContentPatternKind) parsed at the boundary; unknown label dropped, never coerced."
+  - "N5 NicheOpportunity is an Application read model, append-only; DiscoveryRun is the one Domain aggregate with a real status lifecycle."
+  - "N6 MarketCode value object + seeded MarketCatalogEntry; display names are i18n keys; no code branch is ever named after a country."
+  - "N7 OpportunityScoreWeights snapshotted onto the run (weights_json), superseding ADR-0012 D7 for this capability only, because the run is the unit of reproducibility here."
+  - "N8 Three-valued SignalAvailability (Available/NotReported/NotSupportedYet) distinguishes 'not reported' from 'not measurable in this version'."
+  - "N9 Zero usable results + provider quota error => Failed; partial results then quota error => Ran with PartialReason.ProviderBudgetExhausted."
+  - "N10 Semantic derivation is not deterministic; display is. The DiscoveryRun, not the opportunity, is the comparison unit; no cross-run semantic cache."
+  - "N11 Semantic gateway failure falls back to lexical clustering (K=3 distinct channels); the run still ranks, flagged semantic_degraded."
+  - "N12 New top-level workflow key niche-discovery with its own checklist group in GetOrganizationIntegrationsHandler, not nested under single-analyzer."
+  - "Tasks-phase correction 1: DiscoveryBudget + IDiscoveryBudgetLedger moved from WU-5 into WU-3 (Application contracts, not adapter details; WU-3 had headroom, WU-5 was at the ceiling)."
+  - "Tasks-phase correction 2: WU-7 (persistence) splits into 7a schema+migration / 7b repositories by default, not as a fallback, given four tables plus a large generated migration diff."
+  - "Tasks-phase correction 3: WU-11 splits into 11a (run orchestrator + queue + hosted service) and 11b (endpoints + composition tests)."
+  - "Tasks-phase correction 4: WU-4 is flagged, not assumed safe, pending verification of whether the frontend integrations category renderer needs a new branch for OfficialDataApi."
+  - "Tasks-phase ordering correction: WU-9 (market comparison) depends on WU-6 (TargetMarketDemand consumes VelocityProxy), not merely independent of WU-10 as the proposal stated."
+  - "Final work-unit count is 15, not the proposal's 13 and not exactly design's approximate ~14 — both the WU-7 and WU-11 splits apply simultaneously."
+
+non_goals:
+  - "Automatic video generation, thumbnails, or auto-publishing from an opportunity."
+  - "A consolidated channel dashboard (requires launched channels)."
+  - "Automatic experimentation or a closed-loop learning cycle over published outcomes."
+  - "Google Trends or other external demand-signal providers beyond YouTube Data API v3."
+  - "TikTok/Instagram cross-platform validation data."
+  - "Apify as a second sourcing origin adapter (port and routing support it; adapter not built)."
+  - "Modifying or migrating Domain.Social.Niches.Niche."
+  - "Implementing INicheOpportunityActivationSource's behavior or registering it in DI."
+
+open_questions:
+  - "OQ-1 Competition partition: content locale (assumed) vs audience geography. Decision checkpoint attached to WU-9, not blocking WU-1 through WU-8."
+  - "OQ-2 Outlier threshold 3.0, evergreen half-window, and the K=3 repetition floor are assumed product values, configurable in code. Confirm before WU-6."
+  - "OQ-3 Google Cloud project with YouTube Data API v3 enabled and a per-organization API key is an owner-side prerequisite for live verification of WU-5; fixture-only until then, same deviation pattern as ADR-0012's Apify actor spike."
+
+risks:
+  - "Scope is ~9,100 authored lines across 15 sequential commits directly to dev, the largest change in the repo."
+  - "WU-10 and WU-12 sit at the 800-line ceiling; named split points (10a/10b, 12a/12b) are pre-agreed, not invented under pressure."
+  - "WU-4 may be under-forecast if the frontend integrations category renderer needs a new branch for OfficialDataApi; flagged explicitly rather than assumed safe."
+  - "YouTube Data API v3 quota (10k units/day default) caps a Deep run's daily throughput at 4 runs per project; surfaced to the operator via providerUnitsSpent."
+  - "Semantic layer drifting into producing numbers; guarded by three reflection tests (WU-6.1, WU-8.7/10.6, WU-10.1)."
+  - "Hardcoded-market leakage under delivery pressure; guarded by the country-name scan (WU-2.7), re-run after every subsequent work unit."
+  - "DI override trap; guarded by the exact-one-implementation-per-port composition test (WU-11b.5)."
+
+validation:
+  gates: PASS (WU-1, WU-2, WU-3)
+  detail: >
+    sdd-apply batch 1 (WU-1..WU-3) landed: DiscoveryRun aggregate + lifecycle value objects
+    (3c454c1), taxonomy hierarchy + market catalog + country-name guard (27482bb), Application
+    ports + discovery budget contracts (ed2edc2). Gates green on every commit. WU-4 onward not
+    started.
+
+delivery:
+  strategy: single-pr
+  delivery_mode: sequential-commits-direct-to-dev
+  review_budget_lines: 800
+  size_forecast_lines: "~9,100 authored (+300-500 generated migration diff, tracked separately)"
+  budget_risk: Medium-High
+  size_exception_accepted: false
+  chained_prs: false
+  target_branch: dev
+  branch: null
+  work_units: 15
+
+testing:
+  strict_tdd: true
+  test_command: "dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release"
+  gates_command: "pwsh -File scripts/gates/Run-Gates.ps1"
+
+prd_traceability:
+  - "docs/PRD.md new numbered section required (style of §11/§12) — §6 MVP Success Path starts at 'select an organization/client'; niche discovery happens before a client exists, so no existing section covers it honestly."
+
+next_recommended: sdd-apply
