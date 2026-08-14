@@ -1,6 +1,7 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentDiscovery;
+using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Features.Integrations;
 using Incoders.Hive.Application.Features.Integrations.Configure;
 using Incoders.Hive.Application.Features.Integrations.GetByProvider;
@@ -33,14 +34,56 @@ public sealed class OrganizationIntegrationsFlowTests
         Assert.True(apify.IsReadOnly);
         Assert.Null(apify.IntegrationId);
 
-        Assert.Equal(["single-analyzer", "generator"], overview.Value.ChecklistGroups.Select(x => x.Key));
+        Assert.Equal(
+            ["single-analyzer", "generator", "niche-discovery"],
+            overview.Value.ChecklistGroups.Select(x => x.Key));
         Assert.All(
-            overview.Value.ChecklistGroups,
+            overview.Value.ChecklistGroups.Where(x => x.Key != "niche-discovery"),
             group =>
             {
                 Assert.Contains(group.Items, item => item.Key.EndsWith("data-provider", StringComparison.Ordinal) && item.IsCompleted);
                 Assert.Contains(group.Items, item => item.Key.EndsWith("ai-provider", StringComparison.Ordinal) && !item.IsCompleted);
             });
+    }
+
+    [Fact]
+    public async Task Overview_NicheDiscoveryChecklistGroup_IsPresent_WithBothItemsUnsatisfiedWithoutAProbe()
+    {
+        // INT-ND-03 scenario 2: a workflow key ("niche-discovery") with no matching checklist group
+        // renders "not configurable yet" in Settings even when the backend is fully wired — so the
+        // GROUP'S PRESENCE is asserted directly here, not merely absence-of-crash.
+        var harness = new IntegrationsHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var nicheDiscoveryGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "niche-discovery");
+        Assert.Equal("Niche Discovery", nicheDiscoveryGroup.Label);
+
+        Assert.Contains(nicheDiscoveryGroup.Items, item => item.Label.Contains("YouTube Data API key", StringComparison.Ordinal));
+        Assert.Contains(nicheDiscoveryGroup.Items, item => item.Label.Contains("discovery origin", StringComparison.Ordinal));
+        Assert.All(nicheDiscoveryGroup.Items, item => Assert.False(item.IsCompleted));
+    }
+
+    [Fact]
+    public async Task Overview_NicheDiscoveryChecklistGroup_SatisfiedItems_WhenTheOriginProbeReportsReady()
+    {
+        var organizationId = Guid.NewGuid();
+        var probe = new FakeNicheDiscoveryOriginProbe(readyFor: [(organizationId, "youtube")]);
+        var harness = new IntegrationsHarness(Now, originProbe: probe);
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var nicheDiscoveryGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "niche-discovery");
+        Assert.All(nicheDiscoveryGroup.Items, item => Assert.True(item.IsCompleted));
     }
 
     [Fact]
@@ -196,8 +239,11 @@ public sealed class OrganizationIntegrationsFlowTests
 
         // Only REQUIRED items must be completed: "single-analyzer-niche-search-actor" is optional
         // (INT-DISC-03) and stays unsatisfied here — no niche-search route was configured.
+        // "niche-discovery" is excluded from this assertion: it is gated by an unrelated
+        // INICheDiscoveryOriginProbe, not wired in this test, so its required items stay
+        // unsatisfied by construction (WU-4.8: unsatisfied until WU-5 wires a real probe).
         Assert.All(
-            overview.Value.ChecklistGroups,
+            overview.Value.ChecklistGroups.Where(x => x.Key != "niche-discovery"),
             group => Assert.All(group.Items.Where(item => item.IsRequired), item => Assert.True(item.IsCompleted)));
         Assert.DoesNotContain(overview.Value.Checklist, item => item.Key.Contains("canva", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(overview.Value.Checklist, item => item.Key.Contains("blotato", StringComparison.OrdinalIgnoreCase));
@@ -379,11 +425,27 @@ public sealed class OrganizationIntegrationsFlowTests
             Task.FromResult(_resolvesFor.Contains((organizationId, networkKey)));
     }
 
+    private sealed class FakeNicheDiscoveryOriginProbe : INicheDiscoveryOriginProbe
+    {
+        private readonly HashSet<(Guid OrganizationId, string NetworkKey)> _readyFor;
+
+        public FakeNicheDiscoveryOriginProbe(IReadOnlyList<(Guid OrganizationId, string NetworkKey)> readyFor)
+        {
+            _readyFor = [.. readyFor];
+        }
+
+        public Task<bool> IsReadyAsync(Guid organizationId, string networkKey, CancellationToken ct = default) =>
+            Task.FromResult(_readyFor.Contains((organizationId, networkKey)));
+    }
+
     private sealed class IntegrationsHarness
     {
         private readonly InMemoryIntegrationProviderCatalogRepository _providers;
 
-        public IntegrationsHarness(DateTime nowUtc, INicheSearchConfigurationProbe? nicheSearchProbe = null)
+        public IntegrationsHarness(
+            DateTime nowUtc,
+            INicheSearchConfigurationProbe? nicheSearchProbe = null,
+            INicheDiscoveryOriginProbe? originProbe = null)
         {
             _providers = new InMemoryIntegrationProviderCatalogRepository(nowUtc);
             Integrations = new InMemoryOrganizationIntegrationRepository(_providers);
@@ -406,7 +468,8 @@ public sealed class OrganizationIntegrationsFlowTests
                 _providers,
                 Integrations,
                 Credentials,
-                nicheSearchProbe: nicheSearchProbe);
+                nicheSearchProbe: nicheSearchProbe,
+                nicheDiscoveryOriginProbe: originProbe);
 
             GetByProvider = new GetOrganizationIntegrationByProviderHandler(
                 _providers,

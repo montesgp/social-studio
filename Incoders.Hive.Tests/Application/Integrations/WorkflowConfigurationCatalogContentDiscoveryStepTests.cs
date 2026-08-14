@@ -81,7 +81,9 @@ public sealed class WorkflowConfigurationCatalogContentDiscoveryStepTests
 
         // D11 (corrected): reusing the existing "single-analyzer" key, sibling to "content-analysis",
         // rather than the "generator" key or a new one — same pipeline, same configuration.
-        Assert.Equal(["single-analyzer", "generator"], workflows.Select(x => x.Key));
+        // "niche-discovery" (WU-4) is a genuinely NEW top-level key (N12): the operator has no
+        // client yet when starting a discovery run, unlike content-discovery.
+        Assert.Equal(["single-analyzer", "generator", "niche-discovery"], workflows.Select(x => x.Key));
 
         var singleAnalyzer = WorkflowConfigurationCatalog.FindWorkflow("single-analyzer");
         Assert.NotNull(singleAnalyzer);

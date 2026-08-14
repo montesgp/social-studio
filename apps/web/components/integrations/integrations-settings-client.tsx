@@ -95,7 +95,8 @@ const categoryLabels: Record<string, string> = {
   Design: "Design providers",
   DataExtraction: "Data providers",
   Publishing: "Publishing providers",
-  MediaGeneration: "Media generation providers"
+  MediaGeneration: "Media generation providers",
+  OfficialDataApi: "Official API providers"
 };
 
 const providerIcons: Record<string, LucideIcon> = {

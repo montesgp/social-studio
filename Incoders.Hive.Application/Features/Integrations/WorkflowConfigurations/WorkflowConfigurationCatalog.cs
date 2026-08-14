@@ -234,6 +234,81 @@ public static class WorkflowConfigurationCatalog
                             SupportsActorSelection: false,
                             ActorVariantKey: null)
                     ])
+            ]),
+
+        // Niche Discovery — a NEW top-level workflow key (N12), not a step under
+        // "single-analyzer"/"generator": the operator has no client yet when starting a discovery
+        // run. One step per DiscoveryStage (design §5.2); each step is resolved independently so an
+        // origin strong at search can be mixed with another origin for detail enrichment.
+        //
+        // NOTE — a workflow key still needs a matching checklistGroups entry (the third group,
+        // "niche-discovery") to render as configurable in the settings UI; a workflow key with no
+        // matching group renders "not configurable yet".
+        new(
+            "niche-discovery",
+            "Niche Discovery",
+            [
+                new(
+                    "market-opportunity",
+                    "Market opportunity",
+                    [
+                        new(
+                            "channel-search",
+                            "Search candidate channels",
+                            "channel-search",
+                            "Channel search",
+                            "Choose the official-API or extraction provider used to search for candidate " +
+                            "channels in the target niche/market.",
+                            RequiresNetwork: true,
+                            SupportedNetworkKeys: ["youtube"],
+                            AllowedProviderCategories: [IntegrationProviderCategory.OfficialDataApi, IntegrationProviderCategory.DataExtraction],
+                            AllowedProviderKeys: [],
+                            SupportsModelSelection: false,
+                            SupportsActorSelection: true,
+                            ActorVariantKey: "channel-search"),
+                        new(
+                            "video-search",
+                            "Search candidate videos",
+                            "video-search",
+                            "Video search",
+                            "Choose the official-API or extraction provider used to search for candidate " +
+                            "videos in the target niche/market.",
+                            RequiresNetwork: true,
+                            SupportedNetworkKeys: ["youtube"],
+                            AllowedProviderCategories: [IntegrationProviderCategory.OfficialDataApi, IntegrationProviderCategory.DataExtraction],
+                            AllowedProviderKeys: [],
+                            SupportsModelSelection: false,
+                            SupportsActorSelection: true,
+                            ActorVariantKey: "video-search"),
+                        new(
+                            "channel-detail",
+                            "Enrich channel details",
+                            "channel-detail",
+                            "Channel detail",
+                            "Choose the official-API or extraction provider used to enrich candidate " +
+                            "channels with subscriber/view statistics.",
+                            RequiresNetwork: true,
+                            SupportedNetworkKeys: ["youtube"],
+                            AllowedProviderCategories: [IntegrationProviderCategory.OfficialDataApi, IntegrationProviderCategory.DataExtraction],
+                            AllowedProviderKeys: [],
+                            SupportsModelSelection: false,
+                            SupportsActorSelection: true,
+                            ActorVariantKey: "channel-detail"),
+                        new(
+                            "video-detail",
+                            "Enrich video details",
+                            "video-detail",
+                            "Video detail",
+                            "Choose the official-API or extraction provider used to enrich candidate " +
+                            "videos with statistics and content details.",
+                            RequiresNetwork: true,
+                            SupportedNetworkKeys: ["youtube"],
+                            AllowedProviderCategories: [IntegrationProviderCategory.OfficialDataApi, IntegrationProviderCategory.DataExtraction],
+                            AllowedProviderKeys: [],
+                            SupportsModelSelection: false,
+                            SupportsActorSelection: true,
+                            ActorVariantKey: "video-detail")
+                    ])
             ])
     ];
 

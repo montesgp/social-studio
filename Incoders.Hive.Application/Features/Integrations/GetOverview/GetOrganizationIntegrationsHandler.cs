@@ -1,5 +1,6 @@
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentDiscovery;
+using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using MediatR;
@@ -16,6 +17,7 @@ public sealed class GetOrganizationIntegrationsHandler
     private readonly IOrganizationAiModelRepository? _models;
     private readonly IExternalProviderClientFactory? _clientFactory;
     private readonly INicheSearchConfigurationProbe? _nicheSearchProbe;
+    private readonly INicheDiscoveryOriginProbe? _nicheDiscoveryOriginProbe;
 
     public GetOrganizationIntegrationsHandler(
         IIntegrationProviderCatalogRepository providers,
@@ -23,7 +25,8 @@ public sealed class GetOrganizationIntegrationsHandler
         IOrganizationIntegrationCredentialRepository credentials,
         IOrganizationAiModelRepository? models = null,
         IExternalProviderClientFactory? clientFactory = null,
-        INicheSearchConfigurationProbe? nicheSearchProbe = null)
+        INicheSearchConfigurationProbe? nicheSearchProbe = null,
+        INicheDiscoveryOriginProbe? nicheDiscoveryOriginProbe = null)
     {
         _providers = providers;
         _integrations = integrations;
@@ -31,6 +34,7 @@ public sealed class GetOrganizationIntegrationsHandler
         _models = models;
         _clientFactory = clientFactory;
         _nicheSearchProbe = nicheSearchProbe;
+        _nicheDiscoveryOriginProbe = nicheDiscoveryOriginProbe;
     }
 
     public async Task<Result<OrganizationIntegrationsOverviewResponse>> Handle(
@@ -138,13 +142,16 @@ public sealed class GetOrganizationIntegrationsHandler
                 "At least one AI model provider must be connected to generate content ideas.")
         };
 
+        var nicheDiscoveryChecklist = await BuildNicheDiscoveryChecklistItemsAsync(request.OrganizationId, cancellationToken);
+
         var checklistGroups = new List<IntegrationSetupChecklistResponse>
         {
             new("single-analyzer", "Single Analyzer", singleAnalyzerChecklist),
-            new("generator", "Content Generator", generatorChecklist)
+            new("generator", "Content Generator", generatorChecklist),
+            new("niche-discovery", "Niche Discovery", nicheDiscoveryChecklist)
         };
 
-        var checklist = singleAnalyzerChecklist.Concat(generatorChecklist).ToList();
+        var checklist = singleAnalyzerChecklist.Concat(generatorChecklist).Concat(nicheDiscoveryChecklist).ToList();
 
         var overview = new OrganizationIntegrationsOverviewResponse(
             request.OrganizationId,
@@ -231,4 +238,35 @@ public sealed class GetOrganizationIntegrationsHandler
     /// appended verbatim (e.g. <c>single-analyzer-niche-search-actor-tiktok</c>).
     /// </summary>
     public const string NicheSearchChecklistItemKeyPrefix = "single-analyzer-niche-search-actor-";
+
+    /// <summary>
+    /// WU-4 (N12, INT-ND-03): the "niche-discovery" checklist group — a hard deliverable, not a
+    /// nicety. A workflow key with no matching checklist group renders "not configurable yet" in
+    /// Settings even when the backend is fully wired (`WorkflowConfigurationCatalog.cs` trap).
+    /// Backed by <see cref="INicheDiscoveryOriginProbe"/>, real implementation lands in WU-5 —
+    /// until then, both items report unsatisfied (probe not wired / no route resolves).
+    /// </summary>
+    private async Task<IReadOnlyList<IntegrationSetupChecklistItemResponse>> BuildNicheDiscoveryChecklistItemsAsync(
+        Guid organizationId,
+        CancellationToken cancellationToken)
+    {
+        var isReady = _nicheDiscoveryOriginProbe is not null
+            && await _nicheDiscoveryOriginProbe.IsReadyAsync(organizationId, "youtube", cancellationToken);
+
+        return
+        [
+            new(
+                "niche-discovery-api-key",
+                "Connect a YouTube Data API key",
+                true,
+                isReady,
+                "Connect an official YouTube Data API v3 key to enable channel/video search for niche discovery."),
+            new(
+                "niche-discovery-origin",
+                "Enable a discovery origin for channel search",
+                true,
+                isReady,
+                "At least one discovery origin route must resolve for the channel search stage before a run can start.")
+        ];
+    }
 }

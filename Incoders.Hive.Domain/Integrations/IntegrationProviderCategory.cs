@@ -7,4 +7,5 @@ public enum IntegrationProviderCategory
     DataExtraction = 2,
     Publishing = 3,
     MediaGeneration = 4,
+    OfficialDataApi = 5,
 }

@@ -238,7 +238,8 @@ export type IntegrationProviderCategory =
   | "Design"
   | "DataExtraction"
   | "Publishing"
-  | "MediaGeneration";
+  | "MediaGeneration"
+  | "OfficialDataApi";
 
 export type IntegrationConnectionMode = "BringYourOwnKey" | "ManagedByIncoders" | "SystemDefault";
 
