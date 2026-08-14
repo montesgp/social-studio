@@ -43,6 +43,12 @@ public sealed class EfDiscoveryRunRepository : IDiscoveryRunRepository
         row.FailureReasonKey = run.FailureReasonKey;
         row.StartedAt = run.StartedAtUtc;
         row.CompletedAt = run.CompletedAtUtc;
+        row.WeightsJson = run.WeightsJson;
+        row.UnconfiguredSourceKeys = run.UnconfiguredSourceKeys.ToList();
+        row.FailedSourceKeys = run.FailedSourceKeys.ToList();
+        row.ProviderUnitsSpent = run.ProviderUnitsSpent;
+        row.AiCompletionsSpent = run.AiCompletionsSpent;
+        row.SemanticDegraded = run.SemanticDegraded;
 
         await _db.SaveChangesAsync(ct);
     }
@@ -69,16 +75,17 @@ public sealed class EfDiscoveryRunRepository : IDiscoveryRunRepository
         WindowDays = run.Window.Days,
         Depth = (short)run.Depth,
         Status = (short)run.Status,
-        // The scorer weight snapshot (N7, design §7.1) is written by the run orchestrator at run
-        // start (WU-11a) — this repository only round-trips whatever value is already on the
-        // aggregate at persistence time; "{}" is the WU-7b placeholder until that caller exists.
-        WeightsJson = "{}",
+        // The scorer weight snapshot (N7, design §7.1) and the execution-outcome fields below are
+        // whatever the aggregate already carries at persistence time — "{}"/empty/zero at AddAsync
+        // time (before the run has executed), populated by NicheDiscoveryRunProcessor via
+        // DiscoveryRun.RecordExecutionSnapshot and round-tripped for real from WU-11a onward.
+        WeightsJson = run.WeightsJson,
         OriginSourceKeys = [],
-        UnconfiguredSourceKeys = [],
-        FailedSourceKeys = [],
-        ProviderUnitsSpent = 0,
-        AiCompletionsSpent = 0,
-        SemanticDegraded = false,
+        UnconfiguredSourceKeys = run.UnconfiguredSourceKeys.ToList(),
+        FailedSourceKeys = run.FailedSourceKeys.ToList(),
+        ProviderUnitsSpent = run.ProviderUnitsSpent,
+        AiCompletionsSpent = run.AiCompletionsSpent,
+        SemanticDegraded = run.SemanticDegraded,
         FailureReasonKey = run.FailureReasonKey,
         StartedAt = run.StartedAtUtc,
         CompletedAt = run.CompletedAtUtc,
@@ -116,6 +123,12 @@ public sealed class EfDiscoveryRunRepository : IDiscoveryRunRepository
             row.FailureReasonKey,
             row.CreatedAt,
             row.StartedAt,
-            row.CompletedAt);
+            row.CompletedAt,
+            row.WeightsJson,
+            row.UnconfiguredSourceKeys,
+            row.FailedSourceKeys,
+            row.ProviderUnitsSpent,
+            row.AiCompletionsSpent,
+            row.SemanticDegraded);
     }
 }
