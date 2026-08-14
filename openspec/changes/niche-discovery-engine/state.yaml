@@ -102,12 +102,19 @@ risks:
   - "DI override trap; guarded by the exact-one-implementation-per-port composition test (WU-11b.5)."
 
 validation:
-  gates: PASS (WU-1, WU-2, WU-3)
+  gates: PASS (WU-1 through WU-8)
   detail: >
-    sdd-apply batch 1 (WU-1..WU-3) landed: DiscoveryRun aggregate + lifecycle value objects
-    (3c454c1), taxonomy hierarchy + market catalog + country-name guard (27482bb), Application
-    ports + discovery budget contracts (ed2edc2). Gates green on every commit. WU-4 onward not
-    started.
+    sdd-apply batch 1 (WU-1..WU-3): DiscoveryRun aggregate + lifecycle value objects (3c454c1),
+    taxonomy hierarchy + market catalog + country-name guard (27482bb), Application ports +
+    discovery budget contracts (ed2edc2). Batch 2 (WU-4..WU-6): integrations category + workflow
+    (7c9c2cc), YouTube Data API v3 origin adapter (3e00b2b), deterministic metric calculator
+    (b2f0f25). Batch 3 (WU-7a, WU-7b, WU-8): persistence schema + migration + market catalog
+    seeder (5883a44, amended to add DiscoveryRun.RequestedByUserId and
+    DiscoveryRunData.ConfigurationSnapshotJson — genuine WU-1 schema gaps found while implementing
+    the repository round-trip), EF repositories for runs/opportunities/evidence/market catalog
+    (a17ecaf), opportunity scorer + independent confidence scorer (50019f6). Gates green on every
+    commit. WU-9 onward not started — WU-9 carries an owner decision checkpoint (OQ-1) resolved
+    separately.
 
 delivery:
   strategy: single-pr
