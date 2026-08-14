@@ -18,8 +18,8 @@ public sealed class DiscoveryRun : Entity<DiscoveryRunId>
     private DiscoveryRun(
         DiscoveryRunId id,
         Guid organizationId,
-        string sourceMarketCode,
-        string targetMarketCode,
+        MarketCode sourceMarketCode,
+        MarketCode targetMarketCode,
         string networkKey,
         string contentFormat,
         DiscoveryWindow window,
@@ -44,9 +44,15 @@ public sealed class DiscoveryRun : Entity<DiscoveryRunId>
 
     public Guid OrganizationId { get; }
 
-    public string SourceMarketCode { get; }
+    /// <summary>
+    /// Parsed at construction, never stored raw: an unparseable code cannot reach persistence, and
+    /// only <see cref="MarketCode.Language"/> is ever read downstream, so no algorithm can branch on
+    /// a market's identity.
+    /// </summary>
+    public MarketCode SourceMarketCode { get; }
 
-    public string TargetMarketCode { get; }
+    /// <inheritdoc cref="SourceMarketCode"/>
+    public MarketCode TargetMarketCode { get; }
 
     public string NetworkKey { get; }
 
@@ -85,17 +91,27 @@ public sealed class DiscoveryRun : Entity<DiscoveryRunId>
         Guid? nicheId,
         DateTime nowUtc)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceMarketCode);
-        ArgumentException.ThrowIfNullOrWhiteSpace(targetMarketCode);
         ArgumentException.ThrowIfNullOrWhiteSpace(networkKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(contentFormat);
         ArgumentNullException.ThrowIfNull(configurationSnapshotJson);
 
+        var source = MarketCode.TryParse(sourceMarketCode);
+        if (source.IsFailure)
+        {
+            return Result.Failure<DiscoveryRun>(source.Error);
+        }
+
+        var target = MarketCode.TryParse(targetMarketCode);
+        if (target.IsFailure)
+        {
+            return Result.Failure<DiscoveryRun>(target.Error);
+        }
+
         return Result.Success(new DiscoveryRun(
             DiscoveryRunId.New(),
             organizationId,
-            sourceMarketCode,
-            targetMarketCode,
+            source.Value,
+            target.Value,
             networkKey,
             contentFormat,
             window,

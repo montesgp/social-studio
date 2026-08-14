@@ -47,8 +47,8 @@ public sealed class DiscoveryRunTests
         var run = result.Value;
 
         Assert.Equal(OrganizationId, run.OrganizationId);
-        Assert.Equal("es-AR", run.SourceMarketCode);
-        Assert.Equal("es-AR", run.TargetMarketCode);
+        Assert.Equal("es-AR", run.SourceMarketCode.Value);
+        Assert.Equal("es-AR", run.TargetMarketCode.Value);
         Assert.Equal("youtube", run.NetworkKey);
         Assert.Equal("long", run.ContentFormat);
         Assert.Equal(30, run.Window.Days);
@@ -56,6 +56,40 @@ public sealed class DiscoveryRunTests
         Assert.Equal("{\"originMapping\":{},\"weights\":{},\"depthCeiling\":400}", run.ConfigurationSnapshotJson);
         Assert.Equal(DiscoveryRunStatus.Requested, run.Status);
         Assert.Equal(Now, run.CreatedAtUtc);
+    }
+
+    [Theory]
+    [InlineData("not-a-market-code")]
+    [InlineData("esAR")]
+    [InlineData("es")]
+    [InlineData("spa-ARG")]
+    [InlineData("e5-AR")]
+    public void Create_WithMalformedMarketCode_FailsInsteadOfStoringIt(string malformed)
+    {
+        var window = DiscoveryWindow.Create(30).Value;
+
+        var asSource = DiscoveryRun.Create(
+            OrganizationId, malformed, "es-AR", "youtube", "long", window, DiscoveryDepth.Quick, "{}", null, Now);
+        var asTarget = DiscoveryRun.Create(
+            OrganizationId, "es-AR", malformed, "youtube", "long", window, DiscoveryDepth.Quick, "{}", null, Now);
+
+        Assert.True(asSource.IsFailure);
+        Assert.Equal(NicheDiscoveryErrors.MarketCodeInvalid, asSource.Error);
+        Assert.True(asTarget.IsFailure);
+        Assert.Equal(NicheDiscoveryErrors.MarketCodeInvalid, asTarget.Error);
+    }
+
+    [Fact]
+    public void Create_WithNonCanonicalMarketCasing_StoresTheCanonicalForm()
+    {
+        var window = DiscoveryWindow.Create(30).Value;
+
+        var result = DiscoveryRun.Create(
+            OrganizationId, "ES-ar", "PT-br", "youtube", "long", window, DiscoveryDepth.Quick, "{}", null, Now);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("es-AR", result.Value.SourceMarketCode.Value);
+        Assert.Equal("pt-BR", result.Value.TargetMarketCode.Value);
     }
 
     [Fact]
@@ -159,9 +193,25 @@ public sealed class DiscoveryRunTests
         Assert.Throws<InvalidOperationException>(() => run.Complete(Now.AddMinutes(1)));
     }
 
+    /// <summary>
+    /// A missing market code is operator input and comes back as a validation failure, not an
+    /// exception — unlike the structural parameters below, which no caller can legitimately omit.
+    /// </summary>
     [Theory]
-    [InlineData(null, "es-AR", "youtube", "long")]
-    [InlineData("es-AR", null, "youtube", "long")]
+    [InlineData(null, "es-AR")]
+    [InlineData("es-AR", null)]
+    public void Create_WithMissingMarketCode_FailsWithMarketCodeInvalid(string? sourceMarket, string? targetMarket)
+    {
+        var window = DiscoveryWindow.Create(30).Value;
+
+        var result = DiscoveryRun.Create(
+            OrganizationId, sourceMarket!, targetMarket!, "youtube", "long", window, DiscoveryDepth.Quick, "{}", null, Now);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(NicheDiscoveryErrors.MarketCodeInvalid, result.Error);
+    }
+
+    [Theory]
     [InlineData("es-AR", "es-AR", null, "long")]
     [InlineData("es-AR", "es-AR", "youtube", null)]
     public void Create_WithMissingRequiredParameter_Throws(
