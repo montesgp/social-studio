@@ -267,6 +267,16 @@ public static class DependencyInjection
         // since IMarketCatalogRepository is deliberately read-only (design §9).
         services.AddScoped<Incoders.Hive.Infrastructure.Social.NicheDiscovery.MarketCatalogSeeder>();
 
+        // WU-7b: NicheDiscovery persistence repositories (design §9, ND-11, ND-16).
+        services.AddScoped<Incoders.Hive.Application.Abstractions.Social.NicheDiscovery.IDiscoveryRunRepository,
+            EfDiscoveryRunRepository>();
+        services.AddScoped<Incoders.Hive.Application.Abstractions.Social.NicheDiscovery.INicheOpportunityRepository,
+            EfNicheOpportunityRepository>();
+        services.AddScoped<Incoders.Hive.Application.Abstractions.Social.NicheDiscovery.INicheDiscoveryEvidenceRepository,
+            EfNicheDiscoveryEvidenceRepository>();
+        services.AddScoped<Incoders.Hive.Application.Abstractions.Social.NicheDiscovery.IMarketCatalogRepository,
+            EfMarketCatalogRepository>();
+
         // The chain IS the discovery service. Exactly ONE registration of IContentDiscoveryService may
         // exist — a second AddScoped<IContentDiscoveryService, …> would silently win GetRequiredService
         // with no compile or runtime error (see DiscoveryCompositionTests).

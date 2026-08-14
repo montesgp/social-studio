@@ -205,14 +205,14 @@ prerequisite exists (see Blocked/prerequisite section above).*
 
 *Refs: ND-11, ND-16. Design §2.4, §9. Split from repositories per design §18.1 (default, not fallback).*
 
-- [ ] 7a.1 **[GREEN]** Create `DiscoveryRunData.cs`, `NicheOpportunityData.cs`, `NicheDiscoveryEvidenceData.cs`, `MarketCatalogData.cs` entities exactly per the column list in design §9 (schema `social`, snake_case, `organization_id` cascade-delete FK on the first three; `market_catalog` is platform-level, no `organization_id`). (`Infrastructure/Persistence/Postgres/Entities/*.cs`)
-- [ ] 7a.2 **[GREEN]** Map all four entities in `AppIdentityDbContext.cs`: `ix_discovery_runs_org_created`, unique `ux_niche_opportunities_run_rank`, `ix_niche_opportunities_org_created`, unique `ux_niche_discovery_evidence_run_kind_ref`, unique `ux_market_catalog_code`. (`Infrastructure/Identity/AppIdentityDbContext.cs`)
-- [ ] 7a.3 Generate migration `Add_NicheDiscoveryRunsOpportunitiesAndEvidence` via `dotnet ef migrations add` (produces `.Designer.cs` + updated `AppIdentityDbContextModelSnapshot.cs` — the generated-diff lines tracked separately from the ~450 authored). (`Infrastructure/Persistence/Postgres/Migrations/*`)
-- [ ] 7a.4 **Gate**: run `dotnet ef migrations has-pending-model-changes` (the `migration-drift` gate) — MUST be clean. This is a distinct, explicit task, not folded into 7a.6, because a drifted model snapshot is the single most common silent regression in this class of change.
-- [ ] 7a.5 **[GREEN]** Create `MarketCatalogSeeder.cs` — deterministic GUIDs, upsert-on-missing-only, one row `es-AR` (mirrors `NicheCatalogSeeder`). Wire into `Program.cs` startup seeding. (`Infrastructure/Social/NicheDiscovery/MarketCatalogSeeder.cs`)
-- [ ] 7a.6 **[RED]** Add `MarketCatalogSeederTests.cs` — idempotent re-run does not duplicate the `es-AR` row; deterministic GUID is stable across runs. (`Incoders.Hive.Tests/Infrastructure/Social/NicheDiscovery/MarketCatalogSeederTests.cs`)
-- [ ] 7a.7 Run `dotnet test --filter FullyQualifiedName~NicheDiscovery`, then the full suite.
-- [ ] 7a.8 `pwsh -File scripts/gates/Run-Gates.ps1` green (`migration-drift` gate included). Commit: `feat(niche-discovery): add persistence schema, migration, and market catalog seeder`.
+- [x] 7a.1 **[GREEN]** Create `DiscoveryRunData.cs`, `NicheOpportunityData.cs`, `NicheDiscoveryEvidenceData.cs`, `MarketCatalogData.cs` entities exactly per the column list in design §9 (schema `social`, snake_case, `organization_id` cascade-delete FK on the first three; `market_catalog` is platform-level, no `organization_id`). (`Infrastructure/Persistence/Postgres/Entities/*.cs`)
+- [x] 7a.2 **[GREEN]** Map all four entities in `AppIdentityDbContext.cs`: `ix_discovery_runs_org_created`, unique `ux_niche_opportunities_run_rank`, `ix_niche_opportunities_org_created`, unique `ux_niche_discovery_evidence_run_kind_ref`, unique `ux_market_catalog_code`. (`Infrastructure/Identity/AppIdentityDbContext.cs`)
+- [x] 7a.3 Generate migration `Add_NicheDiscoveryRunsOpportunitiesAndEvidence` via `dotnet ef migrations add` (produces `.Designer.cs` + updated `AppIdentityDbContextModelSnapshot.cs` — the generated-diff lines tracked separately from the ~450 authored). (`Infrastructure/Persistence/Postgres/Migrations/*`)
+- [x] 7a.4 **Gate**: run `dotnet ef migrations has-pending-model-changes` (the `migration-drift` gate) — MUST be clean. This is a distinct, explicit task, not folded into 7a.6, because a drifted model snapshot is the single most common silent regression in this class of change.
+- [x] 7a.5 **[GREEN]** Create `MarketCatalogSeeder.cs` — deterministic GUIDs, upsert-on-missing-only, one row `es-AR` (mirrors `NicheCatalogSeeder`). Wire into `Program.cs` startup seeding. (`Infrastructure/Social/NicheDiscovery/MarketCatalogSeeder.cs`)
+- [x] 7a.6 **[RED]** Add `MarketCatalogSeederTests.cs` — idempotent re-run does not duplicate the `es-AR` row; deterministic GUID is stable across runs. (`Incoders.Hive.Tests/Infrastructure/Social/NicheDiscovery/MarketCatalogSeederTests.cs`)
+- [x] 7a.7 Run `dotnet test --filter FullyQualifiedName~NicheDiscovery`, then the full suite.
+- [x] 7a.8 `pwsh -File scripts/gates/Run-Gates.ps1` green (`migration-drift` gate included). Commit: `feat(niche-discovery): add persistence schema, migration, and market catalog seeder`.
 
 ---
 
@@ -220,17 +220,17 @@ prerequisite exists (see Blocked/prerequisite section above).*
 
 *Refs: ND-11, ND-16. Design §2.4, §9. Depends on WU-7a.*
 
-- [ ] 7b.1 **[RED]** Add `EfDiscoveryRunRepositoryTests.cs` — round-trip; status-lifecycle UPDATE path (the one table that updates); tenant scoping (cross-org read returns nothing, ND-16). (`Incoders.Hive.Tests/Infrastructure/Persistence/Postgres/Repositories/EfDiscoveryRunRepositoryTests.cs`)
-- [ ] 7b.2 **[GREEN]** Create `IDiscoveryRunRepository` (already declared in WU-3.7) implementation `EfDiscoveryRunRepository.cs`. (`Infrastructure/Persistence/Postgres/Repositories/EfDiscoveryRunRepository.cs`)
-- [ ] 7b.3 **[RED]** Add `EfNicheOpportunityRepositoryTests.cs` — `AppendAsync` round-trip; `ux_niche_opportunities_run_rank` rejects a double-write inside a run as a hard error, mirroring `ux_discovered_candidates_key_observed`; no update/delete method exists on the port (compile-time assertion via reflection over the interface's member set); a later run creates new rows, earlier rows unchanged (ND-11 scenario 2); cascade delete from the organization removes opportunities. (`Incoders.Hive.Tests/Infrastructure/Persistence/Postgres/Repositories/EfNicheOpportunityRepositoryTests.cs`)
-- [ ] 7b.4 **[GREEN]** Create `EfNicheOpportunityRepository.cs` (`AppendAsync` + readers only). (`Infrastructure/Persistence/Postgres/Repositories/EfNicheOpportunityRepository.cs`)
-- [ ] 7b.5 **[RED]** Add `EfNicheDiscoveryEvidenceRepositoryTests.cs` — `AppendAsync` round-trip; unique `(run_id, evidence_kind, external_ref)` rejects a double-write; navigable — evidence links back to `opportunity_id`. (`Incoders.Hive.Tests/Infrastructure/Persistence/Postgres/Repositories/EfNicheDiscoveryEvidenceRepositoryTests.cs`)
-- [ ] 7b.6 **[GREEN]** Create `EfNicheDiscoveryEvidenceRepository.cs`. (`Infrastructure/Persistence/Postgres/Repositories/EfNicheDiscoveryEvidenceRepository.cs`)
-- [ ] 7b.7 **[RED]** Add `EfMarketCatalogRepositoryTests.cs` — read-only listing of active markets; `es-AR` present after seeding. (`Incoders.Hive.Tests/Infrastructure/Persistence/Postgres/Repositories/EfMarketCatalogRepositoryTests.cs`)
-- [ ] 7b.8 **[GREEN]** Create `EfMarketCatalogRepository.cs`. (`Infrastructure/Persistence/Postgres/Repositories/EfMarketCatalogRepository.cs`)
-- [ ] 7b.9 Register all four repositories in Infrastructure DI. (`Infrastructure/DependencyInjection/DependencyInjection.cs`)
-- [ ] 7b.10 Run `dotnet test --filter FullyQualifiedName~Repositories`, then the full suite.
-- [ ] 7b.11 `pwsh -File scripts/gates/Run-Gates.ps1` green. Commit: `feat(niche-discovery): add EF repositories for runs, opportunities, evidence, and market catalog`.
+- [x] 7b.1 **[RED]** Add `EfDiscoveryRunRepositoryTests.cs` — round-trip; status-lifecycle UPDATE path (the one table that updates); tenant scoping (cross-org read returns nothing, ND-16). (`Incoders.Hive.Tests/Infrastructure/Persistence/Postgres/Repositories/EfDiscoveryRunRepositoryTests.cs`)
+- [x] 7b.2 **[GREEN]** Create `IDiscoveryRunRepository` (already declared in WU-3.7) implementation `EfDiscoveryRunRepository.cs`. (`Infrastructure/Persistence/Postgres/Repositories/EfDiscoveryRunRepository.cs`)
+- [x] 7b.3 **[RED]** Add `EfNicheOpportunityRepositoryTests.cs` — `AppendAsync` round-trip; `ux_niche_opportunities_run_rank` rejects a double-write inside a run as a hard error, mirroring `ux_discovered_candidates_key_observed`; no update/delete method exists on the port (compile-time assertion via reflection over the interface's member set); a later run creates new rows, earlier rows unchanged (ND-11 scenario 2); cascade delete from the organization removes opportunities. (`Incoders.Hive.Tests/Infrastructure/Persistence/Postgres/Repositories/EfNicheOpportunityRepositoryTests.cs`)
+- [x] 7b.4 **[GREEN]** Create `EfNicheOpportunityRepository.cs` (`AppendAsync` + readers only). (`Infrastructure/Persistence/Postgres/Repositories/EfNicheOpportunityRepository.cs`)
+- [x] 7b.5 **[RED]** Add `EfNicheDiscoveryEvidenceRepositoryTests.cs` — `AppendAsync` round-trip; unique `(run_id, evidence_kind, external_ref)` rejects a double-write; navigable — evidence links back to `opportunity_id`. (`Incoders.Hive.Tests/Infrastructure/Persistence/Postgres/Repositories/EfNicheDiscoveryEvidenceRepositoryTests.cs`)
+- [x] 7b.6 **[GREEN]** Create `EfNicheDiscoveryEvidenceRepository.cs`. (`Infrastructure/Persistence/Postgres/Repositories/EfNicheDiscoveryEvidenceRepository.cs`)
+- [x] 7b.7 **[RED]** Add `EfMarketCatalogRepositoryTests.cs` — read-only listing of active markets; `es-AR` present after seeding. (`Incoders.Hive.Tests/Infrastructure/Persistence/Postgres/Repositories/EfMarketCatalogRepositoryTests.cs`)
+- [x] 7b.8 **[GREEN]** Create `EfMarketCatalogRepository.cs`. (`Infrastructure/Persistence/Postgres/Repositories/EfMarketCatalogRepository.cs`)
+- [x] 7b.9 Register all four repositories in Infrastructure DI. (`Infrastructure/DependencyInjection/DependencyInjection.cs`)
+- [x] 7b.10 Run `dotnet test --filter FullyQualifiedName~Repositories`, then the full suite.
+- [x] 7b.11 `pwsh -File scripts/gates/Run-Gates.ps1` green. Commit: `feat(niche-discovery): add EF repositories for runs, opportunities, evidence, and market catalog`.
 
 ---
 
