@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentDiscovery;
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Common.Pagination;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Ideas;
 using Incoders.Hive.Application.Features.Social.Workflow;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.Workflow;
@@ -27,6 +29,12 @@ namespace Incoders.Hive.Infrastructure.Social.Workflow;
 public sealed class InMemoryContentWorkflowService : IContentWorkflowService
 {
     private const int DefaultResultCount = 72;
+
+    /// <summary>
+    /// The canonical origin mode that draws invented topics instead of reaching any provider. Compared
+    /// against the NORMALIZED value, never against raw operator input.
+    /// </summary>
+    private const string AiIdeasOriginMode = "ai-ideas";
 
     /// <summary>
     /// While discovery is still running the time-based ramp is capped below 100 so the bar can never
@@ -108,8 +116,19 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
             return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.StrategyModeInvalid));
         }
 
+        // Rejected rather than defaulted: silently reading an unrecognised mode as "discovery" would let
+        // a typo start the billed scrape the operator was explicitly avoiding.
+        var originMode = ContentWorkflowCatalog.NormalizeOriginMode(input.OriginMode);
+        if (originMode.Length == 0)
+        {
+            return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.OriginModeInvalid));
+        }
+
         var normalizedNetworks = ContentWorkflowCatalog.NormalizeNetworkSources(input.NetworkSources);
-        if (normalizedNetworks.Count == 0)
+
+        // A network is where we SCRAPE. The ai-ideas mode scrapes nowhere, so demanding one would be a
+        // requirement the run never honours — the form would be lying to the operator.
+        if (normalizedNetworks.Count == 0 && originMode != AiIdeasOriginMode)
         {
             return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.NetworkSourcesRequired));
         }
@@ -131,7 +150,8 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
             "in_progress",
             [],
             new HashSet<Guid>(),
-            new List<ContentWorkflowActionResponse>());
+            new List<ContentWorkflowActionResponse>(),
+            originMode);
 
         _sessions[workflowId] = session;
 
@@ -139,7 +159,13 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
         // browser or proxy abort the request at ~30 s and orphan a billing Apify run. The task owns
         // its own scope and its own cancellation source, so nothing here has to be awaited or
         // captured.
-        _ = Task.Run(() => RunDiscoveryAsync(session), CancellationToken.None);
+        //
+        // The ai-ideas branch is far quicker (one model call, no provider), but it runs on the same
+        // start+poll machinery on purpose: the operator keeps ONE way of watching a run, and a slow
+        // model does not get to abort the request either.
+        _ = originMode == AiIdeasOriginMode
+            ? Task.Run(() => RunIdeaDrawAsync(session), CancellationToken.None)
+            : Task.Run(() => RunDiscoveryAsync(session), CancellationToken.None);
 
         lock (session.SyncRoot)
         {
@@ -219,6 +245,116 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
                 session.SearchCriterion);
         }
     }
+
+    /// <summary>
+    /// The background half of start + poll for the <c>ai-ideas</c> mode: topics the model invents from
+    /// the client's own context, with no provider call behind them.
+    ///
+    /// <para>
+    /// Two things make this mode what the operator asked for. The chain is filtered to
+    /// <see cref="IdeaOrigin.Invented"/>, so a source that scrapes is never even called — a batch that
+    /// cannot be filled comes back short rather than quietly topped up from somebody's winning posts.
+    /// And each run carries its OWN variation seed, so asking twice for the same client does not return
+    /// the same list.
+    /// </para>
+    ///
+    /// <para>
+    /// The client's aesthetic is untouched here. Where a topic comes from and how the piece is designed
+    /// are different layers: the aesthetic is applied downstream at generation, exactly as it is for a
+    /// scraped run.
+    /// </para>
+    /// </summary>
+    private async Task RunIdeaDrawAsync(WorkflowSessionState session)
+    {
+        // Same reasoning as RunDiscoveryAsync: never the request's token, which the browser aborts.
+        var ct = _applicationLifetime.ApplicationStopping;
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var ideas = scope.ServiceProvider.GetRequiredService<ContentIdeaChain>();
+
+            var plan = await ideas.DrawAsync(
+                new ContentIdeaRequest(
+                    session.OrganizationId,
+                    session.ClientId,
+                    DefaultResultCount,
+                    OriginFilter: IdeaOrigin.Invented,
+                    // Per SESSION, not per client: this is the whole "spontaneous, of that moment" part.
+                    VariationSeed: session.WorkflowId.ToString("N")),
+                ct);
+
+            var results = ProjectIdeas(plan, session.SearchCriterion, session.StrategyMode);
+
+            lock (session.SyncRoot)
+            {
+                session.Results = results;
+                session.Phase = ResolveIdeaTerminalPhase(plan);
+                // Neither "bank" nor "fresh": both describe scraped candidates, and nothing was scraped.
+                session.ResultOrigin = "ai-ideas";
+                session.BankObservedAtUtc = null;
+                session.UpdatedAtUtc = _clock.UtcNow;
+            }
+
+            _logger.LogInformation(
+                "Content workflow idea draw finished for {WorkflowId} with phase {Phase}, {IdeaCount} idea(s) and shortfall {Shortfall}.",
+                session.WorkflowId,
+                session.Phase,
+                results.Count,
+                plan.Shortfall);
+        }
+        catch (Exception ex)
+        {
+            lock (session.SyncRoot)
+            {
+                session.Phase = DiscoveryPhase.Failed;
+                session.UpdatedAtUtc = _clock.UtcNow;
+            }
+
+            _logger.LogError(
+                ex,
+                "Content workflow idea draw failed for {WorkflowId} (client {ClientId}).",
+                session.WorkflowId,
+                session.ClientId);
+        }
+    }
+
+    /// <summary>
+    /// An idea draw has no "unconfigured" state — there is no provider to configure. It either produced
+    /// topics, or every allowed source failed.
+    /// </summary>
+    private static DiscoveryPhase ResolveIdeaTerminalPhase(ContentIdeaPlan plan) =>
+        plan.Ideas.Count > 0 ? DiscoveryPhase.Completed
+        : plan.FailedSourceKeys.Count > 0 ? DiscoveryPhase.Failed
+        : DiscoveryPhase.Completed;
+
+    /// <summary>
+    /// Projects invented topics onto the workflow's result shape, so selection, actions and package
+    /// generation work on them unchanged.
+    ///
+    /// Every metric is zero and both URLs are empty ON PURPOSE. An invented topic has no audience and no
+    /// post behind it; inventing a view count would let it outrank a genuinely winning scraped candidate
+    /// in a screen that sorts on exactly that.
+    /// </summary>
+    private static IReadOnlyList<WorkflowResultState> ProjectIdeas(
+        ContentIdeaPlan plan,
+        string searchCriterion,
+        string strategyMode) =>
+        plan.Ideas
+            .Select(idea => new WorkflowResultState(
+                Guid.NewGuid(),
+                idea.Title,
+                // The idea's own source key, not a network: nothing here came from a network.
+                idea.SourceKey,
+                searchCriterion,
+                strategyMode,
+                idea.Reference ?? string.Empty,
+                string.Empty,
+                idea.Summary ?? string.Empty,
+                0,
+                0,
+                0))
+            .ToList();
 
     /// <summary>
     /// Collapses one plan onto the single terminal phase the operator sees. Candidates win over every
@@ -833,8 +969,10 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
             string status,
             IReadOnlyList<WorkflowResultState> results,
             HashSet<Guid> selectedResultIds,
-            List<ContentWorkflowActionResponse> actions)
+            List<ContentWorkflowActionResponse> actions,
+            string originMode)
         {
+            OriginMode = originMode;
             WorkflowId = workflowId;
             OrganizationId = organizationId;
             ClientId = clientId;
@@ -866,6 +1004,12 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
         public string StrategyMode { get; }
 
         public IReadOnlyList<string> NetworkSources { get; }
+
+        /// <summary>
+        /// <c>discovery</c> or <c>ai-ideas</c>, captured at start. Decides which background routine the
+        /// session ran and therefore whether any provider could have been touched at all.
+        /// </summary>
+        public string OriginMode { get; }
 
         /// <summary>
         /// The operator's explicit opt-in to a billed provider run, captured at start and never

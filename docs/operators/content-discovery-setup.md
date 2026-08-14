@@ -215,6 +215,44 @@ has to overlap it (see *How a client's niche becomes hashtags*).
 Selecting several candidates for background batch processing is **not** part of this flow — that is
 the Magic Generator, a separate future capability.
 
+### Running without any scraping — AI ideas
+
+Next to **Discover** and **Refresh** there is a third button: **AI ideas (no scraping)**. It starts the
+same session, on the same start+poll machinery, with the same progress overlay — but it reaches no
+provider at all.
+
+| | Discover / Refresh | AI ideas |
+|---|---|---|
+| Where topics come from | Real posts, scraped or served from the candidate bank | Written by the model from this client's own context |
+| Apify actor | Dispatched (Refresh) or read from the bank (Discover) | **Never dispatched** |
+| Cost | Billed on a refresh | Nothing billed |
+| Needs an actor configured | Yes, for niche | **No** — this is the mode for a machine with no actor set up |
+| Metrics on each row | Real view / like / comment counts | All zero |
+| Same input twice | Same candidates | **Different topics every run** |
+
+Use it when you want ideas that are *not* derived from anybody's winning video: no reference, no
+anchor, no audience signal behind them. The rows come back with every metric at zero and no content
+URL on purpose — an invented topic has no audience, and showing a made-up view count would let it
+outrank a genuinely winning scraped candidate on a screen that sorts by exactly that.
+
+**The client's design is untouched by this choice.** Where a topic comes from and how the piece looks
+are different layers: the client's aesthetic — colour pairing, background pattern, flat-vs-photo slide
+mix — is applied downstream at generation and behaves identically for an AI idea and for a scraped
+one. This button changes the *raw material*, never the style.
+
+Two guards are worth knowing:
+
+- **A typo is rejected, not defaulted.** An unrecognised origin mode returns
+  `social.workflow.origin_mode_invalid` rather than quietly falling back to `discovery` — otherwise a
+  misspelling could start the billed scrape you were trying to avoid.
+- **A short batch stays short.** If the model can only produce four topics when six were asked for,
+  the run reports a shortfall. It does **not** top the batch up from the scrapers, because those are
+  precisely the sources you excluded.
+
+Callers hitting the API directly send `"originMode": "ai-ideas"` on
+`POST /api/social/workflows/content-generation`. Omitting the field keeps today's behaviour
+(`discovery`). The Spanish aliases `ideas` and `ia` are accepted.
+
 ### How the discovery actually executes
 
 **Discovery does not run inside the HTTP request any more.** Clicking **Discover** POSTs to

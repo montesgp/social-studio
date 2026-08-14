@@ -1,7 +1,10 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentDiscovery;
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Ideas;
 using Incoders.Hive.Application.Features.Social.Workflow;
+using Incoders.Hive.Domain.Social.Workflow;
 using Incoders.Hive.Infrastructure.Social.Workflow;
 using Incoders.Hive.Tests.Common;
 using Microsoft.Extensions.DependencyInjection;
@@ -487,6 +490,177 @@ public sealed class ContentWorkflowServiceTests
         }
 
         throw new TimeoutException("The workflow session never reached a terminal state.");
+    }
+
+    // ── ai-ideas origin: spontaneous topics, nothing scraped ─────────────────
+    // The operator working locally must be able to run the pipeline WITHOUT any actor: the ideas come
+    // from the model riffing on the client's own context, so no provider is called and nothing is
+    // billed. The client's aesthetic is untouched by this — it is applied later, at generation.
+
+    [Fact]
+    public async Task Start_WithAiIdeasOrigin_NeverCallsDiscovery()
+    {
+        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
+        var spy = new SpyDiscovery(Discovered(3));
+        var service = CreateService(clock, IdeaScopeFactory(spy, new SpyIdeaSource(3)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(
+                Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
+
+        Assert.True(started.IsSuccess);
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        // Not "called and ignored" — never called. An Apify actor that starts is an actor that bills.
+        Assert.Null(spy.LastRequest);
+    }
+
+    [Fact]
+    public async Task Start_WithAiIdeasOrigin_FillsTheSessionFromTheIdeaChain()
+    {
+        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
+        var source = new SpyIdeaSource(4);
+        var service = CreateService(clock, IdeaScopeFactory(new SpyDiscovery([]), source));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(
+                Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
+
+        var terminal = await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+        var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+
+        Assert.Equal("completed", terminal.Status);
+        Assert.Equal(4, results.Value.TotalCount);
+        Assert.Equal("idea-1", results.Value.Items[0].Title);
+        // An invented topic has no audience behind it. Showing a view count here would be a number we
+        // made up, and the operator would rank on it.
+        Assert.All(results.Value.Items, item => Assert.Equal(0, item.Views));
+        Assert.All(results.Value.Items, item => Assert.Equal(string.Empty, item.VideoUrl));
+    }
+
+    [Fact]
+    public async Task Start_WithAiIdeasOrigin_AsksOnlyForInventedIdeas()
+    {
+        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
+        var source = new SpyIdeaSource(2);
+        var service = CreateService(clock, IdeaScopeFactory(new SpyDiscovery([]), source));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(
+                Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
+
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        Assert.Equal(IdeaOrigin.Invented, source.LastRequest?.OriginFilter);
+    }
+
+    [Fact]
+    public async Task Start_WithAiIdeasOrigin_GivesEveryRunItsOwnVariationSeed()
+    {
+        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
+        var source = new SpyIdeaSource(2);
+        var service = CreateService(clock, IdeaScopeFactory(new SpyDiscovery([]), source));
+        var organizationId = Guid.NewGuid();
+        var clientId = Guid.NewGuid();
+
+        var first = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(clientId, "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
+        await WaitForTerminalAsync(service, organizationId, first.Value.WorkflowId);
+        var firstSeed = source.LastRequest?.VariationSeed;
+
+        var second = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(clientId, "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
+        await WaitForTerminalAsync(service, organizationId, second.Value.WorkflowId);
+
+        // Same client, same filters, run twice: the operator asked for spontaneous ideas, so the second
+        // run must not be free to return the first run's list.
+        Assert.False(string.IsNullOrWhiteSpace(firstSeed));
+        Assert.NotEqual(firstSeed, source.LastRequest?.VariationSeed);
+    }
+
+    [Fact]
+    public async Task Start_WithAiIdeasOrigin_DoesNotRequireANetwork()
+    {
+        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
+        var service = CreateService(clock, IdeaScopeFactory(new SpyDiscovery([]), new SpyIdeaSource(2)));
+
+        var started = await service.StartAsync(
+            Guid.NewGuid(),
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", [], OriginMode: "ai-ideas"));
+
+        // Nothing is scraped, so demanding a network to scrape from would be a lie the form tells the
+        // operator. The discovery mode keeps requiring one.
+        Assert.True(started.IsSuccess);
+    }
+
+    [Fact]
+    public async Task Start_WithDiscoveryOrigin_StillRequiresANetwork()
+    {
+        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
+        var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
+
+        var started = await service.StartAsync(
+            Guid.NewGuid(),
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", []));
+
+        Assert.True(started.IsFailure);
+        Assert.Equal(ContentWorkflowErrors.NetworkSourcesRequired, started.Error);
+    }
+
+    [Fact]
+    public async Task Start_WithAnUnknownOrigin_IsRejected()
+    {
+        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
+        var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
+
+        var started = await service.StartAsync(
+            Guid.NewGuid(),
+            new ContentWorkflowStartInput(
+                Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], OriginMode: "telepatia"));
+
+        // Silently falling back to discovery would let a typo start a billed scrape the operator
+        // explicitly tried to avoid.
+        Assert.True(started.IsFailure);
+        Assert.Equal(ContentWorkflowErrors.OriginModeInvalid, started.Error);
+    }
+
+    private static IServiceScopeFactory IdeaScopeFactory(
+        IContentDiscoveryService discovery,
+        IContentIdeaSource ideaSource)
+    {
+        var services = new ServiceCollection();
+        services.AddScoped(_ => discovery);
+        services.AddScoped<IProposalGenerationStarter, StubStarter>();
+        services.AddScoped(_ => ideaSource);
+        services.AddScoped<ContentIdeaChain>();
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+    }
+
+    private sealed class SpyIdeaSource(int count) : IContentIdeaSource
+    {
+        public string SourceKey => "ai-agent";
+        public int Order => 4;
+        public IdeaOrigin Origin => IdeaOrigin.Invented;
+        public ContentIdeaRequest? LastRequest { get; private set; }
+
+        public Task<IReadOnlyList<ContentIdea>> DrawAsync(ContentIdeaRequest request, CancellationToken ct)
+        {
+            LastRequest = request;
+
+            IReadOnlyList<ContentIdea> ideas = Enumerable.Range(1, count)
+                .Select(i => new ContentIdea($"idea-{i}", $"resumen {i}", "ai-agent"))
+                .ToList();
+
+            return Task.FromResult(ideas);
+        }
     }
 
     private static IReadOnlyList<DiscoveredContent> Discovered(int count) =>

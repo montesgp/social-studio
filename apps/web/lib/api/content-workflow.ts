@@ -33,6 +33,15 @@ export interface StartContentWorkflowPayload {
    * scrape by forgetting the field.
    */
   forceRefresh?: boolean;
+  /**
+   * Where the run's raw material comes from. `discovery` (the backend default when omitted) reaches
+   * the market: scraping providers or the stored candidate bank. `ai-ideas` reaches nothing — the
+   * model invents topics from the client's own context, so no actor runs and nothing is billed.
+   *
+   * Only the RAW MATERIAL differs. The client's aesthetic is applied later, at generation, and is
+   * identical either way.
+   */
+  originMode?: "discovery" | "ai-ideas";
 }
 
 export async function listWorkflowClients(organizationId: string, token?: string) {

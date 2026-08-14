@@ -1784,13 +1784,20 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
    * screen-blocking overlay as the analysis flow. Results are fetched only once the session reports
    * a terminal state with candidates.
    */
-  async function runDiscovery(options?: { forceRefresh?: boolean }) {
+  async function runDiscovery(options?: { forceRefresh?: boolean; originMode?: "discovery" | "ai-ideas" }) {
     if (!selectedClientId || isDiscovering) return;
+
+    const originMode = options?.originMode ?? "discovery";
+    const isAiIdeas = originMode === "ai-ideas";
 
     // A refresh is the ONLY way this screen can cause a billed provider run, and it is only offered
     // for the niche criterion. Re-checked here, not just on the button, so no future caller can hand
     // this function an opt-in the guard would have refused.
+    //
+    // The ai-ideas mode touches no provider at all, so a refresh opt-in there is meaningless and is
+    // dropped rather than forwarded — the two must never be combined.
     const forceRefresh =
+      !isAiIdeas &&
       options?.forceRefresh === true &&
       canStartRefresh({ criterion: discoveryCriterion, clientId: selectedClientId, isDiscovering });
 
@@ -1803,7 +1810,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setDiscoveryStatusValue("in_progress");
     setCandidateSource(null);
 
-    if (discoveryCriterion === "niche") {
+    // Skipped for ai-ideas: this checks whether an Apify niche actor is configured, and that run
+    // never dispatches one. Blocking on it would refuse a mode built precisely for the case where no
+    // actor is set up.
+    if (discoveryCriterion === "niche" && !isAiIdeas) {
       try {
         const overview = await listOrganizationIntegrations(selectedOrganizationId, effectiveToken);
         const readiness = getNicheSearchReadiness(overview.checklistGroups, searchNetwork);
@@ -1832,6 +1842,7 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
           strategyMode: searchStrategy as ContentWorkflowStrategyMode,
           networkSources,
           forceRefresh,
+          originMode,
         },
         effectiveToken
       );
@@ -2944,6 +2955,23 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       >
                         <RefreshCw className="h-3 w-3" />
                         Refresh (billed run)
+                      </Button>
+                    </div>
+                    {/* A different KIND of run, not a third way to discover: no actor is dispatched
+                        and no candidate bank is read, so the topics are whatever the model comes up
+                        with for this client at this moment. The client's aesthetic is untouched —
+                        it is applied downstream at generation, exactly as for a scraped run. */}
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void runDiscovery({ originMode: "ai-ideas" })}
+                        disabled={isDiscovering || !selectedClientId}
+                        className="h-8 px-3 text-xs"
+                        title="Spontaneous topics written by the model from this client's own context. No scraping, no actor, nothing billed — and a different set on every run."
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        AI ideas (no scraping)
                       </Button>
                     </div>
 

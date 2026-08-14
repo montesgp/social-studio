@@ -50,6 +50,12 @@ public sealed class AiClientIdeaSource : IContentIdeaSource
 
     public int Order { get; }
 
+    /// <summary>
+    /// Invented, whatever the grounding. The grounding shapes the topics; it never makes them somebody
+    /// else's published content.
+    /// </summary>
+    public IdeaOrigin Origin => IdeaOrigin.Invented;
+
     public async Task<IReadOnlyList<ContentIdea>> DrawAsync(ContentIdeaRequest request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -68,11 +74,24 @@ public sealed class AiClientIdeaSource : IContentIdeaSource
             return [];
         }
 
-        var input = JsonSerializer.Serialize(new
+        // Built as a map rather than an anonymous type so an absent seed is genuinely ABSENT. Serializing
+        // "variationSeed": null would change the payload of the ordinary grounded batch path, whose
+        // output is meant to stay reproducible for the same client.
+        var payload = new Dictionary<string, object>(3)
         {
-            count = request.Count,
-            grounding
-        });
+            ["count"] = request.Count,
+            ["grounding"] = grounding,
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.VariationSeed))
+        {
+            // The model is asked to riff differently, not to answer a different question: same grounding,
+            // same count, one varying token. Without it the provider is free to return — and cache — the
+            // identical topics on every run, which is the opposite of "spontaneous".
+            payload["variationSeed"] = request.VariationSeed;
+        }
+
+        var input = JsonSerializer.Serialize(payload);
 
         var completion = await _ai.CompleteJsonAsync<GeneratedIdeaList>(
             new AiJsonCompletionRequest(

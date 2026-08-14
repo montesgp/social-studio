@@ -5,13 +5,21 @@ namespace Incoders.Hive.Application.Features.Social.Workflow;
 /// bank by default; refresh is manual only. Defaults to <c>false</c> so no caller can cause a paid run
 /// by omission.
 /// </param>
+/// <param name="OriginMode">
+/// <c>discovery</c> (default) reaches the market: scraping providers or the stored candidate bank.
+/// <c>ai-ideas</c> reaches nothing — the model invents topics from the client's own context, so no
+/// actor runs and nothing is billed. Only the RAW MATERIAL differs; the client's aesthetic is applied
+/// later, at generation, and is unaffected by this choice. <see cref="NetworkSources"/> and
+/// <see cref="ForceRefresh"/> are meaningless under <c>ai-ideas</c> and are ignored.
+/// </param>
 public sealed record ContentWorkflowStartInput(
     Guid ClientId,
     string ClientName,
     string SearchCriterion,
     string StrategyMode,
     IReadOnlyList<string> NetworkSources,
-    bool ForceRefresh = false);
+    bool ForceRefresh = false,
+    string? OriginMode = null);
 
 public sealed record ContentWorkflowSessionResponse(
     Guid WorkflowId,

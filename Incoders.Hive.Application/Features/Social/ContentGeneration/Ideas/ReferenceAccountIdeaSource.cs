@@ -44,6 +44,9 @@ public sealed class ReferenceAccountIdeaSource : IContentIdeaSource
 
     public int Order => 2;
 
+    /// <summary>Observed: every topic here is lifted from a post that really exists and really performed.</summary>
+    public IdeaOrigin Origin => IdeaOrigin.Observed;
+
     public async Task<IReadOnlyList<ContentIdea>> DrawAsync(ContentIdeaRequest request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);

@@ -11,7 +11,8 @@ public sealed record StartContentWorkflowCommand(
     string SearchCriterion,
     string StrategyMode,
     IReadOnlyList<string> NetworkSources,
-    bool ForceRefresh = false) : IRequest<Result<ContentWorkflowSessionResponse>>;
+    bool ForceRefresh = false,
+    string? OriginMode = null) : IRequest<Result<ContentWorkflowSessionResponse>>;
 
 public sealed record GetContentWorkflowStatusQuery(
     Guid OrganizationId,

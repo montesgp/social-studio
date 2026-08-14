@@ -58,7 +58,15 @@ public sealed class ContentIdeaChain
         var seenTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var failed = new List<string>();
 
-        foreach (var source in _sources)
+        // An origin filter EXCLUDES sources rather than deprioritising them. Asking an excluded source
+        // and discarding its answer would still start (and bill) the provider run the operator chose to
+        // avoid, and a batch that cannot be filled from the allowed sources reports a shortfall instead
+        // of silently falling back to the ones that were ruled out.
+        var eligible = request.OriginFilter is { } origin
+            ? _sources.Where(source => source.Origin == origin).ToList()
+            : _sources;
+
+        foreach (var source in eligible)
         {
             var remaining = request.Count - collected.Count;
 

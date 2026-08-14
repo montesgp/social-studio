@@ -127,6 +127,42 @@ public sealed class AiClientIdeaSourceTests
         Assert.Contains("grounding", ai.LastInputJson);
     }
 
+    [Fact]
+    public async Task Draw_IsAlwaysAnInventedSource()
+    {
+        // This is what the "spontaneous ideas" mode filters on. A model-written topic is invented by
+        // definition — it stands on the client's own context, never on somebody's winning post.
+        Assert.Equal(IdeaOrigin.Invented, Build("grounding", new FakeGateway(Ideas("a"))).Origin);
+    }
+
+    [Fact]
+    public async Task Draw_ForwardsTheVariationSeedToTheModel()
+    {
+        var ai = new FakeGateway(Ideas("a"));
+        var source = Build("grounding", ai);
+
+        await source.DrawAsync(
+            new ContentIdeaRequest(Org, Client, 3, VariationSeed: "run-2026-08-14-xyz"),
+            CancellationToken.None);
+
+        // Same client, same grounding, same prompt version: without a varying input the provider is
+        // free to return (and cache) the identical five topics on every run.
+        Assert.Contains("run-2026-08-14-xyz", ai.LastInputJson);
+    }
+
+    [Fact]
+    public async Task Draw_OmitsTheSeedWhenNoneWasAsked()
+    {
+        var ai = new FakeGateway(Ideas("a"));
+        var source = Build("grounding", ai);
+
+        await source.DrawAsync(new ContentIdeaRequest(Org, Client, 3), CancellationToken.None);
+
+        // A null seed must not become the literal string "null" in the prompt payload — the existing
+        // grounded batch path sends no seed at all and its output must stay byte-identical.
+        Assert.DoesNotContain("variationSeed", ai.LastInputJson);
+    }
+
     // ── harness ──────────────────────────────────────────────────────────────
 
     private static IReadOnlyList<GeneratedIdea> Ideas(params string[] titles) =>
