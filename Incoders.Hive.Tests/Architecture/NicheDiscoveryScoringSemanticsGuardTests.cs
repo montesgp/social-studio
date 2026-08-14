@@ -43,6 +43,24 @@ public sealed class NicheDiscoveryScoringSemanticsGuardTests
         Assert.Empty(violations);
     }
 
+    /// <summary>
+    /// Task 10.6 re-verification: the scan above is now MEANINGFUL, not vacuous — the
+    /// <c>NicheDiscovery.Semantics</c> namespace this test scans for genuinely exists (WU-10 landed
+    /// <c>SemanticAnnotation</c>, <c>ClusterProposal</c>, <c>FormatTrait</c>, <c>SemanticAnnotator</c>,
+    /// <c>LexicalClusterFallback</c>), and the assertion above still holds now that there is something
+    /// to violate it with.
+    /// </summary>
+    [Fact]
+    public void TheSemanticsNamespaceThisGuardScansFor_NowGenuinelyExists()
+    {
+        var root = FindRepositoryRoot();
+        var semanticsDir = Path.Combine(
+            root, "Incoders.Hive.Application", "Features", "Social", "NicheDiscovery", "Semantics");
+
+        Assert.True(Directory.Exists(semanticsDir));
+        Assert.NotEmpty(Directory.EnumerateFiles(semanticsDir, "*.cs", SearchOption.AllDirectories));
+    }
+
     private static string FindRepositoryRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);
