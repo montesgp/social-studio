@@ -108,6 +108,14 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<AccountBaselineData> AccountBaselines => Set<AccountBaselineData>();
 
+    public DbSet<DiscoveryRunData> DiscoveryRuns => Set<DiscoveryRunData>();
+
+    public DbSet<NicheOpportunityData> NicheOpportunities => Set<NicheOpportunityData>();
+
+    public DbSet<NicheDiscoveryEvidenceData> NicheDiscoveryEvidence => Set<NicheDiscoveryEvidenceData>();
+
+    public DbSet<MarketCatalogData> MarketCatalog => Set<MarketCatalogData>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -1104,6 +1112,145 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .WithMany()
                 .HasForeignKey(x => x.OrganizationId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<DiscoveryRunData>(entity =>
+        {
+            entity.ToTable("discovery_runs", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.RequestedByUserId).HasColumnName("requested_by_user_id").IsRequired();
+            entity.Property(x => x.SourceMarketCode).HasColumnName("source_market_code").HasMaxLength(16).IsRequired();
+            entity.Property(x => x.TargetMarketCode).HasColumnName("target_market_code").HasMaxLength(16).IsRequired();
+            entity.Property(x => x.NetworkKey).HasColumnName("network_key").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ContentFormat).HasColumnName("content_format").HasMaxLength(16).IsRequired();
+            entity.Property(x => x.ConfigurationSnapshotJson).HasColumnName("configuration_snapshot_json").HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.WindowDays).HasColumnName("window_days").IsRequired();
+            entity.Property(x => x.Depth).HasColumnName("depth").IsRequired();
+            entity.Property(x => x.Status).HasColumnName("status").IsRequired();
+            entity.Property(x => x.WeightsJson).HasColumnName("weights_json").HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.OriginSourceKeys).HasColumnName("origin_source_keys");
+            entity.Property(x => x.UnconfiguredSourceKeys).HasColumnName("unconfigured_source_keys");
+            entity.Property(x => x.FailedSourceKeys).HasColumnName("failed_source_keys");
+            entity.Property(x => x.ProviderUnitsSpent).HasColumnName("provider_units_spent").IsRequired();
+            entity.Property(x => x.AiCompletionsSpent).HasColumnName("ai_completions_spent").IsRequired();
+            entity.Property(x => x.SemanticDegraded).HasColumnName("semantic_degraded").IsRequired();
+            entity.Property(x => x.FailureReasonKey).HasColumnName("failure_reason_key");
+            entity.Property(x => x.StartedAt).HasColumnName("started_at");
+            entity.Property(x => x.CompletedAt).HasColumnName("completed_at");
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedAt })
+                .HasDatabaseName("ix_discovery_runs_org_created");
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<NicheOpportunityData>(entity =>
+        {
+            entity.ToTable("niche_opportunities", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RunId).HasColumnName("run_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.NicheId).HasColumnName("niche_id");
+            entity.Property(x => x.SubNicheLabel).HasColumnName("sub_niche_label").HasMaxLength(256);
+            entity.Property(x => x.ContentPattern).HasColumnName("content_pattern").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.TopicLabels).HasColumnName("topic_labels");
+            entity.Property(x => x.OpportunityScore).HasColumnName("opportunity_score").IsRequired();
+            entity.Property(x => x.ConfidenceScore).HasColumnName("confidence_score").IsRequired();
+            entity.Property(x => x.EffectiveWeightDenominator).HasColumnName("effective_weight_denominator").IsRequired();
+            entity.Property(x => x.ExcludedSignalsJson).HasColumnName("excluded_signals_json").HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.MedianViews).HasColumnName("median_views");
+            entity.Property(x => x.OutlierRatio).HasColumnName("outlier_ratio");
+            entity.Property(x => x.OutlierDensity).HasColumnName("outlier_density");
+            entity.Property(x => x.GrowthProxy).HasColumnName("growth_proxy");
+            entity.Property(x => x.CrossChannelRepetition).HasColumnName("cross_channel_repetition");
+            entity.Property(x => x.TargetMarketDemand).HasColumnName("target_market_demand");
+            entity.Property(x => x.TargetMarketCompetition).HasColumnName("target_market_competition");
+            entity.Property(x => x.TargetMarketGap).HasColumnName("target_market_gap");
+            entity.Property(x => x.AutomationSuitability).HasColumnName("automation_suitability");
+            entity.Property(x => x.ChannelSampleSize).HasColumnName("channel_sample_size").IsRequired();
+            entity.Property(x => x.VideoSampleSize).HasColumnName("video_sample_size").IsRequired();
+            entity.Property(x => x.Rank).HasColumnName("rank").IsRequired();
+            entity.Property(x => x.ObservedAt).HasColumnName("observed_at").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+
+            // A double-write inside a run is a hard error, mirroring ux_discovered_candidates_key_observed.
+            entity.HasIndex(x => new { x.RunId, x.Rank })
+                .IsUnique()
+                .HasDatabaseName("ux_niche_opportunities_run_rank");
+
+            // History reads and the future ranged purge — one index, mirroring ix_discovered_candidates_org_observed.
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedAt })
+                .HasDatabaseName("ix_niche_opportunities_org_created");
+
+            entity.HasOne<DiscoveryRunData>()
+                .WithMany()
+                .HasForeignKey(x => x.RunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<NicheDiscoveryEvidenceData>(entity =>
+        {
+            entity.ToTable("niche_discovery_evidence", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RunId).HasColumnName("run_id").IsRequired();
+            entity.Property(x => x.OpportunityId).HasColumnName("opportunity_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.EvidenceKind).HasColumnName("evidence_kind").IsRequired();
+            entity.Property(x => x.ExternalRef).HasColumnName("external_ref").HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.ChannelHandle).HasColumnName("channel_handle").HasMaxLength(256).IsRequired();
+            entity.Property(x => x.Title).HasColumnName("title").HasMaxLength(1000).IsRequired();
+            entity.Property(x => x.ThumbnailUrl).HasColumnName("thumbnail_url").HasMaxLength(2048);
+            entity.Property(x => x.PublishedAt).HasColumnName("published_at");
+            entity.Property(x => x.Views).HasColumnName("views");
+            entity.Property(x => x.Likes).HasColumnName("likes");
+            entity.Property(x => x.Comments).HasColumnName("comments");
+            entity.Property(x => x.SubscriberCount).HasColumnName("subscriber_count");
+            entity.Property(x => x.TotalViews).HasColumnName("total_views");
+            entity.Property(x => x.VideoCount).HasColumnName("video_count");
+            entity.Property(x => x.DurationSeconds).HasColumnName("duration_seconds");
+            entity.Property(x => x.LanguageCode).HasColumnName("language_code").HasMaxLength(16);
+            entity.Property(x => x.SourceKey).HasColumnName("source_key").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ObservedAt).HasColumnName("observed_at").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+
+            entity.HasIndex(x => new { x.RunId, x.EvidenceKind, x.ExternalRef })
+                .IsUnique()
+                .HasDatabaseName("ux_niche_discovery_evidence_run_kind_ref");
+
+            entity.HasOne<DiscoveryRunData>()
+                .WithMany()
+                .HasForeignKey(x => x.RunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<NicheOpportunityData>()
+                .WithMany()
+                .HasForeignKey(x => x.OpportunityId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<MarketCatalogData>(entity =>
+        {
+            entity.ToTable("market_catalog", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.MarketCode).HasColumnName("market_code").HasMaxLength(16).IsRequired();
+            entity.Property(x => x.DisplayNameKey).HasColumnName("display_name_key").HasMaxLength(128).IsRequired();
+            entity.Property(x => x.PrimaryLanguage).HasColumnName("primary_language").HasMaxLength(8).IsRequired();
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+
+            entity.HasIndex(x => x.MarketCode)
+                .IsUnique()
+                .HasDatabaseName("ux_market_catalog_code");
         });
 
         builder.Entity<GeneratedPackageData>(entity =>

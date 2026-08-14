@@ -41,4 +41,14 @@ public sealed class MarketCatalogEntry : Entity<MarketId>
 
         return Result.Success(new MarketCatalogEntry(MarketId.New(), code, displayNameKey.Trim(), primaryLanguage.Trim(), isActive));
     }
+
+    /// <summary>
+    /// Reconstitutes a <see cref="MarketCatalogEntry"/> with a pinned identity. For use EXCLUSIVELY by
+    /// the seeder and Infrastructure persistence mapping, mirroring <c>Niche.Restore</c> /
+    /// <c>SocialNetwork.Restore</c> — <see cref="Create"/> always mints a new <see cref="MarketId"/>,
+    /// which would break the deterministic GUIDs the seeder depends on.
+    /// </summary>
+    public static MarketCatalogEntry Restore(
+        MarketId id, MarketCode code, string displayNameKey, string primaryLanguage, bool isActive) =>
+        new(id, code, displayNameKey, primaryLanguage, isActive);
 }

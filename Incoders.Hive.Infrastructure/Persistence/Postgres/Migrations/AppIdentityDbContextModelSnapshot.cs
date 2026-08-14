@@ -1563,6 +1563,119 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("discovered_candidates", "social");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.DiscoveryRunData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AiCompletionsSpent")
+                        .HasColumnType("integer")
+                        .HasColumnName("ai_completions_spent");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("ConfigurationSnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("configuration_snapshot_json");
+
+                    b.Property<string>("ContentFormat")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("content_format");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<short>("Depth")
+                        .HasColumnType("smallint")
+                        .HasColumnName("depth");
+
+                    b.PrimitiveCollection<List<string>>("FailedSourceKeys")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("failed_source_keys");
+
+                    b.Property<string>("FailureReasonKey")
+                        .HasColumnType("text")
+                        .HasColumnName("failure_reason_key");
+
+                    b.Property<string>("NetworkKey")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("network_key");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.PrimitiveCollection<List<string>>("OriginSourceKeys")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("origin_source_keys");
+
+                    b.Property<int>("ProviderUnitsSpent")
+                        .HasColumnType("integer")
+                        .HasColumnName("provider_units_spent");
+
+                    b.Property<Guid>("RequestedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_by_user_id");
+
+                    b.Property<bool>("SemanticDegraded")
+                        .HasColumnType("boolean")
+                        .HasColumnName("semantic_degraded");
+
+                    b.Property<string>("SourceMarketCode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("source_market_code");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<short>("Status")
+                        .HasColumnType("smallint")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TargetMarketCode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("target_market_code");
+
+                    b.PrimitiveCollection<List<string>>("UnconfiguredSourceKeys")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("unconfigured_source_keys");
+
+                    b.Property<string>("WeightsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("weights_json");
+
+                    b.Property<int>("WindowDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("window_days");
+
+                    b.HasKey("Id")
+                        .HasName("pk_discovery_runs");
+
+                    b.HasIndex("OrganizationId", "CreatedAt")
+                        .HasDatabaseName("ix_discovery_runs_org_created");
+
+                    b.ToTable("discovery_runs", "social");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.GeneralStrategyData", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1901,6 +2014,49 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.ToTable("integration_providers", "platform");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.MarketCatalogData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DisplayNameKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("display_name_key");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("MarketCode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("market_code");
+
+                    b.Property<string>("PrimaryLanguage")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("primary_language");
+
+                    b.HasKey("Id")
+                        .HasName("pk_market_catalog");
+
+                    b.HasIndex("MarketCode")
+                        .IsUnique()
+                        .HasDatabaseName("ux_market_catalog_code");
+
+                    b.ToTable("market_catalog", "social");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.NicheData", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1959,6 +2115,237 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasDatabaseName("ix_niches_display_name");
 
                     b.ToTable("niches", "platform");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.NicheDiscoveryEvidenceData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ChannelHandle")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("channel_handle");
+
+                    b.Property<long?>("Comments")
+                        .HasColumnType("bigint")
+                        .HasColumnName("comments");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int?>("DurationSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_seconds");
+
+                    b.Property<short>("EvidenceKind")
+                        .HasColumnType("smallint")
+                        .HasColumnName("evidence_kind");
+
+                    b.Property<string>("ExternalRef")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("external_ref");
+
+                    b.Property<string>("LanguageCode")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("language_code");
+
+                    b.Property<long?>("Likes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("likes");
+
+                    b.Property<DateTime>("ObservedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("observed_at");
+
+                    b.Property<Guid>("OpportunityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("opportunity_id");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_at");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("run_id");
+
+                    b.Property<string>("SourceKey")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("source_key");
+
+                    b.Property<long?>("SubscriberCount")
+                        .HasColumnType("bigint")
+                        .HasColumnName("subscriber_count");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("thumbnail_url");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("title");
+
+                    b.Property<long?>("TotalViews")
+                        .HasColumnType("bigint")
+                        .HasColumnName("total_views");
+
+                    b.Property<int?>("VideoCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("video_count");
+
+                    b.Property<long?>("Views")
+                        .HasColumnType("bigint")
+                        .HasColumnName("views");
+
+                    b.HasKey("Id")
+                        .HasName("pk_niche_discovery_evidence");
+
+                    b.HasIndex("OpportunityId")
+                        .HasDatabaseName("ix_niche_discovery_evidence_opportunity_id");
+
+                    b.HasIndex("RunId", "EvidenceKind", "ExternalRef")
+                        .IsUnique()
+                        .HasDatabaseName("ux_niche_discovery_evidence_run_kind_ref");
+
+                    b.ToTable("niche_discovery_evidence", "social");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.NicheOpportunityData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<double?>("AutomationSuitability")
+                        .HasColumnType("double precision")
+                        .HasColumnName("automation_suitability");
+
+                    b.Property<int>("ChannelSampleSize")
+                        .HasColumnType("integer")
+                        .HasColumnName("channel_sample_size");
+
+                    b.Property<double>("ConfidenceScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("confidence_score");
+
+                    b.Property<string>("ContentPattern")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_pattern");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int?>("CrossChannelRepetition")
+                        .HasColumnType("integer")
+                        .HasColumnName("cross_channel_repetition");
+
+                    b.Property<double>("EffectiveWeightDenominator")
+                        .HasColumnType("double precision")
+                        .HasColumnName("effective_weight_denominator");
+
+                    b.Property<string>("ExcludedSignalsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("excluded_signals_json");
+
+                    b.Property<double?>("GrowthProxy")
+                        .HasColumnType("double precision")
+                        .HasColumnName("growth_proxy");
+
+                    b.Property<long?>("MedianViews")
+                        .HasColumnType("bigint")
+                        .HasColumnName("median_views");
+
+                    b.Property<Guid?>("NicheId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("niche_id");
+
+                    b.Property<DateTime>("ObservedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("observed_at");
+
+                    b.Property<double>("OpportunityScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("opportunity_score");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<double?>("OutlierDensity")
+                        .HasColumnType("double precision")
+                        .HasColumnName("outlier_density");
+
+                    b.Property<double?>("OutlierRatio")
+                        .HasColumnType("double precision")
+                        .HasColumnName("outlier_ratio");
+
+                    b.Property<int>("Rank")
+                        .HasColumnType("integer")
+                        .HasColumnName("rank");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("run_id");
+
+                    b.Property<string>("SubNicheLabel")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("sub_niche_label");
+
+                    b.Property<double?>("TargetMarketCompetition")
+                        .HasColumnType("double precision")
+                        .HasColumnName("target_market_competition");
+
+                    b.Property<double?>("TargetMarketDemand")
+                        .HasColumnType("double precision")
+                        .HasColumnName("target_market_demand");
+
+                    b.Property<double?>("TargetMarketGap")
+                        .HasColumnType("double precision")
+                        .HasColumnName("target_market_gap");
+
+                    b.PrimitiveCollection<List<string>>("TopicLabels")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("topic_labels");
+
+                    b.Property<int>("VideoSampleSize")
+                        .HasColumnType("integer")
+                        .HasColumnName("video_sample_size");
+
+                    b.HasKey("Id")
+                        .HasName("pk_niche_opportunities");
+
+                    b.HasIndex("OrganizationId", "CreatedAt")
+                        .HasDatabaseName("ix_niche_opportunities_org_created");
+
+                    b.HasIndex("RunId", "Rank")
+                        .IsUnique()
+                        .HasDatabaseName("ux_niche_opportunities_run_rank");
+
+                    b.ToTable("niche_opportunities", "social");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationActorData", b =>
@@ -3650,6 +4037,16 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasConstraintName("fk_discovered_candidates_organizations_organization_id");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.DiscoveryRunData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_discovery_runs_organizations_organization_id");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.GeneralStrategyData", b =>
                 {
                     b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData", null)
@@ -3700,6 +4097,40 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasConstraintName("fk_integration_provider_capabilities_integration_providers_pro~");
 
                     b.Navigation("Provider");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.NicheDiscoveryEvidenceData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.NicheOpportunityData", null)
+                        .WithMany()
+                        .HasForeignKey("OpportunityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_niche_discovery_evidence_niche_opportunities_opportunity_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.DiscoveryRunData", null)
+                        .WithMany()
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_niche_discovery_evidence_discovery_runs_run_id");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.NicheOpportunityData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_niche_opportunities_organizations_organization_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.DiscoveryRunData", null)
+                        .WithMany()
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_niche_opportunities_discovery_runs_run_id");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.OrganizationActorData", b =>

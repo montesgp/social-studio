@@ -19,6 +19,7 @@ using Incoders.Hive.Infrastructure.Integrations;
 using Incoders.Hive.Infrastructure.PlatformConfiguration;
 using Incoders.Hive.Infrastructure.Social;
 using Incoders.Hive.Infrastructure.Social.Discovery;
+using Incoders.Hive.Infrastructure.Social.NicheDiscovery;
 using Incoders.Hive.Infrastructure.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -117,6 +118,7 @@ if (app.Configuration.GetValue("StartupTasks:SeedData", true))
     await app.Services.SeedComfyUiOrganizationIntegrationsAsync();
     await app.Services.SeedSocialNetworkCatalogAsync();
     await app.Services.SeedNicheCatalogAsync();
+    await app.Services.SeedMarketCatalogAsync();
     await app.Services.SeedPlatformSystemModulesAsync();
     await app.Services.SeedPlatformEmailTemplatesAsync();
     await app.Services.SeedIdentityRolesAsync();

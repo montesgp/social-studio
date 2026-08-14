@@ -18,6 +18,7 @@ public sealed class DiscoveryRun : Entity<DiscoveryRunId>
     private DiscoveryRun(
         DiscoveryRunId id,
         Guid organizationId,
+        Guid requestedByUserId,
         MarketCode sourceMarketCode,
         MarketCode targetMarketCode,
         string networkKey,
@@ -30,6 +31,7 @@ public sealed class DiscoveryRun : Entity<DiscoveryRunId>
         : base(id)
     {
         OrganizationId = organizationId;
+        RequestedByUserId = requestedByUserId;
         SourceMarketCode = sourceMarketCode;
         TargetMarketCode = targetMarketCode;
         NetworkKey = networkKey;
@@ -43,6 +45,9 @@ public sealed class DiscoveryRun : Entity<DiscoveryRunId>
     }
 
     public Guid OrganizationId { get; }
+
+    /// <summary>The operator who requested the run — <c>discovery_runs.requested_by_user_id</c> (design §9).</summary>
+    public Guid RequestedByUserId { get; }
 
     /// <summary>
     /// Parsed at construction, never stored raw: an unparseable code cannot reach persistence, and
@@ -81,6 +86,7 @@ public sealed class DiscoveryRun : Entity<DiscoveryRunId>
 
     public static Result<DiscoveryRun> Create(
         Guid organizationId,
+        Guid requestedByUserId,
         string sourceMarketCode,
         string targetMarketCode,
         string networkKey,
@@ -110,6 +116,7 @@ public sealed class DiscoveryRun : Entity<DiscoveryRunId>
         return Result.Success(new DiscoveryRun(
             DiscoveryRunId.New(),
             organizationId,
+            requestedByUserId,
             source.Value,
             target.Value,
             networkKey,
@@ -119,6 +126,52 @@ public sealed class DiscoveryRun : Entity<DiscoveryRunId>
             configurationSnapshotJson,
             nicheId,
             nowUtc));
+    }
+
+    /// <summary>
+    /// Reconstitutes a <see cref="DiscoveryRun"/> aggregate from persisted column values. For use
+    /// EXCLUSIVELY by Infrastructure persistence mapping — DO NOT call from Application or Domain.
+    /// Bypasses the status-machine guard because the data is already in a valid persisted state.
+    /// </summary>
+    public static DiscoveryRun Reconstitute(
+        DiscoveryRunId id,
+        Guid organizationId,
+        Guid requestedByUserId,
+        MarketCode sourceMarketCode,
+        MarketCode targetMarketCode,
+        string networkKey,
+        string contentFormat,
+        DiscoveryWindow window,
+        DiscoveryDepth depth,
+        string configurationSnapshotJson,
+        Guid? nicheId,
+        DiscoveryRunStatus status,
+        string? failureReasonKey,
+        DateTime createdAtUtc,
+        DateTime? startedAtUtc,
+        DateTime? completedAtUtc)
+    {
+        var run = new DiscoveryRun(
+            id,
+            organizationId,
+            requestedByUserId,
+            sourceMarketCode,
+            targetMarketCode,
+            networkKey,
+            contentFormat,
+            window,
+            depth,
+            configurationSnapshotJson,
+            nicheId,
+            createdAtUtc)
+        {
+            Status = status,
+            FailureReasonKey = failureReasonKey,
+            StartedAtUtc = startedAtUtc,
+            CompletedAtUtc = completedAtUtc,
+        };
+
+        return run;
     }
 
     /// <summary>Transitions the run to <see cref="DiscoveryRunStatus.Running"/>.</summary>

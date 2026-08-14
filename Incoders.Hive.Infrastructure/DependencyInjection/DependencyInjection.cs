@@ -263,6 +263,10 @@ public static class DependencyInjection
         services.AddScoped<Incoders.Hive.Application.Abstractions.Social.NicheDiscovery.INicheDiscoveryOriginProbe,
             Incoders.Hive.Infrastructure.Social.NicheDiscovery.NicheDiscoveryOriginProbe>();
 
+        // WU-7a: platform-level market catalog seeder — writes through AppIdentityDbContext directly,
+        // since IMarketCatalogRepository is deliberately read-only (design §9).
+        services.AddScoped<Incoders.Hive.Infrastructure.Social.NicheDiscovery.MarketCatalogSeeder>();
+
         // The chain IS the discovery service. Exactly ONE registration of IContentDiscoveryService may
         // exist — a second AddScoped<IContentDiscoveryService, …> would silently win GetRequiredService
         // with no compile or runtime error (see DiscoveryCompositionTests).

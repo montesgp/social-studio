@@ -6,12 +6,14 @@ public sealed class DiscoveryRunTests
 {
     private static readonly DateTime Now = new(2026, 8, 13, 10, 0, 0, DateTimeKind.Utc);
     private static readonly Guid OrganizationId = Guid.NewGuid();
+    private static readonly Guid RequestedByUserId = Guid.NewGuid();
 
     private static DiscoveryRun CreateValidRun(DateTime? nowUtc = null)
     {
         var window = DiscoveryWindow.Create(30).Value;
         var result = DiscoveryRun.Create(
             OrganizationId,
+            RequestedByUserId,
             sourceMarketCode: "es-AR",
             targetMarketCode: "es-AR",
             networkKey: "youtube",
@@ -33,6 +35,7 @@ public sealed class DiscoveryRunTests
 
         var result = DiscoveryRun.Create(
             OrganizationId,
+            RequestedByUserId,
             sourceMarketCode: "es-AR",
             targetMarketCode: "es-AR",
             networkKey: "youtube",
@@ -69,9 +72,9 @@ public sealed class DiscoveryRunTests
         var window = DiscoveryWindow.Create(30).Value;
 
         var asSource = DiscoveryRun.Create(
-            OrganizationId, malformed, "es-AR", "youtube", "long", window, DiscoveryDepth.Quick, "{}", null, Now);
+            OrganizationId, RequestedByUserId, malformed, "es-AR", "youtube", "long", window, DiscoveryDepth.Quick, "{}", null, Now);
         var asTarget = DiscoveryRun.Create(
-            OrganizationId, "es-AR", malformed, "youtube", "long", window, DiscoveryDepth.Quick, "{}", null, Now);
+            OrganizationId, RequestedByUserId, "es-AR", malformed, "youtube", "long", window, DiscoveryDepth.Quick, "{}", null, Now);
 
         Assert.True(asSource.IsFailure);
         Assert.Equal(NicheDiscoveryErrors.MarketCodeInvalid, asSource.Error);
@@ -85,7 +88,7 @@ public sealed class DiscoveryRunTests
         var window = DiscoveryWindow.Create(30).Value;
 
         var result = DiscoveryRun.Create(
-            OrganizationId, "ES-ar", "PT-br", "youtube", "long", window, DiscoveryDepth.Quick, "{}", null, Now);
+            OrganizationId, RequestedByUserId, "ES-ar", "PT-br", "youtube", "long", window, DiscoveryDepth.Quick, "{}", null, Now);
 
         Assert.True(result.IsSuccess);
         Assert.Equal("es-AR", result.Value.SourceMarketCode.Value);
@@ -99,9 +102,9 @@ public sealed class DiscoveryRunTests
         const string snapshot = "{\"originMapping\":{},\"weights\":{},\"depthCeiling\":400}";
 
         var first = DiscoveryRun.Create(
-            OrganizationId, "es-AR", "es-AR", "youtube", "long", window, DiscoveryDepth.Quick, snapshot, null, Now);
+            OrganizationId, RequestedByUserId, "es-AR", "es-AR", "youtube", "long", window, DiscoveryDepth.Quick, snapshot, null, Now);
         var second = DiscoveryRun.Create(
-            OrganizationId, "es-AR", "es-AR", "youtube", "long", window, DiscoveryDepth.Quick, snapshot, null, Now);
+            OrganizationId, RequestedByUserId, "es-AR", "es-AR", "youtube", "long", window, DiscoveryDepth.Quick, snapshot, null, Now);
 
         Assert.True(first.IsSuccess);
         Assert.True(second.IsSuccess);
@@ -205,7 +208,7 @@ public sealed class DiscoveryRunTests
         var window = DiscoveryWindow.Create(30).Value;
 
         var result = DiscoveryRun.Create(
-            OrganizationId, sourceMarket!, targetMarket!, "youtube", "long", window, DiscoveryDepth.Quick, "{}", null, Now);
+            OrganizationId, RequestedByUserId, sourceMarket!, targetMarket!, "youtube", "long", window, DiscoveryDepth.Quick, "{}", null, Now);
 
         Assert.True(result.IsFailure);
         Assert.Equal(NicheDiscoveryErrors.MarketCodeInvalid, result.Error);
@@ -221,6 +224,7 @@ public sealed class DiscoveryRunTests
 
         Assert.ThrowsAny<ArgumentException>(() => DiscoveryRun.Create(
             OrganizationId,
+            RequestedByUserId,
             sourceMarket!,
             targetMarket!,
             networkKey!,
