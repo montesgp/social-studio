@@ -21,6 +21,11 @@ public static class NicheDiscoveryErrors
         "social.niche_discovery.window_out_of_range",
         "social.niche_discovery.errors.window_out_of_range");
 
+    /// <summary>Malformed <c>MarketCode</c> input (design §4) — not the catalog-lookup failure <see cref="MarketUnknown"/>.</summary>
+    public static readonly Error MarketCodeInvalid = Error.Validation(
+        "social.niche_discovery.market_code_invalid",
+        "social.niche_discovery.errors.market_code_invalid");
+
     public static readonly Error DepthUnknown = Error.Validation(
         "social.niche_discovery.depth_unknown",
         "social.niche_discovery.errors.depth_unknown");
