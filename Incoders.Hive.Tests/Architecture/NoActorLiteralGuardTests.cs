@@ -31,6 +31,11 @@ public sealed class NoActorLiteralGuardTests
         // The actor CATALOG client also talks to Apify. It must discover actors from the account,
         // never seed or filter them against a baked-in id.
         "Incoders.Hive.Infrastructure/Social/Providers/ApifyActorCatalogClient.cs",
+        // WU-5: the YouTube Data API v3 origin — added BEFORE these files exist, per design §16, so
+        // the guard is meaningful from the first line written.
+        "Incoders.Hive.Infrastructure/Social/NicheDiscovery/Origins/YouTubeDataApiNicheDiscoverySource.cs",
+        "Incoders.Hive.Infrastructure/Social/NicheDiscovery/Origins/YouTubeDataApiClient.cs",
+        "Incoders.Hive.Infrastructure/Social/NicheDiscovery/NicheDiscoveryOriginConfiguration.cs",
     ];
 
     // Apify actor ids are either a bare 17-character alphanumeric token (legacy convention) or a

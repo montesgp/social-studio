@@ -1,0 +1,53 @@
+{
+  "kind": "youtube#videoListResponse",
+  "items": [
+    {
+      "kind": "youtube#video",
+      "id": "vid-001-fully-mapped",
+      "snippet": {
+        "publishedAt": "2026-06-01T12:00:00Z",
+        "channelId": "chan-001",
+        "title": "How to grow a niche channel fast",
+        "description": "A full walkthrough of the growth playbook.",
+        "defaultAudioLanguage": "es"
+      },
+      "contentDetails": {
+        "duration": "PT4M13S"
+      },
+      "statistics": {
+        "viewCount": "125000",
+        "likeCount": "4300",
+        "commentCount": "210"
+      }
+    },
+    {
+      "kind": "youtube#video",
+      "id": "vid-002-hidden-statistics",
+      "snippet": {
+        "publishedAt": "2026-06-02T09:30:00Z",
+        "channelId": "chan-002",
+        "title": "Channel with hidden statistics",
+        "description": null,
+        "defaultAudioLanguage": "es"
+      },
+      "contentDetails": {
+        "duration": "PT9M02S"
+      },
+      "statistics": {}
+    },
+    {
+      "kind": "youtube#video",
+      "id": "vid-003-unmappable-no-title",
+      "snippet": {
+        "publishedAt": "2026-06-03T09:30:00Z",
+        "channelId": "chan-003"
+      },
+      "contentDetails": {
+        "duration": "PT1M00S"
+      },
+      "statistics": {
+        "viewCount": "500"
+      }
+    }
+  ]
+}

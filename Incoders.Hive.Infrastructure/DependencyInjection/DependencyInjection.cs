@@ -246,6 +246,23 @@ public static class DependencyInjection
         // dispatcher's "configured" cannot drift apart again.
         services.AddScoped<INicheSearchConfigurationProbe, ApifyNicheSearchConfigurationProbe>();
 
+        // WU-5: YouTube Data API v3 niche-discovery origin. The base address is configuration-bound,
+        // never a code literal (design §5.2); a named IHttpClientFactory client keeps the transport
+        // separate from the actor-guarded call-site files.
+        services.AddOptions<Incoders.Hive.Infrastructure.Social.NicheDiscovery.NicheDiscoveryOriginOptions>()
+            .Bind(configuration.GetSection(Incoders.Hive.Infrastructure.Social.NicheDiscovery.NicheDiscoveryOriginOptions.SectionName));
+        services.AddHttpClient(nameof(Incoders.Hive.Infrastructure.Social.NicheDiscovery.Origins.YouTubeDataApiClient));
+        services.AddScoped<Incoders.Hive.Infrastructure.Social.NicheDiscovery.Origins.YouTubeDataApiClient>();
+        services.AddScoped<Incoders.Hive.Application.Abstractions.Social.NicheDiscovery.INicheDiscoverySource>(sp =>
+            new Incoders.Hive.Infrastructure.Social.NicheDiscovery.Origins.YouTubeDataApiNicheDiscoverySource(
+                new Incoders.Hive.Infrastructure.Social.NicheDiscovery.NicheDiscoveryOriginConfiguration(
+                    sp.GetRequiredService<IWorkflowConfigurationResolver>(),
+                    sp.GetRequiredService<IIntegrationResolver>(),
+                    sp.GetRequiredService<IOptions<Incoders.Hive.Infrastructure.Social.NicheDiscovery.NicheDiscoveryOriginOptions>>()),
+                sp.GetRequiredService<Incoders.Hive.Infrastructure.Social.NicheDiscovery.Origins.YouTubeDataApiClient>()));
+        services.AddScoped<Incoders.Hive.Application.Abstractions.Social.NicheDiscovery.INicheDiscoveryOriginProbe,
+            Incoders.Hive.Infrastructure.Social.NicheDiscovery.NicheDiscoveryOriginProbe>();
+
         // The chain IS the discovery service. Exactly ONE registration of IContentDiscoveryService may
         // exist — a second AddScoped<IContentDiscoveryService, …> would silently win GetRequiredService
         // with no compile or runtime error (see DiscoveryCompositionTests).
