@@ -61,6 +61,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Captured Apify discovery output replayed by DiscoverySeedImporter. Copied to the output
+         directory so the importer resolves seed-data/discovery when the API runs from bin/ too. -->
+    <!-- Update, not Include: the Web SDK already globs these in as Content, so Include would be a
+         duplicate item (NETSDK1022). This only adds the copy behaviour. -->
+    <Content Update="seed-data\discovery\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Incoders.Hive.Application\Incoders.Hive.Application.csproj" />
     <ProjectReference Include="..\Incoders.Hive.Infrastructure\Incoders.Hive.Infrastructure.csproj" />
     <ProjectReference Include="..\Incoders.Hive.ServiceDefaults\Incoders.Hive.ServiceDefaults.csproj" />

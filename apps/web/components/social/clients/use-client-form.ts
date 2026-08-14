@@ -14,12 +14,14 @@ import {
   syncClientOwnAccounts,
 } from "@/lib/api/client-own-accounts";
 import { createSocialClient, updateSocialClient } from "@/lib/api/social-clients";
+import { assignClientNiches, getClientNiches } from "@/lib/api/niches";
 import {
   ApiError,
   BackgroundSourcingPolicy,
   ClientCompetitorAccount,
   ClientOwnAccount,
   ClientReferentAccount,
+  Niche,
   SocialClient,
   SyncClientCompetitorAccountPayload,
   SyncClientOwnAccountPayload,
@@ -53,6 +55,8 @@ interface UseClientFormReturn {
   competitorAccountsLoading: boolean;
   ownAccounts: ClientOwnAccount[];
   ownAccountsLoading: boolean;
+  niches: Niche[];
+  nichesLoading: boolean;
   submitting: boolean;
   setName: (value: string) => void;
   setDescription: (value: string) => void;
@@ -64,6 +68,7 @@ interface UseClientFormReturn {
   setReferentAccounts: (value: ClientReferentAccount[]) => void;
   setCompetitorAccounts: (value: ClientCompetitorAccount[]) => void;
   setOwnAccounts: (value: ClientOwnAccount[]) => void;
+  setNiches: (value: Niche[]) => void;
   openCreate: () => void;
   openEdit: (item: SocialClient) => void;
   closeForm: () => void;
@@ -144,6 +149,8 @@ export function useClientForm({
   const [competitorAccountsLoading, setCompetitorAccountsLoading] = useState(false);
   const [ownAccounts, setOwnAccountsState] = useState<ClientOwnAccount[]>([]);
   const [ownAccountsLoading, setOwnAccountsLoading] = useState(false);
+  const [niches, setNichesState] = useState<Niche[]>([]);
+  const [nichesLoading, setNichesLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   function clearFieldError(field: keyof ClientFormFieldErrors) {
@@ -186,6 +193,7 @@ export function useClientForm({
   function openCreate() {
     setMode("create");
     setSelected(null);
+    setOrganizationId(undefined);
     setName("");
     setDescription("");
     setSectorOrNiche(null);
@@ -196,6 +204,7 @@ export function useClientForm({
     setReferentAccountsState([]);
     setCompetitorAccountsState([]);
     setOwnAccountsState([]);
+    setNichesState([]);
     setFormOpen(true);
   }
 
@@ -215,10 +224,12 @@ export function useClientForm({
     setReferentAccountsState([]);
     setCompetitorAccountsState([]);
     setOwnAccountsState([]);
+    setNichesState([]);
     setFormOpen(true);
     void loadReferentAccounts(item.id, itemOrgId);
     void loadCompetitorAccounts(item.id, itemOrgId);
     void loadOwnAccounts(item.id, itemOrgId);
+    void loadNiches(item.id, itemOrgId);
   }
 
   function closeForm() {
@@ -277,6 +288,19 @@ export function useClientForm({
       onError(message);
     } finally {
       setOwnAccountsLoading(false);
+    }
+  }
+
+  async function loadNiches(clientId: string, orgId?: string) {
+    setNichesLoading(true);
+    try {
+      const result = await getClientNiches(clientId, effectiveToken || undefined, orgId);
+      setNichesState(result.niches);
+    } catch (err) {
+      const message = (err as ApiError).message ?? "Failed to load client niches.";
+      onError(message);
+    } finally {
+      setNichesLoading(false);
     }
   }
 
@@ -350,6 +374,17 @@ export function useClientForm({
             ? await updateSocialClient(selected.id, payload, effectiveToken || undefined)
             : null;
 
+      if (saved) {
+        // The catalog selection is replaced wholesale — the API has no add/remove.
+        const assigned = await assignClientNiches(
+          saved.id,
+          niches.map((niche) => niche.id),
+          effectiveToken || undefined,
+          organizationId,
+        );
+        setNichesState(assigned.niches);
+      }
+
       if (saved && mode === "edit") {
         const [syncedReferent, syncedCompetitor, syncedOwn] = await Promise.all([
           syncClientReferentAccounts(
@@ -387,6 +422,7 @@ export function useClientForm({
       setReferentAccountsState([]);
       setCompetitorAccountsState([]);
       setOwnAccountsState([]);
+      setNichesState([]);
 
       if (saved) {
         onSuccess(saved, mode);
@@ -420,6 +456,8 @@ export function useClientForm({
     competitorAccountsLoading,
     ownAccounts,
     ownAccountsLoading,
+    niches,
+    nichesLoading,
     submitting,
     setName: updateName,
     setDescription: updateDescription,
@@ -430,6 +468,7 @@ export function useClientForm({
     setReferentAccounts,
     setCompetitorAccounts,
     setOwnAccounts,
+    setNiches: setNichesState,
     openCreate,
     openEdit,
     closeForm,

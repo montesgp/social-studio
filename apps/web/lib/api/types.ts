@@ -61,6 +61,11 @@ export interface ContentWorkflowStep {
   progressPercentage: number;
 }
 
+/**
+ * Discovery runs in the background after the start call returns, so this is where the outcome
+ * actually lands. `status` is one of `in_progress`, `completed`, `failed` or `unconfigured`;
+ * `completed` with `totalResults === 0` is the honest "ran and found nothing" case.
+ */
 export interface ContentWorkflowStatus {
   workflowId: string;
   status: string;
@@ -68,6 +73,14 @@ export interface ContentWorkflowStatus {
   progressMessage: string;
   steps: ContentWorkflowStep[];
   updatedAtUtc: string;
+  totalResults: number;
+  /**
+   * `bank` when every candidate was served from the stored candidate bank (nothing scraped, nothing
+   * billed), `fresh` when the run scraped. Empty while the session is still working.
+   */
+  resultOrigin?: string;
+  /** When the OLDEST stored candidate was observed; absent for a fresh run. */
+  bankObservedAtUtc?: string | null;
 }
 
 export interface ContentWorkflowResult {
@@ -146,6 +159,28 @@ export interface SocialNetwork {
   isActive: boolean;
   createdAtUtc: string;
   updatedAtUtc: string;
+}
+
+/**
+ * Platform-managed sector/niche catalog entry. `iconKey` is optional — a niche without one
+ * renders the generic fallback icon. `searchHashtags` is the curated discovery key: it is stored,
+ * not derived from the display name.
+ */
+export interface Niche {
+  id: string;
+  code: string;
+  displayName: string;
+  iconKey: string | null;
+  searchHashtags: string[];
+  isActive: boolean;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+/** A client's current selection from the niche catalog, ordered by display name. */
+export interface ClientNiches {
+  clientId: string;
+  niches: Niche[];
 }
 
 export interface EmailTemplate {

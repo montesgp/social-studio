@@ -18,6 +18,12 @@ public sealed class TikTokNicheSearchAdapterTests
         return JsonDocument.Parse(json).RootElement.Clone();
     }
 
+    private static JsonElement LoadFlattenedItems()
+    {
+        var json = File.ReadAllText(Path.Combine(FixturesDir, "tiktok-niche-search-flattened.json"));
+        return JsonDocument.Parse(json).RootElement.Clone();
+    }
+
     [Fact]
     public void BuildSearchQueriesInput_ProducesSearchQueriesShape()
     {
@@ -119,7 +125,7 @@ public sealed class TikTokNicheSearchAdapterTests
             """;
         var items = JsonDocument.Parse(json).RootElement;
 
-        var (mapped, totalCount, skippedCount) = adapter.MapItems(items);
+        var (mapped, totalCount, skippedCount, _) = adapter.MapItems(items);
 
         Assert.Empty(mapped);
         Assert.Equal(2, totalCount);
@@ -132,11 +138,192 @@ public sealed class TikTokNicheSearchAdapterTests
         var adapter = new TikTokNicheSearchAdapter();
         var items = LoadItems();
 
-        var (mapped, totalCount, skippedCount) = adapter.MapItems(items);
+        var (mapped, totalCount, skippedCount, _) = adapter.MapItems(items);
 
         Assert.Equal(2, mapped.Count);
         Assert.Equal(3, totalCount);
         Assert.Equal(1, skippedCount);
+    }
+
+    [Fact]
+    public void MapItem_MapsFlattenedDotNotationItem_FromRealActorPayload()
+    {
+        // The operator's configured TikTok Discover actor flattens nested objects into dot-notation
+        // property names. SourceHandle is the join key for the account baseline behind relative
+        // performance, so reading only the nested shape silently drops the strongest ranking signal.
+        var adapter = new TikTokNicheSearchAdapter();
+        var first = LoadFlattenedItems()[0];
+
+        var mapped = adapter.MapItem(first);
+
+        Assert.NotNull(mapped);
+        Assert.Equal("jhonahmed9", mapped!.SourceHandle);
+        Assert.Equal("tiktok", mapped.NetworkSource);
+        Assert.Equal("niche", mapped.SourceKey);
+        Assert.Equal("https://www.tiktok.com/@jhonahmed9/video/7640167678669458690", mapped.ContentUrl);
+        Assert.Equal(214_300L, mapped.Views);
+        Assert.Equal(3_389L, mapped.Likes);
+        Assert.Equal(38L, mapped.Comments);
+        Assert.Equal(243L, mapped.Shares);
+        Assert.Null(mapped.Saves);
+        Assert.Equal(
+            new DateTimeOffset(2026, 5, 15, 17, 12, 48, TimeSpan.Zero),
+            mapped.PublishedAtUtc!.Value);
+        Assert.StartsWith("Don't Skip This after updates", mapped.Title, StringComparison.Ordinal);
+        Assert.Contains("#tipsandtricks", mapped.Summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MapItem_LeavesThumbnailNull_WhenActorReportsNoVideoCover()
+    {
+        // The flattened payload carries authorMeta.avatar but NO video cover. The avatar is the
+        // author's profile picture, not the video still — falling back to it would render a wall of
+        // faces dressed as thumbnails. An absent thumbnail is honest; a misleading one is not.
+        var adapter = new TikTokNicheSearchAdapter();
+        var first = LoadFlattenedItems()[0];
+
+        var mapped = adapter.MapItem(first);
+
+        Assert.NotNull(mapped);
+        Assert.Null(mapped!.ThumbnailUrl);
+    }
+
+    [Fact]
+    public void MapItem_NeverFallsBackToAuthorAvatar_ForThumbnail_InNestedShape()
+    {
+        var adapter = new TikTokNicheSearchAdapter();
+        var json = """{ "text": "no cover", "authorMeta": { "nickName": "author", "avatar": "https://cdn/avatar.jpg" }, "webVideoUrl": "https://www.tiktok.com/@author/video/1" }""";
+        var item = JsonDocument.Parse(json).RootElement;
+
+        var mapped = adapter.MapItem(item);
+
+        Assert.NotNull(mapped);
+        Assert.Null(mapped!.ThumbnailUrl);
+    }
+
+    [Fact]
+    public void MapItem_ReadsFlattenedVideoCover_WhenTheActorReportsOne()
+    {
+        var adapter = new TikTokNicheSearchAdapter();
+        var json = """{ "text": "flattened cover", "authorMeta.name": "author", "videoMeta.coverUrl": "https://cdn/cover.jpg", "webVideoUrl": "https://www.tiktok.com/@author/video/1" }""";
+        var item = JsonDocument.Parse(json).RootElement;
+
+        var mapped = adapter.MapItem(item);
+
+        Assert.NotNull(mapped);
+        Assert.Equal("https://cdn/cover.jpg", mapped!.ThumbnailUrl);
+    }
+
+    [Fact]
+    public void MapItem_ReadsCoversDefault_InBothShapes()
+    {
+        var adapter = new TikTokNicheSearchAdapter();
+        var nested = JsonDocument.Parse(
+            """{ "authorMeta": { "name": "author" }, "covers": { "default": "https://cdn/nested-cover.jpg" }, "webVideoUrl": "https://www.tiktok.com/@author/video/1" }""").RootElement;
+        var flattened = JsonDocument.Parse(
+            """{ "authorMeta.name": "author", "covers.default": "https://cdn/flat-cover.jpg", "webVideoUrl": "https://www.tiktok.com/@author/video/2" }""").RootElement;
+
+        Assert.Equal("https://cdn/nested-cover.jpg", new TikTokNicheSearchAdapter().MapItem(nested)!.ThumbnailUrl);
+        Assert.Equal("https://cdn/flat-cover.jpg", adapter.MapItem(flattened)!.ThumbnailUrl);
+    }
+
+    [Fact]
+    public void MapItems_MapsEveryItem_InTheFlattenedFixture()
+    {
+        var adapter = new TikTokNicheSearchAdapter();
+
+        var (mapped, totalCount, skippedCount, _) = adapter.MapItems(LoadFlattenedItems());
+
+        Assert.Single(mapped);
+        Assert.Equal(1, totalCount);
+        Assert.Equal(0, skippedCount);
+    }
+
+    [Fact]
+    public void MapItem_ReturnsNull_WhenFlattenedItemHasNoWebVideoUrl()
+    {
+        var adapter = new TikTokNicheSearchAdapter();
+        var json = """{ "authorMeta.name": "author", "playCount": 10 }""";
+        var item = JsonDocument.Parse(json).RootElement;
+
+        Assert.Null(adapter.MapItem(item));
+    }
+
+    [Fact]
+    public void MapItems_ClassifiesErrorItemsAsProviderErrors_NotAsUnmappableItems()
+    {
+        // The actor reports a non-existent hashtag as an ITEM carrying error/errorCode. That is the
+        // provider answering, not a response shape the mapping fails to recognise.
+        var adapter = new TikTokNicheSearchAdapter();
+        var items = JsonDocument.Parse("""
+            [
+              {
+                "error": "This profile/hashtag does not exist.",
+                "errorCode": "NOT_FOUND",
+                "url": "https://www.tiktok.com/discover/medicalhealth",
+                "input": "medicalhealth"
+              }
+            ]
+            """).RootElement;
+
+        var (mapped, totalCount, skippedCount, providerErrors) = adapter.MapItems(items);
+
+        Assert.Empty(mapped);
+        Assert.Equal(1, totalCount);
+        Assert.Equal(0, skippedCount);
+
+        var error = Assert.Single(providerErrors);
+        Assert.Equal("NOT_FOUND", error.ErrorCode);
+        Assert.Equal("medicalhealth", error.Input);
+        Assert.Equal("This profile/hashtag does not exist.", error.Message);
+    }
+
+    [Fact]
+    public void MapItems_MixedErrorAndVideoItems_StillMapTheVideo()
+    {
+        var adapter = new TikTokNicheSearchAdapter();
+        var items = JsonDocument.Parse("""
+            [
+              { "error": "This profile/hashtag does not exist.", "errorCode": "NOT_FOUND", "input": "medicalhealth" },
+              { "text": "real one", "authorMeta": { "nickName": "author" }, "webVideoUrl": "https://www.tiktok.com/@author/video/1" }
+            ]
+            """).RootElement;
+
+        var (mapped, totalCount, skippedCount, providerErrors) = adapter.MapItems(items);
+
+        Assert.Single(mapped);
+        Assert.Equal(2, totalCount);
+        Assert.Equal(0, skippedCount);
+        Assert.Single(providerErrors);
+    }
+
+    [Fact]
+    public void MapItems_UnmappableItemWithoutAnErrorField_IsStillCountedAsSkipped()
+    {
+        var adapter = new TikTokNicheSearchAdapter();
+        var items = JsonDocument.Parse("""[ { "text": "no url" } ]""").RootElement;
+
+        var (mapped, totalCount, skippedCount, providerErrors) = adapter.MapItems(items);
+
+        Assert.Empty(mapped);
+        Assert.Equal(1, totalCount);
+        Assert.Equal(1, skippedCount);
+        Assert.Empty(providerErrors);
+    }
+
+    [Fact]
+    public void BuildHashtagsInput_SendsEveryDerivedCandidate_InOneCall()
+    {
+        var adapter = new TikTokNicheSearchAdapter();
+
+        var input = adapter.BuildHashtagsInput(["medical", "health", "medicalhealth"], resultsPerPage: 20);
+        var json = JsonSerializer.Serialize(input, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        using var doc = JsonDocument.Parse(json);
+
+        Assert.Equal(
+            ["medical", "health", "medicalhealth"],
+            doc.RootElement.GetProperty("hashtags").EnumerateArray().Select(h => h.GetString()).ToArray());
+        Assert.Equal(20, doc.RootElement.GetProperty("resultsPerPage").GetInt32());
     }
 
     [Fact]

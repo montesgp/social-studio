@@ -62,4 +62,20 @@ public sealed class DiscoveredCandidateData
     public DateTime ObservedAt { get; set; }
 
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// The derived niche hashtags this row is reachable under in the CANDIDATE BANK, or <c>null</c> for
+    /// the per-client observation rows that predate the bank and belong to no reserve.
+    ///
+    /// Bank rows are keyed by ORGANIZATION + NETWORK + HASHTAG and carry <c>client_id =
+    /// Guid.Empty</c>: the reserve is shared by every client of the organization, so no single client
+    /// owns it. The sentinel (rather than a nullable column) keeps the existing unique index
+    /// <c>(organization_id, client_id, candidate_key, observed_at)</c> working exactly as it did —
+    /// Postgres treats NULLs in a unique index as distinct, which would have quietly weakened CD-08.
+    ///
+    /// The set GROWS when the same candidate is found again under a different wording, so a niche that
+    /// overlaps an existing one does not have to buy the same scrape twice. The observation snapshot
+    /// around it is never rewritten.
+    /// </summary>
+    public List<string>? BankHashtags { get; set; }
 }

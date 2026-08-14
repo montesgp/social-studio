@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Integrations;
+using Incoders.Hive.Application.Abstractions.Social.ContentDiscovery;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using MediatR;
@@ -14,7 +15,7 @@ public sealed class GetOrganizationIntegrationsHandler
     private readonly IOrganizationIntegrationCredentialRepository _credentials;
     private readonly IOrganizationAiModelRepository? _models;
     private readonly IExternalProviderClientFactory? _clientFactory;
-    private readonly IWorkflowStepConfigurationRepository? _stepConfigurations;
+    private readonly INicheSearchConfigurationProbe? _nicheSearchProbe;
 
     public GetOrganizationIntegrationsHandler(
         IIntegrationProviderCatalogRepository providers,
@@ -22,14 +23,14 @@ public sealed class GetOrganizationIntegrationsHandler
         IOrganizationIntegrationCredentialRepository credentials,
         IOrganizationAiModelRepository? models = null,
         IExternalProviderClientFactory? clientFactory = null,
-        IWorkflowStepConfigurationRepository? stepConfigurations = null)
+        INicheSearchConfigurationProbe? nicheSearchProbe = null)
     {
         _providers = providers;
         _integrations = integrations;
         _credentials = credentials;
         _models = models;
         _clientFactory = clientFactory;
-        _stepConfigurations = stepConfigurations;
+        _nicheSearchProbe = nicheSearchProbe;
     }
 
     public async Task<Result<OrganizationIntegrationsOverviewResponse>> Handle(
@@ -102,12 +103,6 @@ public sealed class GetOrganizationIntegrationsHandler
                 || string.Equals(x.ProviderKey, "data365", StringComparison.OrdinalIgnoreCase))
             && x.Status == IntegrationStatus.Connected);
 
-        // Optional (INT-DISC-03): discovery still works on references/own with the niche stage
-        // unconfigured. This item is the operator's pointer to the discover-niche-content step, not
-        // a gate — satisfied when an enabled (single-analyzer, niche-search) route resolves
-        // (D11/D12/CD-12).
-        var hasNicheSearchRoute = await ResolvesNicheSearchRouteAsync(request.OrganizationId, cancellationToken);
-
         var singleAnalyzerChecklist = new List<IntegrationSetupChecklistItemResponse>
         {
             new(
@@ -121,15 +116,11 @@ public sealed class GetOrganizationIntegrationsHandler
                 "Connect at least one AI model provider",
                 true,
                 hasAiProvider,
-                "At least one AI model provider must be connected to analyze resolved content."),
-            new(
-                "single-analyzer-niche-search-actor",
-                "Configure a TikTok niche-search actor",
-                false,
-                hasNicheSearchRoute,
-                "OPTIONAL. Configure and enable a TikTok niche-search actor to turn on content " +
-                "discovery. Discovery still works from reference/own accounts without it.")
+                "At least one AI model provider must be connected to analyze resolved content.")
         };
+
+        singleAnalyzerChecklist.AddRange(
+            await BuildNicheSearchChecklistItemsAsync(request.OrganizationId, cancellationToken));
 
         var generatorChecklist = new List<IntegrationSetupChecklistItemResponse>
         {
@@ -189,23 +180,55 @@ public sealed class GetOrganizationIntegrationsHandler
             : synced.Select(x => x.ModelId).ToList();
     }
 
-    private async Task<bool> ResolvesNicheSearchRouteAsync(Guid organizationId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Emits ONE optional checklist item per network that actually has a working niche-search adapter
+    /// — never a single hardcoded "Configure a TikTok niche-search actor" line regardless of the network
+    /// the operator is working with.
+    ///
+    /// SHAPE RATIONALE (per-network items rather than one network-parameterised item):
+    /// the readiness answer is genuinely per network — TikTok can be configured while Instagram cannot
+    /// be configured AT ALL — so one boolean cannot carry it, and a query parameter on the overview
+    /// would make a cacheable read-only response network-dependent for every other consumer. Per-network
+    /// items keep the existing response shape and let each caller pick the network it cares about.
+    ///
+    /// ABSENCE IS MEANINGFUL: a network with no adapter (Instagram, YouTube today) gets NO item, and
+    /// callers must read that as "not supported yet". Emitting a "configure an actor" item for a network
+    /// whose runtime path degrades straight to Unconfigured would send the operator to buy and wire an
+    /// actor that can never be dispatched — worse than saying nothing.
+    /// </summary>
+    private async Task<IReadOnlyList<IntegrationSetupChecklistItemResponse>> BuildNicheSearchChecklistItemsAsync(
+        Guid organizationId,
+        CancellationToken cancellationToken)
     {
-        if (_stepConfigurations is null)
+        if (_nicheSearchProbe is null)
         {
-            return false;
+            return [];
         }
 
-        var rows = await _stepConfigurations.ListForStepAsync(
-            new WorkflowStepResolutionRequest(
-                organizationId,
-                "single-analyzer",
-                "content-discovery",
-                "discover-niche-content",
-                "niche-search",
-                "tiktok"),
-            cancellationToken);
+        var items = new List<IntegrationSetupChecklistItemResponse>();
 
-        return rows.Any(x => !string.IsNullOrWhiteSpace(x.ActorId));
+        foreach (var network in _nicheSearchProbe.SupportedNetworks)
+        {
+            // Optional (INT-DISC-03): discovery still works on references/own with the niche stage
+            // unconfigured. This item is the operator's pointer to the discover-niche-content step,
+            // not a gate (D11/D12/CD-12).
+            var resolves = await _nicheSearchProbe.ResolvesActorAsync(organizationId, network.NetworkKey, cancellationToken);
+
+            items.Add(new IntegrationSetupChecklistItemResponse(
+                $"{NicheSearchChecklistItemKeyPrefix}{network.NetworkKey}",
+                $"Configure a {network.DisplayName} niche-search actor",
+                false,
+                resolves,
+                $"OPTIONAL. Map or route a {network.DisplayName} niche-search actor to turn on content " +
+                "discovery for this network. Discovery still works from reference/own accounts without it."));
+        }
+
+        return items;
     }
+
+    /// <summary>
+    /// Checklist key prefix for the per-network niche-search readiness items; the network key is
+    /// appended verbatim (e.g. <c>single-analyzer-niche-search-actor-tiktok</c>).
+    /// </summary>
+    public const string NicheSearchChecklistItemKeyPrefix = "single-analyzer-niche-search-actor-";
 }

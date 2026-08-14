@@ -110,7 +110,8 @@ public static class SocialContentWorkflowEndpointsExtensions
                 body.ClientName,
                 body.SearchCriterion,
                 body.StrategyMode,
-                body.NetworkSources),
+                body.NetworkSources,
+                body.ForceRefresh),
             cancellationToken);
 
         return result.Match(workflow => (IResult)TypedResults.Created($"/api/social/workflows/{workflow.WorkflowId}/status", workflow));
@@ -294,12 +295,17 @@ public static class SocialContentWorkflowEndpointsExtensions
     }
 }
 
+/// <param name="ForceRefresh">
+/// The operator's EXPLICIT opt-in to a billed provider run. Absent or <c>false</c> means "serve from the
+/// stored candidate bank" — no client can start a paid scrape by forgetting a field.
+/// </param>
 public sealed record StartSocialContentWorkflowRequest(
     Guid ClientId,
     string ClientName,
     string SearchCriterion,
     string StrategyMode,
-    IReadOnlyList<string> NetworkSources);
+    IReadOnlyList<string> NetworkSources,
+    bool ForceRefresh = false);
 
 public sealed record SelectSocialContentWorkflowRequest(IReadOnlyList<Guid>? ResultIds);
 

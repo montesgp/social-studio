@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, SyntheticEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Database,
   ScanSearch,
   Search,
   Download,
@@ -50,6 +51,8 @@ import type {
   SocialClient,
   ContentFormatKey,
   ContentGenerationJobStatus,
+  ContentWorkflowStatus,
+  ContentWorkflowStep,
   ContentWorkflowStrategyMode,
   GeneratedPackageManifest,
   PackageActionState,
@@ -109,21 +112,38 @@ import {
   type ContentDiscoveryShortlistCandidate,
 } from "@/components/social/discovery/content-discovery-shortlist";
 import {
-  isNicheSearchUnconfigured,
-  isSingleAnalyzerNicheSearchActorConfigured,
+  discoveryOutcomeOffersSettingsLink,
+  discoveryStepIndex,
+  getDiscoveryOutcomeMessage,
+  getNicheSearchBlockedMessage,
+  getNicheSearchReadiness,
+  isDiscoveryTerminal,
+  isNicheSearchBlocked,
   mapDiscoveryResultsToShortlistCandidates,
+  resolveDiscoveryOutcome,
+  type DiscoveryRunOutcome,
+  type NicheSearchReadiness,
 } from "@/lib/social/content-discovery-shortlist";
+import {
+  REFRESH_BILLING_WARNING,
+  canStartRefresh,
+  getRefreshBlockedReason,
+  resolveDefaultSearchNetwork,
+  summariseCandidateSource,
+  type CandidateSourceSummary,
+} from "@/lib/social/niche-candidate-bank";
 
 // ── Async/poll constants ───────────────────────────────────────────────────────
 
 const POLL_INTERVAL_MS = 2500;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min hard cap so the overlay can't hang forever
 const FALLBACK_THUMBNAIL_PATH = "/images/thumbnail-unavailable.svg";
-// Discovery (WU-7, design D8/§8.2): the workflow session that runs the discovery chain finishes in a
-// few seconds (ComputeProgressSnapshot phases), well under the 5-min single-analysis cap above — a
-// short, separate poll loop rather than reusing POLL_INTERVAL_MS/POLL_TIMEOUT_MS.
-const DISCOVERY_POLL_INTERVAL_MS = 500;
-const DISCOVERY_POLL_TIMEOUT_MS = 20 * 1000;
+// Discovery is start + poll, exactly like the analysis flow: the POST only opens the session and the
+// scrape runs in the background, because a real scrape does not fit in one HTTP request (production
+// runs were aborted by the browser/proxy at ~30 s while the Apify actor kept running and billing).
+// Same cadence and same 5-min cap as the analysis poll on purpose — one idiom, not two.
+const DISCOVERY_POLL_INTERVAL_MS = POLL_INTERVAL_MS;
+const DISCOVERY_POLL_TIMEOUT_MS = POLL_TIMEOUT_MS;
 const DISCOVERY_CRITERION_OPTIONS: Array<{ value: "references" | "own" | "niche"; label: string }> = [
   { value: "references", label: "Reference accounts" },
   { value: "own", label: "Own accounts" },
@@ -716,10 +736,25 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     useState<ContentDiscoveryShortlistCandidate[]>([]);
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
-  const [discoveryRan, setDiscoveryRan] = useState(false);
+  // null = discovery has never run in this session. Every other value is the resolved terminal
+  // outcome, so a provider failure can never render as "No candidates found yet".
+  const [discoveryOutcome, setDiscoveryOutcome] = useState<DiscoveryRunOutcome | null>(null);
+  // Live progress mirrored from the status endpoint and rendered through the SAME screen-blocking
+  // overlay the analysis flow uses (AnalysisOverlay), not a second progress mechanism.
+  const [discoverySteps, setDiscoverySteps] = useState<ContentWorkflowStep[]>([]);
+  const [discoveryPercent, setDiscoveryPercent] = useState(0);
+  const [discoveryMessage, setDiscoveryMessage] = useState("");
+  // The raw backend status the overlay renders. Kept alongside the resolved outcome because the
+  // overlay needs it while the session is still running, before an outcome exists.
+  const [discoveryStatusValue, setDiscoveryStatusValue] = useState("in_progress");
+  // Where the shortlist's candidates came from — the stored bank or a fresh, billed scrape — and how
+  // old the stored ones are. Serving cached data silently is how an operator ends up working from
+  // stale content without knowing, so this is never inferred: null until the backend reports it.
+  const [candidateSource, setCandidateSource] = useState<CandidateSourceSummary | null>(null);
   // null = not checked yet; only relevant for the "niche" criterion (CD-13/D12 — distinct from an
-  // empty result set).
-  const [nicheSearchActorConfigured, setNicheSearchActorConfigured] = useState<boolean | null>(null);
+  // empty result set). Readiness is PER NETWORK: a network with no adapter is "unsupported", which is
+  // a different answer from "you still have to configure an actor".
+  const [nicheSearchReadiness, setNicheSearchReadiness] = useState<NicheSearchReadiness | null>(null);
   const [videoResult, setVideoResult] = useState<SingleAnalyzerResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -1275,8 +1310,45 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     return () => document.removeEventListener("click", handleDocumentNavigation, true);
   }, [hasUnsavedWork]);
 
+  // Niche-search readiness is looked up as soon as the operator selects the niche criterion (and again
+  // when they change network), so the banner states the TRUE reason instead of assuming "unconfigured"
+  // before anything has been checked.
+  useEffect(() => {
+    if (discoveryCriterion !== "niche" || !selectedOrganizationId || !effectiveToken) {
+      setNicheSearchReadiness(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const overview = await listOrganizationIntegrations(selectedOrganizationId, effectiveToken);
+        if (!cancelled) {
+          setNicheSearchReadiness(getNicheSearchReadiness(overview.checklistGroups, searchNetwork));
+        }
+      } catch {
+        // Best-effort UX only: the discovery chain still degrades cleanly to an empty, non-throwing
+        // result when the stage is unconfigured, so a failed lookup never blocks the operator.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [discoveryCriterion, selectedOrganizationId, searchNetwork, effectiveToken]);
+
   // Derived — always in sync with API data
   const networkOptions = socialNetworks.map((n) => ({ value: n.code, label: n.displayName }));
+  // Blocking reason for the niche stage, worded for the network the operator actually picked — never a
+  // blanket "configure a TikTok actor" for a network that has no adapter at all.
+  const nicheSearchBlockedMessage = getNicheSearchBlockedMessage(
+    discoveryCriterion,
+    nicheSearchReadiness ?? "ready",
+    networkOptions.find((n) => n.value === searchNetwork)?.label
+  );
+  // Why a terminal discovery produced no shortlist — null while running and once candidates are in.
+  const discoveryOutcomeMessage = discoveryOutcome ? getDiscoveryOutcomeMessage(discoveryOutcome) : null;
   const urlSupportedPlatformNames = useMemo(() => {
     const supportedCodes = new Set(["tiktok", "instagram", "youtube", "x", "facebook", "linkedin"]);
     const activeSupportedNames = socialNetworks
@@ -1311,11 +1383,15 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   // A saved analysis can be converted for multiple active clients; each generated output
   // is scoped by the client selected at generation time.
 
-  // Normalize searchNetwork to first available network code when networks load.
+  // Normalize searchNetwork when networks load. TikTok is the default because it is the only network
+  // with a working niche-search adapter — defaulting to whatever happened to be first in the catalog
+  // put the operator on a network whose search cannot run.
   useEffect(() => {
     if (socialNetworks.length === 0) return;
     setSearchNetwork((prev) =>
-      socialNetworks.some((n) => n.code === prev) ? prev : socialNetworks[0].code
+      socialNetworks.some((n) => n.code === prev)
+        ? prev
+        : resolveDefaultSearchNetwork(socialNetworks.map((n) => n.code))
     );
   }, [socialNetworks]);
 
@@ -1476,8 +1552,13 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setUrlInput("");
     setDiscoveryCandidates([]);
     setDiscoveryError(null);
-    setDiscoveryRan(false);
-    setNicheSearchActorConfigured(null);
+    setDiscoveryOutcome(null);
+    setDiscoverySteps([]);
+    setDiscoveryPercent(0);
+    setDiscoveryMessage("");
+    setDiscoveryStatusValue("in_progress");
+    setCandidateSource(null);
+    setNicheSearchReadiness(null);
     setSelectedClientId("");
     setDuplicateAnalysisPrompt(null);
     setRightPanelTab("conversion");
@@ -1694,30 +1775,46 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }
 
   /**
-   * Discovery shortlist (WU-7, design D8/§8.2). Runs the discovery chain through the EXISTING
-   * content-workflow endpoints (`startContentWorkflow` → poll status → `listContentWorkflowResults`)
-   * — the only HTTP surface that already exercises `IContentDiscoveryService` — and projects the
-   * results onto the ranked shortlist. Authors no backend call this change did not already have.
+   * Discovery shortlist — start + poll (WU-7, design D8/§8.2).
+   *
+   * `startContentWorkflow` now only OPENS the session: the scrape runs on the backend's own
+   * background task, so this call returns in milliseconds and the browser or proxy can no longer
+   * abort a 30-second request and orphan a billing Apify run. The outcome arrives through
+   * `getContentWorkflowStatus`, polled on the same cadence and rendered through the same
+   * screen-blocking overlay as the analysis flow. Results are fetched only once the session reports
+   * a terminal state with candidates.
    */
-  async function runDiscovery() {
+  async function runDiscovery(options?: { forceRefresh?: boolean }) {
     if (!selectedClientId || isDiscovering) return;
+
+    // A refresh is the ONLY way this screen can cause a billed provider run, and it is only offered
+    // for the niche criterion. Re-checked here, not just on the button, so no future caller can hand
+    // this function an opt-in the guard would have refused.
+    const forceRefresh =
+      options?.forceRefresh === true &&
+      canStartRefresh({ criterion: discoveryCriterion, clientId: selectedClientId, isDiscovering });
 
     setDiscoveryError(null);
     setDiscoveryCandidates([]);
-    setDiscoveryRan(false);
+    setDiscoveryOutcome(null);
+    setDiscoverySteps([]);
+    setDiscoveryPercent(0);
+    setDiscoveryMessage("");
+    setDiscoveryStatusValue("in_progress");
+    setCandidateSource(null);
 
     if (discoveryCriterion === "niche") {
       try {
         const overview = await listOrganizationIntegrations(selectedOrganizationId, effectiveToken);
-        const configured = isSingleAnalyzerNicheSearchActorConfigured(overview.checklistGroups);
-        setNicheSearchActorConfigured(configured);
-        if (isNicheSearchUnconfigured(discoveryCriterion, configured)) {
-          setDiscoveryRan(true);
+        const readiness = getNicheSearchReadiness(overview.checklistGroups, searchNetwork);
+        setNicheSearchReadiness(readiness);
+        if (isNicheSearchBlocked(discoveryCriterion, readiness)) {
+          setDiscoveryOutcome("unconfigured");
           return;
         }
       } catch {
-        // Checklist lookup is best-effort UX; an unconfigured actor still degrades cleanly to an
-        // empty, non-throwing "Ran" result at the discovery chain itself, so we do not block on it.
+        // Checklist lookup is best-effort UX; an unconfigured stage is still reported as such by the
+        // session's own terminal status, so we do not block on it.
       }
     }
 
@@ -1734,31 +1831,55 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
           searchCriterion: discoveryCriterion,
           strategyMode: searchStrategy as ContentWorkflowStrategyMode,
           networkSources,
+          forceRefresh,
         },
         effectiveToken
       );
 
+      setDiscoveryPercent(session.progressPercentage);
+      setDiscoveryMessage(session.progressMessage);
+
       const deadline = Date.now() + DISCOVERY_POLL_TIMEOUT_MS;
-      let status = session.status;
-      while (status !== "completed" && Date.now() < deadline) {
+      let latest: ContentWorkflowStatus | null = null;
+
+      while (Date.now() < deadline) {
         await sleep(DISCOVERY_POLL_INTERVAL_MS);
-        const statusResponse = await getContentWorkflowStatus(
+        latest = await getContentWorkflowStatus(
           selectedOrganizationId,
           session.workflowId,
           effectiveToken
         );
-        status = statusResponse.status;
+        setDiscoverySteps(latest.steps);
+        setDiscoveryPercent(latest.progressPercentage);
+        setDiscoveryMessage(latest.progressMessage);
+        setDiscoveryStatusValue(latest.status);
+
+        if (isDiscoveryTerminal(latest.status)) break;
       }
 
-      const page = await listContentWorkflowResults(
-        selectedOrganizationId,
-        session.workflowId,
-        1,
-        24,
-        effectiveToken
-      );
-      setDiscoveryCandidates(mapDiscoveryResultsToShortlistCandidates(page.items));
-      setDiscoveryRan(true);
+      if (!latest || !isDiscoveryTerminal(latest.status)) {
+        // The cap ran out with the session still working. Say exactly that — the run itself is not
+        // cancelled and is still billing-bounded by the platform's own Apify guards.
+        setDiscoveryError(
+          "Discovery is taking longer than expected and is still running on the server. Try again in a moment."
+        );
+        return;
+      }
+
+      const outcome = resolveDiscoveryOutcome(latest);
+      setDiscoveryOutcome(outcome);
+      setCandidateSource(summariseCandidateSource(latest, new Date().toISOString()));
+
+      if (outcome === "candidates") {
+        const page = await listContentWorkflowResults(
+          selectedOrganizationId,
+          session.workflowId,
+          1,
+          24,
+          effectiveToken
+        );
+        setDiscoveryCandidates(mapDiscoveryResultsToShortlistCandidates(page.items));
+      }
     } catch (e) {
       const err = e as { message?: string };
       setDiscoveryError(err?.message || "Discovery failed. Try again.");
@@ -2603,6 +2724,22 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         description="This usually takes 30–60 seconds. Keep this tab open."
         ariaLabel="Analyzing content"
       />
+      {/* Discovery runs in the background on the server and is polled here, so the operator gets the
+          SAME screen-blocking progress overlay as an analysis — the step rows come straight from the
+          session's own status response rather than from a second, invented progress model. */}
+      <AnalysisOverlay
+        visible={isDiscovering}
+        steps={discoverySteps.map((step) => ({ key: step.key, label: step.label }))}
+        currentStep={discoveryStepIndex(discoverySteps, discoveryStatusValue)}
+        percent={discoveryPercent}
+        isDone={discoveryStatusValue === "completed"}
+        isFailed={discoveryStatusValue === "failed" || discoveryStatusValue === "unconfigured"}
+        runningTitle="Discovering content"
+        doneTitle="Discovery complete"
+        failedTitle="Discovery failed"
+        description={discoveryMessage || "Scraping runs on the server. You can keep this tab open."}
+        ariaLabel="Discovering content"
+      />
       <PackageGenerationOverlay
         visible={packageGenerationIsRunning}
         status={packageUiStatus}
@@ -2783,9 +2920,30 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                         onClick={() => void runDiscovery()}
                         disabled={isDiscovering || !selectedClientId}
                         className="h-8 px-3 text-xs"
+                        title="Serves the candidates already stored for this niche. Nothing is scraped and nothing is billed unless the store is empty."
                       >
                         {isDiscovering ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
                         Discover
+                      </Button>
+                      {/* Deliberately NOT a second Discover: this is the only control on the screen
+                          that can spend money, so it is styled apart, labelled with the cost, and
+                          disabled with a stated reason rather than silently. */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void runDiscovery({ forceRefresh: true })}
+                        disabled={
+                          !canStartRefresh({
+                            criterion: discoveryCriterion,
+                            clientId: selectedClientId,
+                            isDiscovering,
+                          })
+                        }
+                        className="h-8 px-3 text-xs"
+                        title={REFRESH_BILLING_WARNING}
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        Refresh (billed run)
                       </Button>
                     </div>
 
@@ -2795,33 +2953,99 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                       </p>
                     )}
 
+                    {/* The consequence is stated before the click, not after it: the whole
+                        serve-from-store model rests on the operator opting in knowingly. */}
+                    {selectedClientId && discoveryCriterion === "niche" && (
+                      <p className="text-xs text-muted-foreground/70">{REFRESH_BILLING_WARNING}</p>
+                    )}
+
+                    {selectedClientId && discoveryCriterion !== "niche" && (
+                      <p className="text-xs text-muted-foreground/70">
+                        {getRefreshBlockedReason({
+                          criterion: discoveryCriterion,
+                          clientId: selectedClientId,
+                          isDiscovering,
+                        })}
+                      </p>
+                    )}
+
                     {discoveryError && (
                       <p className="text-xs text-destructive">{discoveryError}</p>
                     )}
 
-                    {isNicheSearchUnconfigured(discoveryCriterion, nicheSearchActorConfigured ?? false) && (
+                    {nicheSearchBlockedMessage && (
                       <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
                         <div className="flex items-start gap-2">
                           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                          <p className="text-xs text-foreground">
-                            Niche search isn&apos;t configured yet. Configure a TikTok niche-search
-                            actor under Single Analyzer to use this stage.
-                          </p>
+                          <p className="text-xs text-foreground">{nicheSearchBlockedMessage}</p>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 text-xs"
-                          onClick={() => router.push("/settings/integrations")}
-                        >
-                          Go to Settings / Integrations
-                        </Button>
+                        {nicheSearchReadiness === "unconfigured" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            onClick={() => router.push("/settings/integrations")}
+                          >
+                            Go to Settings / Integrations
+                          </Button>
+                        )}
                       </div>
                     )}
 
+                    {/* A terminal outcome that produced nothing is explained by WHY it produced
+                        nothing. A provider failure and an unconfigured stage must never render as
+                        "No candidates found yet" — they have different fixes. */}
                     {!videoResult &&
-                      discoveryRan &&
-                      !isNicheSearchUnconfigured(discoveryCriterion, nicheSearchActorConfigured ?? false) && (
+                      !nicheSearchBlockedMessage &&
+                      discoveryOutcomeMessage && (
+                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                            <p className="text-xs text-foreground">{discoveryOutcomeMessage}</p>
+                          </div>
+                          {discoveryOutcome && discoveryOutcomeOffersSettingsLink(discoveryOutcome) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs"
+                              onClick={() => router.push("/settings/integrations")}
+                            >
+                              Go to Settings / Integrations
+                            </Button>
+                          )}
+                        </div>
+                      )}
+
+                    {/* Where these candidates came from, and how old the stored ones are. Rendered
+                        only when the backend actually reported an origin — an unknown provenance is
+                        left blank rather than guessed as fresh. */}
+                    {!videoResult &&
+                      discoveryOutcome === "candidates" &&
+                      !nicheSearchBlockedMessage &&
+                      candidateSource && (
+                        <div
+                          data-testid="candidate-source-indicator"
+                          className={`flex items-start gap-2 rounded-lg border p-3 ${
+                            candidateSource.origin === "bank"
+                              ? "border-border/60 bg-muted/30"
+                              : "border-primary/30 bg-primary/5"
+                          }`}
+                        >
+                          {candidateSource.origin === "bank" ? (
+                            <Database className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <Search className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                          )}
+                          <div className="space-y-0.5">
+                            <p className="text-xs font-medium text-foreground">{candidateSource.label}</p>
+                            <p className="text-xs text-muted-foreground">{candidateSource.detail}</p>
+                          </div>
+                        </div>
+                      )}
+
+                    {!videoResult &&
+                      discoveryOutcome === "candidates" &&
+                      !nicheSearchBlockedMessage && (
                         <ContentDiscoveryShortlist
                           candidates={discoveryCandidates}
                           clientId={selectedClientId || undefined}

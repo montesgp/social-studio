@@ -27,6 +27,12 @@ export interface StartContentWorkflowPayload {
   searchCriterion: ContentWorkflowSearchCriterion;
   strategyMode: ContentWorkflowStrategyMode;
   networkSources: string[];
+  /**
+   * The operator's EXPLICIT opt-in to a billed provider run. Omitted or `false` means "serve from the
+   * stored candidate bank" — the backend defaults it to `false`, so a caller can never start a paid
+   * scrape by forgetting the field.
+   */
+  forceRefresh?: boolean;
 }
 
 export async function listWorkflowClients(organizationId: string, token?: string) {

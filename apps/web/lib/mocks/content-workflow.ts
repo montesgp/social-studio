@@ -206,7 +206,8 @@ export function getMockWorkflowStatus(organizationId: string, workflowId: string
     progressPercentage,
     progressMessage: isCompleted ? "Mock generation completed." : phases[activeIndex]?.message ?? "Mock generation running...",
     steps,
-    updatedAtUtc: new Date().toISOString()
+    updatedAtUtc: new Date().toISOString(),
+    totalResults: session.results.length
   };
 }
 

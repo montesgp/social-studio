@@ -54,6 +54,10 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<SocialNetworkData> SocialNetworks => Set<SocialNetworkData>();
 
+    public DbSet<NicheData> Niches => Set<NicheData>();
+
+    public DbSet<ClientNicheData> ClientNiches => Set<ClientNicheData>();
+
     public DbSet<ClientReferentAccountData> ClientReferentAccounts => Set<ClientReferentAccountData>();
 
     public DbSet<ClientCompetitorAccountData> ClientCompetitorAccounts => Set<ClientCompetitorAccountData>();
@@ -718,6 +722,53 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasIndex(x => x.Code).IsUnique().HasDatabaseName("ix_social_networks_code");
         });
 
+        builder.Entity<NicheData>(entity =>
+        {
+            entity.ToTable("niches", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.Code).HasColumnName("code").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.DisplayName).HasColumnName("display_name").HasMaxLength(120).IsRequired();
+            entity.Property(x => x.IconKey).HasColumnName("icon_key").HasMaxLength(32);
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            ConfigureJsonbCollection<NicheData, string>(entity, x => x.SearchHashtags, "search_hashtags");
+
+            entity.HasIndex(x => x.Code).IsUnique().HasDatabaseName("ix_niches_code");
+
+            // Display name is what the picker searches and what an operator reads: two entries that
+            // read the same are a catalog defect, so the uniqueness is enforced here too.
+            entity.HasIndex(x => x.DisplayName).IsUnique().HasDatabaseName("ix_niches_display_name");
+
+            // The bounded list orders by created_at desc when no search term is supplied.
+            entity.HasIndex(x => x.CreatedAtUtc).HasDatabaseName("ix_niches_created_at_utc");
+        });
+
+        builder.Entity<ClientNicheData>(entity =>
+        {
+            entity.ToTable("client_niches", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => new { x.ClientId, x.NicheId });
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.NicheId).HasColumnName("niche_id").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict, not Cascade: deleting a catalog entry must not silently rewrite what a
+            // client declared about itself. Deactivate the niche instead.
+            entity.HasOne<NicheData>()
+                .WithMany()
+                .HasForeignKey(x => x.NicheId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(x => x.NicheId).HasDatabaseName("ix_client_niches_niche_id");
+        });
+
         builder.Entity<SingleContentAnalysisData>(entity =>
         {
             entity.ToTable("single_content_analyses", PostgresDatabaseNames.SocialSchema);
@@ -1001,6 +1052,12 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.Classification).HasColumnName("classification");
             entity.Property(x => x.ObservedAt).HasColumnName("observed_at").IsRequired();
             entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.BankHashtags).HasColumnName("bank_hashtags");
+
+            // The candidate bank read: one organization's reserve for one network, narrowed in SQL
+            // before the hashtag overlap is applied.
+            entity.HasIndex(x => new { x.OrganizationId, x.NetworkKey, x.ClientId })
+                .HasDatabaseName("ix_discovered_candidates_bank");
 
             // Identity lookup — "has this content been observed before, and when".
             entity.HasIndex(x => new { x.OrganizationId, x.ClientId, x.CandidateKey })

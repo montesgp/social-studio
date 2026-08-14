@@ -52,6 +52,11 @@ public sealed class ContentDiscoveryChain : IContentDiscoveryService
         var failed = new List<string>();
         var unconfigured = new List<string>();
 
+        // Origin is decided by what actually LANDED in the shortlist, not by what a source offered: a
+        // banked source that contributed nothing must not make a freshly scraped plan look stored.
+        var anyFreshContribution = false;
+        DateTimeOffset? oldestBankObservation = null;
+
         foreach (var source in selected)
         {
             var remaining = request.MaxResults - collected.Count;
@@ -98,6 +103,8 @@ public sealed class ContentDiscoveryChain : IContentDiscoveryService
                 .OrderByDescending(candidate => candidate.Views ?? -1)
                 .ToList();
 
+            var contributed = false;
+
             foreach (var candidate in ranked)
             {
                 if (collected.Count >= request.MaxResults)
@@ -112,9 +119,38 @@ public sealed class ContentDiscoveryChain : IContentDiscoveryService
                 }
 
                 collected.Add(candidate);
+                contributed = true;
+            }
+
+            if (!contributed)
+            {
+                continue;
+            }
+
+            if (result.Origin == DiscoveryOrigin.Bank)
+            {
+                if (result.ObservedAtUtc is { } observedAt
+                    && (oldestBankObservation is null || observedAt < oldestBankObservation))
+                {
+                    oldestBankObservation = observedAt;
+                }
+            }
+            else
+            {
+                anyFreshContribution = true;
             }
         }
 
-        return new ContentDiscoveryPlan(collected, request.MaxResults - collected.Count, failed, unconfigured);
+        // A plan is "from the bank" only when nothing in it was scraped in this run. Anything else
+        // spent money, and reporting that as a free read would be the lie this whole change removes.
+        var servedFromBank = collected.Count > 0 && !anyFreshContribution;
+
+        return new ContentDiscoveryPlan(
+            collected,
+            request.MaxResults - collected.Count,
+            failed,
+            unconfigured,
+            servedFromBank ? DiscoveryOrigin.Bank : DiscoveryOrigin.Fresh,
+            servedFromBank ? oldestBankObservation : null);
     }
 }

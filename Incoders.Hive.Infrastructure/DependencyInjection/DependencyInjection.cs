@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions;
+﻿using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.ContentAnalysis;
 using Incoders.Hive.Application.Abstractions.Integrations;
@@ -12,6 +12,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Batches;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Discovery;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Ideas;
+using Incoders.Hive.Application.Features.Social.DiscoveryBankIntelligence;
 using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
 using Incoders.Hive.Infrastructure.Ai;
 using Incoders.Hive.Infrastructure.Packaging;
@@ -137,6 +138,8 @@ public static class DependencyInjection
         services.AddScoped<ISocialClientHardDeleteRepository, EfSocialClientRepository>();
         services.AddScoped<ISocialClientDirectoryRepository, EfSocialClientRepository>();
         services.AddScoped<ISocialNetworkRepository, EfSocialNetworkRepository>();
+        services.AddScoped<INicheRepository, EfNicheRepository>();
+        services.AddScoped<IClientNicheRepository, EfClientNicheRepository>();
         services.AddScoped<IClientReferentAccountRepository, EfClientReferentAccountRepository>();
         services.AddScoped<IClientCompetitorAccountRepository, EfClientCompetitorAccountRepository>();
         services.AddScoped<IClientOwnAccountRepository, EfClientOwnAccountRepository>();
@@ -158,6 +161,7 @@ public static class DependencyInjection
         services.AddScoped<IPublicationConnector>(
             sp => sp.GetRequiredService<InstagramGraphPublicationConnector>());
         services.AddScoped<SocialNetworkCatalogSeeder>();
+        services.AddScoped<NicheCatalogSeeder>();
         services.AddScoped<PlatformSystemModuleSeeder>();
         services.AddScoped<PlatformEmailTemplateSeeder>();
         services.AddScoped<IUserPreferenceRepository, EfUserPreferenceRepository>();
@@ -226,8 +230,21 @@ public static class DependencyInjection
         services.AddScoped<IContentDiscoverySource, ReferenceAccountDiscoverySource>();   // Order 1
         services.AddScoped<IContentDiscoverySource, OwnAccountDiscoverySource>();         // Order 2
         services.AddScoped<IContentDiscoverySource, TikTokNicheSearchSource>();           // Order 3
+        // Curated niche hashtags are what the niche search asks for. The provider is pure Application
+        // (it only composes the two catalog ports), so it is registered here purely for wiring.
+        services.AddScoped<IClientNicheHashtagProvider, ClientNicheHashtagProvider>();
         // Actor resolution is exclusively configuration-driven (CD-12/D13) — see ApifyNicheSearchResolver.
+        // The cost/duration guards are bound here so an operator can tune them without a redeploy; when
+        // the section is absent the options object's own conservative defaults apply, so a niche-search
+        // run is NEVER dispatched without a platform cost cap.
+        services.AddOptions<Incoders.Hive.Infrastructure.Social.Providers.Apify.ApifyNicheSearchGuardOptions>()
+            .Bind(configuration.GetSection(
+                Incoders.Hive.Infrastructure.Social.Providers.Apify.ApifyNicheSearchGuardOptions.SectionName));
         services.AddScoped<INicheSearchResolver, ApifyNicheSearchResolver>();
+        // The read-only readiness probe behind the integrations checklist. It shares
+        // ApifyNicheSearchActorConfiguration with the resolver above so the UI's "configured" and the
+        // dispatcher's "configured" cannot drift apart again.
+        services.AddScoped<INicheSearchConfigurationProbe, ApifyNicheSearchConfigurationProbe>();
 
         // The chain IS the discovery service. Exactly ONE registration of IContentDiscoveryService may
         // exist — a second AddScoped<IContentDiscoveryService, …> would silently win GetRequiredService
@@ -240,6 +257,21 @@ public static class DependencyInjection
         services.AddScoped<IContentCandidateRepository, EfContentCandidateRepository>();
         services.AddScoped<IAccountBaselineRepository, EfAccountBaselineRepository>();
         services.AddScoped<AccountBaselineProvider>();
+
+        // AI Analysis tool: a READ-ONLY view of the same bank, plus the caps that keep one operator
+        // question cheap regardless of how large that bank grows. Absent configuration leaves the
+        // options record's own conservative defaults in force, so the row cap can never be "unset".
+        services.AddScoped<IDiscoveryBankReader, EfDiscoveryBankReader>();
+        services.AddOptions<DiscoveryBankIntelligenceOptions>()
+            .Bind(configuration.GetSection(DiscoveryBankIntelligenceOptions.SectionName));
+
+        // LOCAL seed import: replays captured Apify run output into the bank through the PRODUCTION
+        // adapter. Inert unless explicitly enabled AND running in Development — see
+        // DiscoverySeedImportOptions for why both switches exist.
+        services.AddOptions<Incoders.Hive.Infrastructure.Social.Discovery.DiscoverySeedImportOptions>()
+            .Bind(configuration.GetSection(
+                Incoders.Hive.Infrastructure.Social.Discovery.DiscoverySeedImportOptions.SectionName));
+        services.AddScoped<Incoders.Hive.Infrastructure.Social.Discovery.DiscoverySeedImporter>();
 
         // Selection -> generation: turns the proposals the operator ticked into queued pieces.
         services.AddScoped<IProposalGenerationStarter, ProposalGenerationStarter>();

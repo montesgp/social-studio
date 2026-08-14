@@ -45,12 +45,31 @@ public interface IContentDiscoveryService
 /// <param name="NetworkSources">Networks the operator ticked; empty means "whatever the client has".</param>
 /// <param name="MaxResults">Upper bound on the proposal size. Scraping bills per item.</param>
 /// <param name="SearchCriterion">Normalized by <c>ContentWorkflowCatalog</c> before it gets here.</param>
+/// <param name="ForceRefresh">
+/// The operator's EXPLICIT opt-in to a billed provider run. Discovery serves from the stored candidate
+/// bank by default and refresh is MANUAL ONLY: nothing time-based, no automatic re-scrape on a thin
+/// pool. Defaults to <c>false</c> so a caller that forgets this flag can never cause a paid run.
+/// </param>
 public sealed record ContentDiscoveryRequest(
     Guid OrganizationId,
     Guid ClientId,
     IReadOnlyList<string> NetworkSources,
     int MaxResults,
-    string SearchCriterion);
+    string SearchCriterion,
+    bool ForceRefresh = false);
+
+/// <summary>
+/// Where the candidates the operator is looking at actually came from. Serving stored candidates
+/// silently is how an operator ends up working from stale content without knowing it.
+/// </summary>
+public enum DiscoveryOrigin
+{
+    /// <summary>Scraped in this run — a provider call happened and was billed.</summary>
+    Fresh,
+
+    /// <summary>Served from the stored candidate bank — no provider call, nothing billed.</summary>
+    Bank
+}
 
 /// <summary>
 /// What the chain managed to gather, and what it could not.
@@ -63,11 +82,22 @@ public sealed record ContentDiscoveryRequest(
 /// from <see cref="FailedSourceKeys"/> so the operator can tell "configure this stage" apart from
 /// "the provider is down".
 /// </param>
+/// <param name="Origin">
+/// <see cref="DiscoveryOrigin.Bank"/> only when EVERY candidate in the plan came from the stored bank.
+/// One freshly scraped candidate makes the whole plan <see cref="DiscoveryOrigin.Fresh"/> — a run that
+/// spent money must never be reported as a free read.
+/// </param>
+/// <param name="BankObservedAtUtc">
+/// When the OLDEST banked candidate in the plan was observed, or <c>null</c> when nothing came from
+/// the bank. The oldest, not the newest: staleness is judged by the worst case.
+/// </param>
 public sealed record ContentDiscoveryPlan(
     IReadOnlyList<DiscoveredContent> Candidates,
     int Shortfall,
     IReadOnlyList<string> FailedSourceKeys,
-    IReadOnlyList<string> UnconfiguredSourceKeys);
+    IReadOnlyList<string> UnconfiguredSourceKeys,
+    DiscoveryOrigin Origin = DiscoveryOrigin.Fresh,
+    DateTimeOffset? BankObservedAtUtc = null);
 
 /// <summary>
 /// Three outcomes, not two — "unconfigured" is a first-class one (CD-13, D12), never thrown, never
@@ -84,6 +114,15 @@ public enum SourceOutcome
 /// A single source's contribution to one discovery run. <c>Ran</c> with zero candidates is a
 /// SUCCESS: the source is reported nowhere in the plan's failure/unconfigured lists.
 /// </summary>
+/// <param name="Origin">
+/// Whether this source scraped or served from the bank. Defaults to <see cref="DiscoveryOrigin.Fresh"/>
+/// so a source that knows nothing about the bank keeps reporting exactly what it always did.
+/// </param>
+/// <param name="ObservedAtUtc">
+/// For a banked result, when its OLDEST candidate was observed. <c>null</c> for a fresh run.
+/// </param>
 public sealed record SourceDiscoveryResult(
     SourceOutcome Outcome,
-    IReadOnlyList<DiscoveredContent> Candidates);
+    IReadOnlyList<DiscoveredContent> Candidates,
+    DiscoveryOrigin Origin = DiscoveryOrigin.Fresh,
+    DateTimeOffset? ObservedAtUtc = null);

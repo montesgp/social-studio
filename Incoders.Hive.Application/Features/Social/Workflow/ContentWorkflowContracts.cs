@@ -1,11 +1,17 @@
 namespace Incoders.Hive.Application.Features.Social.Workflow;
 
+/// <param name="ForceRefresh">
+/// The operator's EXPLICIT opt-in to a billed provider run. Discovery serves from the stored candidate
+/// bank by default; refresh is manual only. Defaults to <c>false</c> so no caller can cause a paid run
+/// by omission.
+/// </param>
 public sealed record ContentWorkflowStartInput(
     Guid ClientId,
     string ClientName,
     string SearchCriterion,
     string StrategyMode,
-    IReadOnlyList<string> NetworkSources);
+    IReadOnlyList<string> NetworkSources,
+    bool ForceRefresh = false);
 
 public sealed record ContentWorkflowSessionResponse(
     Guid WorkflowId,
@@ -29,13 +35,36 @@ public sealed record ContentWorkflowStepResponse(
     string Message,
     int ProgressPercentage);
 
+/// <param name="Status">
+/// One of <c>in_progress</c>, <c>completed</c>, <c>failed</c> or <c>unconfigured</c>. Discovery runs in
+/// the background after <c>StartAsync</c> returns, so this is the only place the caller learns the
+/// outcome. <c>completed</c> with <see cref="TotalResults"/> at zero is the honest "ran and found
+/// nothing" case — deliberately distinct from <c>failed</c> (the provider errored) and from
+/// <c>unconfigured</c> (no enabled actor for the requested network).
+/// </param>
+/// <param name="TotalResults">
+/// How many candidates the session holds. Carried here so a poller can tell "completed with
+/// candidates" from "completed empty" without a second round trip to the results endpoint.
+/// </param>
+/// <param name="ResultOrigin">
+/// <c>bank</c> when every candidate was served from the stored candidate bank (no provider call, nothing
+/// billed), <c>fresh</c> when the run scraped. Empty while the session is still working. Serving cached
+/// data silently is how an operator ends up working from stale content without knowing.
+/// </param>
+/// <param name="BankObservedAtUtc">
+/// When the OLDEST banked candidate was observed, so the screen can say how old the stored ones are.
+/// <c>null</c> for a fresh run.
+/// </param>
 public sealed record ContentWorkflowStatusResponse(
     Guid WorkflowId,
     string Status,
     int ProgressPercentage,
     string ProgressMessage,
     IReadOnlyList<ContentWorkflowStepResponse> Steps,
-    DateTime UpdatedAtUtc);
+    DateTime UpdatedAtUtc,
+    int TotalResults,
+    string ResultOrigin = "",
+    DateTimeOffset? BankObservedAtUtc = null);
 
 public sealed record ContentWorkflowResultResponse(
     Guid Id,

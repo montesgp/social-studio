@@ -7,12 +7,32 @@ using Incoders.Hive.Application.Features.Social.Workflow;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.Workflow;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Incoders.Hive.Infrastructure.Social.Workflow;
 
+/// <summary>
+/// Start + poll, not request/response. A real scrape does not fit inside one HTTP request: production
+/// runs were aborted by the browser or a proxy at ~30 s ("Niche search CANCELLED BY THE CALLER after
+/// 29965 ms"), and every abort left an Apify actor running and billing. <see cref="StartAsync"/>
+/// therefore validates, opens the session and returns; discovery runs on a background task whose only
+/// cancellation source is application shutdown, and the operator polls
+/// <see cref="GetStatusAsync"/> until the session reaches a terminal state.
+///
+/// Sessions live in a <see cref="ConcurrentDictionary{TKey,TValue}"/> and are lost when the process
+/// restarts. That is a known, accepted limitation of this in-memory implementation: a poll for an id
+/// this process never saw answers <see cref="ContentWorkflowErrors.NotFound"/>, it does not throw.
+/// </summary>
 public sealed class InMemoryContentWorkflowService : IContentWorkflowService
 {
     private const int DefaultResultCount = 72;
+
+    /// <summary>
+    /// While discovery is still running the time-based ramp is capped below 100 so the bar can never
+    /// claim completion the session has not reached. Only a terminal phase reports 100.
+    /// </summary>
+    private const int MaxInProgressPercentage = 95;
 
     /// <summary>
     /// Formats built for each selected proposal until the screen exposes the composition cart.
@@ -24,68 +44,78 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
 
     private readonly IClock _clock;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IHostApplicationLifetime _applicationLifetime;
+    private readonly ILogger<InMemoryContentWorkflowService> _logger;
     private readonly ConcurrentDictionary<Guid, WorkflowSessionState> _sessions = new();
 
     /// <param name="scopeFactory">
     /// Discovery is a SCOPED service (it reaches EF and the scraping providers) while this service is
     /// a SINGLETON, because the workflow sessions it holds must outlive a request. Resolving discovery
-    /// through a scope is therefore mandatory rather than stylistic.
+    /// through a scope is therefore mandatory rather than stylistic — and the background task creates
+    /// its OWN scope, so no scoped service is ever captured across an await.
     /// </param>
-    public InMemoryContentWorkflowService(IClock clock, IServiceScopeFactory scopeFactory)
+    /// <param name="applicationLifetime">
+    /// Supplies the only token the background discovery observes. The request's own token is exactly
+    /// what the browser or proxy aborts, so wiring it into work that must outlive the request is the
+    /// defect this service was built around.
+    /// </param>
+    public InMemoryContentWorkflowService(
+        IClock clock,
+        IServiceScopeFactory scopeFactory,
+        IHostApplicationLifetime applicationLifetime,
+        ILogger<InMemoryContentWorkflowService> logger)
     {
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(scopeFactory);
+        ArgumentNullException.ThrowIfNull(applicationLifetime);
+        ArgumentNullException.ThrowIfNull(logger);
 
         _clock = clock;
         _scopeFactory = scopeFactory;
+        _applicationLifetime = applicationLifetime;
+        _logger = logger;
     }
 
-    public async Task<Result<ContentWorkflowSessionResponse>> StartAsync(
+    /// <summary>
+    /// Validates, opens the session in <c>in_progress</c> and returns immediately. The scrape happens
+    /// on a background task; <paramref name="cancellationToken"/> guards only this validation, never
+    /// the discovery it schedules.
+    /// </summary>
+    public Task<Result<ContentWorkflowSessionResponse>> StartAsync(
         Guid organizationId,
         ContentWorkflowStartInput input,
         CancellationToken cancellationToken = default)
     {
         if (organizationId == Guid.Empty)
         {
-            return Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.OrganizationRequired);
+            return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.OrganizationRequired));
         }
 
         if (input.ClientId == Guid.Empty || string.IsNullOrWhiteSpace(input.ClientName))
         {
-            return Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.ClientRequired);
+            return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.ClientRequired));
         }
 
         var searchCriterion = ContentWorkflowCatalog.NormalizeSearchCriterion(input.SearchCriterion);
         if (searchCriterion.Length == 0)
         {
-            return Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.SearchCriterionInvalid);
+            return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.SearchCriterionInvalid));
         }
 
         var strategyMode = ContentWorkflowCatalog.NormalizeStrategyMode(input.StrategyMode);
         if (strategyMode.Length == 0)
         {
-            return Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.StrategyModeInvalid);
+            return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.StrategyModeInvalid));
         }
 
         var normalizedNetworks = ContentWorkflowCatalog.NormalizeNetworkSources(input.NetworkSources);
         if (normalizedNetworks.Count == 0)
         {
-            return Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.NetworkSourcesRequired);
+            return Task.FromResult(Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.NetworkSourcesRequired));
         }
 
         var nowUtc = _clock.UtcNow;
         var workflowId = Guid.NewGuid();
-
-        // Real discovery against the client's reference accounts. An empty proposal is reported as
-        // empty: falling back to invented rows would hide a missing Apify route or a client with no
-        // references behind data that looks real.
-        var results = await DiscoverResultsAsync(
-            organizationId,
-            input.ClientId,
-            searchCriterion,
-            strategyMode,
-            normalizedNetworks,
-            cancellationToken);
 
         var session = new WorkflowSessionState(
             workflowId,
@@ -95,46 +125,134 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
             searchCriterion,
             strategyMode,
             normalizedNetworks,
+            input.ForceRefresh,
             nowUtc,
             nowUtc,
             "in_progress",
-            results,
+            [],
             new HashSet<Guid>(),
             new List<ContentWorkflowActionResponse>());
 
         _sessions[workflowId] = session;
+
+        // Fire and forget ON PURPOSE. The scrape takes minutes; awaiting it here is what made the
+        // browser or proxy abort the request at ~30 s and orphan a billing Apify run. The task owns
+        // its own scope and its own cancellation source, so nothing here has to be awaited or
+        // captured.
+        _ = Task.Run(() => RunDiscoveryAsync(session), CancellationToken.None);
 
         lock (session.SyncRoot)
         {
             var snapshot = ComputeProgressSnapshot(session, nowUtc);
             session.Status = snapshot.WorkflowStatus;
             session.UpdatedAtUtc = nowUtc;
-            return Result.Success(ToSessionResponse(session, snapshot));
+            return Task.FromResult(Result.Success(ToSessionResponse(session, snapshot)));
         }
     }
 
     /// <summary>
-    /// Resolves discovery in its own scope and projects the findings onto the workflow's result shape.
+    /// The background half of start + poll. Runs discovery in its OWN scope, then moves the session to
+    /// exactly one terminal phase. Never throws: an unhandled exception on a detached task would take
+    /// the process down and leave the session stuck in <c>in_progress</c> forever.
     /// </summary>
-    private async Task<IReadOnlyList<WorkflowResultState>> DiscoverResultsAsync(
-        Guid organizationId,
-        Guid clientId,
-        string searchCriterion,
-        string strategyMode,
-        IReadOnlyList<string> networks,
-        CancellationToken ct)
+    private async Task RunDiscoveryAsync(WorkflowSessionState session)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var discovery = scope.ServiceProvider.GetRequiredService<IContentDiscoveryService>();
+        // NOT the request's token. That token is precisely what the browser or proxy aborts, and an
+        // aborted request never stopped the Apify run — it only stopped us from reading its answer.
+        // Only the host shutting down may cancel this work.
+        var ct = _applicationLifetime.ApplicationStopping;
 
-        // The session's normalized SearchCriterion drives which sources the chain consults
-        // (CD-03/D4); Shortfall/FailedSourceKeys/UnconfiguredSourceKeys are not yet surfaced to the
-        // workflow session response — that projection is a later work unit (WU-8).
-        var plan = await discovery.DiscoverAsync(
-            new ContentDiscoveryRequest(organizationId, clientId, networks, DefaultResultCount, searchCriterion),
-            ct);
+        try
+        {
+            // Discovery is SCOPED and this service is a SINGLETON, so the background task must build
+            // its own scope; capturing the caller's scoped services across the await would use a
+            // provider that is disposed the moment the HTTP request ends.
+            using var scope = _scopeFactory.CreateScope();
+            var discovery = scope.ServiceProvider.GetRequiredService<IContentDiscoveryService>();
 
-        return plan.Candidates
+            // The session's normalized SearchCriterion drives which sources the chain consults
+            // (CD-03/D4).
+            var plan = await discovery.DiscoverAsync(
+                new ContentDiscoveryRequest(
+                    session.OrganizationId,
+                    session.ClientId,
+                    session.NetworkSources,
+                    DefaultResultCount,
+                    session.SearchCriterion,
+                    // Carried verbatim: only an operator who explicitly asked for a refresh may cause a
+                    // billed provider run.
+                    session.ForceRefresh),
+                ct);
+
+            var results = ProjectCandidates(plan, session.SearchCriterion, session.StrategyMode);
+
+            lock (session.SyncRoot)
+            {
+                session.Results = results;
+                session.Phase = ResolveTerminalPhase(plan);
+                session.ResultOrigin = plan.Origin == DiscoveryOrigin.Bank ? "bank" : "fresh";
+                session.BankObservedAtUtc = plan.BankObservedAtUtc;
+                session.UpdatedAtUtc = _clock.UtcNow;
+            }
+
+            _logger.LogInformation(
+                "Content workflow discovery finished for {WorkflowId} with phase {Phase} and {CandidateCount} candidate(s).",
+                session.WorkflowId,
+                session.Phase,
+                results.Count);
+        }
+        catch (Exception ex)
+        {
+            // Reported as failed, never as empty: "the provider is down" and "there was nothing to
+            // find" are different answers and the operator acts differently on each.
+            lock (session.SyncRoot)
+            {
+                session.Phase = DiscoveryPhase.Failed;
+                session.UpdatedAtUtc = _clock.UtcNow;
+            }
+
+            _logger.LogError(
+                ex,
+                "Content workflow discovery failed for {WorkflowId} (client {ClientId}, criterion {SearchCriterion}).",
+                session.WorkflowId,
+                session.ClientId,
+                session.SearchCriterion);
+        }
+    }
+
+    /// <summary>
+    /// Collapses one plan onto the single terminal phase the operator sees. Candidates win over every
+    /// partial failure — a run that produced something is not a failed run.
+    /// </summary>
+    private static DiscoveryPhase ResolveTerminalPhase(ContentDiscoveryPlan plan)
+    {
+        if (plan.Candidates.Count > 0)
+        {
+            return DiscoveryPhase.Completed;
+        }
+
+        if (plan.FailedSourceKeys.Count > 0)
+        {
+            return DiscoveryPhase.Failed;
+        }
+
+        if (plan.UnconfiguredSourceKeys.Count > 0)
+        {
+            return DiscoveryPhase.Unconfigured;
+        }
+
+        // Ran, and genuinely found nothing. An empty proposal is reported as empty: falling back to
+        // invented rows would hide a missing Apify route or a client with no references behind data
+        // that looks real.
+        return DiscoveryPhase.Completed;
+    }
+
+    /// <summary>Projects the chain's findings onto the workflow's result shape.</summary>
+    private static IReadOnlyList<WorkflowResultState> ProjectCandidates(
+        ContentDiscoveryPlan plan,
+        string searchCriterion,
+        string strategyMode) =>
+        plan.Candidates
             .Select(item => new WorkflowResultState(
                 Guid.NewGuid(),
                 item.Title,
@@ -151,7 +269,6 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
                 ClampToInt(item.Likes),
                 ClampToInt(item.Comments)))
             .ToList();
-    }
 
     // Metrics are nullable at the port now (D2): a network that does not report a metric renders as
     // 0 on this int-typed workflow contract, same as it always has for "not scraped yet".
@@ -182,7 +299,10 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
                 snapshot.ProgressPercentage,
                 snapshot.Message,
                 snapshot.Steps,
-                sessionResult.Value.UpdatedAtUtc)));
+                sessionResult.Value.UpdatedAtUtc,
+                sessionResult.Value.Results.Count,
+                sessionResult.Value.ResultOrigin,
+                sessionResult.Value.BankObservedAtUtc)));
         }
     }
 
@@ -564,18 +684,32 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
             session.CreatedAtUtc,
             session.UpdatedAtUtc);
 
+    /// <summary>
+    /// Progress is now driven by the session's discovery phase, not by the clock alone. While the
+    /// scrape runs, elapsed time only animates the step list and is capped below 100 so the bar can
+    /// never announce a completion that has not happened; the phase alone decides the terminal state.
+    /// </summary>
     private static ProgressSnapshot ComputeProgressSnapshot(WorkflowSessionState session, DateTime nowUtc)
     {
         var phases = BuildProgressPhases(session.NetworkSources);
         var totalDuration = Math.Max(ProgressPhaseDurationSeconds, phases.Count * ProgressPhaseDurationSeconds);
         var elapsedSeconds = Math.Max(0, (nowUtc - session.CreatedAtUtc).TotalSeconds);
         var normalizedRatio = Math.Min(1d, elapsedSeconds / totalDuration);
-        var progress = (int)Math.Round(normalizedRatio * 100, MidpointRounding.AwayFromZero);
-        var isCompleted = progress >= 100;
+        var rampPercentage = (int)Math.Round(normalizedRatio * 100, MidpointRounding.AwayFromZero);
 
-        var activeIndex = isCompleted
-            ? phases.Count - 1
-            : Math.Clamp((int)Math.Floor(elapsedSeconds / ProgressPhaseDurationSeconds), 0, phases.Count - 1);
+        var isRunning = session.Phase == DiscoveryPhase.InProgress;
+        var progress = isRunning ? Math.Min(MaxInProgressPercentage, rampPercentage) : 100;
+
+        var activeIndex = isRunning
+            ? Math.Clamp((int)Math.Floor(elapsedSeconds / ProgressPhaseDurationSeconds), 0, phases.Count - 1)
+            : phases.Count - 1;
+
+        var terminalStepStatus = session.Phase switch
+        {
+            DiscoveryPhase.Failed => "failed",
+            DiscoveryPhase.Unconfigured => "blocked",
+            _ => "completed",
+        };
 
         var steps = new List<ContentWorkflowStepResponse>(phases.Count);
         for (var i = 0; i < phases.Count; i++)
@@ -583,7 +717,12 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
             var stepProgress = 0;
             var stepStatus = "pending";
 
-            if (i < activeIndex || isCompleted)
+            if (!isRunning)
+            {
+                stepStatus = terminalStepStatus;
+                stepProgress = 100;
+            }
+            else if (i < activeIndex)
             {
                 stepStatus = "completed";
                 stepProgress = 100;
@@ -604,16 +743,32 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
                 stepProgress));
         }
 
-        var message = isCompleted
-            ? "Content retrieval and analysis completed."
-            : phases[activeIndex].Message;
+        var message = session.Phase switch
+        {
+            DiscoveryPhase.InProgress => phases[activeIndex].Message,
+            DiscoveryPhase.Failed =>
+                "Content discovery failed. The provider could not be reached or rejected the run.",
+            DiscoveryPhase.Unconfigured =>
+                "Content discovery is not configured for the selected network. Map or route a search actor under Settings / Integrations.",
+            _ when session.Results.Count == 0 =>
+                "Content discovery finished and found no candidates.",
+            _ => "Content retrieval and analysis completed.",
+        };
 
-        return new ProgressSnapshot(
-            progress,
-            isCompleted ? "completed" : "in_progress",
-            message,
-            steps);
+        return new ProgressSnapshot(progress, StatusFor(session.Phase), message, steps);
     }
+
+    /// <summary>
+    /// The four states the operator can be in. "Completed with zero results" stays <c>completed</c>:
+    /// the run succeeded and found nothing, which the caller reads off the result count.
+    /// </summary>
+    private static string StatusFor(DiscoveryPhase phase) => phase switch
+    {
+        DiscoveryPhase.InProgress => "in_progress",
+        DiscoveryPhase.Failed => "failed",
+        DiscoveryPhase.Unconfigured => "unconfigured",
+        _ => "completed",
+    };
 
     private static List<ProgressPhase> BuildProgressPhases(IReadOnlyList<string> networkSources)
     {
@@ -649,6 +804,19 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
         _ => $"Retrieving content from {networkSource} provider adapter...",
     };
 
+    /// <summary>
+    /// The terminal outcomes are kept apart on purpose: "the provider errored", "no actor is routed
+    /// for this network" and "it ran and found nothing" are three different problems with three
+    /// different fixes, and collapsing them is what made a provider failure read as an empty result.
+    /// </summary>
+    private enum DiscoveryPhase
+    {
+        InProgress,
+        Completed,
+        Failed,
+        Unconfigured,
+    }
+
     private sealed class WorkflowSessionState
     {
         public WorkflowSessionState(
@@ -659,6 +827,7 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
             string searchCriterion,
             string strategyMode,
             IReadOnlyList<string> networkSources,
+            bool forceRefresh,
             DateTime createdAtUtc,
             DateTime updatedAtUtc,
             string status,
@@ -673,6 +842,7 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
             SearchCriterion = searchCriterion;
             StrategyMode = strategyMode;
             NetworkSources = networkSources;
+            ForceRefresh = forceRefresh;
             CreatedAtUtc = createdAtUtc;
             UpdatedAtUtc = updatedAtUtc;
             Status = status;
@@ -697,13 +867,34 @@ public sealed class InMemoryContentWorkflowService : IContentWorkflowService
 
         public IReadOnlyList<string> NetworkSources { get; }
 
+        /// <summary>
+        /// The operator's explicit opt-in to a billed provider run, captured at start and never
+        /// re-derived: a session must not turn into a paid scrape after the fact.
+        /// </summary>
+        public bool ForceRefresh { get; }
+
+        /// <summary>
+        /// <c>bank</c>, <c>fresh</c>, or empty while discovery is still running. Written once by the
+        /// background task under <see cref="SyncRoot"/>, like <see cref="Phase"/>.
+        /// </summary>
+        public string ResultOrigin { get; set; } = string.Empty;
+
+        /// <summary>When the OLDEST banked candidate was observed; <c>null</c> for a fresh run.</summary>
+        public DateTimeOffset? BankObservedAtUtc { get; set; }
+
         public DateTime CreatedAtUtc { get; }
 
         public DateTime UpdatedAtUtc { get; set; }
 
         public string Status { get; set; }
 
-        public IReadOnlyList<WorkflowResultState> Results { get; }
+        /// <summary>
+        /// Where the background discovery got to. Written once by the background task under
+        /// <see cref="SyncRoot"/>; every read path takes the same lock.
+        /// </summary>
+        public DiscoveryPhase Phase { get; set; } = DiscoveryPhase.InProgress;
+
+        public IReadOnlyList<WorkflowResultState> Results { get; set; }
 
         public HashSet<Guid> SelectedResultIds { get; }
 

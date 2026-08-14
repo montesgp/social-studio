@@ -11,8 +11,9 @@ import { ClientAestheticProfileSection } from "@/components/social/clients/clien
 import { ClientBrandManualSection } from "@/components/social/clients/client-brand-manual-section";
 import { ClientStrategySection } from "@/components/social/clients/client-strategy-section";
 import { ClientContentPlanSection } from "@/components/social/clients/client-content-plan-section";
+import { ClientNichesField } from "@/components/social/clients/client-niches-field";
 import type { ClientFormFieldErrors } from "@/components/social/clients/use-client-form";
-import type { BackgroundSourcingPolicy, ClientCompetitorAccount, ClientOwnAccount, ClientReferentAccount } from "@/lib/api/types";
+import type { BackgroundSourcingPolicy, ClientCompetitorAccount, ClientOwnAccount, ClientReferentAccount, Niche } from "@/lib/api/types";
 
 const BACKGROUND_SOURCING_POLICY_OPTIONS: Array<{
   value: BackgroundSourcingPolicy;
@@ -46,7 +47,10 @@ interface ClientFormPanelProps {
   clientId: string | null;
   name: string;
   description: string;
+  /** Legacy free-text sector/niche. Displayed read-only; superseded by the niche catalog. */
   sectorOrNiche: string | null;
+  niches: Niche[];
+  nichesLoading: boolean;
   backgroundSourcingPolicy: BackgroundSourcingPolicy;
   aestheticRefreshThresholdDays: number | null;
   maxPiecesPerGeneration: number | null;
@@ -61,7 +65,7 @@ interface ClientFormPanelProps {
   submitting: boolean;
   onNameChange: (value: string) => void;
   onDescriptionChange: (value: string) => void;
-  onSectorOrNicheChange: (value: string | null) => void;
+  onNichesChange: (value: Niche[]) => void;
   onBackgroundSourcingPolicyChange: (value: BackgroundSourcingPolicy) => void;
   onAestheticRefreshThresholdDaysChange: (value: number | null) => void;
   onMaxPiecesPerGenerationChange: (value: number | null) => void;
@@ -80,6 +84,8 @@ export function ClientFormPanel({
   name,
   description,
   sectorOrNiche,
+  niches,
+  nichesLoading,
   backgroundSourcingPolicy,
   aestheticRefreshThresholdDays,
   maxPiecesPerGeneration,
@@ -94,7 +100,7 @@ export function ClientFormPanel({
   submitting,
   onNameChange,
   onDescriptionChange,
-  onSectorOrNicheChange,
+  onNichesChange,
   onBackgroundSourcingPolicyChange,
   onAestheticRefreshThresholdDaysChange,
   onMaxPiecesPerGenerationChange,
@@ -148,28 +154,26 @@ export function ClientFormPanel({
         ) : null}
       </div>
 
-      <div className="space-y-1.5">
-        <label htmlFor="panel-sector-niche" className="text-sm font-medium">
-          Sector / Niche{" "}
-          <span className="text-muted-foreground text-xs">(optional, max 300)</span>
-        </label>
-        <textarea
-          id="panel-sector-niche"
-          value={sectorOrNiche ?? ""}
-          onChange={(e) => onSectorOrNicheChange(e.target.value || null)}
-          maxLength={300}
-          placeholder="e.g. Beauty & Wellness, SaaS B2B…"
-          rows={2}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-invalid={fieldErrors.sectorOrNiche ? "true" : "false"}
-          aria-describedby={fieldErrors.sectorOrNiche ? "panel-sector-niche-error" : undefined}
-        />
-        {fieldErrors.sectorOrNiche ? (
-          <p id="panel-sector-niche-error" className="text-xs text-destructive">
-            {fieldErrors.sectorOrNiche}
+      <ClientNichesField
+        selected={niches}
+        onChange={onNichesChange}
+        token={token}
+        loading={nichesLoading}
+      />
+
+      {sectorOrNiche ? (
+        <div className="space-y-1.5 rounded-md border border-dashed border-border bg-muted/30 p-3">
+          <p className="text-sm font-medium">
+            Sector / Niche{" "}
+            <span className="text-muted-foreground text-xs">(legacy free text, read-only)</span>
           </p>
-        ) : null}
-      </div>
+          <p className="whitespace-pre-wrap text-sm text-muted-foreground">{sectorOrNiche}</p>
+          <p className="text-xs text-muted-foreground">
+            Superseded by the niche catalog above. Kept untouched as historical context — it is not
+            migrated, not edited here, and no longer drives discovery.
+          </p>
+        </div>
+      ) : null}
 
       <div className="space-y-1.5">
         <label htmlFor="panel-background-sourcing-policy" className="text-sm font-medium">

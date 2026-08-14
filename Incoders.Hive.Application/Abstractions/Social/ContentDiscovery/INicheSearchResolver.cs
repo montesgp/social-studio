@@ -22,7 +22,18 @@ public sealed record NicheSearchRequest(
     Guid OrganizationId,
     string NetworkKey,
     string SearchTerm,
-    int MaxResults);
+    int MaxResults)
+{
+    /// <summary>
+    /// The hashtags to search, when the caller already knows them — the curated list of the client's
+    /// catalog niches. They are used VERBATIM: re-deriving them from <see cref="SearchTerm"/> would put
+    /// guessed tags back on the wire, which is the exact defect the curated catalog exists to remove.
+    ///
+    /// <c>null</c> or empty means "derive them from <see cref="SearchTerm"/>", the legacy behaviour for
+    /// a client with no niche assigned.
+    /// </summary>
+    public IReadOnlyList<string>? Hashtags { get; init; }
+}
 
 /// <summary>
 /// Same three-outcome shape as <see cref="SourceDiscoveryResult"/> (D12/CD-13) — the resolver IS the

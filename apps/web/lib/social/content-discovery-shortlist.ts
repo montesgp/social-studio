@@ -69,32 +69,155 @@ export interface ChecklistGroupLike {
   items: readonly { key: string; isCompleted: boolean }[];
 }
 
+/** Prefix of the per-network niche-search checklist items emitted by the overview endpoint. */
+const NICHE_SEARCH_ITEM_PREFIX = "single-analyzer-niche-search-actor-";
+
 /**
- * Whether the operator has already configured a TikTok niche-search actor (the
- * `single-analyzer-niche-search-actor` checklist item, INT-DISC-03). This is how the shortlist
- * distinguishes "the niche stage is unconfigured" from "it ran and found nothing" (CD-13/D12)
- * WITHOUT a new backend endpoint: `ContentDiscoveryPlan.UnconfiguredSourceKeys` is not surfaced onto
- * the workflow session response, but the same fact is already exposed through the existing
- * integrations checklist.
+ * Niche-search readiness for ONE network:
+ * - `ready` — an actor resolves; the stage will run.
+ * - `unconfigured` — the network has a working adapter but no actor is routed or mapped yet.
+ * - `unsupported` — no adapter exists for this network (Instagram, YouTube today). The backend emits
+ *   NO checklist item for such a network precisely so the UI can say "not supported yet" instead of
+ *   sending the operator to configure an actor that could never be dispatched.
  */
-export function isSingleAnalyzerNicheSearchActorConfigured(
-  checklistGroups: readonly ChecklistGroupLike[]
-): boolean {
+export type NicheSearchReadiness = "ready" | "unconfigured" | "unsupported";
+
+/**
+ * Reads the per-network niche-search readiness out of the EXISTING `/api/integrations/organization`
+ * checklist (INT-DISC-03) — still no new backend endpoint. This is how the shortlist distinguishes
+ * "the niche stage is unconfigured" from "it ran and found nothing" (CD-13/D12).
+ *
+ * `networkKey` may be empty, which is the UI's "all networks" selection: readiness is then the best
+ * outcome across every supported network, because discovery only needs one network to produce
+ * candidates.
+ */
+export function getNicheSearchReadiness(
+  checklistGroups: readonly ChecklistGroupLike[],
+  networkKey: string
+): NicheSearchReadiness {
   const group = checklistGroups.find((candidate) => candidate.key === "single-analyzer");
-  const item = group?.items.find((candidate) => candidate.key === "single-analyzer-niche-search-actor");
-  return item?.isCompleted ?? false;
+  const items = (group?.items ?? []).filter((candidate) => candidate.key.startsWith(NICHE_SEARCH_ITEM_PREFIX));
+
+  const relevant = networkKey
+    ? items.filter((candidate) => candidate.key === `${NICHE_SEARCH_ITEM_PREFIX}${networkKey.toLowerCase()}`)
+    : items;
+
+  if (relevant.length === 0) {
+    return "unsupported";
+  }
+
+  return relevant.some((candidate) => candidate.isCompleted) ? "ready" : "unconfigured";
 }
 
 /**
  * The niche criterion is the only one gated on a configurable actor (references/own reuse the
- * already-configured scraping credentials). Pure predicate so the "go configure it" banner never
- * depends on a network call having already happened.
+ * already-configured scraping credentials). Returns the operator-facing reason the stage cannot run,
+ * or `null` when it can. Pure function so the banner never depends on a network call having happened.
  */
-export function isNicheSearchUnconfigured(
+export function getNicheSearchBlockedMessage(
   criterion: string,
-  nicheSearchActorConfigured: boolean
-): boolean {
-  return criterion === "niche" && !nicheSearchActorConfigured;
+  readiness: NicheSearchReadiness,
+  networkLabel?: string
+): string | null {
+  if (criterion !== "niche" || readiness === "ready") {
+    return null;
+  }
+
+  const network = networkLabel?.trim() || "This network";
+
+  return readiness === "unsupported"
+    ? `${network} niche search isn't supported yet — only TikTok has a working niche-search adapter today. Pick TikTok, or use the reference/own account criteria.`
+    : `${network} niche search isn't configured yet. Map or route a niche-search actor for it under Settings / Integrations.`;
+}
+
+/** Convenience predicate: is the niche stage blocked for this criterion and readiness? */
+export function isNicheSearchBlocked(criterion: string, readiness: NicheSearchReadiness): boolean {
+  return criterion === "niche" && readiness !== "ready";
+}
+
+// ── discovery run outcome (start + poll) ─────────────────────────────────────
+//
+// Discovery no longer finishes inside the POST that starts it: a real scrape takes minutes, and the
+// browser/proxy aborted the blocking request at ~30 s while the Apify actor kept running and billing.
+// The screen now starts a session and polls `/api/social/workflows/{id}/status` until it reports a
+// terminal state. These pure functions are the whole decision layer for that loop.
+
+/** Backend status values that mean the session will not change again. */
+const TERMINAL_DISCOVERY_STATUSES = new Set(["completed", "failed", "unconfigured"]);
+
+/**
+ * What the operator is actually looking at. `empty`, `failed` and `unconfigured` are kept apart on
+ * purpose: they have three different fixes, and rendering a provider failure as "No candidates found
+ * yet" told the operator to change their niche when the real problem was the provider.
+ */
+export type DiscoveryRunOutcome = "running" | "candidates" | "empty" | "failed" | "unconfigured";
+
+/** The fields of `ContentWorkflowStatus` this decision actually depends on. */
+export interface DiscoveryStatusLike {
+  status: string;
+  totalResults: number;
+}
+
+/** True once the status endpoint reports a state the background task will not move on from. */
+export function isDiscoveryTerminal(status: string): boolean {
+  return TERMINAL_DISCOVERY_STATUSES.has(status);
+}
+
+/**
+ * An unrecognised status is treated as still running, never as a terminal failure: inventing a
+ * failure the backend never reported would be the same class of lie this change removes.
+ */
+export function resolveDiscoveryOutcome(status: DiscoveryStatusLike): DiscoveryRunOutcome {
+  if (status.status === "failed") {
+    return "failed";
+  }
+
+  if (status.status === "unconfigured") {
+    return "unconfigured";
+  }
+
+  if (status.status === "completed") {
+    return status.totalResults > 0 ? "candidates" : "empty";
+  }
+
+  return "running";
+}
+
+/** Operator-facing explanation, or `null` when the shortlist itself is the answer. */
+export function getDiscoveryOutcomeMessage(outcome: DiscoveryRunOutcome): string | null {
+  switch (outcome) {
+    case "failed":
+      return "Discovery could not be completed — the provider could not be reached or rejected the run. Nothing is wrong with your search criterion; try again, and check the niche-search log if it repeats.";
+    case "unconfigured":
+      return "Discovery is not configured for the selected network. Map or route a niche-search actor under Settings / Integrations.";
+    case "empty":
+      return "Discovery ran and found no candidates for this client and criterion.";
+    default:
+      return null;
+  }
+}
+
+/** Only an unconfigured stage has a settings screen that would fix it. */
+export function discoveryOutcomeOffersSettingsLink(outcome: DiscoveryRunOutcome): boolean {
+  return outcome === "unconfigured";
+}
+
+/** One step row as reported by the status endpoint. */
+export interface DiscoveryStepLike {
+  status: string;
+}
+
+/**
+ * 0-based index of the active row for the progress overlay. A terminal session returns
+ * `steps.length`, which is the overlay's own convention for "no row is still pending".
+ */
+export function discoveryStepIndex(steps: readonly DiscoveryStepLike[], status: string): number {
+  if (isDiscoveryTerminal(status)) {
+    return steps.length;
+  }
+
+  const active = steps.findIndex((step) => step.status === "in_progress");
+  return active === -1 ? 0 : active;
 }
 
 /**

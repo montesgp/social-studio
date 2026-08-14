@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 using Incoders.Hive.ApiService.BackgroundServices;
 using Incoders.Hive.Infrastructure.Social.Workflow;
 using Incoders.Hive.ApiService.Endpoints.Admin;
@@ -18,6 +18,7 @@ using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Integrations;
 using Incoders.Hive.Infrastructure.PlatformConfiguration;
 using Incoders.Hive.Infrastructure.Social;
+using Incoders.Hive.Infrastructure.Social.Discovery;
 using Incoders.Hive.Infrastructure.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -115,6 +116,7 @@ if (app.Configuration.GetValue("StartupTasks:SeedData", true))
     // Auto-provision the local comfyui connector for every active organization (idempotent).
     await app.Services.SeedComfyUiOrganizationIntegrationsAsync();
     await app.Services.SeedSocialNetworkCatalogAsync();
+    await app.Services.SeedNicheCatalogAsync();
     await app.Services.SeedPlatformSystemModulesAsync();
     await app.Services.SeedPlatformEmailTemplatesAsync();
     await app.Services.SeedIdentityRolesAsync();
@@ -126,6 +128,10 @@ if (app.Configuration.GetValue("StartupTasks:SeedData", true))
     // organization with a connected Apify integration, so the discovery stage is pre-created in
     // settings without ever forcing an actor (INT-DISC-02, D13).
     await app.Services.SeedTikTokNicheSearchWorkflowStepsAsync();
+    // Idempotent, Development-only, opt-in: replays the captured Apify discovery output under
+    // seed-data/discovery into the candidate bank through the PRODUCTION adapter, so a local
+    // environment has real candidates without buying another run.
+    await app.Services.ImportDiscoverySeedAsync();
 }
 
 // Configure the HTTP request pipeline.
@@ -158,6 +164,7 @@ app.MapTenantsEndpoints();
 app.MapIntegrationsEndpoints();
 app.MapSocialClientsEndpoints();
 app.MapSocialNetworksEndpoints();
+app.MapNichesEndpoints();
 app.MapClientReferentAccountsEndpoints();
 app.MapClientCompetitorAccountsEndpoints();
 app.MapClientOwnAccountsEndpoints();
@@ -168,6 +175,7 @@ app.MapGeneralStrategyEndpoints();
 app.MapContentPlanEndpoints();
 app.MapSocialContentWorkflowEndpoints();
 app.MapSingleAnalyzerEndpoints();
+app.MapDiscoveryBankEndpoints();
 app.MapProfileAnalyzerEndpoints();
 app.MapContentGenerationEndpoints();
 app.MapContentGenerationBatches();

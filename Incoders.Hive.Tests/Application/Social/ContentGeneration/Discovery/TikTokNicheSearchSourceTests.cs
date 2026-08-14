@@ -1,3 +1,4 @@
+using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Application.Abstractions.Social.ContentDiscovery;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Discovery;
@@ -10,7 +11,7 @@ public sealed class TikTokNicheSearchSourceTests
     [Fact]
     public void SourceKeyOrderAndSupports_MatchDesign()
     {
-        var source = new TikTokNicheSearchSource(new FakeClients(null), new FakeResolver(SourceOutcome.Ran, []));
+        var source = MakeSource(new FakeClients(null), new FakeResolver(SourceOutcome.Ran, []));
 
         Assert.Equal("niche", source.SourceKey);
         Assert.Equal(3, source.Order);
@@ -23,7 +24,7 @@ public sealed class TikTokNicheSearchSourceTests
     public async Task DiscoverAsync_NoEnabledRoute_ReportsUnconfigured_NotFailed()
     {
         var client = MakeClient("skincare brands");
-        var source = new TikTokNicheSearchSource(new FakeClients(client), new FakeResolver(SourceOutcome.Unconfigured, []));
+        var source = MakeSource(new FakeClients(client),new FakeResolver(SourceOutcome.Unconfigured, []));
 
         var result = await source.DiscoverAsync(MakeRequest(client));
 
@@ -41,7 +42,7 @@ public sealed class TikTokNicheSearchSourceTests
             Views: 1000, Likes: 10, Comments: 1, Shares: null, Saves: null,
             PublishedAtUtc: DateTimeOffset.UtcNow, SourceHandle: "@a", SourceKey: "niche");
 
-        var source = new TikTokNicheSearchSource(new FakeClients(client), new FakeResolver(SourceOutcome.Ran, [discovered]));
+        var source = MakeSource(new FakeClients(client),new FakeResolver(SourceOutcome.Ran, [discovered]));
 
         var result = await source.DiscoverAsync(MakeRequest(client));
 
@@ -54,7 +55,7 @@ public sealed class TikTokNicheSearchSourceTests
     {
         var client = MakeClient(sectorOrNiche: null);
         var resolver = new FakeResolver(SourceOutcome.Ran, []);
-        var source = new TikTokNicheSearchSource(new FakeClients(client), resolver);
+        var source = MakeSource(new FakeClients(client),resolver);
 
         var result = await source.DiscoverAsync(MakeRequest(client));
 
@@ -68,7 +69,7 @@ public sealed class TikTokNicheSearchSourceTests
     {
         var client = MakeClient("skincare brands");
         var resolver = new FakeResolver(SourceOutcome.Ran, []);
-        var source = new TikTokNicheSearchSource(new FakeClients(client), resolver);
+        var source = MakeSource(new FakeClients(client),resolver);
 
         var result = await source.DiscoverAsync(MakeRequest(client) with { NetworkSources = ["instagram"] });
 
@@ -78,6 +79,56 @@ public sealed class TikTokNicheSearchSourceTests
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Builds the source over an EMPTY candidate bank, which is the only condition (besides an explicit
+    /// operator refresh) under which the resolver is reached at all. The bank's own behaviour is
+    /// covered by <see cref="TikTokNicheSearchSourceBankTests"/>.
+    /// </summary>
+    private static TikTokNicheSearchSource MakeSource(ISocialClientRepository clients, INicheSearchResolver resolver) =>
+        new(
+            clients,
+            resolver,
+            new EmptyBank(),
+            new FixedClock(new DateTime(2026, 8, 12, 9, 0, 0, DateTimeKind.Utc)),
+            // No catalog niche assigned: these cases are the legacy free-text path, unchanged.
+            StubClientNicheHashtagProvider.NoNiches());
+
+    private sealed class FixedClock : IClock
+    {
+        public FixedClock(DateTime utcNow) => UtcNow = utcNow;
+
+        public DateTime UtcNow { get; }
+    }
+
+    private sealed class EmptyBank : IContentCandidateRepository
+    {
+        public Task RecordObservationsAsync(
+            Guid organizationId,
+            Guid clientId,
+            IReadOnlyList<CandidateObservation> observations,
+            CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<CandidateObservation>> GetLatestByKeysAsync(
+            Guid organizationId,
+            Guid clientId,
+            IReadOnlyList<string> candidateKeys,
+            CancellationToken ct = default) => Task.FromResult<IReadOnlyList<CandidateObservation>>([]);
+
+        public Task<IReadOnlyList<CandidateObservation>> GetNicheBankAsync(
+            Guid organizationId,
+            string networkKey,
+            IReadOnlyList<string> hashtags,
+            int maxResults,
+            CancellationToken ct = default) => Task.FromResult<IReadOnlyList<CandidateObservation>>([]);
+
+        public Task<int> RecordNicheBankAsync(
+            Guid organizationId,
+            string networkKey,
+            IReadOnlyList<string> hashtags,
+            IReadOnlyList<CandidateObservation> observations,
+            CancellationToken ct = default) => Task.FromResult(observations.Count);
+    }
 
     private static Client MakeClient(string? sectorOrNiche) =>
         Client.Create(ClientId.New(), Guid.NewGuid(), "Acme", null, DateTime.UtcNow, sectorOrNiche).Value;

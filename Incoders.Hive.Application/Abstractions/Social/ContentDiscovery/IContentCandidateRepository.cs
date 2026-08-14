@@ -27,6 +27,46 @@ public interface IContentCandidateRepository
         Guid clientId,
         IReadOnlyList<string> candidateKeys,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Reads the NICHE CANDIDATE BANK — the reserve a niche search serves from instead of dispatching
+    /// a paid actor run.
+    ///
+    /// Scoped by ORGANIZATION + NETWORK + HASHTAG and deliberately NOT by client: two clients of the
+    /// same organization working the same niche must share one paid scrape rather than buying it twice.
+    /// The hashtags are the tokens <c>NicheHashtagDerivation</c> already produces (lowercased,
+    /// de-accented, connector words dropped), so wordings that genuinely overlap converge on the same
+    /// reserve.
+    ///
+    /// A candidate matches when it was banked under ANY of <paramref name="hashtags"/>. Returns the
+    /// strongest candidates first, at most <paramref name="maxResults"/> of them, and an EMPTY list
+    /// when nothing is stored — which is the ONLY condition (besides an explicit operator refresh)
+    /// that may lead to a billed run.
+    /// </summary>
+    Task<IReadOnlyList<CandidateObservation>> GetNicheBankAsync(
+        Guid organizationId,
+        string networkKey,
+        IReadOnlyList<string> hashtags,
+        int maxResults,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Banks what a niche run brought back, against <c>(organizationId, networkKey, hashtags)</c>.
+    ///
+    /// Dedup is the SAME <c>CandidateIdentity</c> the chain uses in-run, so re-observing a candidate
+    /// already in the bank never duplicates it. A candidate already stored keeps its ORIGINAL
+    /// observation snapshot — the bank never silently rewrites what it already paid for, so the
+    /// freshness the operator is shown stays true — but the hashtag set it is reachable under is
+    /// widened, so a later run under a different wording does not have to buy it again.
+    ///
+    /// Returns how many NEW candidates were banked.
+    /// </summary>
+    Task<int> RecordNicheBankAsync(
+        Guid organizationId,
+        string networkKey,
+        IReadOnlyList<string> hashtags,
+        IReadOnlyList<CandidateObservation> observations,
+        CancellationToken ct = default);
 }
 
 /// <summary>

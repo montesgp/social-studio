@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  BrainCircuit,
   Clapperboard,
   Send,
   BriefcaseBusiness,
@@ -83,9 +84,12 @@ const socialModuleNavigation: NavGroup[] = [
   {
     label: "Content",
     // Ordered to follow the operator's actual path through the module: analyse a reference first,
-    // generate pieces from it, then decide in Publications what ships and where.
+    // generate pieces from it, then decide in Publications what ships and where. AI Analysis sits
+    // beside the analyzer because it answers the question that precedes both — which of the
+    // candidates discovery already banked is worth spending generation budget on.
     items: [
       { href: "/single-analyzer", label: "Single Analyzer", icon: ScanSearch },
+      { href: "/ai-analysis", label: "AI Analysis", icon: BrainCircuit },
       { href: "/content-generator", label: "Generator", icon: Clapperboard },
       { href: "/publications", label: "Publications", icon: Send }
     ]
@@ -152,6 +156,7 @@ export const adminNavigation: NavGroup[] = [
     label: "System",
     items: [
       { href: "/admin/social-networks", label: "Social Networks", icon: Share2 },
+      { href: "/admin/niches", label: "Niches", icon: Tags },
       { href: "/admin/email-templates", label: "Email Templates", icon: Mail },
       { href: "/admin/platform-integrations", label: "Platform Integrations", icon: Plug },
       { href: "/admin/content-generation-jobs", label: "Content Generation Jobs", icon: History },

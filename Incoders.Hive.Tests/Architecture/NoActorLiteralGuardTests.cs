@@ -25,6 +25,8 @@ public sealed class NoActorLiteralGuardTests
         "Incoders.Hive.Infrastructure/Social/Providers/ApifyProfileScrapeResolver.cs",
         "Incoders.Hive.Infrastructure/Social/Providers/ApifyNicheSearchResolver.cs",
         "Incoders.Hive.Infrastructure/Social/Providers/ApifyActorMappingLookup.cs",
+        // The shared niche-search actor resolution (runtime dispatch AND the checklist readiness probe).
+        "Incoders.Hive.Infrastructure/Social/Providers/ApifyNicheSearchActorConfiguration.cs",
         "Incoders.Hive.Infrastructure/Social/Providers/Apify/TikTokNicheSearchAdapter.cs",
         // The actor CATALOG client also talks to Apify. It must discover actors from the account,
         // never seed or filter them against a baked-in id.

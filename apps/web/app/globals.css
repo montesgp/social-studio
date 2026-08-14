@@ -69,6 +69,32 @@ body {
   }
 }
 
+/* ── Route transition pending state ─────────────────────────────────────────── */
+/*
+ * The App Router shows a route's `loading.tsx` for as long as the next page is pending, which on a warm
+ * navigation can be a single frame. Fading in after a short delay means a fast navigation shows nothing
+ * at all, while a slow one (a cold route, a heavy client bundle) still tells the operator the click was
+ * received instead of leaving the screen frozen and apparently dead.
+ */
+@keyframes route-pending-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.route-pending-appear {
+  animation: route-pending-appear 200ms ease-out 180ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-pending-appear {
+    animation: none;
+  }
+}
+
 /* ── Print / PDF export ─────────────────────────────────────────────────────── */
 @media print {
   /* Override to light theme so PDFs render with white backgrounds and dark text. */

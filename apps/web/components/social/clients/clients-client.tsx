@@ -104,10 +104,12 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
     competitorAccountsLoading,
     ownAccounts,
     ownAccountsLoading,
+    niches,
+    nichesLoading,
     submitting,
     setName,
     setDescription,
-    setSectorOrNiche,
+    setNiches,
     setBackgroundSourcingPolicy,
     setAestheticRefreshThresholdDays,
     setMaxPiecesPerGeneration,
@@ -366,6 +368,8 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
                   name={name}
                   description={description}
                   sectorOrNiche={sectorOrNiche}
+                  niches={niches}
+                  nichesLoading={nichesLoading}
                   backgroundSourcingPolicy={backgroundSourcingPolicy}
                   aestheticRefreshThresholdDays={aestheticRefreshThresholdDays}
                   maxPiecesPerGeneration={maxPiecesPerGeneration}
@@ -380,7 +384,7 @@ export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
                   submitting={submitting}
                   onNameChange={setName}
                   onDescriptionChange={setDescription}
-                  onSectorOrNicheChange={setSectorOrNiche}
+                  onNichesChange={setNiches}
                   onBackgroundSourcingPolicyChange={setBackgroundSourcingPolicy}
                   onAestheticRefreshThresholdDaysChange={setAestheticRefreshThresholdDays}
                   onMaxPiecesPerGenerationChange={setMaxPiecesPerGeneration}

@@ -2,9 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildAnalyzeSelectedCandidatePayload,
-  isNicheSearchUnconfigured,
-  isSingleAnalyzerNicheSearchActorConfigured,
+  discoveryOutcomeOffersSettingsLink,
+  discoveryStepIndex,
+  getDiscoveryOutcomeMessage,
+  getNicheSearchBlockedMessage,
+  getNicheSearchReadiness,
+  isDiscoveryTerminal,
+  isNicheSearchBlocked,
   mapDiscoveryResultsToShortlistCandidates,
+  resolveDiscoveryOutcome,
   selectSingleCandidate,
 } from "./content-discovery-shortlist.ts";
 
@@ -101,37 +107,176 @@ test("mapDiscoveryResultsToShortlistCandidates: empty thumbnail becomes undefine
   assert.equal(mapped[0].thumbnailUrl, undefined);
 });
 
-test("isSingleAnalyzerNicheSearchActorConfigured: true when the checklist item is completed", () => {
+test("getNicheSearchReadiness: ready when the network's checklist item is completed", () => {
   const checklistGroups = [
     {
       key: "single-analyzer",
       items: [
-        { key: "single-analyzer-niche-search-actor", isCompleted: true },
+        { key: "single-analyzer-niche-search-actor-tiktok", isCompleted: true },
         { key: "some-other-item", isCompleted: false },
       ],
     },
   ];
 
-  assert.equal(isSingleAnalyzerNicheSearchActorConfigured(checklistGroups), true);
+  assert.equal(getNicheSearchReadiness(checklistGroups, "tiktok"), "ready");
 });
 
-test("isSingleAnalyzerNicheSearchActorConfigured: false when the item is missing or incomplete", () => {
-  assert.equal(isSingleAnalyzerNicheSearchActorConfigured([]), false);
+test("getNicheSearchReadiness: unconfigured when the network has an item that is not completed", () => {
   assert.equal(
-    isSingleAnalyzerNicheSearchActorConfigured([
-      { key: "single-analyzer", items: [{ key: "single-analyzer-niche-search-actor", isCompleted: false }] },
-    ]),
-    false
-  );
-  assert.equal(
-    isSingleAnalyzerNicheSearchActorConfigured([{ key: "generator", items: [] }]),
-    false
+    getNicheSearchReadiness(
+      [{ key: "single-analyzer", items: [{ key: "single-analyzer-niche-search-actor-tiktok", isCompleted: false }] }],
+      "tiktok"
+    ),
+    "unconfigured"
   );
 });
 
-test("isNicheSearchUnconfigured: only the niche criterion is gated on the actor checklist item", () => {
-  assert.equal(isNicheSearchUnconfigured("niche", false), true);
-  assert.equal(isNicheSearchUnconfigured("niche", true), false);
-  assert.equal(isNicheSearchUnconfigured("references", false), false);
-  assert.equal(isNicheSearchUnconfigured("own", false), false);
+test("getNicheSearchReadiness: unsupported when the network has no item at all", () => {
+  // Instagram/YouTube have no adapter, so the backend emits no item for them — absence means
+  // "not supported yet", never "go configure an actor".
+  const checklistGroups = [
+    { key: "single-analyzer", items: [{ key: "single-analyzer-niche-search-actor-tiktok", isCompleted: true }] },
+  ];
+
+  assert.equal(getNicheSearchReadiness(checklistGroups, "instagram"), "unsupported");
+  assert.equal(getNicheSearchReadiness([], "tiktok"), "unsupported");
+  assert.equal(getNicheSearchReadiness([{ key: "generator", items: [] }], "tiktok"), "unsupported");
+});
+
+test("getNicheSearchReadiness: no selected network takes the best outcome across supported networks", () => {
+  const checklistGroups = [
+    {
+      key: "single-analyzer",
+      items: [
+        { key: "single-analyzer-niche-search-actor-tiktok", isCompleted: true },
+        { key: "single-analyzer-niche-search-actor-linkedin", isCompleted: false },
+      ],
+    },
+  ];
+
+  assert.equal(getNicheSearchReadiness(checklistGroups, ""), "ready");
+  assert.equal(
+    getNicheSearchReadiness(
+      [{ key: "single-analyzer", items: [{ key: "single-analyzer-niche-search-actor-tiktok", isCompleted: false }] }],
+      ""
+    ),
+    "unconfigured"
+  );
+});
+
+test("isNicheSearchBlocked: only the niche criterion is gated on the actor checklist item", () => {
+  assert.equal(isNicheSearchBlocked("niche", "unconfigured"), true);
+  assert.equal(isNicheSearchBlocked("niche", "unsupported"), true);
+  assert.equal(isNicheSearchBlocked("niche", "ready"), false);
+  assert.equal(isNicheSearchBlocked("references", "unsupported"), false);
+  assert.equal(isNicheSearchBlocked("own", "unsupported"), false);
+});
+
+test("getNicheSearchBlockedMessage: an unsupported network is told it is unsupported, not misconfigured", () => {
+  const message = getNicheSearchBlockedMessage("niche", "unsupported", "Instagram");
+
+  assert.ok(message);
+  assert.match(message, /isn't supported yet/);
+  assert.doesNotMatch(message, /TikTok niche-search actor/);
+  assert.match(message, /Instagram/);
+});
+
+test("getNicheSearchBlockedMessage: a supported but unrouted network is told to configure an actor", () => {
+  const message = getNicheSearchBlockedMessage("niche", "unconfigured", "TikTok");
+
+  assert.ok(message);
+  assert.match(message, /isn't configured yet/);
+  assert.match(message, /TikTok/);
+});
+
+test("getNicheSearchBlockedMessage: null when the stage can run or the criterion is not niche", () => {
+  assert.equal(getNicheSearchBlockedMessage("niche", "ready", "TikTok"), null);
+  assert.equal(getNicheSearchBlockedMessage("references", "unsupported", "Instagram"), null);
+});
+
+// ── discovery run outcome (start + poll) ──────────────────────────────────────
+
+test("resolveDiscoveryOutcome: an in-progress session is still running", () => {
+  assert.equal(resolveDiscoveryOutcome({ status: "in_progress", totalResults: 0 }), "running");
+});
+
+test("resolveDiscoveryOutcome: an unknown status is treated as still running, never as a terminal failure", () => {
+  assert.equal(resolveDiscoveryOutcome({ status: "queued", totalResults: 0 }), "running");
+});
+
+test("resolveDiscoveryOutcome: completed with candidates is distinct from completed empty", () => {
+  assert.equal(resolveDiscoveryOutcome({ status: "completed", totalResults: 7 }), "candidates");
+  assert.equal(resolveDiscoveryOutcome({ status: "completed", totalResults: 0 }), "empty");
+});
+
+test("resolveDiscoveryOutcome: a provider failure is failed, NOT empty", () => {
+  const outcome = resolveDiscoveryOutcome({ status: "failed", totalResults: 0 });
+
+  assert.equal(outcome, "failed");
+  assert.notEqual(outcome, "empty");
+});
+
+test("resolveDiscoveryOutcome: an unconfigured stage stays unconfigured", () => {
+  assert.equal(resolveDiscoveryOutcome({ status: "unconfigured", totalResults: 0 }), "unconfigured");
+});
+
+test("isDiscoveryTerminal: only the four terminal backend statuses stop the poll loop", () => {
+  assert.equal(isDiscoveryTerminal("completed"), true);
+  assert.equal(isDiscoveryTerminal("failed"), true);
+  assert.equal(isDiscoveryTerminal("unconfigured"), true);
+  assert.equal(isDiscoveryTerminal("in_progress"), false);
+  assert.equal(isDiscoveryTerminal("anything-else"), false);
+});
+
+test("getDiscoveryOutcomeMessage: a failed run reads as a provider failure, never as 'no candidates'", () => {
+  const message = getDiscoveryOutcomeMessage("failed");
+
+  assert.ok(message);
+  assert.match(message, /could not be completed/i);
+  assert.doesNotMatch(message, /no candidates/i);
+});
+
+test("getDiscoveryOutcomeMessage: an unconfigured run points the operator at settings", () => {
+  const message = getDiscoveryOutcomeMessage("unconfigured");
+
+  assert.ok(message);
+  assert.match(message, /Settings \/ Integrations/);
+});
+
+test("getDiscoveryOutcomeMessage: an empty run says exactly that, with no blame", () => {
+  const message = getDiscoveryOutcomeMessage("empty");
+
+  assert.ok(message);
+  assert.match(message, /no candidates/i);
+  assert.doesNotMatch(message, /failed/i);
+});
+
+test("getDiscoveryOutcomeMessage: nothing to say while running or once candidates are in", () => {
+  assert.equal(getDiscoveryOutcomeMessage("running"), null);
+  assert.equal(getDiscoveryOutcomeMessage("candidates"), null);
+});
+
+test("discoveryOutcomeOffersSettingsLink: only the unconfigured outcome links to settings", () => {
+  assert.equal(discoveryOutcomeOffersSettingsLink("unconfigured"), true);
+  assert.equal(discoveryOutcomeOffersSettingsLink("failed"), false);
+  assert.equal(discoveryOutcomeOffersSettingsLink("empty"), false);
+  assert.equal(discoveryOutcomeOffersSettingsLink("candidates"), false);
+});
+
+test("discoveryStepIndex: maps backend step statuses onto the overlay's active index", () => {
+  const steps = [
+    { status: "completed" },
+    { status: "in_progress" },
+    { status: "pending" },
+  ];
+
+  assert.equal(discoveryStepIndex(steps, "in_progress"), 1);
+  // Terminal: the overlay wants steps.length so every row renders as settled.
+  assert.equal(discoveryStepIndex(steps, "completed"), 3);
+  assert.equal(discoveryStepIndex(steps, "failed"), 3);
+});
+
+test("discoveryStepIndex: no reported step yet parks the overlay on the first row", () => {
+  assert.equal(discoveryStepIndex([], "in_progress"), 0);
+  assert.equal(discoveryStepIndex([{ status: "pending" }], "in_progress"), 0);
 });
