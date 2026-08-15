@@ -22,6 +22,11 @@
     <ProjectReference Include="..\Incoders.Hive.Application\Incoders.Hive.Application.csproj" />
     <ProjectReference Include="..\Incoders.Hive.Domain\Incoders.Hive.Domain.csproj" />
     <ProjectReference Include="..\Incoders.Hive.Infrastructure\Incoders.Hive.Infrastructure.csproj" />
+    <!-- WU-11b: no endpoint test existed anywhere in this suite before MapNicheDiscoveryEndpointsTests
+         (task 11b.3) — the ApiService project was never a test dependency. Added so the endpoint
+         facade can be exercised directly, mirroring how every other Endpoints facade is already
+         written to be testable without a full host. -->
+    <ProjectReference Include="..\Incoders.Hive.ApiService\Incoders.Hive.ApiService.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -75,6 +75,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- WU-11b: lets MapNicheDiscoveryEndpointsTests call the internal endpoint facade directly,
+         mirroring every other Endpoints facade's "testable without a host" design intent. -->
+    <InternalsVisibleTo Include="Incoders.Hive.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
@@ -84,7 +90,16 @@
   </ItemGroup>
 
   <Target Name="SignLocalDevBinaries" AfterTargets="Build" Condition="'$(LocalDevSignBinaries)' == 'true' and '$(OS)' == 'Windows_NT'">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\scripts\dev\Sign-LocalDevBinaries.ps1&quot; -OutputDir &quot;$(TargetDir)&quot;" />
+    <!-- WU-11b GAP FIX: Incoders.Hive.Tests now references Incoders.Hive.ApiService
+         (MapNicheDiscoveryEndpointsTests, task 11b.3), so a Debug build of the Tests project builds
+         ApiService too, running this target for the first time from a non-interactive/non-profile
+         shell context where the `Cert:` PSDrive is unavailable ("Cannot find drive" — a local
+         Windows-PowerShell/session quirk, not an ApiService or test failure). Local dev code-signing
+         is a machine-convenience step, not build correctness: ContinueOnError keeps the Debug build
+         (and everything that depends on it) green when the signing environment isn't available,
+         while still signing normally wherever it is. -->
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\scripts\dev\Sign-LocalDevBinaries.ps1&quot; -OutputDir &quot;$(TargetDir)&quot;"
+          ContinueOnError="WarnAndContinue" />
   </Target>
 
 </Project>

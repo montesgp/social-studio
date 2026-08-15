@@ -277,6 +277,14 @@ public static class DependencyInjection
         services.AddScoped<Incoders.Hive.Application.Abstractions.Social.NicheDiscovery.IMarketCatalogRepository,
             EfMarketCatalogRepository>();
 
+        // WU-11a/11b: the run orchestrator, its start-and-poll queue, and the background service that
+        // drains it. The queue is a singleton (Channel-backed, mirrors ChannelProfileAnalysisJobQueue);
+        // the processor and its background service are scoped/hosted respectively.
+        services.AddSingleton<Incoders.Hive.Application.Abstractions.Social.NicheDiscovery.INicheDiscoveryRunQueue,
+            Incoders.Hive.Infrastructure.Social.NicheDiscovery.NicheDiscoveryRunQueue>();
+        services.AddScoped<Incoders.Hive.Application.Abstractions.Social.NicheDiscovery.INicheDiscoveryRunProcessor,
+            Incoders.Hive.Application.Features.Social.NicheDiscovery.DiscoveryRuns.NicheDiscoveryRunProcessor>();
+
         // The chain IS the discovery service. Exactly ONE registration of IContentDiscoveryService may
         // exist — a second AddScoped<IContentDiscoveryService, …> would silently win GetRequiredService
         // with no compile or runtime error (see DiscoveryCompositionTests).

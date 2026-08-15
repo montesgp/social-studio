@@ -9,6 +9,11 @@ namespace Incoders.Hive.Domain.Social.NicheDiscovery;
 /// </summary>
 public static class NicheDiscoveryErrors
 {
+    /// <summary>No tenant/user resolved on the request context — never a caller-supplied field.</summary>
+    public static readonly Error OrganizationRequired = Error.Validation(
+        "social.niche_discovery.organization_required",
+        "social.niche_discovery.errors.organization_required");
+
     public static readonly Error MarketUnknown = Error.NotFound(
         "social.niche_discovery.market_unknown",
         "social.niche_discovery.errors.market_unknown");

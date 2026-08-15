@@ -82,6 +82,9 @@ builder.Services.AddHostedService<ProfileAnalysisBackgroundWorker>();
 // Consumes queued content-generation jobs (async multi-step orchestration pipeline).
 builder.Services.AddHostedService<ContentGenerationBackgroundWorker>();
 
+// Consumes queued niche-discovery runs (async sourcing + analytics + semantics + scoring pipeline).
+builder.Services.AddHostedService<Incoders.Hive.Infrastructure.Social.NicheDiscovery.NicheDiscoveryRunBackgroundService>();
+
 // One-time, idempotent reconstruction of legacy packages to the current format taxonomy
 // (story → story-single, feed-post → feed-single, carousel → feed-carousel). No-op once canonical.
 builder.Services.AddHostedService<LegacyPackageReconstructionStartupJob>();
@@ -179,6 +182,7 @@ app.MapSocialContentWorkflowEndpoints();
 app.MapSingleAnalyzerEndpoints();
 app.MapDiscoveryBankEndpoints();
 app.MapProfileAnalyzerEndpoints();
+app.MapNicheDiscoveryEndpoints();
 app.MapContentGenerationEndpoints();
 app.MapContentGenerationBatches();
 app.MapContentStudioEndpoints();

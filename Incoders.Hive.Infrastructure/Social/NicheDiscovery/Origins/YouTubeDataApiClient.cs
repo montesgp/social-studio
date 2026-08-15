@@ -18,7 +18,13 @@ internal sealed class YouTubeDataApiClient
 
     private readonly IHttpClientFactory _httpClientFactory;
 
-    internal YouTubeDataApiClient(IHttpClientFactory httpClientFactory)
+    // GAP FIX (WU-11b): PUBLIC constructor, even though the class itself stays `internal sealed`
+    // (assembly-invisible either way). The DI container's default constructor resolution only
+    // considers PUBLIC constructors; an `internal` one made `services.AddScoped<YouTubeDataApiClient>()`
+    // (WU-5) throw "no suitable constructor" the first time anything actually resolved
+    // INicheDiscoverySource through the real container — caught here by NicheDiscoveryCompositionTests,
+    // the first test in this change to build AddInfrastructure and resolve that port.
+    public YouTubeDataApiClient(IHttpClientFactory httpClientFactory)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         _httpClientFactory = httpClientFactory;
