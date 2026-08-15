@@ -13,6 +13,7 @@ import {
   Mail,
   Plug,
   PlugZap,
+  Radar,
   ScanSearch,
   History,
   Store,
@@ -83,11 +84,14 @@ const workspaceHomeNavigation: NavGroup[] = [
 const socialModuleNavigation: NavGroup[] = [
   {
     label: "Content",
-    // Ordered to follow the operator's actual path through the module: analyse a reference first,
-    // generate pieces from it, then decide in Publications what ships and where. AI Analysis sits
-    // beside the analyzer because it answers the question that precedes both — which of the
-    // candidates discovery already banked is worth spending generation budget on.
+    // Ordered to follow the operator's actual path through the module: decide which market and
+    // niche to build for first, analyse a reference, generate pieces from it, then decide in
+    // Publications what ships and where. Niche Discovery sits before everything else because it
+    // answers which market and niche to build for, before any client or content exists. AI
+    // Analysis sits beside the analyzer because it answers the question that precedes both —
+    // which of the candidates discovery already banked is worth spending generation budget on.
     items: [
+      { href: "/niche-discovery", label: "Niche Discovery", icon: Radar },
       { href: "/single-analyzer", label: "Single Analyzer", icon: ScanSearch },
       { href: "/ai-analysis", label: "AI Analysis", icon: BrainCircuit },
       { href: "/content-generator", label: "Generator", icon: Clapperboard },

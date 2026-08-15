@@ -346,6 +346,62 @@ not schedule before WU-6, per the ordering correction in design §18.*
 
 ---
 
+## WU-14 — Frontend: Mount the Viability Dashboard Route
+
+*Refs: ND-01, ND-02, ND-09, ND-12, ND-13. Design §10, §11. Follow-up to the WU-12 gap flagged in
+`state.yaml`'s `known_gaps` and in the WU-12b commit message: the dashboard/detail components
+existed and were unit-tested but no route rendered them, so the operator could not reach the
+screen this change exists to deliver.*
+
+- [x] 14.1 **[RED]** Add `apps/web/lib/social/niche-discovery/run-state.test.ts` — Requested/Running/
+  Completed/PartiallyCompleted/Failed each render a distinct label and tone; only
+  `PartiallyCompleted` is flagged degraded; `Failed` carries its structured `failureReasonKey`,
+  never invented text (ND-02, ND-09).
+- [x] 14.2 **[GREEN]** Create `run-state.ts` — `isRunPollable`, `isRunViewable`, `isRunDegraded`,
+  `describeRunState`.
+- [x] 14.3 **[RED]** Add `run-url.test.ts` — `buildRunPath`/`readRunIdFromSearchParams` round-trip a
+  run id through the `?run=` query string (design §10 — no cross-run listing endpoint, so the URL
+  is the operator's only handle to a run that already cost API quota); reads both `URLSearchParams`
+  and a plain server `searchParams` record.
+- [x] 14.4 **[GREEN]** Create `run-url.ts`.
+- [x] 14.5 **[RED]** Add `start-run-form.test.ts` — window-days bounds (7..365, default 90 — mirrors
+  the backend `DiscoveryWindow` value object), Quick/Standard/Deep depth options, required
+  source/target market with a must-differ check, and `buildStartRunRequest` mapping 1:1 onto
+  `StartDiscoveryRunRequest` (ND-01). The 90-day default and the operator-selectable depth are
+  explicit owner decisions, not defaults of convenience.
+- [x] 14.6 **[GREEN]** Create `start-run-form.ts`.
+- [x] 14.7 Create `apps/web/components/social/niche-discovery/niche-discovery-client.tsx` — thin
+  start-and-poll screen (2500 ms interval, matching design §10's stated idiom): start form, a
+  status badge per run state, a visible structured-reason panel for `Failed`, a visible degraded
+  notice for `PartiallyCompleted` (never presented as a full result), `ViabilityDashboardClient` for
+  a viewable run, and `OpportunityDetail` for a selected opportunity.
+- [x] 14.8 Create `apps/web/app/(dashboard)/niche-discovery/page.tsx` — mirrors
+  `app/(dashboard)/ai-analysis/page.tsx`: server component, `getServerAuthSession()`, redirect to
+  `/login` when the token is missing or expired, reads the run id out of the async Next 15
+  `searchParams` via `readRunIdFromSearchParams`.
+- [x] 14.9 Update `apps/web/lib/navigation.ts` — add a "Niche Discovery" entry (icon: `Radar`) first
+  in the `socialModuleNavigation` "Content" group, ahead of Single Analyzer/AI Analysis/Generator/
+  Publications, and update the group's ordering comment to state why (answers which market/niche to
+  build for before any client or content exists).
+- [x] 14.10 Checked `next.config.ts`'s rewrite table (`/content-generator → /workflow`,
+  `/single-analyzer → /analyzer`); no rewrite added — the new route path already matches the
+  navigation href, so no clean-URL mapping is needed.
+- [x] 14.11 Run the frontend test command used by `scripts/gates/Run-Gates.ps1`, then
+  `npx tsc --noEmit` and `npm run build`. All clean (343/343 frontend tests — 20 new — tsc clean,
+  build clean, `/niche-discovery` registered as a dynamic route).
+- [x] 14.12 `pwsh -File scripts/gates/Run-Gates.ps1` green (17 pass / 1 skipped / 1 warn — the
+  pre-existing frontend vulnerability advisory, unrelated). Commit
+  `feat(niche-discovery): mount viability dashboard route and navigation entry`, directly on `dev`.
+
+**Reported gap, not silently narrowed**: `INicheOpportunityActivationSource` stays a named,
+unimplemented seam by design (§12) — this work unit does not add a "send to Generator" action, and
+none should be inferred from the screen now being reachable. The screen still gives the operator no
+way to list or browse past runs (no cross-run listing endpoint exists, per design §10) — only the
+URL round-trip this work unit adds. `YouTubeEvidenceMapper` live verification remains pending an
+owner-side Google Cloud project, unchanged from WU-13.
+
+---
+
 ## Traceability
 
 | Spec requirement | Satisfied by |
@@ -361,8 +417,8 @@ not schedule before WU-6, per the ordering correction in design §18.*
 | ND-09 — availability-aware renormalized OpportunityScore | WU-8 |
 | ND-10 — independent ConfidenceScore | WU-8, WU-12 |
 | ND-11 — append-only evidence persistence | WU-7a, WU-7b |
-| ND-12 — dashboard sort/filter | WU-12 |
-| ND-13 — opportunity detail full context | WU-12 |
+| ND-12 — dashboard sort/filter | WU-12, WU-14 (route mount) |
+| ND-13 — opportunity detail full context | WU-12, WU-14 (route mount) |
 | ND-14 — market catalog is data, second market needs no code change | WU-2, WU-7a, WU-9, WU-11a |
 | ND-15 — no country-named identifier | WU-2 |
 | ND-16 — tenant-scoped rows | WU-7a, WU-7b |
@@ -376,13 +432,14 @@ not schedule before WU-6, per the ordering correction in design §18.*
 
 ## Definition of Done
 
-- [ ] All 15 work units land as 15 sequential commits directly on `dev`, each with `pwsh -File scripts/gates/Run-Gates.ps1` green before the commit.
-- [ ] `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release` passes, 0 failures, across the whole change.
-- [ ] The frontend test command, `npx tsc --noEmit`, and `npm run build` all pass clean.
-- [ ] `dotnet ef migrations has-pending-model-changes` is clean (`migration-drift` gate).
-- [ ] Architecture gate green: no `JsonElement`/`HttpClient`/EF type in Domain or Application under NicheDiscovery.
-- [ ] The country-name guard (WU-2.7), the extended no-actor-literal guard (WU-5.1), the three AI-cannot-produce-a-number reflection guards (WU-6.1, WU-8.7/10.6, WU-10.1), and the NicheDiscovery/ContentGeneration isolation guard (WU-11b.6) all pass.
-- [ ] `GetServices<INicheDiscoverySource>()` and every other NicheDiscovery port resolve to exactly one implementation; `GetServices<INicheOpportunityActivationSource>()` is empty.
-- [ ] The second-target-market criterion test (WU-11a.5) passes with no per-market source file existing.
-- [ ] ADR 0013 exists and is `Accepted`; `docs/PRD.md` gains the niche-discovery section; specs synced or explicitly deferred to `sdd-archive`.
-- [ ] `openspec/changes/niche-discovery-engine/state.yaml` reflects the terminal status of this run.
+- [x] All 16 work units (15 planned + WU-14 follow-up mounting the dashboard route) land as sequential commits directly on `dev`, each with `pwsh -File scripts/gates/Run-Gates.ps1` green before the commit.
+- [x] `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release` passes, 0 failures, across the whole change (3518/3520, 2 pre-existing skips).
+- [x] The frontend test command, `npx tsc --noEmit`, and `npm run build` all pass clean (343/343 tests after WU-14).
+- [x] `dotnet ef migrations has-pending-model-changes` is clean (`migration-drift` gate).
+- [x] Architecture gate green: no `JsonElement`/`HttpClient`/EF type in Domain or Application under NicheDiscovery.
+- [x] The country-name guard (WU-2.7), the extended no-actor-literal guard (WU-5.1), the three AI-cannot-produce-a-number reflection guards (WU-6.1, WU-8.7/10.6, WU-10.1), and the NicheDiscovery/ContentGeneration isolation guard (WU-11b.6) all pass.
+- [x] `GetServices<INicheDiscoverySource>()` and every other NicheDiscovery port resolve to exactly one implementation; `GetServices<INicheOpportunityActivationSource>()` is empty.
+- [x] The second-target-market criterion test (WU-11a.5) passes with no per-market source file existing.
+- [x] ADR 0013 exists and is `Accepted`; `docs/PRD.md` gains the niche-discovery section; specs synced or explicitly deferred to `sdd-archive`.
+- [x] `openspec/changes/niche-discovery-engine/state.yaml` reflects the terminal status of this run.
+- [x] The viability dashboard is reachable from navigation and usable end to end via `/niche-discovery` (WU-14).

@@ -103,7 +103,7 @@ risks:
   - "DI override trap; guarded by the exact-one-implementation-per-port composition test (WU-11b.5)."
 
 validation:
-  gates: PASS (WU-1 through WU-13, all 17 commits including one interstitial fix)
+  gates: PASS (WU-1 through WU-14, all 18 commits including one interstitial fix)
   detail: >
     sdd-apply batch 1 (WU-1..WU-3): DiscoveryRun aggregate + lifecycle value objects (3c454c1),
     taxonomy hierarchy + market catalog + country-name guard (27482bb), Application ports +
@@ -127,12 +127,18 @@ validation:
     WU-11b DTO gap (DiscoveryRunStatusResponse/NicheOpportunitySummary were missing the
     market/format/competition/automation/trend fields the dashboard needs, extended additively
     with RED-then-GREEN backend tests). ADR 0013, PRD §13, and the operator setup guide land in
-    this final commit. Gates green on every commit (17 pass / 1 skipped / 1 warn — pre-existing
-    frontend vulnerability advisory, not introduced by this change).
+    that commit (deac6a5). Batch 7 (WU-14, follow-up, this commit): mounted the viability dashboard
+    route (`app/(dashboard)/niche-discovery/page.tsx`) that WU-12 left unreached — three new pure,
+    unit-tested modules (run-state.ts, run-url.ts, start-run-form.ts), a thin start-and-poll client
+    component wiring ViabilityDashboardClient/OpportunityDetail, and a Niche Discovery navigation
+    entry (first in the Content group). 20 new frontend tests (343/343 total). Gates green on every
+    commit (17 pass / 1 skipped / 1 warn — pre-existing frontend vulnerability advisory, not
+    introduced by this change).
   known_gaps:
-    - "No app-router page mounts the WU-12 dashboard/detail components under app/(dashboard)/ — WU-12's task list named only the component files, not a route. The components are implemented and unit-tested but not reachable from navigation yet."
     - "WU-5's YouTube Data API v3 adapter and fixture are PENDING LIVE VERIFICATION — no Google Cloud project has been provisioned yet (owner-side prerequisite, noted in the WU-5 commit and ADR-0013)."
     - "Spec merge into openspec/specs/ deferred to sdd-archive (task 13.4), per the sibling change's WU-9.3 precedent."
+    - "No cross-run listing endpoint exists by design (design §10); an operator can only reach a run through its URL (?run=<id>) or by starting a new one — there is still no way to browse past runs."
+    - "INicheOpportunityActivationSource remains a named, unimplemented seam (design §12/ND-17) — WU-14 does not add a 'send to Generator' action from the dashboard, by design."
 
 delivery:
   strategy: single-pr
@@ -144,7 +150,7 @@ delivery:
   chained_prs: false
   target_branch: dev
   branch: null
-  work_units: 15
+  work_units: 16
 
 testing:
   strict_tdd: true
@@ -153,8 +159,8 @@ testing:
 
 apply:
   completed_at: "2026-08-14"
-  work_units_landed: 15
-  commit_count: 17
+  work_units_landed: 16
+  commit_count: 18
   commits:
     - "3c454c1 feat(niche-discovery): add DiscoveryRun aggregate and lifecycle value objects (WU-1)"
     - "27482bb feat(niche-discovery): add taxonomy hierarchy and market catalog domain model (WU-2)"
@@ -172,7 +178,8 @@ apply:
     - "ada75e9 feat(niche-discovery): add run endpoints and composition guards (WU-11b)"
     - "43eb4e1 feat(niche-discovery): add viability dashboard list (WU-12a)"
     - "373b9fe feat(niche-discovery): add opportunity detail view (WU-12b)"
-    - "docs(niche-discovery): add ADR 0013, PRD section, and operator setup guide (WU-13, this commit)"
+    - "deac6a5 docs(niche-discovery): add ADR 0013, PRD section, and operator setup guide (WU-13)"
+    - "(this commit) feat(niche-discovery): mount viability dashboard route and navigation entry (WU-14)"
 
 prd_traceability:
   - "docs/PRD.md new numbered section required (style of §11/§12) — §6 MVP Success Path starts at 'select an organization/client'; niche discovery happens before a client exists, so no existing section covers it honestly."
