@@ -1,7 +1,7 @@
 change: niche-discovery-engine
-status: tasks-complete
+status: apply-complete
 adr: docs/architecture/adr/0013-niche-discovery-multi-origin-provider-and-opportunity-evidence-model.md
-adr_status: pending
+adr_status: accepted
 
 phases_completed:
   - explore
@@ -9,6 +9,7 @@ phases_completed:
   - spec
   - design
   - tasks
+  - apply
 
 artifacts:
   exploration: openspec/changes/niche-discovery-engine/exploration.md
@@ -102,7 +103,7 @@ risks:
   - "DI override trap; guarded by the exact-one-implementation-per-port composition test (WU-11b.5)."
 
 validation:
-  gates: PASS (WU-1 through WU-8)
+  gates: PASS (WU-1 through WU-13, all 17 commits including one interstitial fix)
   detail: >
     sdd-apply batch 1 (WU-1..WU-3): DiscoveryRun aggregate + lifecycle value objects (3c454c1),
     taxonomy hierarchy + market catalog + country-name guard (27482bb), Application ports +
@@ -112,9 +113,26 @@ validation:
     seeder (5883a44, amended to add DiscoveryRun.RequestedByUserId and
     DiscoveryRunData.ConfigurationSnapshotJson — genuine WU-1 schema gaps found while implementing
     the repository round-trip), EF repositories for runs/opportunities/evidence/market catalog
-    (a17ecaf), opportunity scorer + independent confidence scorer (50019f6). Gates green on every
-    commit. WU-9 onward not started — WU-9 carries an owner decision checkpoint (OQ-1) resolved
-    separately.
+    (a17ecaf), opportunity scorer + independent confidence scorer (50019f6). Batch 4 (WU-9, WU-10):
+    target market demand/competition/gap (OQ-1 resolved: content locale, not audience geography),
+    semantic annotation layer with lexical fallback (701 lines, under budget, no split needed).
+    Batch 5 (WU-11a, WU-11b): run orchestrator/queue/background processing (173997d) — found and
+    fixed real WU-1/WU-3 gaps (DiscoveryRun had no fields to persist the run's execution snapshot;
+    INicheDiscoveryRunQueue's shape was corrected to carry organizationId); run endpoints and
+    composition guards (ada75e9) — found and fixed a DI constructor-visibility gap and a
+    local-dev code-signing MSBuild target that broke the tests.backend gate outside a real cert
+    store. Batch 6 (WU-12, WU-13, this run): viability dashboard list (43eb4e1) and opportunity
+    detail view (373b9fe) — split from one WU-12 unit into 12a/12b per the pre-agreed split point
+    because the real diff (~1287 authored lines) exceeded the 800-line budget; found and fixed a
+    WU-11b DTO gap (DiscoveryRunStatusResponse/NicheOpportunitySummary were missing the
+    market/format/competition/automation/trend fields the dashboard needs, extended additively
+    with RED-then-GREEN backend tests). ADR 0013, PRD §13, and the operator setup guide land in
+    this final commit. Gates green on every commit (17 pass / 1 skipped / 1 warn — pre-existing
+    frontend vulnerability advisory, not introduced by this change).
+  known_gaps:
+    - "No app-router page mounts the WU-12 dashboard/detail components under app/(dashboard)/ — WU-12's task list named only the component files, not a route. The components are implemented and unit-tested but not reachable from navigation yet."
+    - "WU-5's YouTube Data API v3 adapter and fixture are PENDING LIVE VERIFICATION — no Google Cloud project has been provisioned yet (owner-side prerequisite, noted in the WU-5 commit and ADR-0013)."
+    - "Spec merge into openspec/specs/ deferred to sdd-archive (task 13.4), per the sibling change's WU-9.3 precedent."
 
 delivery:
   strategy: single-pr
@@ -133,7 +151,30 @@ testing:
   test_command: "dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release"
   gates_command: "pwsh -File scripts/gates/Run-Gates.ps1"
 
+apply:
+  completed_at: "2026-08-14"
+  work_units_landed: 15
+  commit_count: 17
+  commits:
+    - "3c454c1 feat(niche-discovery): add DiscoveryRun aggregate and lifecycle value objects (WU-1)"
+    - "27482bb feat(niche-discovery): add taxonomy hierarchy and market catalog domain model (WU-2)"
+    - "ed2edc2 feat(niche-discovery): add NicheDiscovery application ports and discovery budget contracts (WU-3)"
+    - "7c9c2cc feat(integrations): add official-API provider category and niche-discovery workflow checklist group (WU-4)"
+    - "3e00b2b feat(niche-discovery): add YouTube Data API v3 origin adapter and normalization boundary (WU-5)"
+    - "b2f0f25 feat(niche-discovery): add deterministic metric calculator and analytics guard (WU-6)"
+    - "5883a44 feat(niche-discovery): add persistence schema, migration, and market catalog seeder (WU-7a)"
+    - "a17ecaf feat(niche-discovery): add EF repositories for runs, opportunities, evidence, and market catalog (WU-7b)"
+    - "a5fad46 feat(niche-discovery): add opportunity scorer and independent confidence scorer (WU-8)"
+    - "77315a3 refactor(niche-discovery): parse market codes into MarketCode at run construction (interstitial fix, pre-WU-9)"
+    - "cecc28d feat(niche-discovery): add target market demand, competition, and gap evaluation (WU-9)"
+    - "7bdec9b feat(niche-discovery): add semantic annotation layer with lexical fallback (WU-10)"
+    - "173997d feat(niche-discovery): add run orchestrator, queue, and background processing (WU-11a)"
+    - "ada75e9 feat(niche-discovery): add run endpoints and composition guards (WU-11b)"
+    - "43eb4e1 feat(niche-discovery): add viability dashboard list (WU-12a)"
+    - "373b9fe feat(niche-discovery): add opportunity detail view (WU-12b)"
+    - "docs(niche-discovery): add ADR 0013, PRD section, and operator setup guide (WU-13, this commit)"
+
 prd_traceability:
   - "docs/PRD.md new numbered section required (style of §11/§12) — §6 MVP Success Path starts at 'select an organization/client'; niche discovery happens before a client exists, so no existing section covers it honestly."
 
-next_recommended: sdd-apply
+next_recommended: sdd-verify

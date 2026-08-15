@@ -173,3 +173,93 @@ Content moves along two orthogonal lifecycles:
 | 4 | Background materialization on generation completion (instead of lazy-on-load) | Deferred |
 | 5 | Blotato multi-network consolidation | Deferred — native per-network adapters ship first |
 | 6 | Published-history recency polish + post-publish metrics/insights | Deferred |
+
+---
+
+## 13. Niche Discovery — Channel-Launch Opportunity Scoring
+
+> Added by `niche-discovery-engine` (2026-08-14). ADR: [`docs/architecture/adr/0013-niche-discovery-multi-origin-provider-and-opportunity-evidence-model.md`](architecture/adr/0013-niche-discovery-multi-origin-provider-and-opportunity-evidence-model.md).
+
+### Why this section exists
+
+§6 (MVP Success Path) starts at *"user selects an organization/client"*. Every other social-module
+section in this PRD — Profile Analysis (§11), Content Bank Planner (§12), and Content Discovery
+(referenced from ADR-0012) — analyses or discovers content **for an existing client**. Niche
+Discovery answers a question that has to be asked **before** a client exists: *"is this niche worth
+building a new channel around, and in which market?"* Stretching §1's product summary to cover this
+would misrepresent it as a client-facing feature; it is a market-research tool an agency runs to
+decide whether to pitch or launch a new channel at all.
+
+### Vocabulary — do not conflate with Content Discovery
+
+**Content Discovery** finds content to generate FROM, for a client that already exists. **Niche
+Discovery** (this section) finds market opportunities to build NEW channels around, with no client
+in the loop. The two share the word "discovery" and nothing else in the implementation — see
+ADR-0013's vocabulary guard.
+
+### User Story
+
+As an agency owner or strategist, I want to run a parameterised discovery over a niche/format/market
+combination and see ranked opportunities with independent viability and confidence scores, so I can
+decide which new channel concepts are worth pitching or launching before committing any client
+budget to them.
+
+### The `DiscoveryRun` → `NicheOpportunity` outcome
+
+An operator starts a `DiscoveryRun` with a source market, a target market, a network, a content
+format, a time window, and a depth (Quick/Standard/Deep — see the operator guide for the quota
+tradeoffs). The run sources channel/video evidence, computes deterministic analytics, classifies
+content patterns via AI (labels only, never a score), compares the source and target markets, and
+produces a ranked list of append-only `NicheOpportunity` rows — one observation per run, never
+updated in place. A later run on the same niche/market pair produces new rows; the earlier ones stay
+retrievable by their own run.
+
+### The OpportunityScore / ConfidenceScore distinction
+
+Every opportunity carries **two independent numbers**, always shown together and never averaged:
+
+- **OpportunityScore** — how strong the opportunity looks, combining viral performance, cross-channel
+  validation, demand momentum, target-market gap, automation suitability, evergreen potential, and
+  monetization potential. A signal with no data source in this iteration (`CrossPlatformValidation`)
+  is excluded and the remaining weights renormalized — never zero-filled.
+- **ConfidenceScore** — how much evidence backs that score (channel/video counts, sample size,
+  timespan, source count, freshness, diversity, consistency), computed independently of
+  OpportunityScore. A 94/37 opportunity is a very different bet than an 88/95 one, and the dashboard
+  never collapses that distinction into one number.
+
+### The market-catalog-is-data model
+
+Target markets come from a seeded catalog (`MarketCode` + display i18n key), never from an enum
+member, constant, or literal named after a country. Adding a second target market to the platform is
+one catalog row — the entire pipeline (sourcing, analytics, market comparison, scoring) runs against
+it with zero code change, proven by an automated test in the change that shipped this capability.
+
+### MVP Acceptance Criteria
+
+- An operator can start a discovery run against a seeded target market, a network, a content format,
+  a window (7–365 days, default 90), and a depth (Quick/Standard/Deep), optionally overriding the
+  scoring weights or seeding search terms.
+- The run executes in the background (start-and-poll, matching the Profile Analysis idiom); the
+  operator polls status until it reaches a terminal state (`Completed`, `PartiallyCompleted`, or
+  `Failed`), each with a structured, distinguishable reason.
+- On completion, the viability dashboard lists ranked opportunities, sortable and filterable by
+  opportunity score, confidence score, market, format, trend, competition, and automation
+  suitability.
+- Each opportunity's detail view exposes: name/description, niche/sub-niche, formats and content
+  patterns found, both scores, channels and videos analyzed, analysis period, data freshness, median
+  views, outlier distribution, independent-channel repetition count, estimated target-market
+  competition, automation suitability, main content patterns, risks/limitations, and navigable
+  evidence linking to the real channels and videos.
+- An unconfigured origin (no API key connected) is reported distinctly from a run that executed and
+  genuinely found nothing.
+
+### Non-Goals (this iteration)
+
+- No "pursued / dismissed / tracked" operator action on an opportunity — comparison over time is done
+  by querying across runs, not by mutating a stored state.
+- No automatic hand-off into content generation. A seam (`INicheOpportunityActivationSource`) is
+  named in the codebase for a future change to consume, but ships with no implementation and no
+  registration in this iteration.
+- Apify as a second sourcing origin is designed for (the port supports multiple configuration-selected
+  origins per stage) but not implemented in this iteration — YouTube Data API v3 is the only shipped
+  origin.
