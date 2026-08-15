@@ -23,6 +23,13 @@ public sealed class ListRunOpportunitiesQueryTests
 
         Assert.True(result.IsSuccess);
         Assert.Single(result.Value.Opportunities);
+        // WU-12 gap fix: the dashboard sorts/filters by target-market competition, automation
+        // suitability, and trend (ND-12) directly from the run's opportunity list — the summary
+        // projection did not carry these before WU-12 needed them.
+        var opportunity = result.Value.Opportunities[0];
+        Assert.Equal(record.TargetMarketCompetition, opportunity.TargetMarketCompetition);
+        Assert.Equal(record.AutomationSuitability, opportunity.AutomationSuitability);
+        Assert.Equal(record.GrowthProxy, opportunity.GrowthProxy);
     }
 
     [Fact]

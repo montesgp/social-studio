@@ -22,6 +22,10 @@ public sealed class GetDiscoveryRunQueryTests
         Assert.True(result.IsSuccess);
         Assert.Equal(run.Id.Value, result.Value.RunId);
         Assert.Equal("Requested", result.Value.Status);
+        // WU-12 gap fix: the dashboard needs the run's target market and content format to label
+        // and filter opportunities (ND-12) — neither was on the status projection before.
+        Assert.Equal("pt-BR", result.Value.TargetMarketCode);
+        Assert.Equal("video", result.Value.ContentFormat);
     }
 
     [Fact]
