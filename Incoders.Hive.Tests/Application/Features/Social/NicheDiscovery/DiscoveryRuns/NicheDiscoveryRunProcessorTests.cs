@@ -117,7 +117,226 @@ public sealed class NicheDiscoveryRunProcessorTests
         Assert.NotEmpty(opportunityRepo.Appended);
     }
 
+    /// <summary>
+    /// The ranking must come from the evidence. `InRange(0, 1)` alone is satisfied by a scorer that
+    /// returns a constant, and a constant scorer leaves the pipeline looking healthy while ranking
+    /// nothing — so this pins the Evidence → Metric → Score chain by putting two clusters in ONE run
+    /// and requiring the one carrying a 40x outlier to outrank the flat one.
+    ///
+    /// Both clusters must live in the same run because <c>AvailabilityWeightedAggregate.NormalizeWithinSet</c>
+    /// is set-relative min-max: a run holding a single opportunity has nothing to normalize against
+    /// and neutralizes every signal to 0.5 by design, so a one-cluster fixture cannot detect a
+    /// constant scorer at all.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_TheClusterCarryingAnOutlier_OutranksTheFlatClusterInTheSameRun()
+    {
+        var evidence = TwoClusterEvidence(out var flatVideoRefs, out var outlierVideoRefs);
+
+        var opportunityRepo = new FakeOpportunityRepository();
+        var run = CreateRun();
+        var runRepo = new FakeRunRepository(run);
+        var source = FakeSource.Configured("youtube-data-api", evidence);
+        var gateway = FakeGateway.SuccessWithClusters(
+            ("flat travel", flatVideoRefs),
+            ("hot travel", outlierVideoRefs));
+        var processor = BuildProcessor(runRepo, [source], gateway, opportunityRepo, new FakeEvidenceRepository());
+
+        await processor.RunAsync(Org, run.Id, CancellationToken.None);
+
+        Assert.Equal(2, opportunityRepo.Appended.Count);
+        // The cluster label lands on SubNicheLabel; TopicLabels is run-level and shared by both.
+        var flat = opportunityRepo.Appended.Single(o => o.SubNicheLabel == "flat travel");
+        var hot = opportunityRepo.Appended.Single(o => o.SubNicheLabel == "hot travel");
+
+        Assert.True(
+            hot.OpportunityScore > flat.OpportunityScore,
+            $"The cluster carrying a 40x outlier scored {hot.OpportunityScore} against the flat cluster's "
+                + $"{flat.OpportunityScore}. Equal scores mean the ranking is not derived from the evidence.");
+    }
+
+    /// <summary>
+    /// A one-opportunity run reports a neutral 0.5, not a measurement. Pinning this documents a real
+    /// product limitation rather than leaving it to be discovered from a dashboard: the score is a
+    /// position within its run, so it is not comparable across runs and says nothing absolute about a
+    /// niche found on its own.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ASingleOpportunityRun_ReportsANeutralScore_BecauseScoringIsSetRelative()
+    {
+        var spectacular = await ScoreOf(EvidenceWithOutlier(distinctChannels: 3, outlierMultiplier: 40));
+        var unremarkable = await ScoreOf(EvidenceWithOutlier(distinctChannels: 3, outlierMultiplier: 1));
+
+        Assert.Equal(0.5, spectacular, precision: 6);
+        Assert.Equal(0.5, unremarkable, precision: 6);
+    }
+
+    /// <summary>
+    /// Deterministic metrics must be computed, not defaulted. A median that ignores the fixture is a
+    /// metric layer that is present in the type system and absent in behaviour.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ComputesMedianViewsFromTheEvidence()
+    {
+        var opportunityRepo = new FakeOpportunityRepository();
+        await RunWith(EvidenceWithOutlier(distinctChannels: 3, outlierMultiplier: 1), opportunityRepo);
+
+        var medians = opportunityRepo.Appended.Select(o => o.MedianViews).ToList();
+
+        Assert.NotEmpty(medians);
+        Assert.All(medians, median => Assert.NotNull(median));
+        // The fixture's videos sit in the 10_000..12_000 band; a median outside it is not this evidence's.
+        Assert.All(medians, median => Assert.InRange(median!.Value, 9_000, 13_000));
+    }
+
+    /// <summary>
+    /// ND-13's navigable evidence: an opportunity the operator cannot drill into is an unsupported
+    /// claim. Every persisted evidence row must hang off an opportunity that was actually persisted.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_EveryPersistedEvidenceRow_LinksToAPersistedOpportunity()
+    {
+        var opportunityRepo = new FakeOpportunityRepository();
+        var evidenceRepo = new FakeEvidenceRepository();
+        var run = await RunWith(EvidenceWithOutlier(distinctChannels: 3, outlierMultiplier: 1), opportunityRepo, evidenceRepo);
+
+        var opportunityIds = opportunityRepo.Appended.Select(o => o.Id).ToHashSet();
+
+        Assert.NotEmpty(evidenceRepo.Appended);
+        Assert.All(evidenceRepo.Appended, e => Assert.Contains(e.OpportunityId, opportunityIds));
+        Assert.All(evidenceRepo.Appended, e => Assert.Equal(run.Id.Value, e.RunId));
+        Assert.All(evidenceRepo.Appended, e => Assert.Equal(Org, e.OrganizationId));
+    }
+
+    /// <summary>
+    /// ND-11: opportunities are immutable observations. A later run adds rows; it never edits an
+    /// earlier run's. This is asserted at the orchestrator, where a mutation would actually happen —
+    /// the repository port having no update method proves only that the easy path is closed.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ASecondRun_AppendsWithoutTouchingTheFirstRunsRows()
+    {
+        var first = CreateRun();
+        var second = CreateRun();
+        var runRepo = new FakeRunRepository(first);
+        await runRepo.AddAsync(second);
+
+        var opportunityRepo = new FakeOpportunityRepository();
+        var evidenceRepo = new FakeEvidenceRepository();
+        var evidence = EvidenceWithOutlier(distinctChannels: 3, outlierMultiplier: 1);
+        var source = FakeSource.Configured("youtube-data-api", evidence);
+        var processor = BuildProcessor(runRepo, [source], FakeGateway.SuccessClustering(evidence), opportunityRepo, evidenceRepo);
+
+        await processor.RunAsync(Org, first.Id, CancellationToken.None);
+        var afterFirstRun = opportunityRepo.Appended.ToList();
+        Assert.NotEmpty(afterFirstRun);
+
+        await processor.RunAsync(Org, second.Id, CancellationToken.None);
+
+        var firstRunRowsNow = opportunityRepo.Appended.Where(o => o.RunId == first.Id.Value).ToList();
+        Assert.Equal(afterFirstRun.Count, firstRunRowsNow.Count);
+        Assert.Equal(afterFirstRun, firstRunRowsNow);
+        Assert.Contains(opportunityRepo.Appended, o => o.RunId == second.Id.Value);
+    }
+
+    /// <summary>
+    /// A degraded run still has to be useful. `NotEmpty` would pass on rows carrying no ranking at
+    /// all, which is precisely the failure an operator could not see.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_WhenTheAiFails_TheDegradedRunStillProducesScoredOpportunities()
+    {
+        var run = CreateRun();
+        var runRepo = new FakeRunRepository(run);
+        var source = FakeSource.Configured("youtube-data-api", EvidenceWithOutlier(distinctChannels: 3, outlierMultiplier: 40));
+        var opportunityRepo = new FakeOpportunityRepository();
+        var processor = BuildProcessor(runRepo, [source], FakeGateway.Failing(), opportunityRepo, new FakeEvidenceRepository());
+
+        await processor.RunAsync(Org, run.Id, CancellationToken.None);
+
+        Assert.NotEmpty(opportunityRepo.Appended);
+        Assert.All(opportunityRepo.Appended, o => Assert.True(o.OpportunityScore > 0, "a degraded run still ranks"));
+        Assert.All(opportunityRepo.Appended, o => Assert.True(o.ConfidenceScore > 0, "a degraded run still reports confidence"));
+        Assert.All(opportunityRepo.Appended, o => Assert.NotNull(o.MedianViews));
+    }
+
     // ── harness ──────────────────────────────────────────────────────────────
+
+    private static async Task<double> ScoreOf(EvidenceSet evidence)
+    {
+        var opportunityRepo = new FakeOpportunityRepository();
+        await RunWith(evidence, opportunityRepo);
+        return opportunityRepo.Appended.Max(o => o.OpportunityScore);
+    }
+
+    private static async Task<DiscoveryRun> RunWith(
+        EvidenceSet evidence,
+        FakeOpportunityRepository opportunityRepo,
+        FakeEvidenceRepository? evidenceRepo = null)
+    {
+        var run = CreateRun();
+        var runRepo = new FakeRunRepository(run);
+        var source = FakeSource.Configured("youtube-data-api", evidence);
+        var processor = BuildProcessor(
+            runRepo, [source], FakeGateway.SuccessClustering(evidence), opportunityRepo, evidenceRepo ?? new FakeEvidenceRepository());
+
+        await processor.RunAsync(Org, run.Id, CancellationToken.None);
+        return run;
+    }
+
+    /// <summary>
+    /// Six channels: three publishing flat evidence and three carrying a 40x outlier, kept in
+    /// separate channel ranges so the two groups can be clustered independently within one run.
+    /// </summary>
+    private static EvidenceSet TwoClusterEvidence(
+        out IReadOnlyList<string> flatVideoRefs,
+        out IReadOnlyList<string> outlierVideoRefs)
+    {
+        var flat = EvidenceWithOutlier(distinctChannels: 3, outlierMultiplier: 1, channelOffset: 0);
+        var hot = EvidenceWithOutlier(distinctChannels: 3, outlierMultiplier: 40, channelOffset: 10);
+
+        flatVideoRefs = flat.Videos.Select(v => v.ExternalRef).ToList();
+        outlierVideoRefs = hot.Videos.Select(v => v.ExternalRef).ToList();
+
+        return new EvidenceSet(
+            [.. flat.Channels, .. hot.Channels],
+            [.. flat.Videos, .. hot.Videos]);
+    }
+
+    /// <summary>
+    /// Several videos per channel so a channel median exists at all, optionally with one video far
+    /// above that median. <paramref name="outlierMultiplier"/> of 1 produces deliberately flat
+    /// evidence — the control case.
+    /// </summary>
+    private static EvidenceSet EvidenceWithOutlier(int distinctChannels, int outlierMultiplier, int channelOffset = 0)
+    {
+        var channels = new List<ChannelEvidence>();
+        var videos = new List<VideoEvidence>();
+
+        for (var index = 0; index < distinctChannels; index++)
+        {
+            var i = index + channelOffset;
+            var channelRef = $"channel-{i}";
+            channels.Add(new ChannelEvidence(channelRef, $"handle-{i}", "AR", 5000 + i * 100, 500000, 80, "es",
+                Now.AddYears(-2), "youtube-data-api"));
+
+            var baseViews = 10000 + i * 500;
+
+            for (var v = 0; v < 4; v++)
+            {
+                videos.Add(new VideoEvidence($"video-{i}-{v}", channelRef, "Budget Travel Guide", "budget travel tips",
+                    Now.AddDays(-1), baseViews, 200, 30, 480, "es", "youtube-data-api"));
+            }
+
+            if (outlierMultiplier > 1)
+            {
+                videos.Add(new VideoEvidence($"video-{i}-outlier", channelRef, "Budget Travel Guide", "budget travel tips",
+                    Now.AddDays(-1), baseViews * (long)outlierMultiplier, 9000, 1200, 480, "es", "youtube-data-api"));
+            }
+        }
+
+        return new EvidenceSet(channels, videos);
+    }
 
     private static NicheDiscoveryRunProcessor BuildProcessor(
         FakeRunRepository runRepo,
@@ -232,14 +451,39 @@ public sealed class NicheDiscoveryRunProcessorTests
     {
         private readonly bool _fails;
 
-        private FakeGateway(bool fails)
+        private readonly (string Label, IReadOnlyList<string> VideoRefs)[] _clusters;
+
+        private FakeGateway(bool fails, IReadOnlyList<string> clusteredVideoRefs)
         {
             _fails = fails;
+            _clusteredVideoRefs = clusteredVideoRefs;
+            _clusters = [];
         }
 
-        public static FakeGateway Success() => new(false);
+        private FakeGateway((string Label, IReadOnlyList<string> VideoRefs)[] clusters)
+        {
+            _fails = false;
+            _clusteredVideoRefs = [];
+            _clusters = clusters;
+        }
 
-        public static FakeGateway Failing() => new(true);
+        private readonly IReadOnlyList<string> _clusteredVideoRefs;
+
+        public static FakeGateway Success() => new(false, ["video-0", "video-1", "video-2"]);
+
+        /// <summary>
+        /// Clusters exactly the videos the fixture actually produced. A gateway that returns fixed
+        /// refs silently clusters nothing when the evidence changes, and every downstream metric then
+        /// comes back null for a reason that has nothing to do with the code under test.
+        /// </summary>
+        public static FakeGateway SuccessClustering(EvidenceSet evidence) =>
+            new(false, evidence.Videos.Select(v => v.ExternalRef).ToList());
+
+        /// <summary>Returns several named clusters, so one run can hold more than one opportunity.</summary>
+        public static FakeGateway SuccessWithClusters(params (string Label, IReadOnlyList<string> VideoRefs)[] clusters) =>
+            new(clusters);
+
+        public static FakeGateway Failing() => new(true, []);
 
         public Task<Result<AiJsonCompletionResponse<TResponse>>> CompleteJsonAsync<TResponse>(
             AiJsonCompletionRequest request, CancellationToken cancellationToken = default)
@@ -251,10 +495,15 @@ public sealed class NicheDiscoveryRunProcessorTests
                     Error.Failure("ai.provider-down", "provider unavailable")));
             }
 
-            var payload = new SemanticAnnotation(
-                [new ClusterProposal("budget travel", "Listicle", ["video-0", "video-1", "video-2"])],
-                ["budget-travel"],
-                ["ScreenRecording"]);
+            var payload = _clusters.Length > 0
+                ? new SemanticAnnotation(
+                    [.. _clusters.Select(c => new ClusterProposal(c.Label, "Listicle", c.VideoRefs))],
+                    [.. _clusters.Select(c => c.Label)],
+                    ["ScreenRecording"])
+                : new SemanticAnnotation(
+                    [new ClusterProposal("budget travel", "Listicle", _clusteredVideoRefs)],
+                    ["budget-travel"],
+                    ["ScreenRecording"]);
 
             return Task.FromResult(Result.Success(
                 new AiJsonCompletionResponse<TResponse>((TResponse)(object)payload, "fake", "fake-model", [])));
