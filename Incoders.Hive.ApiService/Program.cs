@@ -122,6 +122,9 @@ if (app.Configuration.GetValue("StartupTasks:SeedData", true))
     await app.Services.SeedSocialNetworkCatalogAsync();
     await app.Services.SeedNicheCatalogAsync();
     await app.Services.SeedMarketCatalogAsync();
+    // Auto-enables the niche-discovery steps for any org whose YouTube data origin is connected:
+    // without them every run dies with origin_unconfigured on a toggle the operator never saw.
+    await app.Services.SeedNicheDiscoveryWorkflowStepsAsync();
     await app.Services.SeedPlatformSystemModulesAsync();
     await app.Services.SeedPlatformEmailTemplatesAsync();
     await app.Services.SeedIdentityRolesAsync();

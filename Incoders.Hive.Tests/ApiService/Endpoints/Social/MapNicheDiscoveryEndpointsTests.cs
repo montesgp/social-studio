@@ -1,4 +1,4 @@
-using Incoders.Hive.ApiService.Endpoints.Social;
+﻿using Incoders.Hive.ApiService.Endpoints.Social;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Abstractions.Tenancy;
@@ -25,7 +25,7 @@ public sealed class MapNicheDiscoveryEndpointsTests
     private static readonly Guid User = Guid.NewGuid();
 
     [Fact]
-    public void MapNicheDiscoveryEndpoints_RegistersAllFiveRoutes_WithExpectedMethods()
+    public void MapNicheDiscoveryEndpoints_RegistersEveryRoute_WithExpectedMethods()
     {
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddRouting();
@@ -46,8 +46,12 @@ public sealed class MapNicheDiscoveryEndpointsTests
             .Where(e => e.RoutePattern.RawText != null && e.RoutePattern.RawText.StartsWith("/api/social/niche-discovery", StringComparison.Ordinal))
             .ToList();
 
-        Assert.Equal(5, endpoints.Count);
+        Assert.Equal(6, endpoints.Count);
         Assert.Contains(endpoints, e => e.RoutePattern.RawText == "/api/social/niche-discovery/runs" && HasMethod(e, "POST"));
+
+        // The organization's run history: without it a completed run is only reachable while the browser
+        // tab stays open.
+        Assert.Contains(endpoints, e => e.RoutePattern.RawText == "/api/social/niche-discovery/runs" && HasMethod(e, "GET"));
         Assert.Contains(endpoints, e => e.RoutePattern.RawText == "/api/social/niche-discovery/runs/{runId:guid}" && HasMethod(e, "GET"));
         Assert.Contains(endpoints, e => e.RoutePattern.RawText == "/api/social/niche-discovery/runs/{runId:guid}/opportunities" && HasMethod(e, "GET"));
         Assert.Contains(endpoints, e => e.RoutePattern.RawText == "/api/social/niche-discovery/opportunities/{opportunityId:guid}" && HasMethod(e, "GET"));

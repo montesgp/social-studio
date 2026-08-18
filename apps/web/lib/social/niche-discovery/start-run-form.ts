@@ -27,13 +27,29 @@ export interface StartRunFormState {
   contentFormat: ContentFormatOption;
   windowDays: number;
   depth: DiscoveryDepthOption;
+  /** Free text, comma- or newline-separated. See {@link parseSeedTerms}. */
+  seedTermsText: string;
 }
 
-export type StartRunFormError =
-  | "sourceMarketCode"
-  | "targetMarketCode"
-  | "marketsMustDiffer"
-  | "windowDays";
+export type StartRunFormError = "sourceMarketCode" | "targetMarketCode" | "windowDays";
+
+/**
+ * Seed terms are what the backend actually searches: each one becomes a YouTube `q`. They are NEVER
+ * translated anywhere in the pipeline, so an operator targeting a non-English language must type in
+ * that language — the term reaches the provider verbatim.
+ */
+export function parseSeedTerms(text: string): string[] {
+  const seen = new Set<string>();
+
+  for (const term of text.split(/[,\n]/)) {
+    const trimmed = term.trim();
+    if (trimmed) {
+      seen.add(trimmed);
+    }
+  }
+
+  return [...seen];
+}
 
 export interface StartRunFormValidation {
   valid: boolean;
@@ -48,6 +64,7 @@ export function createDefaultStartRunFormState(): StartRunFormState {
     contentFormat: "video",
     windowDays: DEFAULT_WINDOW_DAYS,
     depth: "Standard",
+    seedTermsText: "",
   };
 }
 
@@ -60,13 +77,12 @@ export function validateStartRunForm(state: StartRunFormState): StartRunFormVali
   if (!state.targetMarketCode) {
     errors.push("targetMarketCode");
   }
-  if (
-    state.sourceMarketCode &&
-    state.targetMarketCode &&
-    state.sourceMarketCode === state.targetMarketCode
-  ) {
-    errors.push("marketsMustDiffer");
-  }
+  // Source == target is DELIBERATELY allowed: the backend never enforced otherwise, and asking
+  // "where is the gap inside this language" is a legitimate study.
+  //
+  // Seed terms are DELIBERATELY optional: with none, the backend runs a query-less trending sweep and
+  // the niches emerge from the corpus. Demanding a term would make the operator guess the answer
+  // before the tool looks for it.
   if (state.windowDays < MIN_WINDOW_DAYS || state.windowDays > MAX_WINDOW_DAYS) {
     errors.push("windowDays");
   }
@@ -82,5 +98,6 @@ export function buildStartRunRequest(state: StartRunFormState): StartDiscoveryRu
     contentFormat: state.contentFormat,
     windowDays: state.windowDays,
     depth: state.depth,
+    seedTerms: parseSeedTerms(state.seedTermsText),
   };
 }

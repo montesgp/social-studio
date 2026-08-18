@@ -1,4 +1,4 @@
-namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
+﻿namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 
 /// <summary>
 /// EF data entity for <c>social.niche_discovery_evidence</c> — append-only, navigable evidence backing
@@ -27,6 +27,9 @@ public sealed class NicheDiscoveryEvidenceData
 
     public string? ThumbnailUrl { get; set; }
 
+    /// <summary>Provider-reported channel description. Review context only.</summary>
+    public string? Description { get; set; }
+
     public DateTime? PublishedAt { get; set; }
 
     public long? Views { get; set; }
@@ -44,6 +47,10 @@ public sealed class NicheDiscoveryEvidenceData
     public int? DurationSeconds { get; set; }
 
     public string? LanguageCode { get; set; }
+
+    /// <summary>Provider-reported ISO 3166 code of the owning channel. Review context only — no metric
+    /// reads it. <c>null</c> when unreported.</summary>
+    public string? Country { get; set; }
 
     public string SourceKey { get; set; } = string.Empty;
 

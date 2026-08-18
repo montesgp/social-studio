@@ -1,4 +1,4 @@
-namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
+﻿namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 
 /// <summary>
 /// EF data entity for <c>social.niche_opportunities</c> — append-only read model (design §9, ND-11).
@@ -50,6 +50,9 @@ public sealed class NicheOpportunityData
     public double? TargetMarketCompetition { get; set; }
 
     public double? TargetMarketGap { get; set; }
+
+    /// <summary>Target-market demand before run-normalization: the only value with absolute magnitude.</summary>
+    public double? TargetMarketRawDemand { get; set; }
 
     public double? AutomationSuitability { get; set; }
 

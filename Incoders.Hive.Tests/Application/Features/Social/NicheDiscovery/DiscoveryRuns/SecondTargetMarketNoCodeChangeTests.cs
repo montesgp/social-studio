@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions;
+﻿using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Features.Social.NicheDiscovery.DiscoveryRuns;
@@ -127,7 +127,7 @@ public sealed class SecondTargetMarketNoCodeChangeTests
         {
             var channelRef = $"channel-{i}";
             channels.Add(new ChannelEvidence(channelRef, $"handle-{i}", "AR", 5000 + i * 100, 500000, 80, "es",
-                Now.AddYears(-2), "youtube-data-api"));
+                Now.AddYears(-2), null, null, "youtube-data-api"));
             videos.Add(new VideoEvidence($"video-{i}", channelRef, "Budget Travel Guide", "budget travel tips",
                 Now.AddDays(-1), 10000 + i * 500, 200, 30, 480, "es", "youtube-data-api"));
         }
@@ -185,6 +185,10 @@ public sealed class SecondTargetMarketNoCodeChangeTests
 
         public Task<DiscoveryRun?> GetByIdAsync(Guid organizationId, DiscoveryRunId id, CancellationToken ct = default) =>
             Task.FromResult(_runs.TryGetValue(id, out var run) && run.OrganizationId == organizationId ? run : null);
+
+        public Task<IReadOnlyList<DiscoveryRun>> ListByOrganizationAsync(Guid organizationId, int limit, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<DiscoveryRun>>(
+                _runs.Values.Where(r => r.OrganizationId == organizationId).Take(limit).ToList());
     }
 
     private sealed class FakeSource : INicheDiscoverySource

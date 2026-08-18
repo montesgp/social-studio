@@ -104,7 +104,8 @@ export function OpportunityDetail({
           value={formatAvailableNumber(opportunity.crossChannelRepetition)}
         />
         <Field label="Est. target-market competition" value={formatAvailableNumber(opportunity.targetMarketCompetition)} />
-        <Field label="Target-market demand" value={formatAvailableNumber(opportunity.targetMarketDemand)} />
+        <Field label="Target-market demand (rank in run)" value={formatAvailableNumber(opportunity.targetMarketDemand)} />
+        <Field label="Target-market demand (absolute)" value={formatAvailableNumber(opportunity.targetMarketRawDemand)} />
         <Field label="Target-market gap" value={formatAvailableNumber(opportunity.targetMarketGap)} />
         <Field label="Automation suitability" value={formatAvailableNumber(opportunity.automationSuitability)} />
       </dl>

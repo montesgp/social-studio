@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions.Integrations;
+﻿using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Social.NicheDiscovery;
 using Microsoft.Extensions.Options;
 
@@ -43,6 +43,7 @@ internal sealed class NicheDiscoveryOriginConfiguration
         DiscoveryStage.VideoSearch => "video-search",
         DiscoveryStage.ChannelDetail => "channel-detail",
         DiscoveryStage.VideoDetail => "video-detail",
+        DiscoveryStage.TrendingSweep => "trending-sweep",
         _ => throw new ArgumentOutOfRangeException(nameof(stage), stage, "Unknown discovery stage."),
     };
 
@@ -81,12 +82,32 @@ internal sealed class NicheDiscoveryOriginConfiguration
             return NicheDiscoveryOriginRoute.Unconfigured;
         }
 
-        return new NicheDiscoveryOriginRoute(true, apiKey, baseAddress);
+        return new NicheDiscoveryOriginRoute(
+            true, apiKey, baseAddress, _options.Value.SamplingRegions, _options.Value.MaxCategoriesPerRegion);
     }
 }
 
-/// <summary>Resolved YouTube Data API v3 route: configured origin address + key, or Unconfigured.</summary>
-internal sealed record NicheDiscoveryOriginRoute(bool IsConfigured, string? ApiKey, string? BaseAddress)
+/// <summary>
+/// Resolved YouTube Data API v3 route: configured origin address + key, or Unconfigured.
+///
+/// <see cref="SamplingRegions"/> rides on the ROUTE rather than on the query so that region codes never
+/// cross into Application or Domain. The query-less chart is region-addressed at the provider, and
+/// that constraint stays where the provider lives.
+/// </summary>
+internal sealed record NicheDiscoveryOriginRoute(
+    bool IsConfigured,
+    string? ApiKey,
+    string? BaseAddress,
+    IReadOnlyList<string>? SamplingRegions = null,
+    int? MaxCategoriesPerRegion = null)
 {
     internal static readonly NicheDiscoveryOriginRoute Unconfigured = new(false, null, null);
+
+    internal IReadOnlyList<string> Regions => SamplingRegions ?? [];
+
+    /// <summary>Applies the per-region category cap, if one is configured.</summary>
+    internal IReadOnlyList<T> CapCategories<T>(IReadOnlyList<T> categories) =>
+        MaxCategoriesPerRegion is int cap && cap > 0 && categories.Count > cap
+            ? categories.Take(cap).ToList()
+            : categories;
 }

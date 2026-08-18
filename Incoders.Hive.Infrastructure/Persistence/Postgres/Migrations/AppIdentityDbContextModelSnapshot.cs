@@ -2134,9 +2134,18 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("comments");
 
+                    b.Property<string>("Country")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("country");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
 
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("integer")
@@ -2220,9 +2229,9 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.HasIndex("OpportunityId")
                         .HasDatabaseName("ix_niche_discovery_evidence_opportunity_id");
 
-                    b.HasIndex("RunId", "EvidenceKind", "ExternalRef")
+                    b.HasIndex("RunId", "OpportunityId", "EvidenceKind", "ExternalRef")
                         .IsUnique()
-                        .HasDatabaseName("ux_niche_discovery_evidence_run_kind_ref");
+                        .HasDatabaseName("ux_niche_discovery_evidence_run_opportunity_kind_ref");
 
                     b.ToTable("niche_discovery_evidence", "social");
                 });
@@ -2325,6 +2334,10 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.Property<double?>("TargetMarketGap")
                         .HasColumnType("double precision")
                         .HasColumnName("target_market_gap");
+
+                    b.Property<double?>("TargetMarketRawDemand")
+                        .HasColumnType("double precision")
+                        .HasColumnName("target_market_raw_demand");
 
                     b.PrimitiveCollection<List<string>>("TopicLabels")
                         .IsRequired()

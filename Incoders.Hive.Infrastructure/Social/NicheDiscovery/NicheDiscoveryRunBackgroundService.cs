@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
+﻿using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -77,6 +77,39 @@ public sealed class NicheDiscoveryRunBackgroundService : BackgroundService
                 "NicheDiscovery run worker: UNHANDLED EXCEPTION on run {RunId} (org {OrganizationId}).",
                 runId.Value,
                 organizationId);
+
+            await MarkFailedAsync(organizationId, runId, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Drives the run to a TERMINAL state after an escaped exception. Without this the run stays
+    /// Running forever: the operator sees a progress indicator that never resolves and reads a crash as
+    /// a slow job. Uses its OWN scope — the scope that threw may hold a poisoned DbContext.
+    /// </summary>
+    private async Task MarkFailedAsync(
+        Guid organizationId, Domain.Social.NicheDiscovery.DiscoveryRunId runId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var runs = scope.ServiceProvider.GetRequiredService<Application.Abstractions.Social.NicheDiscovery.IDiscoveryRunRepository>();
+            var clock = scope.ServiceProvider.GetRequiredService<Application.Abstractions.IClock>();
+
+            var run = await runs.GetByIdAsync(organizationId, runId, cancellationToken);
+            if (run is null || run.Status != Domain.Social.NicheDiscovery.DiscoveryRunStatus.Running)
+            {
+                return;
+            }
+
+            run.Fail(Domain.Social.NicheDiscovery.NicheDiscoveryErrors.RunProcessingFailed.Code, clock.UtcNow);
+            await runs.UpdateAsync(run, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Never let the failure-recording path take the worker loop down with it.
+            _logger.LogError(
+                ex, "NicheDiscovery run worker: could not mark run {RunId} as failed.", runId.Value);
         }
     }
 }

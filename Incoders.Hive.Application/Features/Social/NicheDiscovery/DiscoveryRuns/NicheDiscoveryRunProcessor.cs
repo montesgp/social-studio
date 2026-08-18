@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
@@ -37,11 +37,13 @@ namespace Incoders.Hive.Application.Features.Social.NicheDiscovery.DiscoveryRuns
 /// <item><description><see cref="OpportunityInput.ViralPerformance"/> = the average of the cluster's
 /// non-null per-channel <c>OutlierDensity</c> values (design §7.1 names the metric, not the per-cluster
 /// reduction across possibly several channels).</description></item>
-/// <item><description><see cref="OpportunityInput.MonetizationPotential"/> reuses
-/// <see cref="TargetMarketEvaluation.TargetMarketCompetitionValue"/> — design §7.1 describes its source
-/// as "channel subscriber/view deciles in target.Language", which is EXACTLY
-/// <see cref="TargetMarketCompetition"/>'s own already-computed formula; a second, parallel decile
-/// computation would duplicate it for no semantic difference this MVP can articulate.</description></item>
+/// <item><description><see cref="OpportunityInput.MonetizationPotential"/> is NOT REPORTED. It formerly
+/// reused <see cref="TargetMarketEvaluation.TargetMarketCompetitionValue"/>, which meant a signal named
+/// "monetization" carried competition and nothing else — an operator reading the dashboard would take it
+/// for revenue potential. Revenue needs data this provider does not expose (CPM by category and country,
+/// advertiser density, sponsorship presence), so it is left <c>null</c>: renormalized out of the
+/// denominator and listed in <see cref="ScoredOpportunity.ExcludedSignals"/>, saying "not measured"
+/// rather than measuring the wrong thing.</description></item>
 /// <item><description><see cref="OpportunityInput.AutomationSuitability"/> is computed ONCE PER RUN
 /// (not per cluster) from <see cref="SemanticAnnotation.FormatTraitLabels"/>, because WU-10 built that
 /// list as run-flat, not cluster-scoped. A closed, authored weight table maps each recognized
@@ -195,7 +197,13 @@ public sealed class NicheDiscoveryRunProcessor : INicheDiscoveryRunProcessor
                 TargetMarketGap: marketEvaluation.TargetMarketGapValue,
                 AutomationSuitability: automationSuitability,
                 EvergreenPotential: metrics.EvergreenShare.Value,
-                MonetizationPotential: marketEvaluation.TargetMarketCompetitionValue));
+                // NOT SUPPORTED YET, and deliberately null rather than a stand-in: this used to be fed
+                // TargetMarketCompetition, so a signal named "monetization" reported competition and
+                // nothing else. Revenue needs data this provider does not expose (CPM by category and
+                // country, advertiser density, sponsorship presence). Null renormalizes it out of the
+                // denominator and surfaces it in ExcludedSignals, which says "not measured" instead of
+                // quietly measuring the wrong thing.
+                MonetizationPotential: null));
 
             sampleShapes.Add(BuildSampleShape(clusterEvidence, ranKeys.Count, nowUtc));
         }
@@ -207,7 +215,12 @@ public sealed class NicheDiscoveryRunProcessor : INicheDiscoveryRunProcessor
             confidenceByKey[opportunityInputs[i].ExternalRef] = confidenceScores[i];
         }
 
-        var scored = NicheOpportunityScorer.Score(opportunityInputs, weights, nowOffset);
+        // Ranked by score inside the scorer, so taking the head keeps the best candidates. The cut is an
+        // OUTPUT ceiling: the provider calls are already paid for by now. A sweep over a broad corpus can
+        // propose hundreds of clusters, and a list the operator cannot read end to end is not a result.
+        var scored = NicheOpportunityScorer.Score(opportunityInputs, weights, nowOffset)
+            .Take(budget.MaxOpportunities)
+            .ToList();
 
         var opportunityRecords = new List<NicheOpportunityRecord>(scored.Count);
         var evidenceRecords = new List<NicheDiscoveryEvidenceRecord>();
@@ -246,6 +259,9 @@ public sealed class NicheDiscoveryRunProcessor : INicheDiscoveryRunProcessor
                 TargetMarketDemand: marketEvaluation.TargetMarketDemandValue,
                 TargetMarketCompetition: marketEvaluation.TargetMarketCompetitionValue,
                 TargetMarketGap: marketEvaluation.TargetMarketGapValue,
+                // Persisted as CONTEXT, deliberately not fed into OpportunityInput: it is an absolute
+                // magnitude, and mixing it into a set-relative score would make the score meaningless.
+                TargetMarketRawDemand: marketEvaluation.TargetMarketRawDemand,
                 AutomationSuitability: automationSuitability,
                 ChannelSampleSize: clusterEvidence.Channels.Count,
                 VideoSampleSize: clusterEvidence.Videos.Count,
@@ -255,16 +271,28 @@ public sealed class NicheDiscoveryRunProcessor : INicheDiscoveryRunProcessor
             evidenceRecords.AddRange(clusterEvidence.Channels.Select(c => new NicheDiscoveryEvidenceRecord(
                 Id: Guid.NewGuid(), RunId: run.Id.Value, OpportunityId: opportunityId, OrganizationId: organizationId,
                 EvidenceKind: NicheDiscoveryEvidenceKind.Channel, ExternalRef: c.ExternalRef, ChannelHandle: c.Handle,
-                Title: c.Handle, ThumbnailUrl: null, PublishedAtUtc: c.CreatedAtUtc, Views: null, Likes: null,
+                Title: c.Handle, ThumbnailUrl: c.ThumbnailUrl, Description: c.Description,
+                PublishedAtUtc: c.CreatedAtUtc, Views: null, Likes: null,
                 Comments: null, SubscriberCount: c.SubscriberCount, TotalViews: c.TotalViews, VideoCount: c.VideoCount,
-                DurationSeconds: null, LanguageCode: c.LanguageCode, SourceKey: c.SourceKey, ObservedAtUtc: nowOffset)));
+                DurationSeconds: null, LanguageCode: c.LanguageCode, Country: c.Country, SourceKey: c.SourceKey,
+                ObservedAtUtc: nowOffset)));
+
+            // A video carries no country of its own — the provider reports it per channel — so it
+            // inherits its owning channel's, staying null when that channel is absent or unreported.
+            var countryByChannelRef = clusterEvidence.Channels
+                .Where(c => c.Country is not null)
+                .GroupBy(c => c.ExternalRef, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First().Country, StringComparer.Ordinal);
 
             evidenceRecords.AddRange(clusterEvidence.Videos.Select(v => new NicheDiscoveryEvidenceRecord(
                 Id: Guid.NewGuid(), RunId: run.Id.Value, OpportunityId: opportunityId, OrganizationId: organizationId,
                 EvidenceKind: NicheDiscoveryEvidenceKind.Video, ExternalRef: v.ExternalRef, ChannelHandle: v.ChannelExternalRef,
-                Title: v.Title, ThumbnailUrl: null, PublishedAtUtc: v.PublishedAtUtc, Views: v.Views, Likes: v.Likes,
+                Title: v.Title, ThumbnailUrl: null, Description: null,
+                PublishedAtUtc: v.PublishedAtUtc, Views: v.Views, Likes: v.Likes,
                 Comments: v.Comments, SubscriberCount: null, TotalViews: null, VideoCount: null,
-                DurationSeconds: v.DurationSeconds, LanguageCode: v.LanguageCode, SourceKey: v.SourceKey, ObservedAtUtc: nowOffset)));
+                DurationSeconds: v.DurationSeconds, LanguageCode: v.LanguageCode,
+                Country: countryByChannelRef.GetValueOrDefault(v.ChannelExternalRef), SourceKey: v.SourceKey,
+                ObservedAtUtc: nowOffset)));
         }
 
         if (opportunityRecords.Count > 0)
@@ -313,11 +341,24 @@ public sealed class NicheDiscoveryRunProcessor : INicheDiscoveryRunProcessor
         var ran = new HashSet<string>(StringComparer.Ordinal);
         var failureReasonKeys = new List<string>();
 
-        var channelSearch = await _chain.RunStageAsync(BuildQuery(run, DiscoveryStage.ChannelSearch, seedTerms, [], []), ledger, ct);
-        Accumulate(channelSearch, channels, videos, unconfigured, failed, ran, failureReasonKeys);
+        // Seed terms make this "confirm the niche I already named"; their ABSENCE is the discovery
+        // case, and the two are different sourcing strategies rather than one with an empty argument.
+        // Searching with no term harvests nothing, which is why an empty-handed run used to complete
+        // with zero evidence.
+        if (seedTerms.Count == 0)
+        {
+            var sweep = await _chain.RunStageAsync(
+                BuildQuery(run, DiscoveryStage.TrendingSweep, [], [], []), ledger, ct);
+            Accumulate(sweep, channels, videos, unconfigured, failed, ran, failureReasonKeys);
+        }
+        else
+        {
+            var channelSearch = await _chain.RunStageAsync(BuildQuery(run, DiscoveryStage.ChannelSearch, seedTerms, [], []), ledger, ct);
+            Accumulate(channelSearch, channels, videos, unconfigured, failed, ran, failureReasonKeys);
 
-        var videoSearch = await _chain.RunStageAsync(BuildQuery(run, DiscoveryStage.VideoSearch, seedTerms, [], []), ledger, ct);
-        Accumulate(videoSearch, channels, videos, unconfigured, failed, ran, failureReasonKeys);
+            var videoSearch = await _chain.RunStageAsync(BuildQuery(run, DiscoveryStage.VideoSearch, seedTerms, [], []), ledger, ct);
+            Accumulate(videoSearch, channels, videos, unconfigured, failed, ran, failureReasonKeys);
+        }
 
         var knownChannelRefs = channels.Select(c => c.ExternalRef).ToHashSet(StringComparer.Ordinal);
         var missingChannelRefs = videos

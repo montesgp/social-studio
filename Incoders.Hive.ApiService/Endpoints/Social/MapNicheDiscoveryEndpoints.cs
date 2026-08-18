@@ -1,4 +1,4 @@
-using Incoders.Hive.ApiService.Endpoints.Common;
+﻿using Incoders.Hive.ApiService.Endpoints.Common;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Abstractions.Tenancy;
@@ -51,6 +51,11 @@ public static class NicheDiscoveryEndpointsExtensions
             .WithSummary("Get one opportunity's detail plus its navigable channel/video evidence")
             .Produces<OpportunityDetailResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/runs", NicheDiscoveryEndpointFacade.ListRunsAsync)
+            .WithName("ListDiscoveryRuns")
+            .WithSummary("List this organization's discovery-run history, newest first")
+            .Produces<DiscoveryRunHistoryResponse>(StatusCodes.Status200OK);
 
         group.MapGet("/markets", NicheDiscoveryEndpointFacade.ListMarketsAsync)
             .WithName("ListNicheDiscoveryMarkets")
@@ -138,6 +143,24 @@ internal static class NicheDiscoveryEndpointFacade
         }
 
         var result = await sender.Send(new GetOpportunityDetailQuery(tenantId.Value, opportunityId), cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    internal static async Task<IResult> ListRunsAsync(
+        ISender sender,
+        ICurrentTenant currentTenant,
+        [FromQuery] int? limit,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } tenantId)
+        {
+            return NicheDiscoveryErrors.OrganizationRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new ListDiscoveryRunsQuery(tenantId.Value, limit ?? ListDiscoveryRunsHandler.DefaultLimit),
+            cancellationToken);
 
         return result.Match(response => (IResult)TypedResults.Ok(response));
     }

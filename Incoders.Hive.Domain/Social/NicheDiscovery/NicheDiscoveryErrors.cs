@@ -1,4 +1,4 @@
-using Incoders.Hive.Domain.Common;
+﻿using Incoders.Hive.Domain.Common;
 
 namespace Incoders.Hive.Domain.Social.NicheDiscovery;
 
@@ -50,6 +50,15 @@ public static class NicheDiscoveryErrors
     public static readonly Error OriginUnconfigured = Error.Failure(
         "social.niche_discovery.origin_unconfigured",
         "social.niche_discovery.errors.origin_unconfigured");
+
+    /// <summary>
+    /// An exception escaped the processor entirely. Recorded so the run reaches a TERMINAL state: a run
+    /// left in <see cref="DiscoveryRunStatus.Running"/> is polled forever by the UI and looks like a slow
+    /// run rather than a broken one.
+    /// </summary>
+    public static readonly Error RunProcessingFailed = Error.Failure(
+        "social.niche_discovery.run_processing_failed",
+        "social.niche_discovery.errors.run_processing_failed");
 
     public static readonly Error ProviderQuotaExhausted = Error.Failure(
         "social.niche_discovery.provider_quota_exhausted",

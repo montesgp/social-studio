@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
+﻿using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -28,26 +28,28 @@ public sealed class EfNicheDiscoveryEvidenceRepository : INicheDiscoveryEvidence
             return;
         }
 
-        var incomingKeys = evidence.Select(e => (e.RunId, e.EvidenceKind, e.ExternalRef)).ToList();
+        var incomingKeys = evidence.Select(e => (e.RunId, e.OpportunityId, e.EvidenceKind, e.ExternalRef)).ToList();
         if (incomingKeys.Distinct().Count() != incomingKeys.Count)
         {
             throw new InvalidOperationException(
-                "Duplicate (run_id, evidence_kind, external_ref) inside one AppendAsync call — a hard error under ux_niche_discovery_evidence_run_kind_ref.");
+                "Duplicate (run_id, opportunity_id, evidence_kind, external_ref) inside one AppendAsync call — "
+                + "a hard error under ux_niche_discovery_evidence_run_opportunity_kind_ref.");
         }
 
         var runIds = evidence.Select(e => e.RunId).Distinct().ToList();
         var existingKeys = await _db.NicheDiscoveryEvidence
             .Where(x => runIds.Contains(x.RunId))
-            .Select(x => new { x.RunId, x.EvidenceKind, x.ExternalRef })
+            .Select(x => new { x.RunId, x.OpportunityId, x.EvidenceKind, x.ExternalRef })
             .ToListAsync(ct);
         var existingKeySet = existingKeys
-            .Select(x => (x.RunId, (NicheDiscoveryEvidenceKind)x.EvidenceKind, x.ExternalRef))
+            .Select(x => (x.RunId, x.OpportunityId, (NicheDiscoveryEvidenceKind)x.EvidenceKind, x.ExternalRef))
             .ToHashSet();
 
         if (incomingKeys.Any(existingKeySet.Contains))
         {
             throw new InvalidOperationException(
-                "Duplicate (run_id, evidence_kind, external_ref) against already-persisted evidence — a hard error under ux_niche_discovery_evidence_run_kind_ref.");
+                "Duplicate (run_id, opportunity_id, evidence_kind, external_ref) against already-persisted evidence — "
+                + "a hard error under ux_niche_discovery_evidence_run_opportunity_kind_ref.");
         }
 
         foreach (var item in evidence)
@@ -80,6 +82,7 @@ public sealed class EfNicheDiscoveryEvidenceRepository : INicheDiscoveryEvidence
         ChannelHandle = r.ChannelHandle,
         Title = r.Title,
         ThumbnailUrl = r.ThumbnailUrl,
+        Description = r.Description,
         PublishedAt = r.PublishedAtUtc?.UtcDateTime,
         Views = r.Views,
         Likes = r.Likes,
@@ -89,6 +92,7 @@ public sealed class EfNicheDiscoveryEvidenceRepository : INicheDiscoveryEvidence
         VideoCount = r.VideoCount,
         DurationSeconds = r.DurationSeconds,
         LanguageCode = r.LanguageCode,
+        Country = r.Country,
         SourceKey = r.SourceKey,
         ObservedAt = r.ObservedAtUtc.UtcDateTime,
         CreatedAt = DateTime.UtcNow,
@@ -104,6 +108,7 @@ public sealed class EfNicheDiscoveryEvidenceRepository : INicheDiscoveryEvidence
         ChannelHandle: e.ChannelHandle,
         Title: e.Title,
         ThumbnailUrl: e.ThumbnailUrl,
+        Description: e.Description,
         PublishedAtUtc: e.PublishedAt is null ? null : new DateTimeOffset(e.PublishedAt.Value, TimeSpan.Zero),
         Views: e.Views,
         Likes: e.Likes,
@@ -113,6 +118,7 @@ public sealed class EfNicheDiscoveryEvidenceRepository : INicheDiscoveryEvidence
         VideoCount: e.VideoCount,
         DurationSeconds: e.DurationSeconds,
         LanguageCode: e.LanguageCode,
+        Country: e.Country,
         SourceKey: e.SourceKey,
         ObservedAtUtc: new DateTimeOffset(e.ObservedAt, TimeSpan.Zero));
 }

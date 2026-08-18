@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions;
+﻿using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Features.Social.NicheDiscovery.DiscoveryRuns;
@@ -19,6 +19,175 @@ public sealed class NicheDiscoveryRunProcessorTests
     private static readonly Guid Org = Guid.NewGuid();
     private static readonly Guid User = Guid.NewGuid();
     private static readonly DateTime Now = new(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc);
+
+    /// <summary>
+    /// Discovery is partitioned by language, so the run itself cannot say WHERE a niche lives. The
+    /// provider reports the channel's country, and the operator reviewing an opportunity by hand needs
+    /// it — so it must reach the persisted evidence instead of being dropped at the boundary.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_CarriesTheProviderReportedChannelCountryOntoChannelEvidence()
+    {
+        var run = CreateRun();
+        var evidenceRepo = new FakeEvidenceRepository();
+        var processor = BuildProcessor(
+            new FakeRunRepository(run), [FakeSource.Configured("youtube-data-api", Evidence(distinctChannels: 3))],
+            FakeGateway.Success(), new FakeOpportunityRepository(), evidenceRepo);
+
+        await processor.RunAsync(Org, run.Id, CancellationToken.None);
+
+        var channelRows = evidenceRepo.Appended
+            .Where(e => e.EvidenceKind == NicheDiscoveryEvidenceKind.Channel)
+            .ToList();
+
+        Assert.NotEmpty(channelRows);
+        Assert.All(channelRows, row => Assert.Equal("AR", row.Country));
+    }
+
+    /// <summary>
+    /// A video row has no country of its own — the provider reports it per channel — so it inherits its
+    /// OWNING channel's country rather than being left blank on a row the operator is looking at.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_VideoEvidenceInheritsItsOwningChannelsCountry()
+    {
+        var run = CreateRun();
+        var evidenceRepo = new FakeEvidenceRepository();
+        var processor = BuildProcessor(
+            new FakeRunRepository(run), [FakeSource.Configured("youtube-data-api", Evidence(distinctChannels: 3))],
+            FakeGateway.Success(), new FakeOpportunityRepository(), evidenceRepo);
+
+        await processor.RunAsync(Org, run.Id, CancellationToken.None);
+
+        var videoRows = evidenceRepo.Appended
+            .Where(e => e.EvidenceKind == NicheDiscoveryEvidenceKind.Video)
+            .ToList();
+
+        Assert.NotEmpty(videoRows);
+        Assert.All(videoRows, row => Assert.Equal("AR", row.Country));
+    }
+
+    /// <summary>
+    /// The discovery case: with no seed terms the processor must run the query-less sweep, NOT the
+    /// search stages. Searching without a term harvests nothing, which is exactly how a run used to
+    /// complete with zero evidence while looking successful.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_WithoutSeedTerms_RunsTheTrendingSweep_NotTheSearchStages()
+    {
+        var run = CreateRun(seedTerms: []);
+        var source = new StageRecordingSource(Evidence(distinctChannels: 3));
+        var processor = BuildProcessor(
+            new FakeRunRepository(run), [source], FakeGateway.Success(),
+            new FakeOpportunityRepository(), new FakeEvidenceRepository());
+
+        await processor.RunAsync(Org, run.Id, CancellationToken.None);
+
+        Assert.Contains(DiscoveryStage.TrendingSweep, source.ObservedStages);
+        Assert.DoesNotContain(DiscoveryStage.ChannelSearch, source.ObservedStages);
+        Assert.DoesNotContain(DiscoveryStage.VideoSearch, source.ObservedStages);
+    }
+
+    /// <summary>Given seed terms, the operator asked a targeted question — the sweep must not run.</summary>
+    [Fact]
+    public async Task RunAsync_WithSeedTerms_RunsTheSearchStages_NotTheSweep()
+    {
+        var run = CreateRun();
+        var source = new StageRecordingSource(Evidence(distinctChannels: 3));
+        var processor = BuildProcessor(
+            new FakeRunRepository(run), [source], FakeGateway.Success(),
+            new FakeOpportunityRepository(), new FakeEvidenceRepository());
+
+        await processor.RunAsync(Org, run.Id, CancellationToken.None);
+
+        Assert.Contains(DiscoveryStage.ChannelSearch, source.ObservedStages);
+        Assert.DoesNotContain(DiscoveryStage.TrendingSweep, source.ObservedStages);
+    }
+
+    [Fact]
+    public async Task RunAsync_WithoutSeedTerms_StillProducesRankedOpportunities()
+    {
+        var run = CreateRun(seedTerms: []);
+        var opportunityRepo = new FakeOpportunityRepository();
+        var processor = BuildProcessor(
+            new FakeRunRepository(run), [new StageRecordingSource(Evidence(distinctChannels: 3))],
+            FakeGateway.Success(), opportunityRepo, new FakeEvidenceRepository());
+
+        await processor.RunAsync(Org, run.Id, CancellationToken.None);
+
+        Assert.NotEmpty(opportunityRepo.Appended);
+    }
+
+    /// <summary>Records which stages it was asked for, and answers every one with the same evidence.</summary>
+    private sealed class StageRecordingSource : INicheDiscoverySource
+    {
+        private readonly EvidenceSet _evidence;
+
+        public StageRecordingSource(EvidenceSet evidence) => _evidence = evidence;
+
+        public List<DiscoveryStage> ObservedStages { get; } = [];
+
+        public string SourceKey => "youtube-data-api";
+
+        public int Order => 1;
+
+        public bool Supports(DiscoveryStage stage) => true;
+
+        public Task<NicheDiscoverySourceResult> DiscoverAsync(
+            NicheDiscoveryQuery query, DiscoveryBudget budget, CancellationToken ct = default)
+        {
+            ObservedStages.Add(query.Stage);
+
+            return Task.FromResult(query.Stage switch
+            {
+                DiscoveryStage.TrendingSweep or DiscoveryStage.VideoSearch =>
+                    NicheDiscoverySourceResult.Ran([], _evidence.Videos, new BudgetSpend(1, 0)),
+                DiscoveryStage.ChannelSearch or DiscoveryStage.ChannelDetail =>
+                    NicheDiscoverySourceResult.Ran(_evidence.Channels, [], new BudgetSpend(1, 0)),
+                _ => NicheDiscoverySourceResult.Ran([], [], new BudgetSpend(0, 0)),
+            });
+        }
+    }
+
+    /// <summary>
+    /// A sweep over a broad corpus proposed 387 clusters on the first live run — a list nobody reviews is
+    /// the same as no list. The cut is applied AFTER ranking, so what survives is the best, not the first
+    /// the annotator happened to emit.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_PersistsAtMostTheDepthsOpportunityCeiling()
+    {
+        var run = CreateRun(depth: DiscoveryDepth.Quick);
+        var opportunityRepo = new FakeOpportunityRepository();
+        var processor = BuildProcessor(
+            new FakeRunRepository(run), [FakeSource.Configured("youtube-data-api", WideEvidence(ClusterCount))],
+            FakeGateway.SuccessWithClusters(WideClusters(ClusterCount)), opportunityRepo, new FakeEvidenceRepository());
+
+        await processor.RunAsync(Org, run.Id, CancellationToken.None);
+
+        var ceiling = DiscoveryBudget.ForDepth(DiscoveryDepth.Quick).MaxOpportunities;
+
+        // EQUAL, not just "within": the fixture proposes ClusterCount clusters precisely so the cut has
+        // to bite. An InRange here would pass even if clustering silently produced two opportunities.
+        Assert.True(ClusterCount > ceiling, "Fixture must propose more clusters than the ceiling.");
+        Assert.Equal(ceiling, opportunityRepo.Appended.Count);
+    }
+
+    [Fact]
+    public async Task RunAsync_KeepsTheHighestScoringOpportunities_WhenTheCeilingCuts()
+    {
+        var run = CreateRun(depth: DiscoveryDepth.Quick);
+        var opportunityRepo = new FakeOpportunityRepository();
+        var processor = BuildProcessor(
+            new FakeRunRepository(run), [FakeSource.Configured("youtube-data-api", WideEvidence(ClusterCount))],
+            FakeGateway.SuccessWithClusters(WideClusters(ClusterCount)), opportunityRepo, new FakeEvidenceRepository());
+
+        await processor.RunAsync(Org, run.Id, CancellationToken.None);
+
+        var scores = opportunityRepo.Appended.Select(o => o.OpportunityScore).ToList();
+        Assert.Equal(scores.OrderByDescending(x => x).ToList(), scores);
+        Assert.Equal(Enumerable.Range(1, scores.Count), opportunityRepo.Appended.Select(o => o.Rank));
+    }
 
     [Fact]
     public async Task RunAsync_HappyPath_SourcesAnalysesScoresAndPersistsAppendOnly_ThenCompletes()
@@ -318,7 +487,7 @@ public sealed class NicheDiscoveryRunProcessorTests
             var i = index + channelOffset;
             var channelRef = $"channel-{i}";
             channels.Add(new ChannelEvidence(channelRef, $"handle-{i}", "AR", 5000 + i * 100, 500000, 80, "es",
-                Now.AddYears(-2), "youtube-data-api"));
+                Now.AddYears(-2), null, null, "youtube-data-api"));
 
             var baseViews = 10000 + i * 500;
 
@@ -346,13 +515,40 @@ public sealed class NicheDiscoveryRunProcessorTests
         FakeEvidenceRepository evidenceRepo) =>
         new(runRepo, sources, ai, opportunityRepo, evidenceRepo, new FakeClock(Now));
 
-    private static DiscoveryRun CreateRun()
+    /// <summary>More clusters than any depth ceiling allows, so the cut is actually exercised.</summary>
+    private const int ClusterCount = 40;
+
+    private static EvidenceSet WideEvidence(int clusters)
     {
-        var seedTermsJson = new DiscoveryRunConfigurationSnapshot(["budget travel"]).ToJson();
+        var channels = new List<ChannelEvidence>();
+        var videos = new List<VideoEvidence>();
+
+        for (var i = 0; i < clusters; i++)
+        {
+            channels.Add(new ChannelEvidence(
+                $"channel-{i}", $"handle-{i}", "AR", 5000 + i * 100, 500000 + i, 80, "es",
+                Now.AddYears(-2), null, null, "youtube-data-api"));
+            videos.Add(new VideoEvidence(
+                $"video-{i}", $"channel-{i}", $"Topic {i}", $"about topic {i}",
+                Now.AddDays(-1), 10000 + i * 500, 200, 30, 480, "es", "youtube-data-api"));
+        }
+
+        return new EvidenceSet(channels, videos);
+    }
+
+    private static (string Label, IReadOnlyList<string> VideoRefs)[] WideClusters(int clusters) =>
+        Enumerable.Range(0, clusters)
+            .Select(i => ($"topic-{i}", (IReadOnlyList<string>)new[] { $"video-{i}" }))
+            .ToArray();
+
+    private static DiscoveryRun CreateRun(
+        IReadOnlyList<string>? seedTerms = null, DiscoveryDepth depth = DiscoveryDepth.Standard)
+    {
+        var seedTermsJson = new DiscoveryRunConfigurationSnapshot(seedTerms ?? ["budget travel"]).ToJson();
 
         var result = DiscoveryRun.Create(
             Org, User, "es-AR", "pt-BR", "youtube", "video",
-            DiscoveryWindow.Default(), DiscoveryDepth.Standard, seedTermsJson, nicheId: null, Now);
+            DiscoveryWindow.Default(), depth, seedTermsJson, nicheId: null, Now);
 
         Assert.True(result.IsSuccess);
         return result.Value;
@@ -369,7 +565,7 @@ public sealed class NicheDiscoveryRunProcessorTests
         {
             var channelRef = $"channel-{i}";
             channels.Add(new ChannelEvidence(channelRef, $"handle-{i}", "AR", 5000 + i * 100, 500000, 80, "es",
-                Now.AddYears(-2), "youtube-data-api"));
+                Now.AddYears(-2), null, null, "youtube-data-api"));
             videos.Add(new VideoEvidence($"video-{i}", channelRef, "Budget Travel Guide", "budget travel tips",
                 Now.AddDays(-1), 10000 + i * 500, 200, 30, 480, "es", "youtube-data-api"));
         }
@@ -403,6 +599,10 @@ public sealed class NicheDiscoveryRunProcessorTests
 
         public Task<DiscoveryRun?> GetByIdAsync(Guid organizationId, DiscoveryRunId id, CancellationToken ct = default) =>
             Task.FromResult(Runs.TryGetValue(id, out var run) && run.OrganizationId == organizationId ? run : null);
+
+        public Task<IReadOnlyList<DiscoveryRun>> ListByOrganizationAsync(Guid organizationId, int limit, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<DiscoveryRun>>(
+                Runs.Values.Where(r => r.OrganizationId == organizationId).Take(limit).ToList());
     }
 
     private sealed class FakeSource : INicheDiscoverySource

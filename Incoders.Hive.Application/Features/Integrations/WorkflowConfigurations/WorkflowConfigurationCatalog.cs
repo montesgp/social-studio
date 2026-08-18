@@ -261,7 +261,7 @@ public static class WorkflowConfigurationCatalog
                             "channels in the target niche/market.",
                             RequiresNetwork: true,
                             SupportedNetworkKeys: ["youtube"],
-                            AllowedProviderCategories: [IntegrationProviderCategory.OfficialDataApi, IntegrationProviderCategory.DataExtraction],
+                            AllowedProviderCategories: [IntegrationProviderCategory.DataExtraction],
                             AllowedProviderKeys: [],
                             SupportsModelSelection: false,
                             SupportsActorSelection: true,
@@ -275,7 +275,7 @@ public static class WorkflowConfigurationCatalog
                             "videos in the target niche/market.",
                             RequiresNetwork: true,
                             SupportedNetworkKeys: ["youtube"],
-                            AllowedProviderCategories: [IntegrationProviderCategory.OfficialDataApi, IntegrationProviderCategory.DataExtraction],
+                            AllowedProviderCategories: [IntegrationProviderCategory.DataExtraction],
                             AllowedProviderKeys: [],
                             SupportsModelSelection: false,
                             SupportsActorSelection: true,
@@ -289,7 +289,7 @@ public static class WorkflowConfigurationCatalog
                             "channels with subscriber/view statistics.",
                             RequiresNetwork: true,
                             SupportedNetworkKeys: ["youtube"],
-                            AllowedProviderCategories: [IntegrationProviderCategory.OfficialDataApi, IntegrationProviderCategory.DataExtraction],
+                            AllowedProviderCategories: [IntegrationProviderCategory.DataExtraction],
                             AllowedProviderKeys: [],
                             SupportsModelSelection: false,
                             SupportsActorSelection: true,
@@ -303,11 +303,26 @@ public static class WorkflowConfigurationCatalog
                             "videos with statistics and content details.",
                             RequiresNetwork: true,
                             SupportedNetworkKeys: ["youtube"],
-                            AllowedProviderCategories: [IntegrationProviderCategory.OfficialDataApi, IntegrationProviderCategory.DataExtraction],
+                            AllowedProviderCategories: [IntegrationProviderCategory.DataExtraction],
                             AllowedProviderKeys: [],
                             SupportsModelSelection: false,
                             SupportsActorSelection: true,
-                            ActorVariantKey: "video-detail")
+                            ActorVariantKey: "video-detail"),
+                        new(
+                            "trending-sweep",
+                            "Sweep what is already performing",
+                            "trending-sweep",
+                            "Trending sweep",
+                            "Choose the provider used to discover niches WITHOUT a search term: it walks the " +
+                            "region's category taxonomy and harvests what is already performing, letting the " +
+                            "niches emerge from the results. Required for any run started with no seed terms.",
+                            RequiresNetwork: true,
+                            SupportedNetworkKeys: ["youtube"],
+                            AllowedProviderCategories: [IntegrationProviderCategory.DataExtraction],
+                            AllowedProviderKeys: [],
+                            SupportsModelSelection: false,
+                            SupportsActorSelection: true,
+                            ActorVariantKey: "trending-sweep")
                     ])
             ])
     ];

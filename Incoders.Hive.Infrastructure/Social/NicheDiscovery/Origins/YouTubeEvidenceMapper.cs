@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using System.Xml;
 using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
@@ -153,7 +153,33 @@ internal static class YouTubeEvidenceMapper
             videoCount,
             languageCode,
             createdAt,
+            GetThumbnailUrl(snippet),
+            GetString(snippet, "description"),
             sourceKey);
+    }
+
+    /// <summary>
+    /// Best available avatar, largest first. The provider omits sizes for some channels, so each tier is
+    /// probed rather than assumed; nothing is synthesised when none is present.
+    /// </summary>
+    private static string? GetThumbnailUrl(JsonElement snippet)
+    {
+        if (!snippet.TryGetProperty("thumbnails", out var thumbnails) || thumbnails.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        foreach (var size in (string[])["high", "medium", "default"])
+        {
+            if (thumbnails.TryGetProperty(size, out var tier)
+                && tier.ValueKind == JsonValueKind.Object
+                && GetString(tier, "url") is { } url)
+            {
+                return url;
+            }
+        }
+
+        return null;
     }
 
     private static bool HasHiddenStatistics(JsonElement statistics, string flagName) =>

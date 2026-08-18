@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
+﻿using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Features.Social.NicheDiscovery.DiscoveryRuns;
 using Incoders.Hive.Domain.Social.NicheDiscovery;
 
@@ -104,7 +104,7 @@ public sealed class NicheDiscoverySourceChainTests
         Org, stage, "youtube", "video", "es", DiscoveryWindow.Default(), ["term"], [], []);
 
     private static ChannelEvidence Channel(string externalRef) =>
-        new(externalRef, "handle", "AR", 1000, 100000, 50, "es", DateTimeOffset.UtcNow.AddYears(-2), "fake");
+        new(externalRef, "handle", "AR", 1000, 100000, 50, "es", DateTimeOffset.UtcNow.AddYears(-2), null, null, "fake");
 
     private static VideoEvidence Video(string externalRef, string channelExternalRef) =>
         new(externalRef, channelExternalRef, "title", "description", DateTimeOffset.UtcNow.AddDays(-1),

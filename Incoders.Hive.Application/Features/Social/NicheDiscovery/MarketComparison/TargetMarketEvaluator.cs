@@ -23,7 +23,18 @@ public sealed record TargetMarketEvaluation(
     double? SourceMarketTraction,
     double? TargetMarketDemandValue,
     double? TargetMarketCompetitionValue,
-    double? TargetMarketGapValue);
+    double? TargetMarketGapValue,
+    /// <summary>
+    /// Target-market demand BEFORE run-normalization — the raw median VelocityProxy, in the same units
+    /// as <see cref="SourceMarketTraction"/>.
+    ///
+    /// <see cref="TargetMarketDemandValue"/> is normalized within the run, so it answers "which of
+    /// these candidates is strongest", never "is this market big enough". In a run where every cluster
+    /// is weak, the least weak still normalizes near 1.0. This value is the only one carrying absolute
+    /// magnitude, and it is what an absolute-viability rule — the kind that catches a market with no
+    /// consumers rather than merely no competitors — has to read.
+    /// </summary>
+    double? TargetMarketRawDemand);
 
 /// <summary>
 /// Market comparison (ND-08, design §4). Pure, I/O-free: every input is already-normalized evidence
@@ -56,9 +67,11 @@ public static class TargetMarketEvaluator
         for (var i = 0; i < clusters.Count; i++)
         {
             var traction = TargetMarketDemand.RawMedianVelocity(clusters[i], source.Language);
+            var rawDemand = TargetMarketDemand.RawMedianVelocity(clusters[i], target.Language);
             var gap = TargetMarketGap.Compute(demand[i], competition[i]);
 
-            results.Add(new TargetMarketEvaluation(clusters[i].ClusterKey, traction, demand[i], competition[i], gap));
+            results.Add(new TargetMarketEvaluation(
+                clusters[i].ClusterKey, traction, demand[i], competition[i], gap, rawDemand));
         }
 
         return results;

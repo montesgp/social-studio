@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
+﻿using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Features.Social.NicheDiscovery.DiscoveryRuns;
 using Incoders.Hive.Domain.Social.NicheDiscovery;
 
@@ -80,7 +80,7 @@ public sealed class ListRunOpportunitiesQueryTests
 
     private static NicheOpportunityRecord OpportunityRecord(Guid runId) => new(
         Guid.NewGuid(), runId, Org, null, "Budget travel", "Listicle", ["budget-travel"],
-        0.7, 0.6, 0.9, "[]", 10000, 1.5, 0.2, 1.1, 3, 0.4, 0.3, 0.28, 0.5, 3, 3, 1, Now);
+        0.7, 0.6, 0.9, "[]", 10000, 1.5, 0.2, 1.1, 3, 0.4, 0.3, 0.28, 1250.0, 0.5, 3, 3, 1, Now);
 
     private sealed class FakeRunRepository : IDiscoveryRunRepository
     {
@@ -94,6 +94,10 @@ public sealed class ListRunOpportunitiesQueryTests
 
         public Task<DiscoveryRun?> GetByIdAsync(Guid organizationId, DiscoveryRunId id, CancellationToken ct = default) =>
             Task.FromResult(id == _run.Id && organizationId == _run.OrganizationId ? _run : null);
+
+        public Task<IReadOnlyList<DiscoveryRun>> ListByOrganizationAsync(Guid organizationId, int limit, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<DiscoveryRun>>(
+                _run.OrganizationId == organizationId ? [_run] : []);
     }
 
     private sealed class FakeOpportunityRepository : INicheOpportunityRepository

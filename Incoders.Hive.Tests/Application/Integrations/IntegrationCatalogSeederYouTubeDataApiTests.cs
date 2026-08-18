@@ -8,7 +8,7 @@ namespace Incoders.Hive.Tests.Application.Integrations;
 /// <summary>
 /// WU-4 (INT-ND-01, INT-ND-02): <c>youtube-data-api-v3</c> seeds as a distinct provider from the
 /// existing <c>youtube</c> publishing/scrape row, under the new
-/// <see cref="IntegrationProviderCategory.OfficialDataApi"/> category, with a single API-key
+/// <see cref="IntegrationProviderCategory.DataExtraction"/> category, with a single API-key
 /// credential schema and no <c>actor_mappings_json</c> entry.
 /// </summary>
 public sealed class IntegrationCatalogSeederYouTubeDataApiTests
@@ -29,8 +29,12 @@ public sealed class IntegrationCatalogSeederYouTubeDataApiTests
         Assert.NotEqual(dataApi!.Id, publishing!.Id);
     }
 
+    /// <summary>
+    /// The YouTube Data API is a DATA PROVIDER, alongside Apify and Data365 — not a category of one.
+    /// Keeping it apart made the settings screen advertise two groups for the same kind of thing.
+    /// </summary>
     [Fact]
-    public async Task YouTubeDataApiV3_IsCategorizedAsOfficialDataApi()
+    public async Task YouTubeDataApiV3_IsCategorizedWithTheOtherDataProviders()
     {
         var (seeder, providers) = BuildSeeder(Now);
         await seeder.SeedAsync();
@@ -38,7 +42,21 @@ public sealed class IntegrationCatalogSeederYouTubeDataApiTests
         var dataApi = await providers.GetByKeyAsync("youtube-data-api-v3");
 
         Assert.NotNull(dataApi);
-        Assert.Equal(IntegrationProviderCategory.OfficialDataApi, dataApi!.Category);
+        Assert.Equal(IntegrationProviderCategory.DataExtraction, dataApi!.Category);
+    }
+
+    [Fact]
+    public async Task EveryDataProvider_SharesTheSameCategory()
+    {
+        var (seeder, providers) = BuildSeeder(Now);
+        await seeder.SeedAsync();
+
+        foreach (var key in new[] { "youtube-data-api-v3", "apify", "data365" })
+        {
+            var provider = await providers.GetByKeyAsync(key);
+            Assert.NotNull(provider);
+            Assert.Equal(IntegrationProviderCategory.DataExtraction, provider!.Category);
+        }
     }
 
     [Fact]

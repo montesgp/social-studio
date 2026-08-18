@@ -1,0 +1,15 @@
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Incoders.Hive.Infrastructure.Social.NicheDiscovery;
+
+public static class NicheDiscoveryWorkflowStepSeederExtensions
+{
+    public static async Task SeedNicheDiscoveryWorkflowStepsAsync(
+        this IServiceProvider services,
+        CancellationToken cancellationToken = default)
+    {
+        using var scope = services.CreateScope();
+        var seeder = scope.ServiceProvider.GetRequiredService<NicheDiscoveryWorkflowStepSeeder>();
+        await seeder.SeedAsync(cancellationToken);
+    }
+}

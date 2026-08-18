@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
+﻿using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Domain.Social.NicheDiscovery;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
@@ -60,6 +60,24 @@ public sealed class EfDiscoveryRunRepository : IDiscoveryRunRepository
             .FirstOrDefaultAsync(x => x.Id == id.Value && x.OrganizationId == organizationId, ct);
 
         return row is null ? null : ToDomain(row);
+    }
+
+    public async Task<IReadOnlyList<DiscoveryRun>> ListByOrganizationAsync(
+        Guid organizationId, int limit, CancellationToken ct = default)
+    {
+        if (limit <= 0)
+        {
+            return [];
+        }
+
+        var rows = await _db.DiscoveryRuns
+            .AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId)
+            .OrderByDescending(x => x.CreatedAt)
+            .Take(limit)
+            .ToListAsync(ct);
+
+        return rows.Select(ToDomain).ToList();
     }
 
     private static DiscoveryRunData ToData(DiscoveryRun run) => new()

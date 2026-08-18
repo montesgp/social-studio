@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
+﻿using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -104,6 +104,7 @@ public sealed class EfNicheOpportunityRepository : INicheOpportunityRepository
         TargetMarketDemand = r.TargetMarketDemand,
         TargetMarketCompetition = r.TargetMarketCompetition,
         TargetMarketGap = r.TargetMarketGap,
+        TargetMarketRawDemand = r.TargetMarketRawDemand,
         AutomationSuitability = r.AutomationSuitability,
         ChannelSampleSize = r.ChannelSampleSize,
         VideoSampleSize = r.VideoSampleSize,
@@ -132,6 +133,7 @@ public sealed class EfNicheOpportunityRepository : INicheOpportunityRepository
         TargetMarketDemand: e.TargetMarketDemand,
         TargetMarketCompetition: e.TargetMarketCompetition,
         TargetMarketGap: e.TargetMarketGap,
+        TargetMarketRawDemand: e.TargetMarketRawDemand,
         AutomationSuitability: e.AutomationSuitability,
         ChannelSampleSize: e.ChannelSampleSize,
         VideoSampleSize: e.VideoSampleSize,

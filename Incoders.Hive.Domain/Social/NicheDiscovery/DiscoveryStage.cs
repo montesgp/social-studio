@@ -11,4 +11,13 @@ public enum DiscoveryStage
     VideoSearch = 2,
     ChannelDetail = 3,
     VideoDetail = 4,
+
+    /// <summary>
+    /// Query-less discovery: harvests what is already performing, without the operator naming it
+    /// first. The search stages need a term, which makes them "confirm this niche" rather than "find
+    /// one" — this stage is what makes the feature deserve the name discovery.
+    ///
+    /// APPENDED, never renumbered: the value is persisted in run snapshots.
+    /// </summary>
+    TrendingSweep = 5,
 }

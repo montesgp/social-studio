@@ -25,6 +25,7 @@ import {
   type NicheOpportunitySummary,
 } from "@/lib/api/niche-discovery";
 import { ScorePairBadge } from "@/components/social/niche-discovery/score-pair-badge";
+import { interpretRunScores } from "@/lib/social/niche-discovery/score-interpretation";
 
 interface ViabilityDashboardClientProps {
   runId: string;
@@ -94,8 +95,23 @@ export function ViabilityDashboardClient({ runId, token, onSelectOpportunity }: 
     );
   }
 
+  const interpretation = interpretRunScores(opportunities.length);
+
   return (
     <div className="space-y-4" data-testid="viability-dashboard">
+      {/* A run-relative score read as a probability is how an operator builds for a market with no
+          audience. The semantics travel with the numbers, not in a doc nobody opens. */}
+      <div
+        className="rounded-xl border border-border bg-background/30 p-3 text-xs text-muted-foreground"
+        data-testid="score-interpretation"
+      >
+        <p>{interpretation.headline}</p>
+        {interpretation.caveat ? (
+          <p className="mt-1.5 text-amber-600 dark:text-amber-500" data-testid="score-interpretation-caveat">
+            {interpretation.caveat}
+          </p>
+        ) : null}
+      </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <label>
           Sort by:{" "}

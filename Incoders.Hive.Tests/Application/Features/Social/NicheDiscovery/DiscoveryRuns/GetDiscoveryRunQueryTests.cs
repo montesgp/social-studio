@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
+﻿using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Features.Social.NicheDiscovery.DiscoveryRuns;
 using Incoders.Hive.Domain.Social.NicheDiscovery;
 
@@ -60,5 +60,9 @@ public sealed class GetDiscoveryRunQueryTests
 
         public Task<DiscoveryRun?> GetByIdAsync(Guid organizationId, DiscoveryRunId id, CancellationToken ct = default) =>
             Task.FromResult(id == _run.Id && organizationId == _run.OrganizationId ? _run : null);
+
+        public Task<IReadOnlyList<DiscoveryRun>> ListByOrganizationAsync(Guid organizationId, int limit, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<DiscoveryRun>>(
+                _run.OrganizationId == organizationId ? [_run] : []);
     }
 }

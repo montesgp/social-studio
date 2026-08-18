@@ -89,9 +89,12 @@ export interface NicheOpportunityRecord {
   outlierDensity: number | null;
   growthProxy: number | null;
   crossChannelRepetition: number | null;
+  /** Run-relative rank of demand (0..1), NOT an absolute size. See `targetMarketRawDemand`. */
   targetMarketDemand: number | null;
   targetMarketCompetition: number | null;
   targetMarketGap: number | null;
+  /** Demand before run-normalization — the only value carrying absolute magnitude. */
+  targetMarketRawDemand: number | null;
   automationSuitability: number | null;
   channelSampleSize: number;
   videoSampleSize: number;
@@ -111,6 +114,8 @@ export interface NicheDiscoveryEvidenceRecord {
   channelHandle: string;
   title: string;
   thumbnailUrl: string | null;
+  /** Provider-reported channel description. Review context only — no metric reads it. */
+  description: string | null;
   publishedAtUtc: string | null;
   views: number | null;
   likes: number | null;
@@ -120,6 +125,8 @@ export interface NicheDiscoveryEvidenceRecord {
   videoCount: number | null;
   durationSeconds: number | null;
   languageCode: string | null;
+  /** Provider-reported ISO 3166 code of the owning channel. Review context only — no metric reads it. */
+  country: string | null;
   sourceKey: string;
   observedAtUtc: string;
 }
@@ -128,6 +135,31 @@ export interface OpportunityDetailResponse {
   opportunity: NicheOpportunityRecord;
   excludedSignals: ExcludedSignal[];
   evidence: NicheDiscoveryEvidenceRecord[];
+}
+
+export interface DiscoveryRunHistoryEntry {
+  runId: string;
+  status: string;
+  sourceMarketCode: string;
+  targetMarketCode: string;
+  contentFormat: string;
+  windowDays: number;
+  depth: string;
+  seedTerms: string[];
+  semanticDegraded: boolean;
+  failureReasonKey: string | null;
+  providerUnitsSpent: number;
+  createdAtUtc: string;
+  completedAtUtc: string | null;
+}
+
+export interface DiscoveryRunHistoryResponse {
+  runs: DiscoveryRunHistoryEntry[];
+}
+
+export function listDiscoveryRuns(limit?: number, token?: string): Promise<DiscoveryRunHistoryResponse> {
+  const query = limit ? `?limit=${limit}` : "";
+  return apiRequest<DiscoveryRunHistoryResponse>(`/api/social/niche-discovery/runs${query}`, undefined, token);
 }
 
 export function listNicheDiscoveryMarkets(token?: string): Promise<MarketCatalogResponse> {

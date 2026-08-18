@@ -266,6 +266,7 @@ public static class DependencyInjection
         // WU-7a: platform-level market catalog seeder — writes through AppIdentityDbContext directly,
         // since IMarketCatalogRepository is deliberately read-only (design §9).
         services.AddScoped<Incoders.Hive.Infrastructure.Social.NicheDiscovery.MarketCatalogSeeder>();
+        services.AddScoped<Incoders.Hive.Infrastructure.Social.NicheDiscovery.NicheDiscoveryWorkflowStepSeeder>();
 
         // WU-7b: NicheDiscovery persistence repositories (design §9, ND-11, ND-16).
         services.AddScoped<Incoders.Hive.Application.Abstractions.Social.NicheDiscovery.IDiscoveryRunRepository,

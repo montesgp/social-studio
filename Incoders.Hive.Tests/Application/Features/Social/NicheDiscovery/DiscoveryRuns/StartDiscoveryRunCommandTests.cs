@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions;
+﻿using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Features.Social.NicheDiscovery.DiscoveryRuns;
 using Incoders.Hive.Domain.Social.NicheDiscovery;
@@ -108,6 +108,10 @@ public sealed class StartDiscoveryRunCommandTests
 
         public Task<DiscoveryRun?> GetByIdAsync(Guid organizationId, DiscoveryRunId id, CancellationToken ct = default) =>
             Task.FromResult<DiscoveryRun?>(Added.FirstOrDefault(r => r.Id == id));
+
+        public Task<IReadOnlyList<DiscoveryRun>> ListByOrganizationAsync(Guid organizationId, int limit, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<DiscoveryRun>>(
+                Added.Where(r => r.OrganizationId == organizationId).Take(limit).ToList());
     }
 
     private sealed class FakeQueue : INicheDiscoveryRunQueue

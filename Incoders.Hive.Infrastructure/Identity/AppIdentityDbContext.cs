@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -1171,6 +1171,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.TargetMarketDemand).HasColumnName("target_market_demand");
             entity.Property(x => x.TargetMarketCompetition).HasColumnName("target_market_competition");
             entity.Property(x => x.TargetMarketGap).HasColumnName("target_market_gap");
+            entity.Property(x => x.TargetMarketRawDemand).HasColumnName("target_market_raw_demand");
             entity.Property(x => x.AutomationSuitability).HasColumnName("automation_suitability");
             entity.Property(x => x.ChannelSampleSize).HasColumnName("channel_sample_size").IsRequired();
             entity.Property(x => x.VideoSampleSize).HasColumnName("video_sample_size").IsRequired();
@@ -1219,13 +1220,18 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.VideoCount).HasColumnName("video_count");
             entity.Property(x => x.DurationSeconds).HasColumnName("duration_seconds");
             entity.Property(x => x.LanguageCode).HasColumnName("language_code").HasMaxLength(16);
+            entity.Property(x => x.Country).HasColumnName("country").HasMaxLength(8);
+            entity.Property(x => x.Description).HasColumnName("description");
             entity.Property(x => x.SourceKey).HasColumnName("source_key").HasMaxLength(32).IsRequired();
             entity.Property(x => x.ObservedAt).HasColumnName("observed_at").IsRequired();
             entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
 
-            entity.HasIndex(x => new { x.RunId, x.EvidenceKind, x.ExternalRef })
+            // Scoped PER OPPORTUNITY: one channel legitimately backs several opportunities in the same
+            // run (it publishes into more than one cluster), and evidence is read per opportunity. Keying
+            // uniqueness on the run alone rejected those as duplicates and aborted the whole append.
+            entity.HasIndex(x => new { x.RunId, x.OpportunityId, x.EvidenceKind, x.ExternalRef })
                 .IsUnique()
-                .HasDatabaseName("ux_niche_discovery_evidence_run_kind_ref");
+                .HasDatabaseName("ux_niche_discovery_evidence_run_opportunity_kind_ref");
 
             entity.HasOne<DiscoveryRunData>()
                 .WithMany()

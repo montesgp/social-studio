@@ -247,7 +247,7 @@ public sealed class IntegrationCatalogSeeder
             new Guid("1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c07"),
             "youtube-data-api-v3",
             "YouTube Data API v3",
-            IntegrationProviderCategory.OfficialDataApi,
+            IntegrationProviderCategory.DataExtraction,
             "Official YouTube Data API v3 origin for niche discovery channel/video search, distinct " +
             "from the youtube publishing connector. Single organization-scoped API key, no actor routing.",
             "youtube-data-api-v3",

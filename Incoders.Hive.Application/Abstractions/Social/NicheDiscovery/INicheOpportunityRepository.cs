@@ -24,6 +24,12 @@ public sealed record NicheOpportunityRecord(
     double? TargetMarketDemand,
     double? TargetMarketCompetition,
     double? TargetMarketGap,
+    /// <summary>
+    /// Target-market demand before run-normalization. <see cref="TargetMarketDemand"/> ranks within
+    /// the run; only this value carries absolute magnitude, so it is what an absolute-viability rule
+    /// must read. <c>null</c> when the target market has no measurable video — never zero-filled.
+    /// </summary>
+    double? TargetMarketRawDemand,
     double? AutomationSuitability,
     int ChannelSampleSize,
     int VideoSampleSize,

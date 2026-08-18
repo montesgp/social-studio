@@ -28,7 +28,10 @@ import {
   type MarketOption,
 } from "@/lib/api/niche-discovery";
 import { describeRunState, isRunPollable, isRunViewable, type RunStateTone } from "@/lib/social/niche-discovery/run-state";
+import { formatMarketLabel } from "@/lib/social/niche-discovery/market-label";
 import { buildRunPath } from "@/lib/social/niche-discovery/run-url";
+import { describeRunProgress } from "@/lib/social/niche-discovery/run-progress";
+import { show as showBlockingLoader, hide as hideBlockingLoader } from "@/lib/loading/blocking-loader-store";
 import {
   CONTENT_FORMAT_OPTIONS,
   DEPTH_OPTIONS,
@@ -42,8 +45,10 @@ import {
 } from "@/lib/social/niche-discovery/start-run-form";
 import { ViabilityDashboardClient } from "@/components/social/niche-discovery/viability-dashboard-client";
 import { OpportunityDetail } from "@/components/social/niche-discovery/opportunity-detail";
+import { RunHistoryList } from "@/components/social/niche-discovery/run-history-list";
 
 const POLL_INTERVAL_MS = 2500;
+const RUN_LOADER_ID = "social.niche-discovery.run";
 
 const TONE_TO_BADGE_VARIANT: Record<RunStateTone, BadgeVariant> = {
   neutral: "muted",
@@ -65,6 +70,9 @@ export function NicheDiscoveryClient({ initialRunId }: NicheDiscoveryClientProps
   const [runId, setRunId] = useState<string | null>(initialRunId);
   const [run, setRun] = useState<DiscoveryRunStatusResponse | null>(null);
   const [selectedOpportunityId, setSelectedOpportunityId] = useState<string | null>(null);
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,6 +98,9 @@ export function NicheDiscoveryClient({ initialRunId }: NicheDiscoveryClientProps
           if (!isRunPollable(status.status) && intervalId !== undefined) {
             window.clearInterval(intervalId);
             intervalId = undefined;
+            // A finished run belongs in the history immediately — it is the thing the operator comes
+            // back for after closing the tool.
+            setHistoryRefreshKey((key) => key + 1);
           }
         })
         .catch((err) => {
@@ -106,6 +117,38 @@ export function NicheDiscoveryClient({ initialRunId }: NicheDiscoveryClientProps
     };
   }, [runId, token]);
 
+  // Elapsed time is what separates "slow" from "stopped" — the backend reports no heartbeat.
+  useEffect(() => {
+    if (runStartedAt === null) return;
+
+    const tick = window.setInterval(() => setElapsedMs(Date.now() - runStartedAt), 1000);
+    return () => window.clearInterval(tick);
+  }, [runStartedAt]);
+
+  // Blocks the screen while the run works: it is a background job with no visible surface, so without
+  // this the operator cannot tell it apart from a page that did nothing.
+  useEffect(() => {
+    const progress = describeRunProgress({
+      status: run?.status ?? (runId ? "Requested" : ""),
+      elapsedMs,
+      providerUnitsSpent: run?.providerUnitsSpent ?? 0,
+    });
+
+    if (!runId || !progress.isBlocking) {
+      hideBlockingLoader(RUN_LOADER_ID);
+      return;
+    }
+
+    return showBlockingLoader(RUN_LOADER_ID, {
+      title: progress.title,
+      description: progress.description,
+      mode: "progress",
+    });
+  }, [runId, run?.status, run?.providerUnitsSpent, elapsedMs]);
+
+  // The loader must never outlive the screen that owns it.
+  useEffect(() => () => hideBlockingLoader(RUN_LOADER_ID), []);
+
   const validation = useMemo(() => validateStartRunForm(form), [form]);
   const runState = run ? describeRunState(run.status, run.failureReasonKey) : null;
 
@@ -119,7 +162,10 @@ export function NicheDiscoveryClient({ initialRunId }: NicheDiscoveryClientProps
 
     try {
       const response = await startDiscoveryRun(buildStartRunRequest(form), token);
+      setRunStartedAt(Date.now());
+      setElapsedMs(0);
       setRunId(response.runId);
+      setHistoryRefreshKey((key) => key + 1);
       router.replace(buildRunPath(response.runId));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start this discovery run.");
@@ -128,7 +174,20 @@ export function NicheDiscoveryClient({ initialRunId }: NicheDiscoveryClientProps
     }
   }
 
+  function openRun(historyRunId: string) {
+    setRun(null);
+    setSelectedOpportunityId(null);
+    setError(null);
+    setRunStartedAt(null);
+    setElapsedMs(0);
+    setRunId(historyRunId);
+    router.replace(buildRunPath(historyRunId));
+  }
+
   function startNewRun() {
+    hideBlockingLoader(RUN_LOADER_ID);
+    setRunStartedAt(null);
+    setElapsedMs(0);
     setRunId(null);
     setRun(null);
     setSelectedOpportunityId(null);
@@ -164,7 +223,7 @@ export function NicheDiscoveryClient({ initialRunId }: NicheDiscoveryClientProps
                 <option value="">Select…</option>
                 {markets.map((market) => (
                   <option key={market.code} value={market.code}>
-                    {market.displayNameKey}
+                    {formatMarketLabel(market)}
                   </option>
                 ))}
               </Select>
@@ -178,7 +237,7 @@ export function NicheDiscoveryClient({ initialRunId }: NicheDiscoveryClientProps
                 <option value="">Select…</option>
                 {markets.map((market) => (
                   <option key={market.code} value={market.code}>
-                    {market.displayNameKey}
+                    {formatMarketLabel(market)}
                   </option>
                 ))}
               </Select>
@@ -237,6 +296,23 @@ export function NicheDiscoveryClient({ initialRunId }: NicheDiscoveryClientProps
               </Select>
             </Field>
             <div className="lg:col-span-3 xl:col-span-6">
+              <Field label="Seed terms (optional)">
+                <textarea
+                  rows={2}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  placeholder="Leave empty to discover what is already performing"
+                  value={form.seedTermsText}
+                  onChange={(event) => setForm((f) => ({ ...f, seedTermsText: event.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  <strong>Leave this empty to discover niches</strong> — the run then sweeps what is
+                  already performing and lets the niches emerge, without you naming one first.
+                  Filling it in narrows the run to terms you already have in mind: they are searched
+                  verbatim and never translated, so write them in the market&apos;s own language.
+                </p>
+              </Field>
+            </div>
+            <div className="lg:col-span-3 xl:col-span-6">
               <Button onClick={() => void handleStartRun()} disabled={starting || !validation.valid || !token}>
                 {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 Start discovery run
@@ -244,6 +320,10 @@ export function NicheDiscoveryClient({ initialRunId }: NicheDiscoveryClientProps
             </div>
           </CardContent>
         </Card>
+      ) : null}
+
+      {!runId || !run ? (
+        <RunHistoryList token={token} refreshKey={historyRefreshKey} onOpenRun={openRun} />
       ) : null}
 
       {runId && run && runState ? (

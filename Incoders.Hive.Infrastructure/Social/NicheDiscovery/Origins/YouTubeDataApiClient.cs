@@ -64,6 +64,55 @@ internal sealed class YouTubeDataApiClient
         return await SendAsync(baseAddress, "search", parameters, ct);
     }
 
+    /// <summary>
+    /// <c>videoCategories.list?regionCode=...</c> — the category taxonomy available in one region, so
+    /// the sweep below can walk it instead of the operator naming a niche. Costs
+    /// <see cref="ListUnitCost"/>.
+    /// </summary>
+    internal Task<YouTubeApiCallResult> ListVideoCategoriesAsync(
+        string baseAddress, string apiKey, string regionCode, CancellationToken ct) =>
+        SendAsync(
+            baseAddress,
+            "videoCategories",
+            new Dictionary<string, string?>
+            {
+                ["part"] = "snippet",
+                ["regionCode"] = regionCode,
+                ["key"] = apiKey,
+            },
+            ct);
+
+    /// <summary>
+    /// <c>videos.list?chart=mostPopular&amp;regionCode=...&amp;videoCategoryId=...</c> — the provider's
+    /// ONLY query-less feed, and therefore the only way to ask "what is performing" without naming it
+    /// first. Costs <see cref="ListUnitCost"/> for up to <see cref="MaxIdsPerBatch"/> videos, versus
+    /// <see cref="SearchUnitCost"/> for the same volume through search: two orders of magnitude cheaper
+    /// per video, which is what makes sweeping a whole taxonomy affordable at all.
+    ///
+    /// <c>regionCode</c> is mandatory here — the chart is defined per region and the API rejects the
+    /// call without it. That is a PROVIDER constraint on sampling, not a decision to analyse by region.
+    /// </summary>
+    internal Task<YouTubeApiCallResult> ListTrendingVideosAsync(
+        string baseAddress,
+        string apiKey,
+        string regionCode,
+        string? videoCategoryId,
+        int maxResults,
+        CancellationToken ct) =>
+        SendAsync(
+            baseAddress,
+            "videos",
+            new Dictionary<string, string?>
+            {
+                ["part"] = "snippet,statistics,contentDetails",
+                ["chart"] = "mostPopular",
+                ["regionCode"] = regionCode,
+                ["videoCategoryId"] = videoCategoryId,
+                ["maxResults"] = Math.Min(maxResults, MaxIdsPerListCall).ToString(),
+                ["key"] = apiKey,
+            },
+            ct);
+
     internal Task<YouTubeApiCallResult> ListVideosAsync(
         string baseAddress, string apiKey, IReadOnlyList<string> videoIds, CancellationToken ct) =>
         SendAsync(

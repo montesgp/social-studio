@@ -110,6 +110,7 @@ public sealed class EfNicheOpportunityRepositoryTests
         TargetMarketDemand: 0.6,
         TargetMarketCompetition: 0.3,
         TargetMarketGap: 0.42,
+        TargetMarketRawDemand: 1250.0,
         AutomationSuitability: null,
         ChannelSampleSize: 12,
         VideoSampleSize: 40,

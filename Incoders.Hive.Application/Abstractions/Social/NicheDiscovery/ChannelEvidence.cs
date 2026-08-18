@@ -1,4 +1,4 @@
-namespace Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
+﻿namespace Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 
 /// <summary>
 /// Provider-agnostic channel evidence, normalized inside the Infrastructure boundary before crossing
@@ -15,4 +15,10 @@ public sealed record ChannelEvidence(
     int? VideoCount,
     string? LanguageCode,
     DateTimeOffset? CreatedAtUtc,
+    /// <summary>Channel avatar, as reported by the provider. Review context: the operator scans a list
+    /// of candidate channels by eye before opening any of them.</summary>
+    string? ThumbnailUrl,
+    /// <summary>Channel description, verbatim from the provider. Says what the channel is ABOUT, which
+    /// is what the operator judges a niche by — no metric reads it.</summary>
+    string? Description,
     string SourceKey);

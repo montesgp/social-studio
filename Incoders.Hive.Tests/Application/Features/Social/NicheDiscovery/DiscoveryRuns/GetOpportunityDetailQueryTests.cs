@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
+﻿using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Features.Social.NicheDiscovery.DiscoveryRuns;
 using Incoders.Hive.Domain.Social.NicheDiscovery;
 
@@ -16,8 +16,8 @@ public sealed class GetOpportunityDetailQueryTests
         var record = OpportunityRecord();
         var evidence = new NicheDiscoveryEvidenceRecord(
             Guid.NewGuid(), record.RunId, record.Id, Org, NicheDiscoveryEvidenceKind.Video,
-            "video-0", "channel-0", "Budget Travel Guide", null, Now, 10000, 200, 30, null, null, null, 480, "es",
-            "youtube-data-api", Now);
+            "video-0", "channel-0", "Budget Travel Guide", null, null, Now, 10000, 200, 30, null, null, null, 480, "es",
+            "ID", "youtube-data-api", Now);
 
         var handler = new GetOpportunityDetailHandler(
             new FakeOpportunityRepository(record), new FakeEvidenceRepository([evidence]));
@@ -43,7 +43,7 @@ public sealed class GetOpportunityDetailQueryTests
 
     private static NicheOpportunityRecord OpportunityRecord() => new(
         Guid.NewGuid(), Guid.NewGuid(), Org, null, "Budget travel", "Listicle", ["budget-travel"],
-        0.7, 0.6, 0.9, "[]", 10000, 1.5, 0.2, 1.1, 3, 0.4, 0.3, 0.28, 0.5, 3, 3, 1, Now);
+        0.7, 0.6, 0.9, "[]", 10000, 1.5, 0.2, 1.1, 3, 0.4, 0.3, 0.28, 1250.0, 0.5, 3, 3, 1, Now);
 
     private sealed class FakeOpportunityRepository : INicheOpportunityRepository
     {

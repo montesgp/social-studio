@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Domain.Social.NicheDiscovery;
 
@@ -42,7 +42,8 @@ internal sealed class YouTubeDataApiNicheDiscoverySource : INicheDiscoverySource
     public int Order { get; }
 
     public bool Supports(DiscoveryStage stage) => stage is
-        DiscoveryStage.ChannelSearch or DiscoveryStage.VideoSearch or DiscoveryStage.ChannelDetail or DiscoveryStage.VideoDetail;
+        DiscoveryStage.ChannelSearch or DiscoveryStage.VideoSearch or DiscoveryStage.ChannelDetail
+        or DiscoveryStage.VideoDetail or DiscoveryStage.TrendingSweep;
 
     public async Task<NicheDiscoverySourceResult> DiscoverAsync(
         NicheDiscoveryQuery query, DiscoveryBudget budget, CancellationToken ct = default)
@@ -61,6 +62,7 @@ internal sealed class YouTubeDataApiNicheDiscoverySource : INicheDiscoverySource
             DiscoveryStage.VideoSearch => await SearchAsync(query, route, ledger, harvestChannels: false, ct),
             DiscoveryStage.ChannelDetail => await EnrichChannelsAsync(query.ChannelExternalRefs, route, ledger, ct),
             DiscoveryStage.VideoDetail => await EnrichVideosAsync(query.VideoExternalRefs, route, ledger, ct),
+            DiscoveryStage.TrendingSweep => await SweepTrendingAsync(route, ledger, ct),
             _ => NicheDiscoverySourceResult.Unconfigured(),
         };
     }
@@ -116,6 +118,148 @@ internal sealed class YouTubeDataApiNicheDiscoverySource : INicheDiscoverySource
         return harvestChannels
             ? await EnrichChannelsAsync(distinctIds, route, ledger, ct, providerUnitsSpent)
             : await EnrichVideosAsync(distinctIds, route, ledger, ct, providerUnitsSpent);
+    }
+
+    /// <summary>
+    /// Query-less sweep (<see cref="DiscoveryStage.TrendingSweep"/>): for each sampling region, walk the
+    /// region's category taxonomy and pull the most-popular chart per category. Nothing here names a
+    /// niche — the niches are whatever the semantic annotator later finds in the harvested corpus.
+    ///
+    /// Videos arrive fully enriched (<c>snippet,statistics,contentDetails</c>), so no detail pass is
+    /// needed; the owning channels still are, and the processor's ChannelDetail stage picks them up
+    /// from the video refs exactly as it already does for the search path.
+    ///
+    /// Every call is a bounded <see cref="YouTubeDataApiClient.ListUnitCost"/>, so budget exhaustion
+    /// truncates the sweep into a PARTIAL result rather than failing it: a half-swept corpus still
+    /// ranks, and the run is marked degraded upstream.
+    /// </summary>
+    private async Task<NicheDiscoverySourceResult> SweepTrendingAsync(
+        NicheDiscoveryOriginRoute route,
+        YouTubeQuotaBudget ledger,
+        CancellationToken ct)
+    {
+        if (route.Regions.Count == 0)
+        {
+            return NicheDiscoverySourceResult.Ran([], [], new BudgetSpend(0, 0));
+        }
+
+        var videos = new List<VideoEvidence>();
+        var providerUnitsSpent = 0;
+        var totalItems = 0;
+
+        foreach (var region in route.Regions)
+        {
+            if (!ledger.CanAfford(YouTubeDataApiClient.ListUnitCost))
+            {
+                return FinishSweep(videos, providerUnitsSpent, totalItems, truncated: true);
+            }
+
+            ledger.Spend(YouTubeDataApiClient.ListUnitCost);
+            providerUnitsSpent += YouTubeDataApiClient.ListUnitCost;
+
+            var categories = await _client.ListVideoCategoriesAsync(route.BaseAddress!, route.ApiKey!, region, ct);
+            if (!categories.IsSuccess)
+            {
+                if (categories.IsQuotaExceeded)
+                {
+                    return FinishSweep(videos, providerUnitsSpent, totalItems, truncated: true, isQuotaFailure: true);
+                }
+
+                continue;
+            }
+
+            // A region with no usable taxonomy still gets one untargeted chart pull rather than being
+            // skipped outright — the chart is defined with or without a category filter.
+            var categoryIds = route.CapCategories(ExtractCategoryIds(categories.Payload!.Value));
+            var targets = categoryIds.Count > 0 ? categoryIds : [null];
+
+            foreach (var categoryId in targets)
+            {
+                if (!ledger.CanAfford(YouTubeDataApiClient.ListUnitCost))
+                {
+                    return FinishSweep(videos, providerUnitsSpent, totalItems, truncated: true);
+                }
+
+                ledger.Spend(YouTubeDataApiClient.ListUnitCost);
+                providerUnitsSpent += YouTubeDataApiClient.ListUnitCost;
+
+                var chart = await _client.ListTrendingVideosAsync(
+                    route.BaseAddress!, route.ApiKey!, region, categoryId, YouTubeDataApiClient.MaxIdsPerBatch, ct);
+
+                if (!chart.IsSuccess)
+                {
+                    if (chart.IsQuotaExceeded)
+                    {
+                        return FinishSweep(videos, providerUnitsSpent, totalItems, truncated: true, isQuotaFailure: true);
+                    }
+
+                    // Not every category carries a chart in every region; the provider answers 400.
+                    // That is an ordinary hole in the taxonomy, not a run failure.
+                    continue;
+                }
+
+                var mapped = YouTubeEvidenceMapper.MapVideos(chart.Payload!.Value, SourceKeyValue);
+                totalItems += mapped.TotalItems;
+                videos.AddRange(mapped.Videos);
+            }
+        }
+
+        return FinishSweep(videos, providerUnitsSpent, totalItems, truncated: false);
+    }
+
+    private static NicheDiscoverySourceResult FinishSweep(
+        List<VideoEvidence> videos, int providerUnitsSpent, int totalItems, bool truncated, bool isQuotaFailure = false)
+    {
+        var deduped = videos
+            .GroupBy(v => v.ExternalRef, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .ToList();
+
+        if (deduped.Count == 0)
+        {
+            if (isQuotaFailure)
+            {
+                return NicheDiscoverySourceResult.Failed(QuotaExhaustedReasonKey, new BudgetSpend(providerUnitsSpent, 0));
+            }
+
+            return totalItems > 0
+                ? NicheDiscoverySourceResult.Failed(NoEvidenceMappedReasonKey, new BudgetSpend(providerUnitsSpent, 0))
+                : NicheDiscoverySourceResult.Ran([], [], new BudgetSpend(providerUnitsSpent, 0));
+        }
+
+        return truncated
+            ? NicheDiscoverySourceResult.Ran(
+                [], deduped, new BudgetSpend(providerUnitsSpent, 0),
+                isQuotaFailure ? PartialReason.ProviderBudgetExhausted : PartialReason.BudgetExhausted)
+            : NicheDiscoverySourceResult.Ran([], deduped, new BudgetSpend(providerUnitsSpent, 0));
+    }
+
+    private static IReadOnlyList<string?> ExtractCategoryIds(JsonElement payload)
+    {
+        if (!payload.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var ids = new List<string?>();
+
+        foreach (var item in items.EnumerateArray())
+        {
+            // `assignable: false` categories accept no uploads, so their chart is always empty.
+            if (item.TryGetProperty("snippet", out var snippet)
+                && snippet.TryGetProperty("assignable", out var assignable)
+                && assignable.ValueKind == JsonValueKind.False)
+            {
+                continue;
+            }
+
+            if (item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
+            {
+                ids.Add(id.GetString());
+            }
+        }
+
+        return ids;
     }
 
     private async Task<NicheDiscoverySourceResult> EnrichVideosAsync(

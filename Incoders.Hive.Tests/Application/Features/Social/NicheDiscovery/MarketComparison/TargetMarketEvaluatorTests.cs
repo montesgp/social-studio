@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
+﻿using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Features.Social.NicheDiscovery.Analytics;
 using Incoders.Hive.Application.Features.Social.NicheDiscovery.MarketComparison;
 using Incoders.Hive.Domain.Social.NicheDiscovery;
@@ -43,6 +43,58 @@ public sealed class TargetMarketEvaluatorTests
         Assert.NotNull(evaluation.TargetMarketDemandValue);
         Assert.NotNull(evaluation.TargetMarketCompetitionValue);
         Assert.NotNull(evaluation.TargetMarketGapValue);
+    }
+
+    /// <summary>
+    /// Normalized demand is RUN-RELATIVE: in a run where every cluster is weak, the least weak one
+    /// still normalizes near 1.0, which reads as "high demand" for a market that may have no audience
+    /// at all. The raw median velocity is the only value carrying absolute magnitude, and it is what
+    /// any future absolute-viability rule ("below this, not worth building") has to compare against.
+    /// </summary>
+    [Fact]
+    public void Evaluate_RawTargetDemand_IsNotNormalized_AndKeepsAbsoluteMagnitude()
+    {
+        var weak = BuildCluster(
+            "weak",
+            sourceVideos: [],
+            targetVideos: [("v-es-weak", "chan-es-weak", 10L)],
+            targetChannels: [("chan-es-weak", 1_000L)]);
+
+        var weaker = BuildCluster(
+            "weaker",
+            sourceVideos: [],
+            targetVideos: [("v-es-weaker", "chan-es-weaker", 1L)],
+            targetChannels: [("chan-es-weaker", 1_000L)]);
+
+        var result = TargetMarketEvaluator.Evaluate([weak, weaker], SourceMarket, TargetMarket);
+
+        var best = result.Single(r => r.ClusterKey == "weak");
+
+        // The normalized value tops out at 1.0 — "best of this run", not "strong in absolute terms".
+        Assert.Equal(1.0, best.TargetMarketDemandValue);
+
+        // The raw value keeps the real magnitude, so the two are distinguishable.
+        Assert.NotNull(best.TargetMarketRawDemand);
+        Assert.NotEqual(best.TargetMarketDemandValue, best.TargetMarketRawDemand);
+        Assert.True(
+            best.TargetMarketRawDemand > result.Single(r => r.ClusterKey == "weaker").TargetMarketRawDemand,
+            "Raw demand must preserve the ordering of the underlying absolute velocities.");
+    }
+
+    /// <summary>An unmeasurable target market yields no raw value either — never zero-filled (ND-05).</summary>
+    [Fact]
+    public void Evaluate_RawTargetDemand_IsNull_WhenTheTargetMarketHasNoMeasurableVideos()
+    {
+        var cluster = BuildCluster(
+            "source-only",
+            sourceVideos: [("v-pt-1", "chan-pt-1", 1000L)],
+            targetVideos: [],
+            targetChannels: []);
+
+        var result = TargetMarketEvaluator.Evaluate([cluster], SourceMarket, TargetMarket);
+
+        Assert.Null(result[0].TargetMarketRawDemand);
+        Assert.Null(result[0].TargetMarketDemandValue);
     }
 
     [Fact]
@@ -177,7 +229,7 @@ public sealed class TargetMarketEvaluatorTests
         var channels = targetChannels
             .Select(c => new ChannelEvidence(
                 c.ChannelRef, c.ChannelRef, Country: null, c.Subscribers, TotalViews: null, VideoCount: null,
-                TargetMarket.Language, CreatedAtUtc: null, "youtube-data-api"))
+                TargetMarket.Language, CreatedAtUtc: null, ThumbnailUrl: null, Description: null, "youtube-data-api"))
             .ToList();
 
         var evidence = new EvidenceSet(channels, videos);

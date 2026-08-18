@@ -1,4 +1,4 @@
-namespace Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
+﻿namespace Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 
 public enum NicheDiscoveryEvidenceKind
 {
@@ -17,6 +17,8 @@ public sealed record NicheDiscoveryEvidenceRecord(
     string ChannelHandle,
     string Title,
     string? ThumbnailUrl,
+    /// <summary>Provider-reported description of the channel behind this row. Review context only.</summary>
+    string? Description,
     DateTimeOffset? PublishedAtUtc,
     long? Views,
     long? Likes,
@@ -26,6 +28,13 @@ public sealed record NicheDiscoveryEvidenceRecord(
     int? VideoCount,
     int? DurationSeconds,
     string? LanguageCode,
+    /// <summary>
+    /// Provider-reported ISO 3166 code of the channel behind this row — opaque, never branched on
+    /// (design §3). Discovery partitions by language, so this is REVIEW CONTEXT for the operator, not
+    /// an input to any metric. <c>null</c> when the provider does not report it: never inferred from
+    /// the run's market.
+    /// </summary>
+    string? Country,
     string SourceKey,
     DateTimeOffset ObservedAtUtc);
 

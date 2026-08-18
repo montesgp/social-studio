@@ -1,4 +1,4 @@
-using Incoders.Hive.Domain.Social.NicheDiscovery;
+﻿using Incoders.Hive.Domain.Social.NicheDiscovery;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -69,10 +69,53 @@ public sealed class EfDiscoveryRunRepositoryTests
         Assert.Null(crossTenant);
     }
 
-    private DiscoveryRun CreateRun()
+    /// <summary>
+    /// The history is one of the easiest places to leak another organization's work: it is a list query,
+    /// not a keyed read, so a missing predicate returns everyone's runs instead of nothing.
+    /// </summary>
+    [Fact]
+    public async Task ListByOrganizationAsync_IsTenantScoped()
+    {
+        await using var db = CreateDb();
+        var repo = new EfDiscoveryRunRepository(db);
+        await repo.AddAsync(CreateRun(), CancellationToken.None);
+        await repo.AddAsync(CreateRun(_otherOrgId), CancellationToken.None);
+
+        var mine = await repo.ListByOrganizationAsync(_orgId, 25, CancellationToken.None);
+
+        Assert.Single(mine);
+        Assert.All(mine, run => Assert.Equal(_orgId, run.OrganizationId));
+    }
+
+    [Fact]
+    public async Task ListByOrganizationAsync_HonoursTheLimit()
+    {
+        await using var db = CreateDb();
+        var repo = new EfDiscoveryRunRepository(db);
+        for (var i = 0; i < 5; i++)
+        {
+            await repo.AddAsync(CreateRun(), CancellationToken.None);
+        }
+
+        var page = await repo.ListByOrganizationAsync(_orgId, 2, CancellationToken.None);
+
+        Assert.Equal(2, page.Count);
+    }
+
+    [Fact]
+    public async Task ListByOrganizationAsync_WithNoUsableLimit_ReturnsNothing_RatherThanEverything()
+    {
+        await using var db = CreateDb();
+        var repo = new EfDiscoveryRunRepository(db);
+        await repo.AddAsync(CreateRun(), CancellationToken.None);
+
+        Assert.Empty(await repo.ListByOrganizationAsync(_orgId, 0, CancellationToken.None));
+    }
+
+    private DiscoveryRun CreateRun(Guid? organizationId = null)
     {
         var result = DiscoveryRun.Create(
-            _orgId,
+            organizationId ?? _orgId,
             _userId,
             "es-AR",
             "pt-BR",

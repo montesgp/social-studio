@@ -216,7 +216,7 @@ public sealed class YouTubeDataApiNicheDiscoverySourceTests
                 organizationId,
                 providerKey,
                 "YouTube Data API v3 (test)",
-                IntegrationProviderCategory.OfficialDataApi,
+                IntegrationProviderCategory.DataExtraction,
                 IntegrationConnectionMode.BringYourOwnKey,
                 IntegrationStatus.Connected,
                 IsReadOnly: false,
