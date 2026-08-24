@@ -1049,11 +1049,16 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     }
 
     // -----------------------------------------------------------------------
-    // FFS-CG-01-b: a Photo-mapped slide is unaffected — still uses the AI designer path.
+    // FFS-CG-01-b, superseded by CAFF-CG-01 (client-aesthetic-fidelity-fixes, trigger A): a
+    // Photo-mapped ClientAesthetic slide that never received a generated image (no image
+    // background service wired, matching this fixture) now MUST degrade to the deterministic
+    // flat treatment instead of falling through to the AI designer — this is the exact fidelity
+    // defect trigger A fixes. Approval test updated per strict-tdd.md's refactor-with-behavior-
+    // change protocol; the old "designer path" expectation is intentionally superseded.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task PhotoKindSlide_Unaffected_UsesDesignerPath()
+    public async Task PhotoKindSlide_NoGeneratedImage_DegradesToFaithfulFlat_DesignerNeverCalled()
     {
         var rendererSpy = new FC_CapturingRenderer();
         var designerSpy = new FC_SucceedingDesigner();
@@ -1070,8 +1075,11 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
 
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
-        Assert.True(designerSpy.WasCalled, "Photo-mapped slides MUST keep using the AI designer path.");
-        Assert.Contains("layer-background", rendererSpy.ReceivedMarkup);
+        Assert.False(designerSpy.WasCalled,
+            "CAFF-CG-01: a Photo-mapped slide with no generated image MUST degrade to the deterministic flat treatment — AiVisualDesigner.ComposeAsync MUST NOT be invoked.");
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("layer-background", rendererSpy.ReceivedMarkup);
     }
 
     // -----------------------------------------------------------------------
@@ -1281,6 +1289,112 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     }
 
     // -----------------------------------------------------------------------
+    // CAFF-CG-02 (trigger B): a ClientAesthetic carousel slide whose AI designer returns no usable
+    // background (genuine failure OR guardrail rejection) MUST route through the same deterministic
+    // flat treatment as trigger A, replacing the rgba(0,0,0,0.52) scrim card. Scoped to
+    // ClientAesthetic only — every other policy MUST keep the legacy scrim-card fallback (regression).
+    // Uses a Decorator-mapped slide (not Photo, not FlatColor) so trigger A never intercepts it and
+    // the pre-existing FlatColor short-circuit never intercepts it either (CAFF-CG-03).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClientAesthetic_DesignerGenuineFailure_DegradesToFaithfulFlat_NoScrimCard()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.Decorator],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new ActiveFailingDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("rgba(0,0,0,0.5", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("linear-gradient", rendererSpy.ReceivedMarkup);
+    }
+
+    [Fact]
+    public async Task ClientAesthetic_GuardrailRejectsDesign_DegradesToFaithfulFlat_NoScrimCard()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.Decorator],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_SucceedingDesigner(),
+            guardrails: new FailingGuardrailValidator());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("rgba(0,0,0,0.5", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("linear-gradient", rendererSpy.ReceivedMarkup);
+    }
+
+    [Fact]
+    public async Task NonClientAesthetic_DesignerGenuineFailure_ScrimCardStillRenders_Regression()
+    {
+        // GIVEN a non-ClientAesthetic job whose designer fails: trigger B MUST NOT apply — the
+        // legacy scrim-card resilience fallback MUST render unchanged.
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.Decorator],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new ActiveFailingDesigner(),
+            policy: BackgroundSourcingPolicy.AiPalette);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("rgba(0,0,0,0.5", rendererSpy.ReceivedMarkup);
+    }
+
+    [Fact]
+    public async Task ClientAesthetic_FlatColorSlide_DesignerFails_NeverReachesTriggerB_Regression()
+    {
+        // GIVEN a FlatColor-mapped ClientAesthetic slide with resolved ColorPairings: the pre-existing
+        // short-circuit takes it first and the designer is never even constructed as reachable code —
+        // using FC_NeverCalledDesigner proves trigger B's designer-failure path is never evaluated for
+        // this slide either (CAFF-CG-03).
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("rgba(0,0,0,0.5", rendererSpy.ReceivedMarkup);
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
@@ -1307,7 +1421,12 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         // A real canonical carousel format key ("carousel" is a legacy alias EXCLUDED from
         // DesignedRasterFormats — see ADR-3.6 — so it never enters the designer+guardrail block
         // this short-circuit lives inside).
-        string formatKey = "feed-carousel")
+        string formatKey = "feed-carousel",
+        // CAFF-CG-02: overridable so trigger-B tests can force a guardrail rejection.
+        IVisualGuardrailValidator? guardrails = null,
+        // CAFF-CG-02: overridable so the non-ClientAesthetic regression scenario (scrim card MUST
+        // still render) can be exercised with the same builder.
+        BackgroundSourcingPolicy policy = BackgroundSourcingPolicy.ClientAesthetic)
     {
         var fakeJob = new ContentGenerationJob(
             Id: JobId,
@@ -1370,7 +1489,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
             strategy: null,
             monthlyObjective: null,
             client: new Incoders.Hive.Domain.Social.ContentGeneration.ClientProfileSnapshot(
-                "Test Client", null, null, BackgroundSourcingPolicy.ClientAesthetic));
+                "Test Client", null, null, policy));
 
         return new ContentGenerationJobProcessor(
             jobs: new FC_JobRepository(fakeJob),
@@ -1386,7 +1505,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
             assetStorage: null,
             assetRepository: null,
             designer: designer,
-            guardrails: new FC_PassingGuardrails(),
+            guardrails: guardrails ?? new FC_PassingGuardrails(),
             providerCallContext: new ProviderCallContext(),
             logger: NullLogger<ContentGenerationJobProcessor>.Instance,
             backgroundStrategyResolver: new FC_StrategyResolver(formatKey),

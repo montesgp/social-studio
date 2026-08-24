@@ -797,14 +797,20 @@ public sealed class ContentGenerationJobProcessor
                         // below falls back to a profile-level default in that case.
                         string? slideTextColorHex = null;
 
-                        // A slide that received a generated image background must keep it: the ratio floor
-                        // can mark an all-flat-pattern slide as creative, and ResolveKindForSlide (pattern-
-                        // only) would still map it to FlatColor. Without this guard the short-circuit would
-                        // overwrite the generated image with flat CSS — the exact all-flat carousel observed.
-                        if (preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
-                            && mappedFlatKind == SlideBackgroundKind.FlatColor
-                            && !slidesWithGeneratedImage.Contains(specIndex + 1)
-                            && aestheticProfile?.ColorPairings is { Count: > 0 })
+                        // CAFF-CG-01/02 (D1): shared eligibility precondition for BOTH degrade triggers —
+                        // ClientAesthetic policy, carousel layout, and resolved ColorPairings (without
+                        // ColorPairings there is nothing faithful to degrade to; cold-start parity). The
+                        // processor branches ONLY on ClientAestheticDegradeDecision's pure predicates —
+                        // no degrade logic lives inline here.
+                        var hasColorPairings = aestheticProfile?.ColorPairings is { Count: > 0 };
+                        var clientAestheticDegradeEligible = ClientAestheticDegradeDecision.IsEligible(
+                            preLoopPolicy, isCarouselLayout, hasColorPairings);
+
+                        // CAFF-CG-01/02: single deterministic palette-backed flat-treatment renderer,
+                        // reused by the pre-existing FlatColor short-circuit AND both new degrade triggers
+                        // — its output is identical to the short-circuit's (the degrade IS the proven flat
+                        // path), written once instead of three times.
+                        void RenderFaithfulFlat()
                         {
                             var paletteInferred = new InferenceAccumulator();
                             var flatPalette = CompositionDefaults.ResolvePalette(
@@ -826,8 +832,37 @@ public sealed class ContentGenerationJobProcessor
                             capturedDimensions = spec.Dimensions;
                             slideTextColorHex = CssColor(flatPalette.Text, CompositionDefaults.Palette.Text);
                         }
+
+                        // A slide that received a generated image background must keep it: the ratio floor
+                        // can mark an all-flat-pattern slide as creative, and ResolveKindForSlide (pattern-
+                        // only) would still map it to FlatColor. Without this guard the short-circuit would
+                        // overwrite the generated image with flat CSS — the exact all-flat carousel observed.
+                        if (preLoopPolicy == Domain.Social.Clients.BackgroundSourcingPolicy.ClientAesthetic
+                            && mappedFlatKind == SlideBackgroundKind.FlatColor
+                            && !slidesWithGeneratedImage.Contains(specIndex + 1)
+                            && aestheticProfile?.ColorPairings is { Count: > 0 })
+                        {
+                            // UNCHANGED, FIRST: this short-circuit runs before either new trigger is even
+                            // evaluated — a FlatColor slide can never reach trigger A or trigger B
+                            // (CAFF-CG-03).
+                            RenderFaithfulFlat();
+                        }
                         else
                         {
+                            // CAFF-CG-01 (trigger A): the pattern calls this slide Photo, but no generated
+                            // image reached it. Route to the deterministic flat treatment WITHOUT resolving
+                            // a BackgroundSelection or calling the AI designer at all.
+                            var triggerA = ClientAestheticDegradeDecision.TriggerA(
+                                clientAestheticDegradeEligible,
+                                mappedFlatKind,
+                                hasGeneratedImage: slidesWithGeneratedImage.Contains(specIndex + 1));
+
+                            if (triggerA != SlideDegradeTrigger.None)
+                            {
+                                RenderFaithfulFlat();
+                            }
+                            else
+                            {
                             // WU-4 C4: use the pre-computed plan for this slide rather than calling
                             // BackgroundSelector.Select independently per slide. When no resolver is
                             // registered (legacy path), fall back to the 3-tier selector directly.
@@ -916,38 +951,63 @@ public sealed class ContentGenerationJobProcessor
                             //   3. Otherwise → deterministic brand-bound composition built from the copy
                             //      slots (Creative gradient). This is the resilience backstop that
                             //      guarantees the story/carousel is produced for ANY model.
+                            // Resolve the final markup. Priority:
+                            //   1. Enforced brand background → deterministic template (the brand-manual
+                            //      template is hard-enforced over whatever the AI invented).
+                            //   2. AI markup that passed guardrails → use the design.
+                            //   3. CAFF-CG-02 (trigger B): the designer produced nothing usable (error OR
+                            //      guardrail rejection) AND no enforced background exists — for an eligible
+                            //      ClientAesthetic slide, route to the same deterministic flat treatment as
+                            //      trigger A, replacing the unconditional rgba(0,0,0,0.52) scrim card.
+                            //   4. Otherwise → the pre-existing scrim-card resilience backstop, UNCHANGED for
+                            //      every non-eligible (non-ClientAesthetic, non-carousel, or cold-start) job.
                             var enforcedBackground = ResolveEnforcedBackground(selection);
-                            string validatedMarkup;
-                            if (enforcedBackground is not null)
+                            var triggerB = ClientAestheticDegradeDecision.TriggerB(
+                                clientAestheticDegradeEligible,
+                                hasEnforcedBackground: enforcedBackground is not null,
+                                hasUsableAiMarkup: aiMarkup is not null);
+
+                            if (triggerB != SlideDegradeTrigger.None)
                             {
-                                // Persist the LIGHTWEIGHT markup that references the background by its storage
-                                // path (not a multi-MB base64 data URI). The Chromium renderer can't fetch a
-                                // bare storage path (no base URL), so the data URI is inlined transiently for
-                                // the render pass only (renderSpec below) — keeping the persisted markup, and
-                                // therefore the DB rows, small.
-                                validatedMarkup = BuildTemplateBackedMarkup(
-                                    spec, enforcedBackground, aestheticDesignContext);
-                                renderBackgroundStoragePath = enforcedBackground.Url;
-                            }
-                            else if (aiMarkup is not null)
-                            {
-                                validatedMarkup = aiMarkup;
+                                RenderFaithfulFlat();
                             }
                             else
                             {
-                                validatedMarkup = BuildTemplateBackedMarkup(spec, background: null, aestheticDesignContext);
+                                string validatedMarkup;
+                                if (enforcedBackground is not null)
+                                {
+                                    // Persist the LIGHTWEIGHT markup that references the background by its storage
+                                    // path (not a multi-MB base64 data URI). The Chromium renderer can't fetch a
+                                    // bare storage path (no base URL), so the data URI is inlined transiently for
+                                    // the render pass only (renderSpec below) — keeping the persisted markup, and
+                                    // therefore the DB rows, small.
+                                    validatedMarkup = BuildTemplateBackedMarkup(
+                                        spec, enforcedBackground, aestheticDesignContext);
+                                    renderBackgroundStoragePath = enforcedBackground.Url;
+                                }
+                                else if (aiMarkup is not null)
+                                {
+                                    validatedMarkup = aiMarkup;
+                                }
+                                else
+                                {
+                                    // Legacy resilience backstop — reached only when trigger B did NOT fire
+                                    // (non-ClientAesthetic, non-carousel, or cold-start job). UNCHANGED.
+                                    validatedMarkup = BuildTemplateBackedMarkup(spec, background: null, aestheticDesignContext);
+                                }
+
+                                // Promote spec to Html kind with validated/enforced markup.
+                                spec = spec with
+                                {
+                                    OutputKind = CompositionOutputKind.Html,
+                                    DesignerMarkup = validatedMarkup,
+                                };
+
+                                // WU-1 D1: capture the validated markup and canvas dimensions for persistence.
+                                capturedMarkup = validatedMarkup;
+                                capturedDimensions = spec.Dimensions;
                             }
-
-                            // Promote spec to Html kind with validated/enforced markup.
-                            spec = spec with
-                            {
-                                OutputKind = CompositionOutputKind.Html,
-                                DesignerMarkup = validatedMarkup,
-                            };
-
-                            // WU-1 D1: capture the validated markup and canvas dimensions for persistence.
-                            capturedMarkup = validatedMarkup;
-                            capturedDimensions = spec.Dimensions;
+                            }
                         }
 
                         // FFS-CG-02: brand-mark placement. ONE deterministic, editable content-layer

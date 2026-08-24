@@ -37,11 +37,11 @@ Chain strategy: pending
 
 ## WU-1a — Trigger A + B Degrade Routing (D1)
 
-- [ ] 1a.1 RED — extend `Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/ClientAestheticDegradeDecisionTests.cs` (new file) with the `IsEligible`/`TriggerA`/`TriggerB` truth table (policy × layout × mappedKind × hasGeneratedImage × hasPairings, incl. non-ClientAesthetic → `None`). Satisfies CAFF-CG-01/02/03 scenarios.
-- [ ] 1a.2 GREEN — create `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ClientAestheticDegradeDecision.cs`: `SlideDegradeTrigger` enum + `IsEligible`/`TriggerA`/`TriggerB` per D1.
-- [ ] 1a.3 RED — extend `Incoders.Hive.Tests/.../Pipeline/ProcessorImageBackgroundResilienceTests.cs` reusing `FixedResultImageService` (L385) with a partial map to assert trigger A: flat treatment, zero `AiVisualDesigner.ComposeAsync` calls. Satisfies CAFF-CG-01.
-- [ ] 1a.4 RED — extend `Incoders.Hive.Tests/.../Pipeline/ContentGenerationJobProcessorVisualTests.cs` reusing `ActiveFailingDesigner` (L704), `FailingGuardrailValidator` (L641), `FC_NeverCalledDesigner` (L1435): assert trigger B flat treatment + no scrim; assert non-ClientAesthetic keeps scrim (CAFF-CG-02 regression); assert FlatColor never reaches either trigger (CAFF-CG-03). Satisfies CAFF-CG-02, CAFF-CG-03.
-- [ ] 1a.5 GREEN — modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` (~L807-954): add `RenderFaithfulFlat` local helper, branch per design §1, remove unconditional scrim-card render for ClientAesthetic-eligible slides only.
+- [x] 1a.1 RED — extend `Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/ClientAestheticDegradeDecisionTests.cs` (new file) with the `IsEligible`/`TriggerA`/`TriggerB` truth table (policy × layout × mappedKind × hasGeneratedImage × hasPairings, incl. non-ClientAesthetic → `None`). Satisfies CAFF-CG-01/02/03 scenarios.
+- [x] 1a.2 GREEN — create `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ClientAestheticDegradeDecision.cs`: `SlideDegradeTrigger` enum + `IsEligible`/`TriggerA`/`TriggerB` per D1.
+- [x] 1a.3 RED — extend `Incoders.Hive.Tests/.../Pipeline/ProcessorImageBackgroundResilienceTests.cs` reusing `FixedResultImageService` (L385) with a partial map to assert trigger A: flat treatment, zero `AiVisualDesigner.ComposeAsync` calls. Satisfies CAFF-CG-01.
+- [x] 1a.4 RED — extend `Incoders.Hive.Tests/.../Pipeline/ContentGenerationJobProcessorVisualTests.cs` reusing `ActiveFailingDesigner` (L704), `FailingGuardrailValidator` (L641), `FC_NeverCalledDesigner` (L1435): assert trigger B flat treatment + no scrim; assert non-ClientAesthetic keeps scrim (CAFF-CG-02 regression); assert FlatColor never reaches either trigger (CAFF-CG-03). Satisfies CAFF-CG-02, CAFF-CG-03.
+- [x] 1a.5 GREEN — modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` (~L807-954): add `RenderFaithfulFlat` local helper, branch per design §1, remove unconditional scrim-card render for ClientAesthetic-eligible slides only.
 
 ## WU-1b — Envelope Degrade Marker (D2)
 

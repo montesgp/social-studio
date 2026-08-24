@@ -198,6 +198,53 @@ public sealed class ProcessorImageBackgroundResilienceTests
     }
 
     // -----------------------------------------------------------------------
+    // CAFF-CG-01 (trigger A): a Photo-classified slide whose image generation failed degrades to
+    // the deterministic palette-backed flat treatment. AiVisualDesigner.ComposeAsync MUST NOT be
+    // called for that slide. Reuses FixedResultImageService (empty map = generation failed) and
+    // SelectionCapturingDesigner (asserts zero ComposeAsync invocations via an empty selection list).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClientAesthetic_PhotoSlideImageGenerationFails_DegradesToFaithfulFlat_DesignerNeverCalled()
+    {
+        // GIVEN a single-slide ClientAesthetic carousel whose BackgroundPattern classifies the slide
+        // as Photo, ColorPairings resolved, but image generation fails for that slide (empty map).
+        var rendererSpy = new ResilienceTrackingRenderer();
+        var designerSpy = new SelectionCapturingDesigner();
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["minimal"],
+            VoiceTone: "professional",
+            AverageSlidesPerCarousel: 1,
+            AnalyzedAtUtc: DateTime.UtcNow,
+            CreativeSlideIndices: [1],
+            BackgroundPattern: [SlideBackgroundKind.Photo],
+            ColorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = BuildProcessorCore(
+            slideCount: 1,
+            profile,
+            imageService: new FixedResultImageService(new Dictionary<int, BackgroundSelection.ForcedDefault>()),
+            renderer: rendererSpy,
+            designer: designerSpy,
+            composer: null,
+            providerCallContext: null,
+            formatKey: "feed-carousel");
+
+        // WHEN
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        // THEN the designer was never invoked for this slide (CAFF-CG-01).
+        Assert.Empty(designerSpy.ReceivedSelections);
+
+        // AND the slide rendered through the deterministic flat treatment using the client's
+        // resolved ColorPairings — no scrim, no gradient, no AI-designer markup.
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("rgba(0,0,0,0.52)", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("linear-gradient", rendererSpy.ReceivedMarkup);
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
@@ -278,14 +325,18 @@ public sealed class ProcessorImageBackgroundResilienceTests
         IContentRenderer renderer,
         IVisualDesigner designer,
         IVisualCompositionService? composer,
-        ProviderCallContext? providerCallContext)
+        ProviderCallContext? providerCallContext,
+        // CAFF-CG-01: "carousel" is a legacy alias EXCLUDED from DesignedRasterFormats (ADR-3.6),
+        // so it never reaches the designer+guardrail block the degrade triggers live inside.
+        // Degrade-routing tests pass "feed-carousel" (a real canonical carousel format key).
+        string formatKey = "carousel")
     {
         var fakeJob = new ContentGenerationJob(
             Id: JobId,
             OrganizationId: OrgId,
             ClientId: ClientId,
             AnalysisId: AnalysisId,
-            RequestedFormats: ["carousel"],
+            RequestedFormats: [formatKey],
             Status: "Queued",
             StatusReason: null,
             ErrorCode: null,
@@ -345,10 +396,10 @@ public sealed class ProcessorImageBackgroundResilienceTests
         return new ContentGenerationJobProcessor(
             jobs: new ResilienceJobRepository(fakeJob),
             analyses: new ResilienceAnalysisRepository(analysisRecord),
-            orchestrator: new ResilienceOrchestrator("carousel", payload, brand),
+            orchestrator: new ResilienceOrchestrator(formatKey, payload, brand),
             formatResults: new ResilienceFormatResultRepository(),
             brandLoader: new ResilienceBrandLoader(brand),
-            composer: composer ?? new ResilienceCompositionService("carousel", slideCount),
+            composer: composer ?? new ResilienceCompositionService(formatKey, slideCount),
             renderer: renderer,
             packageBuilder: new ResiliencePackageBuilder(),
             packageStorage: new ResiliencePackageStorage(),
@@ -359,7 +410,7 @@ public sealed class ProcessorImageBackgroundResilienceTests
             guardrails: new ResiliencePassingGuardrails(),
             providerCallContext: providerCallContext ?? new ProviderCallContext(),
             logger: NullLogger<ContentGenerationJobProcessor>.Instance,
-            backgroundStrategyResolver: new ResilienceClientAestheticStrategyResolver("carousel", slideCount),
+            backgroundStrategyResolver: new ResilienceClientAestheticStrategyResolver(formatKey, slideCount),
             aestheticDescriptorReader: null,
             aestheticProfileReader: new ResilienceFixedAestheticProfileReader(profile),
             aestheticEnsureFreshService: null,
@@ -469,9 +520,14 @@ file sealed class ResilienceTrackingRenderer : IContentRendererWithGeometry
     private int _callCount;
     public int RenderCallCount => _callCount;
 
+    // CAFF-CG-01/02: last markup received, so degrade-routing tests can assert flat-treatment
+    // content (or its absence) without a dedicated capturing renderer per test.
+    public string? ReceivedMarkup { get; private set; }
+
     public Task<Result<RenderedAsset>> RenderAsync(VisualCompositionSpec spec, RenderOptions opts, CancellationToken ct)
     {
         Interlocked.Increment(ref _callCount);
+        ReceivedMarkup = spec.DesignerMarkup;
         var bytes = System.Text.Encoding.UTF8.GetBytes("fake-png");
         return Task.FromResult(Result.Success(RenderedAsset.Create(spec.FormatKey, "image/png", $"{spec.FormatKey}.png", bytes)));
     }
@@ -480,6 +536,7 @@ file sealed class ResilienceTrackingRenderer : IContentRendererWithGeometry
         VisualCompositionSpec spec, RenderOptions opts, CancellationToken ct)
     {
         Interlocked.Increment(ref _callCount);
+        ReceivedMarkup = spec.DesignerMarkup;
         var bytes = System.Text.Encoding.UTF8.GetBytes("fake-png");
         var asset = RenderedAsset.Create(spec.FormatKey, "image/png", $"{spec.FormatKey}.png", bytes);
         return Task.FromResult(Result.Success(new RenderedAssetWithGeometry(asset, [], null)));
