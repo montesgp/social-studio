@@ -45,10 +45,10 @@ Chain strategy: pending
 
 ## WU-1b — Envelope Degrade Marker (D2)
 
-- [ ] 1b.1 RED — extend `Incoders.Hive.Tests/.../Pipeline/CompositionSpecJsonTests.cs`: non-degraded envelope JSON has no `degradeReason` key (byte-identity); degraded envelope round-trips token; legacy blob parses with `DegradeReason == null`. Satisfies CAFF-CG-04.
-- [ ] 1b.2 GREEN — modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/CompositionSpecEnvelope.cs`: add trailing `string? DegradeReason = null` with `[property: JsonIgnore(Condition = WhenWritingNull)]`.
-- [ ] 1b.3 GREEN — modify `ContentGenerationJobProcessor.cs`: declare `capturedDegradeReason`, assign `"photo-image-unavailable"`/`"designer-unusable"` tokens in the two degrade branches, pass at envelope construction (~L1153).
-- [ ] 1b.4 RED+GREEN — extend the `CompositionSpecJsonPersistenceTests` pattern (`StubMarkupDesigner`/`AlwaysFailingGuardrails`) to assert the marker is written on exactly the degraded slides, and export tests assert no `degradeReason` text leaks into PPTX/ZIP output. Satisfies CAFF-CG-04, Risks row "marker leaks into exports".
+- [x] 1b.1 RED — extend `Incoders.Hive.Tests/.../Pipeline/CompositionSpecJsonTests.cs`: non-degraded envelope JSON has no `degradeReason` key (byte-identity); degraded envelope round-trips token; legacy blob parses with `DegradeReason == null`. Satisfies CAFF-CG-04.
+- [x] 1b.2 GREEN — modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/CompositionSpecEnvelope.cs`: add trailing `string? DegradeReason = null` with `[property: JsonIgnore(Condition = WhenWritingNull)]`.
+- [x] 1b.3 GREEN — modify `ContentGenerationJobProcessor.cs`: declare `capturedDegradeReason`, assign `"photo-image-unavailable"`/`"designer-unusable"` tokens in the two degrade branches, pass at envelope construction (~L1153).
+- [x] 1b.4 RED+GREEN — extended the existing trigger A/B fixtures (`ProcessorImageBackgroundResilienceTests.cs`, `ContentGenerationJobProcessorVisualTests.cs`) to assert the marker is written on exactly the degraded slides (and absent for the non-ClientAesthetic and FlatColor-short-circuit regressions); added `PptxExportAdapterTests.BuildAsync_DegradedEnvelope_NoDegradeReasonTextInExportedPptx` asserting no `degradeReason` text leaks into PPTX ZIP entries. Satisfies CAFF-CG-04, Risks row "marker leaks into exports".
 
 ## WU-2a — Typography Extraction (D4 prompt/DTO half)
 
