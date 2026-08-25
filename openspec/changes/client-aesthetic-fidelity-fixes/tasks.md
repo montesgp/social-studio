@@ -89,8 +89,10 @@ Chain strategy: pending
 
 ## WU-4 — Content Studio Degrade Badge (D6, depends on WU-1b)
 
-- [ ] 4.1 RED — extend Vitest suite for `apps/web/components/social/content-studio-panel.tsx`: badge renders for envelope with `degradeReason`, absent otherwise; `serializeEnvelopes(parseEnvelopes(x))` preserves the unknown key through edit+autosave. Satisfies CAFF-CS-01, CAFF-CS-02.
-- [ ] 4.2 GREEN — modify `content-studio-panel.tsx`: add `degradeReason?: string | null` to `Envelope` interface; create `SlideDegradeBadge` presentational component (subtle chip, styled after `InferredFieldsDisclosure`); wire into carousel/story viewer corner and slide-strip dot.
+- [x] 4.1 RED — the repo has no component-render test infra (no Vitest/RTL/jsdom anywhere under `apps/web`; the only frontend test runner is `tsx --test "lib/**/*.test.ts"` against pure `lib/` modules). Extracted the badge's testable contract into a pure predicate and wrote `apps/web/lib/studio/degrade-badge.test.ts` first (RED — confirmed failing on missing module) covering: reason present → returned; absent/null/empty-string → `null`; null/undefined envelope → `null`; JSON round-trip preserves the token (CAFF-CS-02 shape). Satisfies CAFF-CS-01, CAFF-CS-02 at the logic layer.
+- [x] 4.2 GREEN — created `apps/web/lib/studio/degrade-badge.ts` (`getDegradeReason`); all 6 tests pass. Modified `content-studio-panel.tsx`: added `degradeReason?: string | null` to the `Envelope` interface; added `SlideDegradeBadge` presentational component (subtle chip styled after `InferredFieldsDisclosure`, plus a `variant="dot"` compact marker for the 76px slide-strip tile); wired into the `InstagramStoryPost` viewer corner, the `InstagramPost` (carousel) viewer corner, and `SortableSlide` (slide-strip thumbnail). A slide with no `degradeReason` renders nothing extra (unconditional `getDegradeReason(...) ? <SlideDegradeBadge/> : null`).
+
+## Status: COMPLETE — all 8 work units (WU-0 through WU-4) landed.
 
 ## Rules Applied
 

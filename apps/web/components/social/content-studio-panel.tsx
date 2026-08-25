@@ -52,6 +52,7 @@ import {
   MessageCircle,
   Minus,
   MoreHorizontal,
+  Info,
   Pin,
   PinOff,
   Plus,
@@ -97,6 +98,7 @@ import { computeCaptionLimits, CAPTION_MAX_HASHTAGS, CAPTION_MAX_LENGTH } from "
 import { groupFontOptions } from "@/lib/studio/font-options";
 import { canOfferSlideEmojiPicker } from "@/lib/studio/emoji-capability";
 import { insertTextAtCaret } from "@/lib/studio/text-insertion";
+import { getDegradeReason } from "@/lib/studio/degrade-badge";
 import {
   approveItem,
   bulkOperation,
@@ -235,6 +237,12 @@ interface Envelope {
   canvas?: { width?: number; height?: number };
   flattenedImageRef?: string | null;
   slotGeometry?: SlotGeometry[];
+  /**
+   * Set by the backend (CAFF-CG-04) only on the two deterministic ClientAesthetic degrade
+   * branches; every other envelope omits the key. Additive — reads through the index signature
+   * below on any envelope written before this member existed. See `getDegradeReason` (D6).
+   */
+  degradeReason?: string | null;
   [key: string]: unknown;
 }
 
@@ -330,6 +338,37 @@ function syncGeometry(geometry: SlotGeometry[] | undefined, styles: ElementStyle
       ...(s.fontFamily !== undefined ? { fontFamily: s.fontFamily } : {}),
     };
   });
+}
+
+/**
+ * Per-slide degrade indicator (CAFF-CS-01, design D6). Informational styling — collapsed/subtle,
+ * in the spirit of `InferredFieldsDisclosure` — never an error/warning treatment: the degrade
+ * path is a deliberate, faithful fallback, not a failure the operator needs to act on.
+ *
+ * `variant="corner"` renders the labeled chip used in the carousel/story viewer; `variant="dot"`
+ * renders the compact marker used on the slide-strip thumbnail, where the tile is only 76px wide.
+ */
+function SlideDegradeBadge({ variant = "corner", className }: { variant?: "corner" | "dot"; className?: string }) {
+  if (variant === "dot") {
+    return (
+      <span
+        aria-label="This slide used the faithful fallback design"
+        title="This slide used the faithful fallback design"
+        className={cn("absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-muted-foreground/60 ring-1 ring-white/70", className)}
+      />
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md border border-border/30 bg-black/40 px-1.5 py-0.5 text-[10px] font-medium text-white/80 backdrop-blur-sm",
+        className,
+      )}
+    >
+      <Info className="h-2.5 w-2.5" />
+      Fallback design
+    </span>
+  );
 }
 
 function errorMessage(err: unknown): string {
@@ -1950,6 +1989,9 @@ function InstagramStoryPost({
             <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
           )}
         </InstagramStory>
+        {getDegradeReason(slide) ? (
+          <SlideDegradeBadge className="absolute bottom-3 left-3 z-20" />
+        ) : null}
         {total > 1 ? (
           <>
             <button
@@ -2201,6 +2243,9 @@ function InstagramPost({
             ) : (
               <AssetFallbackImage item={item} token={token} assetIndex={fallbackAssetIndex} />
             )}
+            {getDegradeReason(slide) ? (
+              <SlideDegradeBadge className="absolute bottom-3 left-3 z-20" />
+            ) : null}
             {total > 1 ? (
               <>
                 <button
@@ -2358,6 +2403,7 @@ function SortableSlide({
         <span className="absolute bottom-0.5 left-0.5 rounded bg-black/55 px-1 text-[10px] font-medium leading-tight text-white">
           {index + 1}
         </span>
+        {getDegradeReason(envelope) ? <SlideDegradeBadge variant="dot" /> : null}
       </button>
 
       {canEdit ? (
