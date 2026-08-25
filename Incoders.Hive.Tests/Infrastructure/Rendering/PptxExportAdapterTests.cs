@@ -463,6 +463,135 @@ public sealed class PptxExportAdapterTests
     }
 
     // ------------------------------------------------------------------
+    // CAGH-SBR-02: brand-mark icon crop resolves as a SECOND, independent picture (D12).
+    // client-aesthetic-generation-hardening, WU-7c.
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task BuildAsync_BrandMarkRefWithGeometry_ResolvesSecondPicture_CAGH_SBR_02_a()
+    {
+        var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x07 };
+        var storage = new StubAssetStorage(pngBytes, "image/png");
+        var adapter = new PptxExportAdapter(storage);
+
+        const string brandMarkPath = "org/client/analysis/brand-mark.png";
+        var markup =
+            "<div class=\"composition\" style=\"width:1080px;height:1920px;\">" +
+            "<div data-layer=\"background\"></div>" +
+            "<div data-layer=\"content\">" +
+            "<h1 data-slot=\"headline\">Hi</h1>" +
+            "<img class=\"slot\" data-slot=\"brand-mark\" data-max-lines=\"1\" src=\"" + brandMarkPath + "\" " +
+            "style=\"position:absolute;left:64px;bottom:56px;width:112px;height:36px;object-fit:cover;border-radius:8px;\" />" +
+            "</div></div>";
+        var envelope = new CompositionSpecEnvelope(
+            SchemaVersion: CompositionSpecEnvelope.CurrentSchemaVersion,
+            Markup: markup,
+            Canvas: new CanvasDimensions(1080, 1920, 96),
+            SlotGeometry:
+            [
+                new SlotGeometryEntry(
+                    Slot: "headline", X: 30, Y: 200, Width: 900, Height: 80,
+                    FontFamily: "Inter", FontSizePx: 48, Color: "#000000", TextAlign: "left"),
+                new SlotGeometryEntry(
+                    Slot: "brand-mark", X: 64, Y: 1780, Width: 112, Height: 36,
+                    FontFamily: null, FontSizePx: 0, Color: null, TextAlign: null),
+            ]);
+
+        var result = await adapter.BuildAsync(envelope, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
+        Assert.Equal(brandMarkPath, storage.LastOpenedPath);
+        Assert.Equal(1, CountPictures(result.Value));
+
+        // The brand-mark slot renders as the picture, not ALSO as a duplicate empty text box.
+        var texts = GetTextShapes(result.Value).Select(sh => sh.NonVisualShapeProperties?.NonVisualDrawingProperties?.Name?.Value);
+        Assert.DoesNotContain("brand-mark", texts);
+    }
+
+    [Fact]
+    public async Task BuildAsync_BrandMarkRefUnresolvable_OmitsPicture_ExportsSlide_NoLeakedPath_CAGH_SBR_02_a()
+    {
+        var storage = new StubAssetStorage(bytes: null, mime: "image/png"); // OpenAsync -> NotFound
+        var adapter = new PptxExportAdapter(storage);
+
+        const string brandMarkPath = "org/client/analysis/missing-brand-mark.png";
+        var markup =
+            "<div class=\"composition\" style=\"width:1080px;height:1920px;\">" +
+            "<div data-layer=\"background\"></div>" +
+            "<div data-layer=\"content\">" +
+            "<h1 data-slot=\"headline\">Still here</h1>" +
+            "<img class=\"slot\" data-slot=\"brand-mark\" data-max-lines=\"1\" src=\"" + brandMarkPath + "\" " +
+            "style=\"position:absolute;left:64px;bottom:56px;width:112px;height:36px;object-fit:cover;\" />" +
+            "</div></div>";
+        var envelope = new CompositionSpecEnvelope(
+            SchemaVersion: CompositionSpecEnvelope.CurrentSchemaVersion,
+            Markup: markup,
+            Canvas: new CanvasDimensions(1080, 1920, 96),
+            SlotGeometry:
+            [
+                new SlotGeometryEntry(
+                    Slot: "headline", X: 30, Y: 200, Width: 900, Height: 80,
+                    FontFamily: "Inter", FontSizePx: 48, Color: "#000000", TextAlign: "left"),
+                new SlotGeometryEntry(
+                    Slot: "brand-mark", X: 64, Y: 1780, Width: 112, Height: 36,
+                    FontFamily: null, FontSizePx: 0, Color: null, TextAlign: null),
+            ]);
+
+        var result = await adapter.BuildAsync(envelope, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
+        Assert.Equal(0, CountPictures(result.Value));
+
+        var texts = GetTextShapes(result.Value).Select(ExtractText).ToList();
+        Assert.Contains(texts, t => t!.Contains("Still here", StringComparison.OrdinalIgnoreCase));
+
+        // No unresolved storage-path string leaks into the exported package (any part).
+        using var ms = new MemoryStream(result.Value);
+        using var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read);
+        foreach (var entry in zip.Entries)
+        {
+            using var reader = new StreamReader(entry.Open());
+            var partText = await reader.ReadToEndAsync();
+            Assert.DoesNotContain(brandMarkPath, partText, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task BuildAsync_BackgroundAndBrandMarkBothPresent_ResolveIndependently_TwoPictures()
+    {
+        var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x08 };
+        var storage = new StubAssetStorage(pngBytes, "image/png");
+        var adapter = new PptxExportAdapter(storage);
+
+        const string brandMarkPath = "org/client/analysis/brand-mark.png";
+        var markup =
+            "<div class=\"composition\" style=\"width:1080px;height:1920px;\">" +
+            "<div data-layer=\"background\"></div>" +
+            "<div data-layer=\"content\">" +
+            "<h1 data-slot=\"headline\">Hi</h1>" +
+            "<img class=\"slot\" data-slot=\"brand-mark\" data-max-lines=\"1\" src=\"" + brandMarkPath + "\" " +
+            "style=\"position:absolute;left:64px;bottom:56px;width:112px;height:36px;object-fit:cover;\" />" +
+            "</div></div>";
+        var envelope = new CompositionSpecEnvelope(
+            SchemaVersion: CompositionSpecEnvelope.CurrentSchemaVersion,
+            Markup: markup,
+            Canvas: new CanvasDimensions(1080, 1920, 96),
+            SlotGeometry:
+            [
+                new SlotGeometryEntry(
+                    Slot: "brand-mark", X: 64, Y: 1780, Width: 112, Height: 36,
+                    FontFamily: null, FontSizePx: 0, Color: null, TextAlign: null),
+            ],
+            BackgroundImageRef: "org/client/analysis/story_bg.png");
+
+        var result = await adapter.BuildAsync(envelope, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
+        // Resolving one ref does not block or invalidate resolution of the other — both present.
+        Assert.Equal(2, CountPictures(result.Value));
+    }
+
+    // ------------------------------------------------------------------
     // CAFF-CG-04: degrade marker MUST NOT leak into the exported PPTX. The adapter is a pure
     // function of Markup + Canvas + SlotGeometry (+ image refs) — DegradeReason is never read by
     // it, so a degraded envelope's export MUST be byte-shape-identical (no "degradeReason" or
@@ -519,6 +648,18 @@ public sealed class PptxExportAdapterTests
         using var prs = PresentationDocument.Open(ms, false);
         return prs.PresentationPart!.SlideParts
             .Any(sp => sp.Slide!.Descendants<Picture>().Any());
+    }
+
+    /// <summary>CAGH-SBR-02: counts every Picture across every slide — a slide can carry a
+    /// background/flattened picture AND an independent brand-mark picture (D12), so a simple
+    /// existence check is not enough to prove BOTH resolved.</summary>
+    private static int CountPictures(byte[] bytes)
+    {
+        using var ms = new MemoryStream(bytes);
+        using var prs = PresentationDocument.Open(ms, false);
+        return prs.PresentationPart!.SlideParts
+            .SelectMany(sp => sp.Slide!.Descendants<Picture>())
+            .Count();
     }
 
     private static string? ExtractText(Shape shape)

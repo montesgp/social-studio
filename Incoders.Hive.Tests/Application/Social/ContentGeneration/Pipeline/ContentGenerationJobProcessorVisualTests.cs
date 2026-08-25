@@ -1092,6 +1092,13 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         Assert.True(idx >= 0, $"Expected slot '{slotName}' in markup.");
         var start = markup.LastIndexOf('<', idx);
         var openTagEnd = markup.IndexOf('>', idx);
+        if (markup[openTagEnd - 1] == '/')
+        {
+            // WU-7c: the icon-mark <img ... /> is self-closing — there is no separate closing tag
+            // to search for (searching for the NEXT "</" would swallow unrelated later elements).
+            return markup[start..(openTagEnd + 1)];
+        }
+
         var closeTagStart = markup.IndexOf("</", openTagEnd, StringComparison.Ordinal);
         var closeTagEnd = markup.IndexOf('>', closeTagStart);
         return markup[start..(closeTagEnd + 1)];
@@ -1548,13 +1555,14 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     }
 
     // -----------------------------------------------------------------------
-    // WU-7b (CAGH-CG-06-a, wiring half): icon-type marks with a valid source image + bounding box
-    // are crop-extracted via IBrandMarkAssetExtractor. Rendering the crop as <img> is WU-7c's
-    // scope — this batch only wires the call + the failure degrade, chip markup is unchanged.
+    // WU-7b/WU-7c (CAGH-CG-05-a/06-a): icon-type marks with a valid source image + bounding box are
+    // crop-extracted via IBrandMarkAssetExtractor. WU-7b wired the call + the failure degrade; WU-7c
+    // (this section) consumes a SUCCESSFUL extraction by rendering the crop as <img>, replacing the
+    // empty coloured chip.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task IconMarkType_ValidBoxAndSource_InvokesExtractor_StillRendersChip_CAGH_CG_06_a()
+    public async Task IconMarkType_ValidBoxAndSource_ExtractionSucceeds_RendersCropImg_CAGH_CG_05_a()
     {
         var rendererSpy = new FC_CapturingRenderer();
         var extractorSpy = new FC_SpyBrandMarkAssetExtractor(
@@ -1584,9 +1592,55 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         Assert.Equal("clients/reference.png", extractorSpy.LastSourceImagePath);
         Assert.NotNull(rendererSpy.ReceivedMarkup);
         var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
-        Assert.Contains("#445566", brandMarkSlot);
-        // WU-7b does not render the crop yet — the <img> swap is WU-7c's scope.
-        Assert.DoesNotContain("<img", brandMarkSlot);
+        // CAGH-CG-05-a: a successful crop renders an <img> referencing the stored asset...
+        Assert.Contains("<img", brandMarkSlot);
+        Assert.Contains("src=\"orgs/x/brand-mark.png\"", brandMarkSlot);
+        // ...and NO empty coloured chip for that slide (the colour hex is only the chip's marker).
+        Assert.DoesNotContain("#445566", brandMarkSlot);
+    }
+
+    [Fact]
+    public async Task IconMarkType_ExtractionSucceeds_CropPathIsInlinedForRenderPass_D11()
+    {
+        // WU-7c (D11/F3): renderInlineRefs must ALSO cover the successfully-extracted brand-mark
+        // crop path, not only the enforced background — otherwise the shipped rasterized PNG would
+        // carry a broken <img> for the brand mark (Chromium has no base URL to fetch a bare storage
+        // path from).
+        var rendererSpy = new FC_CapturingRenderer();
+        const string cropStoragePath = "orgs/x/brand-mark.png";
+        var cropBytes = new byte[] { 0x11, 0x22, 0x33 };
+        var extractorSpy = new FC_SpyBrandMarkAssetExtractor(
+            Result.Success(new StoredAssetRef(cropStoragePath, "image/png", cropBytes.Length, "hash")));
+        var storage = new WU7C_FakeAssetStorage(cropStoragePath, cropBytes, "image/png");
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(
+                Present: true,
+                PositionHint: "bottom-right",
+                ColorHex: "#445566",
+                MarkType: "icon",
+                SourceImagePath: "clients/reference.png",
+                BoundingBox: new BrandMarkBoundingBox(0.1, 0.1, 0.5, 0.5)));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner(),
+            brandMarkAssetExtractor: extractorSpy,
+            assetStorage: storage);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
+        Assert.Contains("<img", brandMarkSlot);
+        // The RENDER-pass markup carries the inlined data URI, not the bare storage path.
+        Assert.Contains($"data:image/png;base64,{Convert.ToBase64String(cropBytes)}", brandMarkSlot);
+        Assert.DoesNotContain(cropStoragePath, brandMarkSlot);
+        Assert.Equal(cropStoragePath, storage.LastOpenedPath);
     }
 
     [Fact]
@@ -1837,7 +1891,11 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         // WU-7b (CAGH-CG-06-a): overridable so icon-mark wiring tests can inject a spy/failing
         // IBrandMarkAssetExtractor; null (default) mirrors every pre-WU-7b test — the port is
         // unregistered and the icon branch is a no-op.
-        IBrandMarkAssetExtractor? brandMarkAssetExtractor = null)
+        IBrandMarkAssetExtractor? brandMarkAssetExtractor = null,
+        // WU-7c (D11): overridable so render-time-inlining tests can inject a fake
+        // IGeneratedAssetStorage and assert the brand-mark crop path is inlined as a data URI for
+        // the Chromium render pass; null (default) mirrors every pre-WU-7c test.
+        IGeneratedAssetStorage? assetStorage = null)
     {
         var fakeJob = new ContentGenerationJob(
             Id: JobId,
@@ -1913,7 +1971,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
             packageBuilder: new FC_PackageBuilder(),
             packageStorage: new FC_PackageStorage(),
             packages: new FC_PackageRepository(),
-            assetStorage: null,
+            assetStorage: assetStorage,
             assetRepository: null,
             designer: designer,
             guardrails: guardrails ?? new FC_PassingGuardrails(),
@@ -2007,6 +2065,41 @@ file sealed class FC_SpyBrandMarkAssetExtractor : IBrandMarkAssetExtractor
         LastSourceImagePath = sourceImagePath;
         return Task.FromResult(_result);
     }
+}
+
+/// <summary>
+/// WU-7c (D11) fake: OpenAsync returns configured bytes only for the expected storage path,
+/// mirroring the same shape as BackgroundUrlInlineTests' StubStorage. PutAssetAsync returns a
+/// stable ref (the pipeline's main-asset upload step runs unconditionally once assetStorage is
+/// non-null) — everything else is never exercised by this test's path.
+/// </summary>
+file sealed class WU7C_FakeAssetStorage(string expectedPath, byte[] bytes, string mime) : IGeneratedAssetStorage
+{
+    public string? LastOpenedPath { get; private set; }
+
+    public Task<Result<StoredAssetStream>> OpenAsync(string storagePath, CancellationToken ct)
+    {
+        LastOpenedPath = storagePath;
+        if (!string.Equals(storagePath, expectedPath, StringComparison.Ordinal))
+        {
+            return Task.FromResult(Result.Failure<StoredAssetStream>(StorageErrors.NotFound));
+        }
+
+        var stream = new StoredAssetStream(new MemoryStream(bytes), mime, bytes.Length);
+        return Task.FromResult(Result.Success(stream));
+    }
+
+    public Task<StoredAssetRef> PutAssetAsync(StoredAssetKey key, StoredAssetContent content, CancellationToken ct) =>
+        Task.FromResult(new StoredAssetRef($"orgs/x/{key.RelativePath}", content.Mime, content.Bytes.Length, "hash"));
+
+    public Task PutFolderPlaceholderAsync(string folderPath, CancellationToken ct) =>
+        throw new NotSupportedException();
+
+    public Task<IReadOnlyList<StoredAssetEntry>> ListAsync(string prefix, CancellationToken ct) =>
+        throw new NotSupportedException();
+
+    public Task DeleteAsync(string storagePath, CancellationToken ct) =>
+        throw new NotSupportedException();
 }
 
 file sealed class FC_SucceedingDesigner : IVisualDesigner

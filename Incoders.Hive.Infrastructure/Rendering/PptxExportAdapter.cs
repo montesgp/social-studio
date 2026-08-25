@@ -25,6 +25,11 @@ namespace Incoders.Hive.Infrastructure.Rendering;
 ///   <item><description><c>backgroundImageRef</c> → full-bleed <c>Picture</c> behind text boxes. Resolved at
 ///   build time: a <c>data:</c> URI (legacy rows) is decoded inline; a storage path
 ///   (studio-background-asset-ref, BGREF-01) is opened via <see cref="IGeneratedAssetStorage"/>.</description></item>
+///   <item><description>A <c>data-slot="brand-mark"</c> <c>&lt;img src="..."&gt;</c> (icon-mark crop,
+///   CAGH-CG-05/CAGH-SBR-02) → a SECOND resolved <c>Picture</c>, placed from that slot's captured
+///   geometry (D12). Reuses <see cref="ResolvePictureBytesAsync"/> unchanged. Unresolvable → the
+///   picture is omitted and the slide still exports (BGREF-04 semantics); no unresolved
+///   storage-path string leaks into the exported XML.</description></item>
 ///   <item><description>Slide size from <c>canvas.Width × canvas.Height</c> at <c>canvas.Dpi</c>.</description></item>
 ///   <item><description>Slots without geometry fall back to a deterministic stacked layout.</description></item>
 /// </list>
@@ -79,15 +84,21 @@ public sealed class PptxExportAdapter(IGeneratedAssetStorage assetStorage) : IPp
             // Pre-resolve each slide's picture reference to raw bytes BEFORE the OpenXML build loop
             // so AddSlide stays synchronous — OpenXML's SDK types are not async-friendly.
             var backgroundBytesPerEnvelope = new byte[]?[envelopes.Count];
+            // CAGH-SBR-02/D12: independent second picture — a slide may carry a background/flattened
+            // ref, a brand-mark ref, both, or neither; each resolves independently.
+            var brandMarkBytesPerEnvelope = new byte[]?[envelopes.Count];
             for (var i = 0; i < envelopes.Count; i++)
             {
                 var envelope = envelopes[i];
                 var flattened = !string.IsNullOrWhiteSpace(envelope.FlattenedImageRef);
                 var pictureRef = flattened ? envelope.FlattenedImageRef : envelope.BackgroundImageRef;
                 backgroundBytesPerEnvelope[i] = await ResolvePictureBytesAsync(pictureRef, ct);
+
+                var brandMarkRef = ExtractBrandMarkImageRef(envelope.Markup);
+                brandMarkBytesPerEnvelope[i] = await ResolvePictureBytesAsync(brandMarkRef, ct);
             }
 
-            var bytes = BuildPptx(envelopes, backgroundBytesPerEnvelope);
+            var bytes = BuildPptx(envelopes, backgroundBytesPerEnvelope, brandMarkBytesPerEnvelope);
             return Result.Success(bytes);
         }
         catch (Exception ex)
@@ -134,13 +145,49 @@ public sealed class PptxExportAdapter(IGeneratedAssetStorage assetStorage) : IPp
         }
     }
 
+    // Matches a <img ...> tag carrying data-slot="brand-mark" (CAGH-CG-05's icon-mark crop element),
+    // attribute order-independent. Deliberately NOT the same as StudioVisualMarkupResolver's generic
+    // src="..." matcher — this one is scoped to the brand-mark slot specifically, so the export path
+    // resolves it as a distinct SECOND picture rather than folding it into the background resolution.
+    private static readonly Regex BrandMarkImgTagRegex = new(
+        @"<img\b[^>]*\bdata-slot\s*=\s*""brand-mark""[^>]*>",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex SrcAttributeRegex = new(
+        @"\bsrc\s*=\s*""([^""]*)""",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// Extracts the storage-path/URL from a <c>&lt;img data-slot="brand-mark" src="..."&gt;</c>
+    /// element in the persisted markup (CAGH-CG-05). Returns null when no such element exists — the
+    /// mark is absent, a text mark, or degraded to the coloured chip (neither of which is an
+    /// <c>&lt;img&gt;</c>), which is the normal/majority case and MUST NOT be treated as an error.
+    /// </summary>
+    private static string? ExtractBrandMarkImageRef(string? markup)
+    {
+        if (string.IsNullOrWhiteSpace(markup))
+        {
+            return null;
+        }
+
+        var tagMatch = BrandMarkImgTagRegex.Match(markup);
+        if (!tagMatch.Success)
+        {
+            return null;
+        }
+
+        var srcMatch = SrcAttributeRegex.Match(tagMatch.Value);
+        return srcMatch.Success ? srcMatch.Groups[1].Value : null;
+    }
+
     // -----------------------------------------------------------------------
     // Core builder
     // -----------------------------------------------------------------------
 
     private static byte[] BuildPptx(
         IReadOnlyList<CompositionSpecEnvelope> envelopes,
-        IReadOnlyList<byte[]?> backgroundBytesPerEnvelope)
+        IReadOnlyList<byte[]?> backgroundBytesPerEnvelope,
+        IReadOnlyList<byte[]?> brandMarkBytesPerEnvelope)
     {
         using var ms = new MemoryStream();
         using (var prs = PresentationDocument.Create(ms, PresentationDocumentType.Presentation))
@@ -176,7 +223,7 @@ public sealed class PptxExportAdapter(IGeneratedAssetStorage assetStorage) : IPp
                 var slidePart = presentationPart.AddNewPart<SlidePart>(relationshipId);
                 AddSlide(
                     slidePart, slideLayoutPart, envelopes[i], backgroundBytesPerEnvelope[i],
-                    emuPerPx, slideWidthEmu, slideHeightEmu);
+                    brandMarkBytesPerEnvelope[i], emuPerPx, slideWidthEmu, slideHeightEmu);
 
                 presentationPart.Presentation.SlideIdList!.AppendChild(
                     new P.SlideId { Id = 256U + (uint)i, RelationshipId = relationshipId });
@@ -210,6 +257,7 @@ public sealed class PptxExportAdapter(IGeneratedAssetStorage assetStorage) : IPp
         SlideLayoutPart slideLayoutPart,
         CompositionSpecEnvelope envelope,
         byte[]? backgroundBytes,
+        byte[]? brandMarkBytes,
         double emuPerPx,
         long slideWidthEmu,
         long slideHeightEmu)
@@ -238,17 +286,47 @@ public sealed class PptxExportAdapter(IGeneratedAssetStorage assetStorage) : IPp
             spTree.AppendChild(BuildBackgroundPicture(slideWidthEmu, slideHeightEmu));
         }
 
+        // ---- 1b. Brand-mark crop picture (CAGH-SBR-02/D12: a SECOND, independent picture) ----
+        // Placed from the data-slot="brand-mark" element's own captured geometry, not the full
+        // canvas. Omitted (no throw) when unresolvable or when the render pass captured no geometry
+        // for that slot — BGREF-04 semantics.
+        var brandMarkGeo = brandMarkBytes is not null
+            ? envelope.SlotGeometry.FirstOrDefault(g =>
+                string.Equals(g.Slot, "brand-mark", StringComparison.OrdinalIgnoreCase))
+            : null;
+        if (brandMarkBytes is not null && brandMarkGeo is not null)
+        {
+            var brandMarkImagePart = slidePart.AddNewPart<ImagePart>("image/png", "rIdBrandMark");
+            using var brandMarkMs = new MemoryStream(brandMarkBytes);
+            brandMarkImagePart.FeedData(brandMarkMs);
+
+            var bmX = (long)(brandMarkGeo.X * emuPerPx);
+            var bmY = (long)(brandMarkGeo.Y * emuPerPx);
+            var bmW = (long)(brandMarkGeo.Width * emuPerPx);
+            var bmH = (long)(brandMarkGeo.Height * emuPerPx);
+            spTree.AppendChild(BuildBrandMarkPicture(bmX, bmY, bmW, bmH));
+        }
+
         // ---- 2. Text boxes from slot geometry (skipped for a flattened render) ----
         if (!flattened)
         {
             uint shapeId = 2U;
             var slots = ExtractSlots(envelope.Markup);
+            // The brand-mark slot is rendered as the picture above (when resolved) — skip it here so
+            // it is not ALSO drawn as a duplicate (empty, self-closing <img> has no text) text box.
+            var brandMarkRenderedAsPicture = brandMarkBytes is not null && brandMarkGeo is not null;
 
             if (envelope.SlotGeometry.Count > 0)
             {
                 // Geometry-driven layout (D3 normal path)
                 foreach (var geo in envelope.SlotGeometry)
                 {
+                    if (brandMarkRenderedAsPicture
+                        && string.Equals(geo.Slot, "brand-mark", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
                     var slotText = slots.TryGetValue(geo.Slot, out var t) ? t : string.Empty;
                     var x = (long)(geo.X * emuPerPx);
                     var y = (long)(geo.Y * emuPerPx);
@@ -268,6 +346,12 @@ public sealed class PptxExportAdapter(IGeneratedAssetStorage assetStorage) : IPp
 
                 foreach (var (slot, text) in slots)
                 {
+                    if (brandMarkRenderedAsPicture
+                        && string.Equals(slot, "brand-mark", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
                     spTree.AppendChild(BuildTextBox(shapeId++, slot, text, stackX, stackY, stackW, stackH, null));
                     stackY += stackH + (long)(slideHeightEmu * 0.02);
                 }
@@ -386,6 +470,23 @@ public sealed class PptxExportAdapter(IGeneratedAssetStorage assetStorage) : IPp
                     new D.Extents { Cx = slideWidthEmu, Cy = slideHeightEmu }),
                 new D.PresetGeometry(new D.AdjustValueList()) { Preset = D.ShapeTypeValues.Rectangle }));
 
+    /// <summary>CAGH-SBR-02/D12: the resolved brand-mark icon crop, placed from its own captured
+    /// geometry (never full-bleed like the background picture).</summary>
+    private static P.Picture BuildBrandMarkPicture(long xEmu, long yEmu, long wEmu, long hEmu) =>
+        new P.Picture(
+            new P.NonVisualPictureProperties(
+                new P.NonVisualDrawingProperties { Id = 1000U, Name = "brand-mark" },
+                new P.NonVisualPictureDrawingProperties(new D.PictureLocks { NoChangeAspect = true }),
+                new P.ApplicationNonVisualDrawingProperties()),
+            new P.BlipFill(
+                new D.Blip { Embed = "rIdBrandMark" },
+                new D.Stretch(new D.FillRectangle())),
+            new P.ShapeProperties(
+                new D.Transform2D(
+                    new D.Offset { X = xEmu, Y = yEmu },
+                    new D.Extents { Cx = wEmu, Cy = hEmu }),
+                new D.PresetGeometry(new D.AdjustValueList()) { Preset = D.ShapeTypeValues.Rectangle }));
+
     // -----------------------------------------------------------------------
     // Slide master / layout (minimal stubs required by OOXML spec)
     // -----------------------------------------------------------------------
@@ -490,8 +591,13 @@ public sealed class PptxExportAdapter(IGeneratedAssetStorage assetStorage) : IPp
     // HTML slot text extraction (regex — no HtmlAgilityPack dependency)
     // -----------------------------------------------------------------------
 
+    // CAGH-CG-05: the brand-mark slot can now be a SELF-CLOSING <img data-slot="brand-mark" .../>
+    // element (no matching closing tag) — the tag-name backreference (\k<tag>) requires the closing
+    // tag to match the SAME element that opened it, and the `|/>` alternative treats a self-closing
+    // tag as an empty-inner match instead of letting the greedy-until-next-</tag> fallback swallow
+    // unrelated markup after it (the pre-fix regex had no tag-name anchor at all).
     private static readonly Regex SlotRegex = new(
-        @"<[^>]+data-slot=""(?<slot>[^""]+)""[^>]*>(?<inner>.*?)</[^>]+>",
+        @"<(?<tag>[^\s/>]+)[^>]*\bdata-slot=""(?<slot>[^""]+)""[^>]*(?:/>|>(?<inner>.*?)</\k<tag>>)",
         RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
     private static readonly Regex StripTagsRegex = new(

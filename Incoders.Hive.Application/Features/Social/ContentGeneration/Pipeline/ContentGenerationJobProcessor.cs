@@ -771,10 +771,15 @@ public sealed class ContentGenerationJobProcessor
                     // Null for every other slide, including the pre-existing FlatColor short-circuit
                     // (that path is not a degrade — it is the proven, always-faithful treatment).
                     string? capturedDegradeReason = null;
-                    // Storage-path of the enforced background, when any. The persisted markup keeps this
-                    // lightweight reference; the data URI is inlined transiently for the render pass only,
-                    // so we do not bloat content_generation_format_results / studio drafts with base64.
-                    string? renderBackgroundStoragePath = null;
+                    // WU-7c (D11, F3): storage-path references the Chromium render pass must inline as
+                    // self-contained data URIs before rendering — it has no base URL to fetch a bare
+                    // storage path from. Originally a single `renderBackgroundStoragePath` (the enforced
+                    // background only); generalised to a set because a successfully-extracted brand-mark
+                    // icon crop (BuildBrandMarkSlot below) is a SECOND independent reference. The
+                    // persisted markup/DB rows keep the lightweight storage-path references — only the
+                    // transient render-pass copy gets the inlined data URIs, so we do not bloat
+                    // content_generation_format_results / studio drafts with base64.
+                    var renderInlineRefs = new HashSet<string>(StringComparer.Ordinal);
 
                     // Designer + guardrail stage for designed-raster formats (story, carousel).
                     // Text/markdown formats bypass entirely (spec.OutputKind != Raster means they
@@ -1012,7 +1017,7 @@ public sealed class ContentGenerationJobProcessor
                                         aestheticDesignContext?.BackgroundTransparency, specs.Count, specIndex + 1);
                                     validatedMarkup = BuildTemplateBackedMarkup(
                                         spec, enforcedBackground, aestheticDesignContext, slideTransparency);
-                                    renderBackgroundStoragePath = enforcedBackground.Url;
+                                    renderInlineRefs.Add(enforcedBackground.Url);
                                 }
                                 else if (aiMarkup is not null)
                                 {
@@ -1057,12 +1062,14 @@ public sealed class ContentGenerationJobProcessor
                             var brandMarkCaptionWeight = spec.Typography.CaptionWeight;
                             var brandMarkCaptionSize = spec.Typography.CaptionSize;
 
-                            // WU-7b (D13, CAGH-CG-06-a — wiring half): icon-type marks with a valid
-                            // source image + bounding box are crop-extracted now so the durable asset
-                            // exists by the time WU-7c wires the <img> render. Extraction failure
-                            // degrades silently to the pre-existing chip below — the generation job is
-                            // NEVER failed by this. A successful crop is not yet consumed by markup in
-                            // this batch (rendering it as <img> is WU-7c's scope, not this one's).
+                            // WU-7b/7c (D13, CAGH-CG-05-a/06-a): icon-type marks with a valid source
+                            // image + bounding box are crop-extracted now so the durable asset exists
+                            // before BuildBrandMarkSlot renders it. Extraction failure degrades silently
+                            // to the pre-existing chip below — the generation job is NEVER failed by
+                            // this. A successful crop's stored path is threaded into BuildBrandMarkSlot
+                            // (renders the <img>) and into renderInlineRefs (D11) so the Chromium render
+                            // pass inlines it as a data URI, exactly like the enforced background.
+                            string? extractedBrandMarkIconPath = null;
                             if (string.Equals(brandMark.MarkType, "icon", StringComparison.OrdinalIgnoreCase)
                                 && brandMark.BoundingBox is { } brandMarkBox
                                 && !string.IsNullOrWhiteSpace(brandMark.SourceImagePath)
@@ -1086,6 +1093,10 @@ public sealed class ContentGenerationJobProcessor
                                         "ContentGeneration: brand-mark icon crop extraction failed for job {JobId} ({ErrorCode}) — degrading to chip.",
                                         job.Id, brandMarkExtractResult.Error.Code);
                                 }
+                                else
+                                {
+                                    extractedBrandMarkIconPath = brandMarkExtractResult.Value.StoragePath;
+                                }
                             }
 
                             var brandMarkSlot = BuildBrandMarkSlot(
@@ -1093,12 +1104,18 @@ public sealed class ContentGenerationJobProcessor
                                 defaultBrandMarkColorHex,
                                 brandMarkCaptionFont,
                                 brandMarkCaptionWeight,
-                                brandMarkCaptionSize);
+                                brandMarkCaptionSize,
+                                extractedBrandMarkIconPath);
                             if (brandMarkSlot is not null)
                             {
                                 var markupWithBrandMark = AppendBrandMarkSlot(capturedMarkup, brandMarkSlot);
                                 spec = spec with { DesignerMarkup = markupWithBrandMark };
                                 capturedMarkup = markupWithBrandMark;
+
+                                if (extractedBrandMarkIconPath is not null)
+                                {
+                                    renderInlineRefs.Add(extractedBrandMarkIconPath);
+                                }
                             }
                         }
                     }
@@ -1108,21 +1125,29 @@ public sealed class ContentGenerationJobProcessor
                     // per-[data-slot] bounding rects in the same Chromium page session.
                     // Falls back to the base RenderAsync for non-Html specs or legacy renderers.
                     RenderedAsset asset;
-                    // Transiently inline the enforced background as a data URI for the render ONLY. The
-                    // persisted spec/markup keeps the lightweight storage-path reference; only what Chromium
-                    // renders needs the self-contained image (it has no base URL to fetch the path).
+                    // Transiently inline every collected storage-path reference (enforced background,
+                    // and — WU-7c, D11/F3 — a successfully-extracted brand-mark icon crop) as data URIs
+                    // for the render ONLY. The persisted spec/markup keeps the lightweight storage-path
+                    // references; only what Chromium renders needs the self-contained images (it has no
+                    // base URL to fetch a bare path from).
                     var renderSpec = spec;
-                    if (renderBackgroundStoragePath is not null
+                    if (renderInlineRefs.Count > 0
                         && spec.OutputKind == CompositionOutputKind.Html
                         && spec.DesignerMarkup is not null)
                     {
-                        var bgDataUri = await InlineBackgroundUrlAsync(_assetStorage, renderBackgroundStoragePath, ct);
-                        if (!string.Equals(bgDataUri, renderBackgroundStoragePath, StringComparison.Ordinal))
+                        var renderMarkup = spec.DesignerMarkup;
+                        foreach (var inlineRef in renderInlineRefs)
                         {
-                            renderSpec = spec with
+                            var dataUri = await InlineBackgroundUrlAsync(_assetStorage, inlineRef, ct);
+                            if (!string.Equals(dataUri, inlineRef, StringComparison.Ordinal))
                             {
-                                DesignerMarkup = spec.DesignerMarkup.Replace(renderBackgroundStoragePath, bgDataUri),
-                            };
+                                renderMarkup = renderMarkup.Replace(inlineRef, dataUri);
+                            }
+                        }
+
+                        if (!string.Equals(renderMarkup, spec.DesignerMarkup, StringComparison.Ordinal))
+                        {
+                            renderSpec = spec with { DesignerMarkup = renderMarkup };
                         }
                     }
                     if (spec.OutputKind == CompositionOutputKind.Html
@@ -2402,17 +2427,24 @@ public sealed class ContentGenerationJobProcessor
     /// <see cref="BrandMarkDetection.Text"/> is non-blank, the literal text is rendered through the
     /// client's already-resolved caption typography (<paramref name="captionFont"/>/
     /// <paramref name="captionWeight"/>/<paramref name="captionSize"/>) instead of the coloured
-    /// chip — a signature is caption-scale. Every other case (<c>"icon"</c>, <c>"unknown"</c>,
-    /// <c>null</c> <see cref="BrandMarkDetection.MarkType"/>, or blank/whitespace
-    /// <see cref="BrandMarkDetection.Text"/>) falls through to the EXACT pre-existing empty-chip
-    /// behaviour — regression-critical, icon-type rendering is WU-7b/7c, not this batch.
+    /// chip — a signature is caption-scale.
+    /// CAGH-CG-05 (WU-7c): when <see cref="BrandMarkDetection.MarkType"/> is <c>"icon"</c> and
+    /// <paramref name="extractedIconAssetPath"/> is non-blank (the caller only supplies this after a
+    /// successful <c>IBrandMarkAssetExtractor.ExtractAsync</c> crop), an <c>&lt;img&gt;</c>
+    /// referencing the stored crop asset is rendered instead of the coloured chip. Every other case
+    /// (<c>"unknown"</c>, <c>null</c> <see cref="BrandMarkDetection.MarkType"/>, blank/whitespace
+    /// <see cref="BrandMarkDetection.Text"/> on a text mark, or a null/blank
+    /// <paramref name="extractedIconAssetPath"/> on an icon mark — missing/invalid bounding box,
+    /// extraction failure, or the extractor being unavailable) falls through to the EXACT
+    /// pre-existing empty-chip behaviour (CAGH-CG-06-a).
     /// </remarks>
     private static string? BuildBrandMarkSlot(
         BrandMarkDetection brandMark,
         string defaultColorHex,
         string captionFont,
         int captionWeight,
-        int? captionSize)
+        int? captionSize,
+        string? extractedIconAssetPath = null)
     {
         if (!brandMark.Present)
         {
@@ -2435,6 +2467,18 @@ public sealed class ContentGenerationJobProcessor
                 $"font-family:{captionFont},system-ui,sans-serif;font-size:{captionSize ?? 28}px;" +
                 $"font-weight:{captionWeight};color:{defaultColorHex};",
                 1);
+        }
+
+        if (brandMark.MarkType == "icon" && !string.IsNullOrWhiteSpace(extractedIconAssetPath))
+        {
+            // CAGH-CG-05: sized to the brand-mark slot's dimensions (mirrors the coloured chip's
+            // 112x36 footprint below), not the full canvas — object-fit:cover mirrors the pattern the
+            // AI-generated background <img> already uses (BuildTemplateBackedMarkup, above) so a
+            // non-matching crop aspect ratio still fills the slot without distortion.
+            return
+                $"<img class=\"slot\" data-slot=\"brand-mark\" data-max-lines=\"1\" src=\"{Html(extractedIconAssetPath)}\" " +
+                $"style=\"position:absolute;{horizontalCss}bottom:56px;width:112px;height:36px;" +
+                "object-fit:cover;border-radius:8px;\" />";
         }
 
         string colorHex;
