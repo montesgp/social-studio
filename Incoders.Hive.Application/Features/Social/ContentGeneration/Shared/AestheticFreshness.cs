@@ -30,8 +30,15 @@ public static class AestheticFreshness
     /// field existed are treated as stale and eligible for re-analysis, rather than silently keeping the
     /// old proxy value forever.
     /// </para>
+    ///
+    /// <para>
+    /// v5 (WU-6a, CAGH-PA-01/02): the extractor now detects a <c>markType</c> discriminator
+    /// (<c>"text"</c>/<c>"icon"</c>/<c>"unknown"</c>) and, for text marks, the literal <c>text</c>
+    /// signature string on <c>brandMark</c>. Bumped per the established convention so profiles
+    /// captured before this change are treated as stale and eligible for re-analysis.
+    /// </para>
     /// </summary>
-    public const string CurrentSchemaVersion = "aesthetic-extractor/v4";
+    public const string CurrentSchemaVersion = "aesthetic-extractor/v5";
 
     /// <summary>
     /// Parses the trailing integer from an <c>"aesthetic-extractor/vN"</c> schema version string.

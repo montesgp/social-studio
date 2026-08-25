@@ -426,6 +426,72 @@ public sealed class MultimodalAestheticStyleExtractorTests
         Assert.True(gateway.WasCalled);
     }
 
+    // ── WU-6a task 6a.3 [RED] — markType/text mapping (CAGH-PA-01/02, v5) ───────
+
+    [Fact]
+    public async Task BrandMark_TextType_MapsMarkTypeAndText()
+    {
+        // CAGH-PA-01-a / CAGH-PA-02-a: recognised markType + literal text map through
+        const string brandMarkJson =
+            """{"present":true,"positionHint":"bottom-right","colorHex":"#112233","markType":"text","text":"Dra. Lucia Fernandez"}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.BrandMark);
+        Assert.Equal("text", result.BrandMark!.MarkType);
+        Assert.Equal("Dra. Lucia Fernandez", result.BrandMark.Text);
+    }
+
+    [Fact]
+    public async Task BrandMark_IconType_TextIsNull()
+    {
+        // CAGH-PA-02-b: an icon mark never carries a text literal, even if the model hallucinates one
+        const string brandMarkJson =
+            """{"present":true,"positionHint":"top-left","colorHex":"#445566","markType":"icon","text":"should be ignored"}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.BrandMark);
+        Assert.Equal("icon", result.BrandMark!.MarkType);
+        Assert.Null(result.BrandMark.Text);
+    }
+
+    [Fact]
+    public async Task BrandMark_UnrecognisedMarkType_MapsToUnknown_NoThrow()
+    {
+        // CAGH-PA-01-b: an unrecognised/malformed markType token never throws — maps to "unknown"
+        const string brandMarkJson =
+            """{"present":true,"positionHint":"bottom-right","colorHex":"#112233","markType":"emblem-thing","text":"noise"}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.BrandMark);
+        Assert.Equal("unknown", result.BrandMark!.MarkType);
+        Assert.Null(result.BrandMark.Text);
+    }
+
+    [Fact]
+    public async Task BrandMark_PreV5Response_NoMarkTypeOrTextKeys_MapsToUnknown_NoThrow()
+    {
+        // Older extractor responses (pre-v5) only sent present/positionHint/colorHex — missing
+        // markType/text keys never throw and default to "unknown"/null (defensive-parse convention).
+        const string brandMarkJson = """{"present":true,"positionHint":"bottom-right","colorHex":"#112233"}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.BrandMark);
+        Assert.Equal("unknown", result.BrandMark!.MarkType);
+        Assert.Null(result.BrandMark.Text);
+    }
+
     [Fact]
     public async Task TypicalSlideCount_Present_MapsThrough()
     {
@@ -453,15 +519,15 @@ public sealed class MultimodalAestheticStyleExtractorTests
     }
 
     [Fact]
-    public async Task ExtractorPromptVersion_IsBumpedToV4()
+    public async Task ExtractorPromptVersion_IsBumpedToV5()
     {
-        // Extraction prompt/schema version MUST be bumped v3→v4 (measured-typical-slide-count)
+        // Extraction prompt/schema version MUST be bumped v4→v5 (WU-6a, CAGH-PA-01/02: markType/text)
         var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
         var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
 
         await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v4", gateway.CapturedPromptVersionKey);
+        Assert.Equal("aesthetic-extractor/v5", gateway.CapturedPromptVersionKey);
     }
 
     /// <summary>
@@ -477,7 +543,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v4", result.SchemaVersion);
+        Assert.Equal("aesthetic-extractor/v5", result.SchemaVersion);
         Assert.Equal(gateway.CapturedPromptVersionKey, result.SchemaVersion);
     }
 

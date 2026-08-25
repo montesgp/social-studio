@@ -384,6 +384,58 @@ public sealed class AestheticProfilePersistenceTests
         Assert.Null(read.BrandMark);
     }
 
+    // ── WU-6a (CAGH-PA-01/02): MarkType + Text round-trip ────────────────────
+
+    /// <summary>
+    /// FFS-PA-02-a — Serialize with a populated MarkType/Text, then Read returns both with no
+    /// data loss (task 6a.4).
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_PreservesMarkTypeAndText()
+    {
+        var brandMark = new BrandMarkDetection(
+            Present: true,
+            PositionHint: "bottom-right",
+            ColorHex: "#112233",
+            MarkType: "text",
+            Text: "Dra. Lucia Fernandez");
+
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            BrandMark: brandMark);
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.NotNull(read.BrandMark);
+        Assert.Equal("text", read.BrandMark!.MarkType);
+        Assert.Equal("Dra. Lucia Fernandez", read.BrandMark.Text);
+    }
+
+    /// <summary>
+    /// FFS-PA-02-c — a stored blob whose brandMark object carries only the pre-hardening
+    /// present/positionHint/colorHex shape deserializes MarkType/Text as null, pre-existing fields
+    /// intact, no exception (task 6a.4).
+    /// </summary>
+    [Fact]
+    public void Read_PreV5BrandMarkShape_MarkTypeAndTextAreNull_PreExistingFieldsIntact_NoException()
+    {
+        const string preV5Json =
+            """{"palette":[],"styleDescriptors":[],"motifs":[],"captionVoice":null,"referenceImages":[],"brandMark":{"present":true,"positionHint":"bottom-right","colorHex":"#112233"}}""";
+
+        var read = AestheticProfilePersistence.Read(preV5Json);
+
+        Assert.NotNull(read.BrandMark);
+        Assert.True(read.BrandMark!.Present);
+        Assert.Equal("bottom-right", read.BrandMark.PositionHint);
+        Assert.Equal("#112233", read.BrandMark.ColorHex);
+        Assert.Null(read.BrandMark.MarkType);
+        Assert.Null(read.BrandMark.Text);
+    }
+
     // ── aesthetic-freshness-versioning: SchemaVersion round-trips the ACTUAL extractor version ──
 
     /// <summary>

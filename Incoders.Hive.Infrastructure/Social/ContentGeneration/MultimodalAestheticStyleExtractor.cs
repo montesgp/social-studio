@@ -32,6 +32,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     // model, replacing the BackgroundPattern-length proxy — measured-typical-slide-count follow-up).
     // Additive/backward-compatible: absent typicalSlideCount/brandMark keys on an older response still
     // map cleanly (null).
+    // aesthetic-extractor/v5 (WU-6a, CAGH-PA-01/02): brandMark gains markType ("text"/"icon"/"unknown")
+    // and text (literal signature string, meaningful only for text marks). Additive/backward-compatible:
+    // absent markType/text keys on an older response, or an unrecognised markType token, defensively
+    // map to "unknown"/null rather than throwing (FFS-PA-02 convention).
     // aesthetic-freshness-versioning: MUST stay equal to AestheticFreshness.CurrentSchemaVersion —
     // referencing the constant directly (both are compile-time consts) guarantees they never drift.
     private const string PromptVersion = AestheticFreshness.CurrentSchemaVersion;
@@ -173,6 +177,15 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "\"center\" — null when present is false or the position is unclear), and `colorHex` " +
             "(the mark's color as a hex string — typically the client's text color — null when " +
             "present is false or no distinct color is identifiable). " +
+            // CAGH-PA-01/02 (WU-6a, v5): classify the recurring mark and, when it is a text
+            // signature, capture the literal string. Only meaningful when present is true.
+            "When present is true, also classify the mark and return `markType` as EXACTLY ONE of " +
+            "\"text\" (a written signature/wordmark, e.g. a handwritten or typeset name/handle) or " +
+            "\"icon\" (a graphic logo/emblem/symbol with no legible words) — omit or return null when " +
+            "present is false or you cannot tell which it is. When `markType` is \"text\", also " +
+            "return `text` with the EXACT literal string as it appears (e.g. \"Dra. Lucia Fernandez\"); " +
+            "never guess or paraphrase — omit/null `text` when the mark is an icon or the text is not " +
+            "legible. " +
             // CAFF-PA-01 (exact-client-typography): three-role typography extraction. Each role is
             // independently optional — omit a role entirely when it is not distinguishable, never
             // invent one. This is separate from styleDescriptors: it is the CONCRETE type system
@@ -293,8 +306,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         // non-fabricated "no recurring mark" result — mapped whenever the model returns the
         // brandMark object at all. Absent brandMark key (older v2 responses) → null (cold-start
         // parity; FFS-CG-03-a).
+        // CAGH-PA-01/02 (WU-6a, v5): normalize markType defensively (never throws, unrecognised/
+        // missing → "unknown"); text is meaningful — and kept — only when markType is "text".
         BrandMarkDetection? brandMark = dto.BrandMark is { } bm
-            ? new BrandMarkDetection(bm.Present, bm.PositionHint, bm.ColorHex)
+            ? MapBrandMark(bm)
             : null;
 
         // CAFF-PA-01 (exact-client-typography, WU-2a): map the three optional typography roles.
@@ -332,6 +347,17 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             Typography: typography,
             // CAFF-PA-03/04: per-slide transparency signal, reconciled to BackgroundPattern's length.
             BackgroundTransparency: backgroundTransparency);
+    }
+
+    // CAGH-PA-01/02 (WU-6a, v5): defensive brandMark mapping — markType is normalised through
+    // BrandMarkDetection.NormalizeMarkType (never throws; missing/unrecognised → "unknown"); text is
+    // kept only when the normalised markType is "text" and the raw value is not blank, so a
+    // mismatched/model-hallucinated text on an icon mark is never surfaced (CAGH-PA-02-b).
+    private static BrandMarkDetection MapBrandMark(BrandMarkDto bm)
+    {
+        var markType = BrandMarkDetection.NormalizeMarkType(bm.MarkType);
+        var text = markType == "text" && !string.IsNullOrWhiteSpace(bm.Text) ? bm.Text : null;
+        return new BrandMarkDetection(bm.Present, bm.PositionHint, bm.ColorHex, markType, text);
     }
 
     // CAFF-PA-01: defensive per-role mapping — a role with no (or blank) family is skipped rather
@@ -406,10 +432,13 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         [property: JsonPropertyName("cues")] string[]? Cues);
 
     // FFS-PA-01: brand-mark sub-DTO (present/positionHint/colorHex — v3)
+    // CAGH-PA-01/02 (WU-6a, v5): markType/text additive nullable — absent on pre-v5 responses.
     private sealed record BrandMarkDto(
         [property: JsonPropertyName("present")] bool Present,
         [property: JsonPropertyName("positionHint")] string? PositionHint,
-        [property: JsonPropertyName("colorHex")] string? ColorHex);
+        [property: JsonPropertyName("colorHex")] string? ColorHex,
+        [property: JsonPropertyName("markType")] string? MarkType = null,
+        [property: JsonPropertyName("text")] string? Text = null);
 
     // CACD-PA-02: image-type counts sub-DTO (counts, not proportions — normalization is in Map)
     private sealed record ImageTypeCountsDto(

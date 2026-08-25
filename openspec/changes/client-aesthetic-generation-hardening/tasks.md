@@ -79,10 +79,10 @@ Two flags, neither raises risk above Low:
 
 ## WU-6a: BrandMarkDetection MarkType + Text (Application/Infrastructure, ~460 lines)
 
-- [ ] 6a.1 RED+GREEN: `Application/.../Shared/BrandMarkDetection.cs` — add nullable `MarkType` (D8); case-insensitive parse to `text`/`icon`, else/null → `unknown`. Tests: recognised value parses (CAGH-PA-01-a), unrecognised → `unknown`, no throw (CAGH-PA-01-b), pre-change blob with no `markType` key deserializes `MarkType=null`, no throw (CAGH-PA-01-c).
-- [ ] 6a.2 RED+GREEN: same file — add nullable `Text`, meaningful only when `MarkType="text"` (D8). Tests: text mark carries literal (CAGH-PA-02-a), icon mark → `Text=null` (CAGH-PA-02-b).
-- [ ] 6a.3 RED+GREEN: `Infrastructure/.../MultimodalAestheticStyleExtractor.cs` — extend prompt/schema for `markType`/`text`; bump `AestheticFreshness.CurrentSchemaVersion`/`PromptVersion` to `aesthetic-extractor/v5` (D10). Test covers defensive parse of malformed `markType`/`text` tokens → null/unknown, never throw.
-- [ ] 6a.4 RED+GREEN: `AestheticProfilePersistence.cs` — add JSON keys for `MarkType`/`Text`. Tests: round-trip preserves both fields (FFS-PA-02-a), blob with only pre-hardening shape (`present`/`positionHint`/`colorHex`) deserializes `MarkType`/`Text` as null, pre-existing fields intact, no throw (FFS-PA-02-c).
+- [x] 6a.1 RED+GREEN: `Application/.../Shared/BrandMarkDetection.cs` — add nullable `MarkType` (D8); case-insensitive parse to `text`/`icon`, else/null → `unknown`. Tests: recognised value parses (CAGH-PA-01-a), unrecognised → `unknown`, no throw (CAGH-PA-01-b), pre-change blob with no `markType` key deserializes `MarkType=null`, no throw (CAGH-PA-01-c).
+- [x] 6a.2 RED+GREEN: same file — add nullable `Text`, meaningful only when `MarkType="text"` (D8). Tests: text mark carries literal (CAGH-PA-02-a), icon mark → `Text=null` (CAGH-PA-02-b).
+- [x] 6a.3 RED+GREEN: `Infrastructure/.../MultimodalAestheticStyleExtractor.cs` — extend prompt/schema for `markType`/`text`; bump `AestheticFreshness.CurrentSchemaVersion`/`PromptVersion` to `aesthetic-extractor/v5` (D10). Test covers defensive parse of malformed `markType`/`text` tokens → null/unknown, never throw.
+- [x] 6a.4 RED+GREEN: `AestheticProfilePersistence.cs` — add JSON keys for `MarkType`/`Text`. Tests: round-trip preserves both fields (FFS-PA-02-a), blob with only pre-hardening shape (`present`/`positionHint`/`colorHex`) deserializes `MarkType`/`Text` as null, pre-existing fields intact, no throw (FFS-PA-02-c).
 
 ## WU-6b: SourceImagePath + BoundingBox, Validation, Reliability Suite (Infrastructure, ~400 lines)
 

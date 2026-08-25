@@ -64,7 +64,10 @@ public static class AestheticProfilePersistence
                 : new StoredBrandMark(
                     Present: extraction.BrandMark.Present,
                     PositionHint: extraction.BrandMark.PositionHint,
-                    ColorHex: extraction.BrandMark.ColorHex),
+                    ColorHex: extraction.BrandMark.ColorHex,
+                    // WU-6a (CAGH-PA-01/02): additive keys; absent on pre-v5 blobs → null on Read
+                    MarkType: extraction.BrandMark.MarkType,
+                    Text: extraction.BrandMark.Text),
             // aesthetic-freshness-versioning: stamp the extraction's OWN schema version (the
             // extractor that actually produced it), NOT a hardcoded constant — otherwise every
             // stored profile would report the same version regardless of which extractor ran,
@@ -158,10 +161,15 @@ public static class AestheticProfilePersistence
                 SampleSize: dto.ImageTypeRatio.SampleSize ?? 0);
 
             // faithful-flat-slide-rendering additive field (absent on pre-v3 blobs → null; FFS-PA-02-b)
+            // WU-6a (CAGH-PA-01/02, FFS-PA-02-c): MarkType/Text additive keys — absent on pre-v5
+            // blobs (including blobs carrying only the pre-hardening present/positionHint/colorHex
+            // shape) deserialize as null, no exception.
             BrandMarkDetection? brandMark = dto.BrandMark is null ? null : new BrandMarkDetection(
                 Present: dto.BrandMark.Present,
                 PositionHint: dto.BrandMark.PositionHint,
-                ColorHex: dto.BrandMark.ColorHex);
+                ColorHex: dto.BrandMark.ColorHex,
+                MarkType: dto.BrandMark.MarkType,
+                Text: dto.BrandMark.Text);
 
             // client-aesthetic-fidelity-fixes (WU-3a, D3) additive field (absent on older blobs → null)
             var backgroundTransparency = dto.BackgroundTransparency is null
@@ -271,11 +279,17 @@ public static class AestheticProfilePersistence
         double? Decorator = null,
         int? SampleSize = null);
 
-    /// <summary>Stored shape for BrandMarkDetection — a straight field-for-field mirror (FFS-PA-02).</summary>
+    /// <summary>
+    /// Stored shape for BrandMarkDetection — a straight field-for-field mirror (FFS-PA-02).
+    /// <c>MarkType</c>/<c>Text</c> (WU-6a, CAGH-PA-01/02) are additive nullable trailing fields;
+    /// absent on blobs written before this change → null on Read (FFS-PA-02-c).
+    /// </summary>
     private sealed record StoredBrandMark(
         bool Present = false,
         string? PositionHint = null,
-        string? ColorHex = null);
+        string? ColorHex = null,
+        string? MarkType = null,
+        string? Text = null);
 
     /// <summary>
     /// Stored shape for <see cref="SlideBackgroundTransparency"/> (WU-3a, D3). Boolean + qualitative
