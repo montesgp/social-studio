@@ -1,5 +1,15 @@
 # Tasks: Client-Aesthetic Generation Hardening
 
+## Status: COMPLETE
+
+All 11 work units (WU-1 through WU-8, with WU-6a/6b and WU-7a/7b/7c as sub-units) landed on `dev`.
+WU-4 shipped a scoped-down local const instead of the fully shared `ImagePromptDirectives.cs`
+(task 4.1, explicitly deferred). WU-6b's fixture IoU reliability measurement is a recorded verdict
+of "not measurable offline" rather than a pass/fail gate (see "Bounding-Box Reliability Verdict"
+below); WU-7b/WU-7c shipped anyway per ADR 0014's documented rationale. Final gate run
+(`pwsh -File scripts/gates/Run-Gates.ps1`): all MUST gates pass, `tests.backend` 3826/3828 passed,
+2 skipped, 0 failed.
+
 ## Review Workload Forecast
 
 | Field | Value |
@@ -116,11 +126,11 @@ Two flags, neither raises risk above Low:
 
 ## WU-8: Spec/Doc Sync + PRD Amendment (Docs, ~420 lines, last)
 
-- [ ] 8.1 Merge the four ADDED/MODIFIED requirement sets from the spec-delta files into `openspec/specs/content-generation/spec.md`, `comfyui-image-provider/spec.md`, `profile-analysis/spec.md`, `content-studio-background-rendering/spec.md`.
-- [ ] 8.2 Write the PRD §11 amendment (Profile Analysis / Mundo 2): brand-mark extraction now derives and stores a durable asset from analysed reference imagery, not just categorical analysis fields.
-- [ ] 8.3 Confirm ADR `docs/architecture/adr/*-brand-mark-asset-port.md` (task 7b.5) is merged; cross-reference from the project's ADR index if one exists.
-- [ ] 8.4 Sync any `docs/` pipeline description referencing typography/colour/brand-mark behaviour to match the new consuming call sites.
-- [ ] 8.5 Run `pwsh -File scripts/gates/Run-Gates.ps1`; confirm all MUST gates pass before closing the change.
+- [x] 8.1 Merge the four ADDED/MODIFIED requirement sets from the spec-delta files into `openspec/specs/content-generation/spec.md`, `comfyui-image-provider/spec.md`, `profile-analysis/spec.md`, `content-studio-background-rendering/spec.md`. **Note**: spot-checked the four spec-delta files against shipped code first (`CompositionTypography.MeasuredHeadingSize`/`MeasuredBodySize`, `ComfyUiImageModelClient.BackgroundOnlyDirective` local const per the WU-4/4.1 deferral, `renderInlineRefs` D11 generalisation, `BrandMarkDetection.MarkType`/`SourceImagePath`/`BoundingBox`) — no drift found, all four deltas merged as-authored. `content-studio-background-rendering` has no canonical `openspec/specs/` directory yet (SBR-01/02 were themselves never merged out of their originating archived change); merged directly into that archived snapshot path per this change's own spec-delta header, which explicitly named it as the target.
+- [x] 8.2 Write the PRD §11 amendment (Profile Analysis / Mundo 2): brand-mark extraction now derives and stores a durable asset from analysed reference imagery, not just categorical analysis fields. **Note**: the prior `client-aesthetic-fidelity-fixes` change's own proposal explicitly recorded "No PRD edit required" (its proposal.md §"PRD Traceability") — there is no precedent PRD-amendment pattern from that change to mirror. Added an "Amended by" blockquote line (matching the existing "Added by" convention used by §11/§12/§13) plus a new MVP Acceptance Criteria bullet, both referencing ADR 0014.
+- [x] 8.3 Confirm ADR `docs/architecture/adr/0014-brand-mark-asset-port.md` (task 7b.5) is merged; cross-reference from the project's ADR index if one exists. **Note**: `docs/architecture/README.md` has no per-ADR index (only points at `adr/`); the repo's actual cross-reference convention is an inline PRD blockquote link, matching ADR 0005 (§12) and ADR 0013 (§13) — applied identically for ADR 0014 in §11 (task 8.2).
+- [x] 8.4 Sync any `docs/` pipeline description referencing typography/colour/brand-mark behaviour to match the new consuming call sites. **Note**: no other `docs/` file (besides the PRD, ADR, and the 4 spec-delta merges above) describes this pipeline's typography/colour/brand-mark call sites at an implementation level requiring sync.
+- [x] 8.5 Run `pwsh -File scripts/gates/Run-Gates.ps1`; confirm all MUST gates pass before closing the change.
 
 ---
 

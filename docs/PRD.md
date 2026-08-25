@@ -107,6 +107,9 @@ The resolved selections map to these five catalog keys:
 ## 11. Social Module — Profile Analysis (Mundo 2)
 
 > Added by `single-analyzer-profile-analysis` (2026-06-02).
+> Amended by `client-aesthetic-generation-hardening` (2026-08-25) — brand-mark extraction now
+> derives and stores a durable asset from analysed reference imagery, not just categorical
+> analysis fields. ADR: [`docs/architecture/adr/0014-brand-mark-asset-port.md`](architecture/adr/0014-brand-mark-asset-port.md).
 
 ### User Story
 
@@ -122,6 +125,13 @@ As a community manager, I want to analyse an Instagram account (my client's own 
 - CM can select individual detected fields and impute them into the client's Brand Manual, Content Plan, or General Strategy (per-field, opt-in, confirmed before applying).
 - Diagnostics (actor ids, fallback indicator, posts counts, AI provider) are persisted per run.
 - Operator must configure two Apify actor entries with `variantKey="profile"` (see `docs/operators/profile-analysis-setup.md`).
+- When the detected client aesthetic includes a recurring brand mark, the analysis classifies it as
+  a text signature or an icon/symbol. A text mark's literal wording is captured and rendered through
+  the client's own typography on generated content. An icon mark's clearest occurrence in an already
+  analysed reference image is cropped and stored as a durable asset, then rendered directly on
+  generated content instead of an empty coloured placeholder. Either kind gracefully degrades to a
+  minimal coloured-chip placeholder — never a broken image and never a generation failure — when the
+  mark cannot be reliably classified, located, or cropped.
 
 ### Non-Goals
 

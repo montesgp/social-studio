@@ -190,3 +190,77 @@ and OpenAI adapter test patterns. Tests MUST be written before implementation (S
 - WHEN the catalog client requests models
 - THEN the returned model list matches the fixture checkpoints
 - AND no real ComfyUI server is required
+
+---
+
+## Added Requirements: BackgroundOnly Parity, Anatomy Negative-Prompt Terms (client-aesthetic-generation-hardening)
+
+### Requirement: CAGH-CUI-01 — Adapter Honours request.BackgroundOnly, Injecting the Directive Into the Submitted Prompt
+
+`ComfyUiImageModelClient` MUST read `ImageGenerationRequest.BackgroundOnly`. When `true`, the
+adapter MUST inject the background-only directive text into the prompt it submits to the ComfyUI
+server, matching `OpenAiImageModelClient`'s directive semantics. When `false` or unset, the adapter's
+submitted prompt MUST be unaffected by this requirement (no directive text injected, no other prompt
+content changed as a result of this flag).
+
+#### Scenario: BackgroundOnly=true injects the directive into the submitted prompt (CAGH-CUI-01-a)
+
+- GIVEN an `ImageGenerationRequest` with `BackgroundOnly = true`
+- WHEN `GenerateAsync` submits the workflow to the ComfyUI server
+- THEN the submitted prompt text contains the background-only directive text
+
+#### Scenario: BackgroundOnly=false does not change adapter prompt behaviour (CAGH-CUI-01-b, regression)
+
+- GIVEN an `ImageGenerationRequest` with `BackgroundOnly = false` (or unset)
+- WHEN `GenerateAsync` submits the workflow
+- THEN the submitted prompt does NOT contain the background-only directive text
+- AND the submitted prompt is otherwise identical to pre-change behaviour for the same request
+
+#### Scenario: Directive text is defined once, shared with the OpenAI adapter (CAGH-CUI-01-c)
+
+- GIVEN the completed implementation
+- WHEN the background-only directive text is inspected in both adapters
+- THEN both adapters reference the same single defined directive text (no duplicated/drifted string)
+
+**Implementation note (non-normative)**: this batch injects the directive via a local
+`BackgroundOnlyDirective` const in `ComfyUiImageModelClient.cs`, mirrored verbatim from
+`OpenAiImageModelClient`'s directive text rather than a shared `ImagePromptDirectives` file — the
+extraction into one physically shared constant (fully satisfying CAGH-CUI-01-c's "same defined
+directive text" at the source level, not just semantically) is deferred to a follow-up batch
+(`tasks.md` WU-4, task 4.1).
+
+---
+
+### Requirement: CAGH-CUI-02 — Default Negative Prompt Includes Anatomy-Defect Terms Alongside Existing Text-Suppression Terms
+
+`ComfyUiImageModelClient.DefaultNegativePrompt` MUST include anatomy-defect suppression terms
+(at minimum: extra limbs, extra fingers, bad hands, malformed hands, duplicate face, cloned face,
+mutated) in addition to every text-suppression term already present. No pre-existing
+text-suppression term MAY be removed. `DefaultNegativePrompt` is the sole negative-prompt source
+used by every ComfyUI generation request today (no per-org override path exists in the codebase);
+this requirement covers only that single constant.
+
+#### Scenario: Anatomy terms present in the default negative prompt (CAGH-CUI-02-a)
+
+- GIVEN the default negative prompt used for a ComfyUI generation request
+- WHEN its content is inspected
+- THEN it contains anatomy-defect terms (extra limbs, extra fingers, bad/malformed hands, duplicate
+  or cloned face, mutated)
+
+#### Scenario: Existing text-suppression terms are retained (CAGH-CUI-02-b, regression)
+
+- GIVEN the default negative prompt before this change contained a set of text-suppression terms
+- WHEN the post-change default negative prompt is inspected
+- THEN every pre-change text-suppression term is still present
+
+## Modified Requirements (client-aesthetic-generation-hardening)
+
+None. `CAGH-CUI-01` and `CAGH-CUI-02` are additive: they close gaps in existing adapter behaviour
+(`BackgroundOnly` was never read; the negative prompt already existed and gains terms) without
+changing any previously specified requirement (`CUI-01`..`CUI-06`).
+
+## Removed Requirements (client-aesthetic-generation-hardening)
+
+None.
+
+*Merged from `openspec/changes/client-aesthetic-generation-hardening/specs/comfyui-image-provider/spec-delta.md` — change applied 2026-08-25.*
