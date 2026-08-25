@@ -52,10 +52,10 @@ Chain strategy: pending
 
 ## WU-2a — Typography Extraction (D4 prompt/DTO half)
 
-- [ ] 2a.1 RED — extend `Incoders.Hive.Tests` extractor tests for `MultimodalAestheticStyleExtractor` covering: all-three-roles detected; heading+body only (caption null, regression); none detected (cold start). Satisfies CAFF-PA-01.
-- [ ] 2a.2 GREEN — modify `Incoders.Hive.Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractor.cs`: extend prompt + DTO with caption/overline role, defensive `Map()`.
-- [ ] 2a.3 GREEN — modify `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticStyleExtractor.cs`: no new contract shape needed beyond existing `AestheticExtraction.Typography`; verify role-keyed carry-through compiles.
-- [ ] 2a.4 RED+GREEN — extend persistence round-trip tests for `AestheticProfilePersistence`/`ClientAestheticProfile.Typography`: 3-role round-trip; pre-change blob (no caption key) reads caption null, no exception. Satisfies CAFF-PA-02.
+- [x] 2a.1 RED — extend `Incoders.Hive.Tests` extractor tests for `MultimodalAestheticStyleExtractor` covering: all-three-roles detected; heading+body only (caption null, regression); none detected (cold start). Satisfies CAFF-PA-01.
+- [x] 2a.2 GREEN — modify `Incoders.Hive.Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractor.cs`: extend prompt + DTO with caption/overline role, defensive `Map()`.
+- [x] 2a.3 GREEN — modify `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticStyleExtractor.cs`: no new contract shape needed beyond existing `AestheticExtraction.Typography`; verify role-keyed carry-through compiles. Confirmed unchanged — already carries `Typography` (pre-session code); compilation of WU-2a's new Map() proves role-keyed carry-through compiles.
+- [x] 2a.4 RED+GREEN — extend persistence round-trip tests for `AestheticProfilePersistence`/`ClientAestheticProfile.Typography`: 3-role round-trip; pre-change blob (no caption key) reads caption null, no exception. Satisfies CAFF-PA-02.
 
 ## WU-2b — Typography Render (D4 render half + D7)
 

@@ -481,6 +481,81 @@ public sealed class MultimodalAestheticStyleExtractorTests
         Assert.Equal(gateway.CapturedPromptVersionKey, result.SchemaVersion);
     }
 
+    // ── WU-2a task 2a.1 [RED] — three-role typography mapping (CAFF-PA-01) ──────
+
+    [Fact]
+    public async Task Typography_AllThreeRolesDetected_MapsHeadingBodyAndCaption()
+    {
+        // CAFF-PA-01: all three roles distinguishable → all three map through
+        const string typographyJson =
+            """{"heading":{"family":"Poppins","weight":700,"italic":false,"sizeRatio":0.08},"body":{"family":"Inter","weight":400,"italic":false,"sizeRatio":0.032},"caption":{"family":"Poppins","weight":600,"italic":true,"sizeRatio":0.02}}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", typographyJson: typographyJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.Typography);
+        Assert.Equal(3, result.Typography!.Count);
+        var heading = result.Typography.Single(t => t.Role == TypographyRoles.Heading);
+        Assert.Equal("Poppins", heading.FontFamily);
+        Assert.Equal(700, heading.Weight);
+        Assert.False(heading.Italic);
+        Assert.Equal(0.08, heading.SizeRatio, precision: 10);
+        var body = result.Typography.Single(t => t.Role == TypographyRoles.Body);
+        Assert.Equal("Inter", body.FontFamily);
+        Assert.Equal(400, body.Weight);
+        var caption = result.Typography.Single(t => t.Role == "caption");
+        Assert.Equal("Poppins", caption.FontFamily);
+        Assert.Equal(600, caption.Weight);
+        Assert.True(caption.Italic);
+        Assert.Equal(0.02, caption.SizeRatio, precision: 10);
+    }
+
+    [Fact]
+    public async Task Typography_HeadingAndBodyOnly_CaptionAbsent_RegressionUnaffected()
+    {
+        // Two-role clients (pre-existing behaviour) MUST stay unaffected — caption simply absent.
+        const string typographyJson =
+            """{"heading":{"family":"Poppins","weight":700,"italic":false,"sizeRatio":0.08},"body":{"family":"Inter","weight":400,"italic":false,"sizeRatio":0.032}}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", typographyJson: typographyJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.Typography);
+        Assert.Equal(2, result.Typography!.Count);
+        Assert.DoesNotContain(result.Typography, t => t.Role == "caption");
+        Assert.Contains(result.Typography, t => t.Role == TypographyRoles.Heading);
+        Assert.Contains(result.Typography, t => t.Role == TypographyRoles.Body);
+    }
+
+    [Fact]
+    public async Task Typography_NoRoleDetected_IsNull_ColdStartPreserved()
+    {
+        // CAFF-PA-01: no typography key at all → null; extraction still succeeds (cold start)
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Null(result.Typography);
+        Assert.True(gateway.WasCalled);
+    }
+
+    [Fact]
+    public async Task Typography_TypographyObjectPresentButAllRolesNull_IsNull_NoException()
+    {
+        // Defensive parsing: a malformed/empty typography object never throws and never
+        // fabricates an entry with no observed family.
+        const string typographyJson = "{}";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", typographyJson: typographyJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Null(result.Typography);
+    }
+
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);
     private static IWorkflowConfigurationResolver CandidateResolver() => new StubResolver(candidate: true);
 }
@@ -524,7 +599,8 @@ file sealed class CaptureGateway(
     string? conceptualMethodJson = null,
     string? imageTypeCountsJson = null,
     string? brandMarkJson = null,
-    int? typicalSlideCount = null)
+    int? typicalSlideCount = null,
+    string? typographyJson = null)
     : IAiCompletionGateway
 {
     public bool WasCalled { get; private set; }
@@ -562,8 +638,11 @@ file sealed class CaptureGateway(
         var typicalSlideCountPart = typicalSlideCount is null
             ? string.Empty
             : $",\"typicalSlideCount\":{typicalSlideCount.Value}";
+        var typographyPart = typographyJson is null
+            ? string.Empty
+            : $",\"typography\":{typographyJson}";
         var json =
-            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}{{brandMarkPart}}{{typicalSlideCountPart}}}""";
+            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}{{brandMarkPart}}{{typicalSlideCountPart}}{{typographyPart}}}""";
         var payload = JsonSerializer.Deserialize<TResponse>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         return Task.FromResult(Result.Success(new AiJsonCompletionResponse<TResponse>(payload, "claude", "claude-opus-4-8", [], null)));
     }

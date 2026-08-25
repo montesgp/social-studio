@@ -462,6 +462,75 @@ public sealed class AestheticProfilePersistenceTests
         Assert.Null(read.SchemaVersion);
     }
 
+    // ── WU-2a (CAFF-PA-02): three-role Typography round-trip ─────────────────
+
+    /// <summary>
+    /// CAFF-PA-02 — Serialize with heading/body/caption Typography, then Read returns all
+    /// three roles with no data loss.
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_PreservesThreeRoleTypography()
+    {
+        IReadOnlyList<AestheticTypography> typography =
+        [
+            new AestheticTypography(TypographyRoles.Heading, "Poppins", 700, false, 0.08),
+            new AestheticTypography(TypographyRoles.Body, "Inter", 400, false, 0.032),
+            new AestheticTypography("caption", "Poppins", 600, true, 0.02),
+        ];
+
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            Typography: typography);
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.NotNull(read.Typography);
+        Assert.Equal(3, read.Typography!.Count);
+        var heading = read.Typography.Single(t => t.Role == TypographyRoles.Heading);
+        Assert.Equal("Poppins", heading.FontFamily);
+        Assert.Equal(700, heading.Weight);
+        var body = read.Typography.Single(t => t.Role == TypographyRoles.Body);
+        Assert.Equal("Inter", body.FontFamily);
+        var caption = read.Typography.Single(t => t.Role == "caption");
+        Assert.Equal("Poppins", caption.FontFamily);
+        Assert.True(caption.Italic);
+        Assert.Equal(0.02, caption.SizeRatio, precision: 10);
+    }
+
+    /// <summary>
+    /// CAFF-PA-02 — a pre-change blob with only heading/body typography (no caption role, or
+    /// no typography key at all) deserializes with caption absent from the list, no exception.
+    /// </summary>
+    [Fact]
+    public void Read_PreChangeBlob_TwoRoleTypography_NoCaptionKey_ReadsWithoutCaption_NoException()
+    {
+        const string twoRoleJson =
+            """{"palette":[],"styleDescriptors":[],"motifs":[],"captionVoice":null,"referenceImages":[],"typography":[{"role":"heading","fontFamily":"Poppins","weight":700,"italic":false,"sizeRatio":0.08},{"role":"body","fontFamily":"Inter","weight":400,"italic":false,"sizeRatio":0.032}]}""";
+
+        var read = AestheticProfilePersistence.Read(twoRoleJson);
+
+        Assert.NotNull(read.Typography);
+        Assert.Equal(2, read.Typography!.Count);
+        Assert.DoesNotContain(read.Typography, t => t.Role == "caption");
+    }
+
+    [Fact]
+    public void Read_OldBlobWithoutTypographyKey_ReturnsNull_NoException()
+    {
+        const string oldJson =
+            """{"palette":[],"styleDescriptors":["editorial"],"motifs":[],"captionVoice":"playful","referenceImages":[]}""";
+
+        var read = AestheticProfilePersistence.Read(oldJson);
+
+        Assert.Null(read.Typography);
+        Assert.NotNull(read.StyleDescriptors);
+        Assert.Contains("editorial", read.StyleDescriptors!);
+    }
+
     // ── client-analysis-data admin panel: WithBackgroundPattern patches ONLY the
     // BackgroundPattern (+ derived TypicalSlideCount) fields, round-tripping every other
     // stored field untouched (must-not-corrupt-other-fields constraint) ──────────────────

@@ -172,7 +172,20 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "\"bottom-left\", \"bottom-center\", \"top-right\", \"top-left\", \"top-center\", " +
             "\"center\" — null when present is false or the position is unclear), and `colorHex` " +
             "(the mark's color as a hex string — typically the client's text color — null when " +
-            "present is false or no distinct color is identifiable).";
+            "present is false or no distinct color is identifiable). " +
+            // CAFF-PA-01 (exact-client-typography): three-role typography extraction. Each role is
+            // independently optional — omit a role entirely when it is not distinguishable, never
+            // invent one. This is separate from styleDescriptors: it is the CONCRETE type system
+            // (family/weight/italic/size), not a mood description.
+            "Also identify the TYPOGRAPHY the client actually uses on their slides, if any type is " +
+            "visible and consistent enough to read off the pixels. Return `typography` with up to " +
+            "three optional sub-objects: `heading` (the largest/boldest headline type), `body` (the " +
+            "smaller supporting copy), and `caption` (small overline/caption/CTA-scale type, e.g. a " +
+            "signature line or call-to-action). Each present sub-object has `family` (the font family " +
+            "or closest-matching style name, e.g. \"Poppins\"), `weight` (CSS numeric weight 100-900), " +
+            "`italic` (boolean), and `sizeRatio` (the type's height as a fraction of the slide's total " +
+            "height, e.g. 0.08). Omit a sub-object entirely (do not fabricate placeholder values) when " +
+            "that role is not reliably distinguishable in the attached images.";
 
         var request = new AiJsonCompletionRequest(
             OrganizationId: organizationId,
@@ -261,6 +274,20 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             ? new BrandMarkDetection(bm.Present, bm.PositionHint, bm.ColorHex)
             : null;
 
+        // CAFF-PA-01 (exact-client-typography, WU-2a): map the three optional typography roles.
+        // Each role is independently additive-nullable — a role with no (or blank) family is simply
+        // omitted from the list rather than fabricated; a client with zero roles yields Typography =
+        // null (cold-start parity), matching every other defensive field in this Map().
+        IReadOnlyList<AestheticTypography>? typography = null;
+        if (dto.Typography is { } typo)
+        {
+            var roles = new List<AestheticTypography>(3);
+            AddTypographyRole(roles, TypographyRoles.Heading, typo.Heading);
+            AddTypographyRole(roles, TypographyRoles.Body, typo.Body);
+            AddTypographyRole(roles, "caption", typo.Caption);
+            typography = roles.Count > 0 ? roles : null;
+        }
+
         return new AestheticExtraction(
             Palette: palette,
             StyleDescriptors: dto.StyleDescriptors ?? [],
@@ -277,7 +304,20 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             // measured-typical-slide-count: pass the model's measured median through unchanged.
             // Null when the model omitted it or could not tell (cold-start parity) — the caller
             // (AestheticProfilePersistence) falls back to BackgroundPattern's length in that case.
-            TypicalSlideCount: dto.TypicalSlideCount);
+            TypicalSlideCount: dto.TypicalSlideCount,
+            // CAFF-PA-01: three-role typography (heading/body/caption), mapped above.
+            Typography: typography);
+    }
+
+    // CAFF-PA-01: defensive per-role mapping — a role with no (or blank) family is skipped rather
+    // than added with a fabricated placeholder, matching the extractor's established convention for
+    // every other optional AI-elicited field.
+    private static void AddTypographyRole(List<AestheticTypography> roles, string role, TypographyRoleDto? dto)
+    {
+        if (dto is { Family: { } family } && !string.IsNullOrWhiteSpace(family))
+        {
+            roles.Add(new AestheticTypography(role, family, dto.Weight ?? 400, dto.Italic ?? false, dto.SizeRatio ?? 0));
+        }
     }
 
     private static IReadOnlyList<SlideBackgroundKind>? MapSlideMixPattern(string[]? pattern)
@@ -320,7 +360,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         [property: JsonPropertyName("brandMark")] BrandMarkDto? BrandMark = null,
         // measured-typical-slide-count: median per-post slide count (additive nullable; absent on
         // pre-v4 responses, or when the model could not tell → null; cold-start parity)
-        [property: JsonPropertyName("typicalSlideCount")] int? TypicalSlideCount = null);
+        [property: JsonPropertyName("typicalSlideCount")] int? TypicalSlideCount = null,
+        // CAFF-PA-01 (exact-client-typography): three optional typography roles (additive nullable;
+        // absent on pre-WU-2a responses → null; cold-start parity)
+        [property: JsonPropertyName("typography")] TypographyDto? Typography = null);
 
     private sealed record PaletteEntryDto(
         [property: JsonPropertyName("hex")] string? Hex,
@@ -344,4 +387,17 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         [property: JsonPropertyName("photo")] int Photo,
         [property: JsonPropertyName("flat")] int Flat,
         [property: JsonPropertyName("decorator")] int Decorator);
+
+    // CAFF-PA-01: three optional typography-role sub-DTO. Each role is independently nullable — a
+    // missing/malformed role never fails deserialization (all-nullable properties).
+    private sealed record TypographyDto(
+        [property: JsonPropertyName("heading")] TypographyRoleDto? Heading = null,
+        [property: JsonPropertyName("body")] TypographyRoleDto? Body = null,
+        [property: JsonPropertyName("caption")] TypographyRoleDto? Caption = null);
+
+    private sealed record TypographyRoleDto(
+        [property: JsonPropertyName("family")] string? Family = null,
+        [property: JsonPropertyName("weight")] int? Weight = null,
+        [property: JsonPropertyName("italic")] bool? Italic = null,
+        [property: JsonPropertyName("sizeRatio")] double? SizeRatio = null);
 }
