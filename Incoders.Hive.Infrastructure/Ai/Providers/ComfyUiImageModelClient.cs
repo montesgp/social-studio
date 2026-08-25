@@ -42,11 +42,24 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     /// Default negative prompt. The generated image is used ONLY as a background raster; any text it
     /// bakes in is not editable in the studio and clashes with the separate editable text layer. The
     /// reference images conditioning the IP-Adapter are finished posts that contain text, so without
-    /// this the model reproduces garbled pseudo-text. Suppress all typography plus common artifacts.
+    /// this the model reproduces garbled pseudo-text. Suppress all typography plus common artifacts,
+    /// and (WU-4, CAGH-CUI-02) anatomy-defect terms — the background is composited behind a subject
+    /// on the finished post and malformed limbs/hands/faces are otherwise a common IP-Adapter defect.
     /// </summary>
     private const string DefaultNegativePrompt =
         "text, letters, words, typography, watermark, signature, caption, logo, label, subtitles, " +
-        "writing, font, handwriting, numbers, low quality, blurry, deformed, distorted";
+        "writing, font, handwriting, numbers, low quality, blurry, deformed, distorted, extra limbs, " +
+        "extra fingers, missing fingers, fused fingers, bad hands, malformed hands, deformed face, " +
+        "duplicate face, cloned face, two heads, extra person, mutated, disfigured, bad anatomy";
+
+    /// <summary>
+    /// Directive injected when <see cref="ImageGenerationRequest.BackgroundOnly"/> is true
+    /// (WU-4, CAGH-CUI-01), mirroring <c>OpenAiImageModelClient.BackgroundOnlyDirective</c>'s text
+    /// and placement so the two adapters cannot drift: tells the model to generate only the
+    /// background layer.
+    /// </summary>
+    private const string BackgroundOnlyDirective =
+        "generate ONLY the background; never render text, logos, @handles, or signatures";
 
     /// <summary>
     /// Exact JSON substring for the KSampler "model" edge wired to the IP-Adapter output (node
@@ -175,11 +188,17 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                 ? LoadBundledDefaultTemplate()
                 : settings.WorkflowTemplateJson;
 
+            // WU-4 (CAGH-CUI-01): mirrors OpenAiImageModelClient's BackgroundOnly handling — prepend
+            // the directive to the positive prompt so it reaches KSampler's positive CLIPTextEncode.
+            var effectivePrompt = request.BackgroundOnly
+                ? $"{BackgroundOnlyDirective}\n\n{request.Prompt}"
+                : request.Prompt;
+
             var seed = Random.Shared.NextInt64(0, int.MaxValue);
             var graphResult = BuildWorkflowGraph(
                 template,
                 checkpoint,
-                request.Prompt,
+                effectivePrompt,
                 negativePrompt: DefaultNegativePrompt,
                 referenceImageName,
                 settings.IpAdapterModel,
