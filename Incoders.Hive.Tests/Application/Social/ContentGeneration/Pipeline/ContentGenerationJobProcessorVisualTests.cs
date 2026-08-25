@@ -1080,6 +1080,23 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         return markup[start..(end + 1)];
     }
 
+    /// <summary>
+    /// Like <see cref="ExtractSlot"/> but returns the FULL element — opening tag, inner value/text
+    /// content, and closing tag — instead of only the opening tag. Needed for WU-7a's text-mark
+    /// assertions, which check both the style attributes and the rendered text content.
+    /// </summary>
+    private static string ExtractSlotElement(string markup, string slotName)
+    {
+        var marker = $"data-slot=\"{slotName}\"";
+        var idx = markup.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(idx >= 0, $"Expected slot '{slotName}' in markup.");
+        var start = markup.LastIndexOf('<', idx);
+        var openTagEnd = markup.IndexOf('>', idx);
+        var closeTagStart = markup.IndexOf("</", openTagEnd, StringComparison.Ordinal);
+        var closeTagEnd = markup.IndexOf('>', closeTagStart);
+        return markup[start..(closeTagEnd + 1)];
+    }
+
     [Fact]
     public async Task FlatColorSlide_AccentRoleSignaled_EmitsEditableAccentSlot()
     {
@@ -1421,6 +1438,113 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         var brandMarkTagEnd = rendererSpy.ReceivedMarkup.IndexOf('>', brandMarkIndex);
         var brandMarkTag = rendererSpy.ReceivedMarkup[..brandMarkTagEnd];
         Assert.Contains("#EEEEEE", brandMarkTag);
+    }
+
+    // -----------------------------------------------------------------------
+    // WU-7a (CAGH-CG-04/07): text-mark rendering via the client's resolved caption typography.
+    // Icon/unknown/null MarkType and blank Text keep the EXACT pre-existing empty-chip behaviour —
+    // regression-critical, icon rendering is WU-7b/7c, not this batch.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task TextMarkPresent_RendersLiteralTextWithCaptionTypography_CAGH_CG_04_a()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(
+                Present: true,
+                PositionHint: "bottom-left",
+                ColorHex: "#445566",
+                MarkType: "text",
+                Text: "Studio Marisol"));
+
+        var typography = new CompositionTypography("Inter", 24, "Inter", 14)
+        {
+            CaptionFamily = "Liberation Serif",
+            CaptionWeight = 650,
+            CaptionSize = 33,
+        };
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner(),
+            typography: typography);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
+        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
+        Assert.Contains("Studio Marisol", brandMarkSlot);
+        Assert.Contains("font-family:'Liberation Serif'", brandMarkSlot);
+        Assert.Contains("font-weight:650", brandMarkSlot);
+        Assert.Contains("font-size:33px", brandMarkSlot);
+    }
+
+    [Fact]
+    public async Task TextMark_NullText_NoFabricatedText_NoException_CAGH_CG_04_b()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(
+                Present: true,
+                PositionHint: "bottom-left",
+                ColorHex: "#445566",
+                MarkType: "text",
+                Text: null));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        // Falls through to the pre-existing empty-chip behaviour: the slot renders, but with no
+        // fabricated text content, and no exception is thrown reaching this point.
+        Assert.Contains("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
+        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
+        Assert.DoesNotContain("Studio Marisol", brandMarkSlot);
+        Assert.Contains("#445566", brandMarkSlot);
+    }
+
+    [Fact]
+    public async Task UnknownMarkType_RendersPreExistingChip_Unchanged_CAGH_CG_07_a()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(
+                Present: true,
+                PositionHint: "bottom-right",
+                ColorHex: "#445566",
+                MarkType: "unknown"));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
+        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
+        Assert.Contains("#445566", brandMarkSlot);
+        Assert.DoesNotContain("<img", brandMarkSlot);
     }
 
     // -----------------------------------------------------------------------

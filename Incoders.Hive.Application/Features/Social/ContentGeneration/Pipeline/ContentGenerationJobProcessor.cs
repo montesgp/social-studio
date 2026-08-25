@@ -1045,7 +1045,17 @@ public sealed class ContentGenerationJobProcessor
                         {
                             var defaultBrandMarkColorHex = slideTextColorHex
                                 ?? CssColor(aestheticProfile?.ColorPairings?.FirstOrDefault()?.TextHex, "#FFFFFF");
-                            var brandMarkSlot = BuildBrandMarkSlot(brandMark, defaultBrandMarkColorHex);
+                            // CAGH-CG-04: text-mark rendering reuses the client's already-resolved
+                            // caption typography (family/weight/size) — a signature is caption-scale.
+                            var brandMarkCaptionFont = CssString(spec.Typography.EffectiveCaptionFamily);
+                            var brandMarkCaptionWeight = spec.Typography.CaptionWeight;
+                            var brandMarkCaptionSize = spec.Typography.CaptionSize;
+                            var brandMarkSlot = BuildBrandMarkSlot(
+                                brandMark,
+                                defaultBrandMarkColorHex,
+                                brandMarkCaptionFont,
+                                brandMarkCaptionWeight,
+                                brandMarkCaptionSize);
                             if (brandMarkSlot is not null)
                             {
                                 var markupWithBrandMark = AppendBrandMarkSlot(capturedMarkup, brandMarkSlot);
@@ -2343,13 +2353,28 @@ public sealed class ContentGenerationJobProcessor
     /// <summary>
     /// FFS-CG-02: builds the editable content-layer <c>data-slot="brand-mark"</c> element for a
     /// detected recurring brand mark. Always bottom-anchored (conservative — never competes with
-    /// title/subtitle content near the top) with a small, fixed-size chip; horizontal placement is
-    /// read from <see cref="BrandMarkDetection.PositionHint"/>. Returns <c>null</c> — meaning
-    /// "render nothing" — when the mark is not present, or when the position hint / color hex is
+    /// title/subtitle content near the top); horizontal placement is read from
+    /// <see cref="BrandMarkDetection.PositionHint"/>. Returns <c>null</c> — meaning "render nothing"
+    /// — when the mark is not present, or when the position hint / color hex is
     /// unrecognised/malformed (FFS-CG-02-b/c: ambiguous signals are treated as absent, never a
     /// best-guess fallback).
     /// </summary>
-    private static string? BuildBrandMarkSlot(BrandMarkDetection brandMark, string defaultColorHex)
+    /// <remarks>
+    /// CAGH-CG-04 (WU-7a): when <see cref="BrandMarkDetection.MarkType"/> is <c>"text"</c> and
+    /// <see cref="BrandMarkDetection.Text"/> is non-blank, the literal text is rendered through the
+    /// client's already-resolved caption typography (<paramref name="captionFont"/>/
+    /// <paramref name="captionWeight"/>/<paramref name="captionSize"/>) instead of the coloured
+    /// chip — a signature is caption-scale. Every other case (<c>"icon"</c>, <c>"unknown"</c>,
+    /// <c>null</c> <see cref="BrandMarkDetection.MarkType"/>, or blank/whitespace
+    /// <see cref="BrandMarkDetection.Text"/>) falls through to the EXACT pre-existing empty-chip
+    /// behaviour — regression-critical, icon-type rendering is WU-7b/7c, not this batch.
+    /// </remarks>
+    private static string? BuildBrandMarkSlot(
+        BrandMarkDetection brandMark,
+        string defaultColorHex,
+        string captionFont,
+        int captionWeight,
+        int? captionSize)
     {
         if (!brandMark.Present)
         {
@@ -2360,6 +2385,18 @@ public sealed class ContentGenerationJobProcessor
         {
             // Ambiguous/unrecognised position hint — treat the WHOLE mark as absent (FFS-CG-02-c).
             return null;
+        }
+
+        if (brandMark.MarkType == "text" && !string.IsNullOrWhiteSpace(brandMark.Text))
+        {
+            return Slot(
+                "p",
+                "brand-mark",
+                brandMark.Text,
+                $"position:absolute;{horizontalCss}bottom:56px;" +
+                $"font-family:{captionFont},system-ui,sans-serif;font-size:{captionSize ?? 28}px;" +
+                $"font-weight:{captionWeight};color:{defaultColorHex};",
+                1);
         }
 
         string colorHex;

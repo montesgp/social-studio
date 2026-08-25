@@ -94,8 +94,8 @@ Two flags, neither raises risk above Low:
 
 ## WU-7a: Text-Mark Rendering (Application, ~340 lines — depends on WU-6a only)
 
-- [ ] 7a.1 RED+GREEN: `ContentGenerationJobProcessor.cs::BuildBrandMarkSlot` — when `MarkType="text"`, render extracted `Text` through the client's resolved caption typography (family/weight/size). Tests: literal text renders with caption typography (CAGH-CG-04-a), `Text=null` renders no text-mark content, no throw (CAGH-CG-04-b).
-- [ ] 7a.2 RED+GREEN: same method — `MarkType="unknown"` (including legacy/unrecognised) renders the pre-existing `PositionHint`+`ColorHex` chip identically to pre-change; `Present=false` renders nothing. CAGH-CG-07-a; FFS-CG-02 regression scenarios FFS-CG-02-a/b/c.
+- [x] 7a.1 RED+GREEN: `ContentGenerationJobProcessor.cs::BuildBrandMarkSlot` — when `MarkType="text"`, render extracted `Text` through the client's resolved caption typography (family/weight/size). Tests: literal text renders with caption typography (CAGH-CG-04-a), `Text=null` renders no text-mark content, no throw (CAGH-CG-04-b).
+- [x] 7a.2 RED+GREEN: same method — `MarkType="unknown"` (including legacy/unrecognised) renders the pre-existing `PositionHint`+`ColorHex` chip identically to pre-change; `Present=false` renders nothing. CAGH-CG-07-a; FFS-CG-02 regression scenarios FFS-CG-02-a/b/c.
 
 ## WU-7b: Icon-Mark Asset Pipeline + ADR (Application/Infrastructure, ~640 lines — largest unit, matches proposal)
 
