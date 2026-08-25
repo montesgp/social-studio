@@ -118,6 +118,18 @@ public sealed record CompositionTypography(
 
     /// <summary>The family actually used to render the caption role — falls back to <see cref="BodyFamily"/> when unmeasured.</summary>
     public string EffectiveCaptionFamily => CaptionFamily ?? BodyFamily;
+
+    /// <summary>
+    /// Observed heading size in pixels, derived from the client's measured <c>SizeRatio</c>.
+    /// Null keeps the builder's own hardcoded heading literal (client-aesthetic-generation-hardening,
+    /// D1) — mirrors the existing <see cref="CaptionSize"/> nullable-fallback pattern. Deliberately
+    /// distinct from <see cref="HeadingSize"/>, which is non-nullable and already defaults to 28px for
+    /// every unmeasured client; reading that value directly here would shrink a cold-start headline.
+    /// </summary>
+    public int? MeasuredHeadingSize { get; init; }
+
+    /// <summary>Body counterpart of <see cref="MeasuredHeadingSize"/> (D1).</summary>
+    public int? MeasuredBodySize { get; init; }
 }
 
 /// <summary>

@@ -48,24 +48,24 @@ Two flags, neither raises risk above Low:
 
 ## WU-1: Typography Size Consumption (Application, ~380 lines)
 
-- [ ] 1.1 RED+GREEN: `Domain/Social/ContentGeneration/VisualCompositionSpec.cs` — add nullable `int? MeasuredHeadingSize`/`MeasuredBodySize` init-props on `CompositionTypography` (D1). CAGH-CG-01-a.
-- [ ] 1.2 RED+GREEN: `Application/.../Visual/CompositionDefaults.cs` — populate `Measured*` via the 4-arg `ResolveTypography` profile branch, mirroring `SizeForCaption`'s nullable resolution (D1); test covers measured-present and measured-absent branches. CAGH-CG-01-a/b.
-- [ ] 1.3 RED+GREEN: `ContentGenerationJobProcessor.cs::BuildStoryTemplateSlots` — `measured ?? 88px/74px/36px` fallback chain (D1); tests: measured value renders, unmeasured client renders exact pre-change literals, no exception. CAGH-CG-01-a/b.
-- [ ] 1.4 RED+GREEN: same file `BuildCarouselTemplateSlots` — identical pattern (38px/30px literals). CAGH-CG-01-a/b.
-- [ ] 1.5 RED+GREEN: same file `BuildFlatCarouselSlots` — identical pattern (25px literal; verify already-wired `CaptionSize` role unaffected). CAGH-CG-01-a/b.
-- [ ] 1.6 Test: two client profiles with materially different `SizeRatio` render different heading font-sizes on carousel markup (assert on markup, not by eye). CAGH-CG-01-c.
+- [x] 1.1 RED+GREEN: `Domain/Social/ContentGeneration/VisualCompositionSpec.cs` — add nullable `int? MeasuredHeadingSize`/`MeasuredBodySize` init-props on `CompositionTypography` (D1). CAGH-CG-01-a.
+- [x] 1.2 RED+GREEN: `Application/.../Visual/CompositionDefaults.cs` — populate `Measured*` via the 4-arg `ResolveTypography` profile branch, mirroring `SizeForCaption`'s nullable resolution (D1); test covers measured-present and measured-absent branches. CAGH-CG-01-a/b.
+- [x] 1.3 RED+GREEN: `ContentGenerationJobProcessor.cs::BuildStoryTemplateSlots` — `measured ?? 88px/74px/36px` fallback chain (D1); tests: measured value renders, unmeasured client renders exact pre-change literals, no exception. CAGH-CG-01-a/b.
+- [x] 1.4 RED+GREEN: same file `BuildCarouselTemplateSlots` — identical pattern (38px/30px literals). CAGH-CG-01-a/b.
+- [x] 1.5 RED+GREEN: same file `BuildFlatCarouselSlots` — identical pattern (25px literal; verify already-wired `CaptionSize` role unaffected). CAGH-CG-01-a/b.
+- [x] 1.6 Test: two client profiles with materially different `SizeRatio` render different heading font-sizes on carousel markup (assert on markup, not by eye). CAGH-CG-01-c.
 
 ## WU-2: AiVisualDesigner Size-Derived Prompt Line (Infrastructure, ~140 lines)
 
-- [ ] 2.1 RED+GREEN: `Infrastructure/.../AiVisualDesigner.cs::BuildSystemPrompt` — add `CompositionTypography` + canvas-height params; emit `about {h}% of canvas height` from `MeasuredHeadingSize/canvasHeight`, rounded ±1 (D2); no `IAiVisualDesigner` contract change. CAGH-CG-02-a.
-- [ ] 2.2 Test: unmeasured client — prompt contains the pre-existing fixed `7-13%` literal verbatim (regression). CAGH-CG-02-b.
+- [x] 2.1 RED+GREEN: `Infrastructure/.../AiVisualDesigner.cs::BuildSystemPrompt` — add `CompositionTypography` + canvas-height params; emit `about {h}% of canvas height` from `MeasuredHeadingSize/canvasHeight`, rounded ±1 (D2); no `IAiVisualDesigner` contract change. CAGH-CG-02-a.
+- [x] 2.2 Test: unmeasured client — prompt contains the pre-existing fixed `7-13%` literal verbatim (regression). CAGH-CG-02-b.
 
 ## WU-3: Enforced-Photo Text Colour (Application, ~420 lines)
 
-- [ ] 3.1 RED+GREEN (sequenced first — WU-3 depends on this extraction): create `Application/.../Shared/WcagContrast.cs` with `RelativeLuminance`/`ContrastRatio` extracted from `ColorPairingDerivation`'s privates (D4); `ColorPairingDerivation` delegates to it, behaviour-identical; existing derivation tests keep passing unmodified as the regression guard.
-- [ ] 3.2 RED+GREEN: `ContentGenerationJobProcessor.cs::BuildStoryTemplateSlots`/`BuildCarouselTemplateSlots` — thread `textColor` mirroring `BuildFlatCarouselSlots`; use `spec.Palette.Text` only if `WcagContrast.ContrastRatio` ≥4.5:1 against black, else `#FFFFFF`; shadow retained unchanged (D3). CAGH-CG-03-a.
-- [ ] 3.3 Test: no resolvable pairing keeps white+shadow fallback exactly as before (regression). CAGH-CG-03-b.
-- [ ] 3.4 Test: low-contrast resolved pairing colour still renders as the pairing colour (not silently replaced by white) with shadow/scrim compensation retained. CAGH-CG-03-c.
+- [x] 3.1 RED+GREEN (sequenced first — WU-3 depends on this extraction): create `Application/.../Shared/WcagContrast.cs` with `RelativeLuminance`/`ContrastRatio` extracted from `ColorPairingDerivation`'s privates (D4); `ColorPairingDerivation` delegates to it, behaviour-identical; existing derivation tests keep passing unmodified as the regression guard.
+- [x] 3.2 RED+GREEN: `ContentGenerationJobProcessor.cs::BuildStoryTemplateSlots`/`BuildCarouselTemplateSlots` — thread `textColor` mirroring `BuildFlatCarouselSlots`; use `spec.Palette.Text` only if `WcagContrast.ContrastRatio` ≥4.5:1 against black, else `#FFFFFF`; shadow retained unchanged (D3). CAGH-CG-03-a.
+- [x] 3.3 Test: no resolvable pairing keeps white+shadow fallback exactly as before (regression). CAGH-CG-03-b.
+- [x] 3.4 Test: low-contrast resolved pairing colour still renders as the pairing colour (not silently replaced by white) with shadow/scrim compensation retained. CAGH-CG-03-c.
 
 ## WU-4: ComfyUI BackgroundOnly Parity + Anatomy Terms (Infrastructure, ~300 lines)
 

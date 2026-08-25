@@ -308,7 +308,7 @@ public sealed class AiVisualDesigner : IVisualDesigner
             CopySlots: spec.CopySlots.ToDictionary(kv => kv.Key, kv => kv.Value),
             Background: backgroundGuidance,
             Aesthetic: BuildAestheticGuidance(aesthetic),
-            SystemPrompt: BuildSystemPrompt(brand, aesthetic));
+            SystemPrompt: BuildSystemPrompt(brand, aesthetic, spec.Typography, spec.Dimensions.Height));
 
         return JsonSerializer.Serialize(input, JsonOpts);
     }
@@ -373,7 +373,14 @@ public sealed class AiVisualDesigner : IVisualDesigner
             VariationSeed: aesthetic.VariationSeed);
     }
 
-    private static string BuildSystemPrompt(BrandManualSnapshot brand, ClientAestheticDesignContext? aesthetic = null)
+    private static string BuildSystemPrompt(
+        BrandManualSnapshot brand,
+        ClientAestheticDesignContext? aesthetic = null,
+        // client-aesthetic-generation-hardening (D2): drives the headline size-guidance line below
+        // from the client's OWN resolved size instead of a fixed range. Optional/default so no other
+        // call site is forced to change.
+        CompositionTypography? typography = null,
+        int canvasHeight = 0)
     {
         // Build a prevalence-ordered palette description so the AI understands role weighting.
         // Primary dominates, Secondary supports, Accent is used sparingly, Neutral for backgrounds/text.
@@ -435,6 +442,14 @@ public sealed class AiVisualDesigner : IVisualDesigner
               "   shapes/blobs, an accent bar or shape behind the headline, a subtle shadow or glow, optional\n" +
               "   duotone or grain. Rounded corners. Tasteful and restrained - premium editorial, not clip-art.\n";
 
+        // client-aesthetic-generation-hardening (D2): when the client's heading size was actually
+        // measured, tell the designer the TRUE proportion instead of a fixed range that may not match
+        // this client at all. Unmeasured/no canvas height → the pre-existing fixed literal, verbatim
+        // (regression, CAGH-CG-02-b).
+        var sizeGuidance = typography?.MeasuredHeadingSize is int measuredHeadingSize && canvasHeight > 0
+            ? $"about {(int)Math.Round(measuredHeadingSize * 100.0 / canvasHeight, MidpointRounding.AwayFromZero)}% of canvas height"
+            : "about 7-13% of canvas height";
+
         return
             "You are a SENIOR ART DIRECTOR designing premium social-media graphics (Instagram stories\n" +
             "and feed carousels). Produce ONE self-contained, brand-bound HTML composition styled with\n" +
@@ -470,7 +485,7 @@ public sealed class AiVisualDesigner : IVisualDesigner
             "   ones (&nbsp;, &mdash;). No JavaScript, no SVG, no @import, no Google Fonts, no remote fonts.\n" +
             "\n" +
             "DESIGN DIRECTION (ship work a senior designer would be proud of in 2026 - NOT a template):\n" +
-            "6. HIERARCHY: one dominant focal element. The headline is HUGE (about 7-13% of canvas height)\n" +
+            $"6. HIERARCHY: one dominant focal element. The headline is HUGE ({sizeGuidance})\n" +
             "   with tight line-height (~0.95-1.1). Sub-text and body are clearly smaller. Max 3 type sizes.\n" +
             "7. SPACE: let it breathe. Generous edge margins (>= 6-8% of width). Never crowd the edges;\n" +
             "   empty space is a deliberate design choice, not a gap to fill.\n" +

@@ -166,6 +166,229 @@ public sealed class BuildTemplateBackedMarkupTransparencyTests
 }
 
 /// <summary>
+/// client-aesthetic-generation-hardening WU-1 (CAGH-CG-01): <c>BuildStoryTemplateSlots</c> and
+/// <c>BuildCarouselTemplateSlots</c> consume the resolved <c>MeasuredHeadingSize</c>/<c>MeasuredBodySize</c>
+/// when present, falling back to the pre-change hardcoded literals (88px/74px/38px/36px/30px) when
+/// absent — cold-start parity.
+/// </summary>
+public sealed class BuildTemplateBackedMarkupTypographyTests
+{
+    private static readonly CompositionPalette Palette = new(
+        Primary: "#333333", Secondary: "#666666", Accent: "#999999", Text: "#FFFFFF", Background: "#ABCDEF");
+
+    [Fact]
+    public void StorySlide_MeasuredSizesPresent_RendersMeasuredHeadingAndBodySizes()
+    {
+        var typography = new CompositionTypography("Inter", 24, "Inter", 14)
+        {
+            MeasuredHeadingSize = 96,
+            MeasuredBodySize = 33,
+        };
+        var spec = BuildSpec("story", typography, new Dictionary<string, string>
+        {
+            ["headline"] = "Title",
+            ["subtitle"] = "Sub",
+            ["body"] = "Body",
+        });
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, background: null, aesthetic: null, transparency: null);
+
+        Assert.Contains("font-size:96px", markup); // headline uses MeasuredHeadingSize
+        Assert.Contains("font-size:33px", markup); // subtitle + body use MeasuredBodySize
+        Assert.DoesNotContain("font-size:88px", markup);
+        Assert.DoesNotContain("font-size:36px", markup);
+        Assert.DoesNotContain("font-size:30px", markup);
+    }
+
+    [Fact]
+    public void StorySlide_MeasuredSizesAbsent_RendersPreChangeLiterals()
+    {
+        var typography = new CompositionTypography("Inter", 24, "Inter", 14);
+        var spec = BuildSpec("story", typography, new Dictionary<string, string>
+        {
+            ["headline"] = "Title",
+            ["subtitle"] = "Sub",
+            ["body"] = "Body",
+        });
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, background: null, aesthetic: null, transparency: null);
+
+        Assert.Contains("font-size:88px", markup);
+        Assert.Contains("font-size:36px", markup);
+        Assert.Contains("font-size:30px", markup);
+    }
+
+    [Fact]
+    public void CarouselSlide_MeasuredSizesPresent_RendersMeasuredHeadingAndBodySizes()
+    {
+        var typography = new CompositionTypography("Inter", 24, "Inter", 14)
+        {
+            MeasuredHeadingSize = 60,
+            MeasuredBodySize = 40,
+        };
+        var spec = BuildSpec("carousel", typography, new Dictionary<string, string>
+        {
+            ["title"] = "Title",
+            ["subtitle"] = "Sub",
+        });
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, background: null, aesthetic: null, transparency: null);
+
+        Assert.Contains("font-size:60px", markup);
+        Assert.Contains("font-size:40px", markup);
+        Assert.DoesNotContain("font-size:74px", markup);
+        Assert.DoesNotContain("font-size:38px", markup);
+    }
+
+    [Fact]
+    public void CarouselSlide_MeasuredSizesAbsent_RendersPreChangeLiterals()
+    {
+        var typography = new CompositionTypography("Inter", 24, "Inter", 14);
+        var spec = BuildSpec("carousel", typography, new Dictionary<string, string>
+        {
+            ["title"] = "Title",
+            ["subtitle"] = "Sub",
+        });
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, background: null, aesthetic: null, transparency: null);
+
+        Assert.Contains("font-size:74px", markup);
+        Assert.Contains("font-size:38px", markup);
+    }
+
+    [Fact]
+    public void TwoCarouselClients_DifferentMeasuredHeadingSize_RenderDifferentFontSizes()
+    {
+        // CAGH-CG-01-c
+        var typographyA = new CompositionTypography("Inter", 24, "Inter", 14) { MeasuredHeadingSize = 60 };
+        var typographyB = new CompositionTypography("Inter", 24, "Inter", 14) { MeasuredHeadingSize = 90 };
+        var copySlots = new Dictionary<string, string> { ["title"] = "Title" };
+
+        var markupA = BuildTemplateBackedMarkupAccessor.Invoke(
+            BuildSpec("carousel", typographyA, copySlots), background: null, aesthetic: null, transparency: null);
+        var markupB = BuildTemplateBackedMarkupAccessor.Invoke(
+            BuildSpec("carousel", typographyB, copySlots), background: null, aesthetic: null, transparency: null);
+
+        Assert.Contains("font-size:60px", markupA);
+        Assert.Contains("font-size:90px", markupB);
+        Assert.NotEqual(markupA, markupB);
+    }
+
+    private static VisualCompositionSpec BuildSpec(
+        string formatKey, CompositionTypography typography, Dictionary<string, string> copySlots) => new(
+        FormatKey: formatKey,
+        LayoutType: "story-story",
+        Palette: Palette,
+        Typography: typography,
+        AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+        CopySlots: copySlots,
+        Dimensions: new CompositionDimensions(1080, 1350, 96));
+}
+
+/// <summary>
+/// WU-3 task 3.2/3.3/3.4 — enforced-photo text colour resolves from <c>spec.Palette.Text</c>
+/// (design D3) only when it clears WCAG ≥ 4.5:1 against black; otherwise the pre-existing
+/// <c>color:#FFFFFF</c> + text-shadow fallback applies unchanged. Shadow is always retained.
+/// Refs: CAGH-CG-03-a/b/c.
+/// </summary>
+public sealed class BuildTemplateBackedMarkupTextColorTests
+{
+    private static readonly CompositionTypography Typography = new("Inter", 24, "Inter", 14);
+
+    [Fact]
+    public void StorySlide_PaletteTextClearsContrastGuard_RendersPairingColor_NoWhiteFallback()
+    {
+        var palette = new CompositionPalette(
+            Primary: "#333333", Secondary: "#666666", Accent: "#999999", Text: "#E0E0E0", Background: "#ABCDEF");
+        var spec = BuildSpec("story", palette);
+        var background = BuildTemplateBackedMarkupAccessor.BuildEnforcedBackground(
+            "https://cdn/photo.jpg", "Client photo", "brand-manual-forced-default");
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, background, aesthetic: null, transparency: null);
+
+        Assert.Contains("color:#E0E0E0", markup);
+        Assert.DoesNotContain("color:#FFFFFF", markup);
+        // Shadow retained regardless of which colour rendered (D3).
+        Assert.Contains("text-shadow", markup);
+    }
+
+    [Fact]
+    public void CarouselSlide_PaletteTextClearsContrastGuard_RendersPairingColor_NoWhiteFallback()
+    {
+        var palette = new CompositionPalette(
+            Primary: "#333333", Secondary: "#666666", Accent: "#999999", Text: "#E0E0E0", Background: "#ABCDEF");
+        var spec = BuildSpec("carousel", palette);
+        var background = BuildTemplateBackedMarkupAccessor.BuildEnforcedBackground(
+            "https://cdn/photo.jpg", "Client photo", "brand-manual-forced-default");
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, background, aesthetic: null, transparency: null);
+
+        Assert.Contains("color:#E0E0E0", markup);
+        Assert.DoesNotContain("color:#FFFFFF", markup);
+        Assert.Contains("text-shadow", markup);
+    }
+
+    [Fact]
+    public void StorySlide_PaletteTextFailsContrastGuard_FallsBackToWhiteWithShadow_Regression()
+    {
+        // Cold-start / default palette Text ("#111827", near-black) fails 4.5:1 against black.
+        var palette = CompositionDefaults.Palette;
+        var spec = BuildSpec("story", palette);
+        var background = BuildTemplateBackedMarkupAccessor.BuildEnforcedBackground(
+            "https://cdn/photo.jpg", "Client photo", "brand-manual-forced-default");
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, background, aesthetic: null, transparency: null);
+
+        Assert.DoesNotContain("color:#111827", markup);
+        Assert.Contains("color:#FFFFFF", markup);
+        Assert.Contains("text-shadow", markup);
+    }
+
+    [Fact]
+    public void CarouselSlide_PaletteTextFailsContrastGuard_FallsBackToWhiteWithShadow_Regression()
+    {
+        var palette = CompositionDefaults.Palette;
+        var spec = BuildSpec("carousel", palette);
+        var background = BuildTemplateBackedMarkupAccessor.BuildEnforcedBackground(
+            "https://cdn/photo.jpg", "Client photo", "brand-manual-forced-default");
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, background, aesthetic: null, transparency: null);
+
+        Assert.DoesNotContain("color:#111827", markup);
+        Assert.Contains("color:#FFFFFF", markup);
+        Assert.Contains("text-shadow", markup);
+    }
+
+    [Fact]
+    public void StorySlide_LowButGuardClearingPairingColor_StillRendersPairingColor_ShadowCompensates()
+    {
+        // A pale mid-tone that clears 4.5:1 against black but would be visually low-contrast
+        // against a bright photo (unknowable at markup time, design D3 rationale) — still renders
+        // as the pairing colour, never silently replaced by white; the shadow is the compensation.
+        var palette = new CompositionPalette(
+            Primary: "#333333", Secondary: "#666666", Accent: "#999999", Text: "#B0B0B0", Background: "#ABCDEF");
+        var spec = BuildSpec("story", palette);
+        var background = BuildTemplateBackedMarkupAccessor.BuildEnforcedBackground(
+            "https://cdn/photo.jpg", "Client photo", "brand-manual-forced-default");
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, background, aesthetic: null, transparency: null);
+
+        Assert.Contains("color:#B0B0B0", markup);
+        Assert.DoesNotContain("color:#FFFFFF", markup);
+        Assert.Contains("text-shadow", markup);
+    }
+
+    private static VisualCompositionSpec BuildSpec(string formatKey, CompositionPalette palette) => new(
+        FormatKey: formatKey,
+        LayoutType: "story-story",
+        Palette: palette,
+        Typography: Typography,
+        AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+        CopySlots: new Dictionary<string, string> { ["title"] = "Test", ["headline"] = "Test" },
+        Dimensions: new CompositionDimensions(1080, 1350, 96));
+}
+
+/// <summary>
 /// Test accessor for the private static <c>ContentGenerationJobProcessor.BuildTemplateBackedMarkup</c>,
 /// mirroring <c>ResolveEnforcedBackgroundAccessor</c>'s pattern: reflection so the production class
 /// stays un-modified while the test pins the exact behavioral contract.

@@ -218,6 +218,12 @@ internal static class CompositionDefaults
             CaptionWeight = caption?.Weight ?? 800,
             CaptionItalic = caption?.Italic ?? false,
             RequestedCaptionFamily = caption is not null && !captionResolved.IsExact ? captionResolved.Requested : null,
+            // D1: nullable measured sizes for the markup builders' own hardcoded literals. Resolved the
+            // same nullable way as CaptionSize (SizeForCaption), NOT via SizeFor's non-nullable
+            // HeadingSize/BodySize above, which already default to 28/16px and would shrink a cold-start
+            // headline if consumed directly by a builder.
+            MeasuredHeadingSize = SizeForCaption(heading, canvasHeight),
+            MeasuredBodySize = SizeForCaption(body, canvasHeight),
         };
     }
 

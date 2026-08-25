@@ -1009,6 +1009,67 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         Assert.Contains("font-size:28px", ctaSlot);
     }
 
+    // -----------------------------------------------------------------------
+    // CAGH-CG-01 (WU-1, task 1.5): BuildFlatCarouselSlots consumes MeasuredHeadingSize/
+    // MeasuredBodySize identically to the enforced-photo builders; already-wired CaptionSize
+    // (the cta slot) is unaffected.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task FlatColorSlide_MeasuredSizesPresent_TitleAndSubtitleUseMeasuredSizes()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var typography = new CompositionTypography("Inter", 24, "Inter", 14)
+        {
+            CaptionSize = 33,
+            MeasuredHeadingSize = 60,
+            MeasuredBodySize = 40,
+        };
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner(),
+            typography: typography);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        var titleSlot = ExtractSlot(rendererSpy.ReceivedMarkup!, "title");
+        Assert.Contains("font-size:60px", titleSlot);
+        var ctaSlot = ExtractSlot(rendererSpy.ReceivedMarkup!, "cta");
+        // CaptionSize wiring (pre-existing) stays untouched by the new MeasuredHeadingSize/BodySize wiring.
+        Assert.Contains("font-size:33px", ctaSlot);
+    }
+
+    [Fact]
+    public async Task FlatColorSlide_MeasuredSizesAbsent_TitleAndSubtitleKeepLegacyLiterals()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        var titleSlot = ExtractSlot(rendererSpy.ReceivedMarkup!, "title");
+        Assert.Contains("font-size:74px", titleSlot);
+    }
+
     private static string ExtractSlot(string markup, string slotName)
     {
         var marker = $"data-slot=\"{slotName}\"";

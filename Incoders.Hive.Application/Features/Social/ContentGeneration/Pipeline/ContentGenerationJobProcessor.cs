@@ -1990,6 +1990,10 @@ public sealed class ContentGenerationJobProcessor
         var captionFont = CssString(spec.Typography.EffectiveCaptionFamily);
         var captionWeight = spec.Typography.CaptionWeight;
         var captionSize = spec.Typography.CaptionSize;
+        // D1: nullable measured heading/body sizes — null keeps each builder's own hardcoded literal
+        // (cold-start parity); measured values come from CompositionDefaults.ResolveTypography.
+        var measuredHeadingSize = spec.Typography.MeasuredHeadingSize;
+        var measuredBodySize = spec.Typography.MeasuredBodySize;
 
         var title = FirstSlot(spec.CopySlots, isCarousel ? ["title", "headline"] : ["headline", "title"])
             ?? (isCarousel ? "Carousel" : "Story");
@@ -2000,9 +2004,21 @@ public sealed class ContentGenerationJobProcessor
         var cta = FirstSlot(spec.CopySlots, ["cta"]);
         var signature = FirstSlot(spec.CopySlots, ["signature"]);
 
+        // WU-3 (D3/D4, CAGH-CG-03): enforced-photo text colour resolves from the resolved
+        // spec.Palette.Text (which already carries the client's rotating ColorPairings text hex
+        // when a ClientAesthetic profile has resolved them — see CompositionDefaults.ResolvePalette's
+        // profile-aware overload) ONLY when it clears WCAG >= 4.5:1 contrast against black. Below
+        // that guard, or with no resolvable pairing (default palette Text is near-black), null is
+        // threaded through so each builder keeps its OWN pre-change per-slot literal unchanged
+        // (cold-start/regression parity — those literals are not uniformly "#FFFFFF"). The shadow
+        // is retained regardless of which colour renders.
+        var textColor = WcagContrast.ContrastRatio(spec.Palette.Text, "#000000") >= 4.5
+            ? spec.Palette.Text
+            : null;
+
         var content = isCarousel
-            ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont, captionFont, captionWeight, captionSize)
-            : BuildStoryTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont, captionFont, captionWeight, captionSize);
+            ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize)
+            : BuildStoryTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize);
 
         // No-scrim fix: the full-bleed dark box below ("scrimBox") is ONLY safe over a synthesized
         // CSS/gradient background, which has no inherent contrast guarantee. An ENFORCED background
@@ -2104,8 +2120,17 @@ public sealed class ContentGenerationJobProcessor
         string headingFont,
         string bodyFont,
         string captionFont,
+        // WU-3 (D3, CAGH-CG-03): headline/subtitle/body/cta text colour on the enforced-photo path.
+        // Null (default) keeps each slot's own pre-change literal (cold-start/regression parity —
+        // headline/subtitle/cta were "#FFFFFF", body was the slightly-off-white "#F8FAFC"). The
+        // caller resolves a non-null value to spec.Palette.Text only when it clears the WCAG
+        // contrast guard. Text-shadow below is retained either way.
+        string? textColor = null,
         int captionWeight = 800,
-        int? captionSize = null)
+        int? captionSize = null,
+        // client-aesthetic-generation-hardening D1: null keeps the pre-change literal (cold-start parity).
+        int? measuredHeadingSize = null,
+        int? measuredBodySize = null)
     {
         var slots = new List<string>
         {
@@ -2123,32 +2148,34 @@ public sealed class ContentGenerationJobProcessor
                 "headline",
                 title,
                 "position:absolute;left:96px;top:255px;width:888px;min-height:260px;" +
-                $"font-family:{headingFont},system-ui,sans-serif;font-size:88px;line-height:0.98;" +
-                "font-weight:900;letter-spacing:-2.5px;color:#FFFFFF;text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
+                $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 88}px;line-height:0.98;" +
+                $"font-weight:900;letter-spacing:-2.5px;color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
                 3)
         };
 
         AddSlot(slots, "p", "subtitle", subtitle,
             "position:absolute;left:100px;top:575px;width:825px;min-height:122px;" +
-            $"font-family:{bodyFont},system-ui,sans-serif;font-size:36px;line-height:1.16;" +
-            "font-weight:600;color:#FFFFFF;text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
+            $"font-family:{bodyFont},system-ui,sans-serif;font-size:{measuredBodySize ?? 36}px;line-height:1.16;" +
+            $"font-weight:600;color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
             3);
 
         AddSlot(slots, "p", "body", body,
             "position:absolute;left:100px;top:745px;width:825px;min-height:210px;" +
-            $"font-family:{bodyFont},system-ui,sans-serif;font-size:30px;line-height:1.24;" +
-            "font-weight:400;color:#F8FAFC;text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
+            $"font-family:{bodyFont},system-ui,sans-serif;font-size:{measuredBodySize ?? 30}px;line-height:1.24;" +
+            $"font-weight:400;color:{textColor ?? "#F8FAFC"};text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
             5);
 
         AddSlot(slots, "p", "cta", cta,
             "position:absolute;left:100px;bottom:245px;width:640px;min-height:58px;" +
             $"font-family:{captionFont},system-ui,sans-serif;font-size:{captionSize ?? 34}px;line-height:1.05;" +
-            $"font-weight:{captionWeight};color:#FFFFFF;text-transform:uppercase;letter-spacing:1.2px;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
+            $"font-weight:{captionWeight};color:{textColor ?? "#FFFFFF"};text-transform:uppercase;letter-spacing:1.2px;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
             2);
 
         AddSlot(slots, "p", "signature", signature,
             "position:absolute;right:98px;bottom:190px;width:460px;min-height:42px;" +
-            $"font-family:{captionFont},system-ui,sans-serif;font-size:25px;line-height:1.1;" +
+            // CAGH-CG-01: signature is a caption-role element; wired to the client's resolved
+            // CaptionSize (mirroring cta above), falling back to the pre-change 25px literal.
+            $"font-family:{captionFont},system-ui,sans-serif;font-size:{captionSize ?? 25}px;line-height:1.1;" +
             "font-weight:600;color:#E5E7EB;text-align:right;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
             1);
 
@@ -2162,8 +2189,17 @@ public sealed class ContentGenerationJobProcessor
         string headingFont,
         string bodyFont,
         string captionFont,
+        // WU-3 (D3, CAGH-CG-03): title/subtitle/cta text colour on the enforced-photo path. Null
+        // (default) keeps each slot's own pre-change literal (cold-start/regression parity — title/cta
+        // were "#FFFFFF", subtitle was the slightly-off-white "#F8FAFC"). The caller resolves a
+        // non-null value to spec.Palette.Text only when it clears the WCAG contrast guard. Text-shadow
+        // below is retained either way.
+        string? textColor = null,
         int captionWeight = 800,
-        int? captionSize = null)
+        int? captionSize = null,
+        // client-aesthetic-generation-hardening D1: null keeps the pre-change literal (cold-start parity).
+        int? measuredHeadingSize = null,
+        int? measuredBodySize = null)
     {
         var slots = new List<string>
         {
@@ -2172,21 +2208,21 @@ public sealed class ContentGenerationJobProcessor
                 "title",
                 title,
                 "position:absolute;left:104px;top:235px;width:872px;min-height:230px;" +
-                $"font-family:{headingFont},system-ui,sans-serif;font-size:74px;line-height:1.02;" +
-                "font-weight:900;letter-spacing:-1.8px;color:#FFFFFF;text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
+                $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 74}px;line-height:1.02;" +
+                $"font-weight:900;letter-spacing:-1.8px;color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
                 3)
         };
 
         AddSlot(slots, "p", "subtitle", subtitle,
             "position:absolute;left:108px;top:540px;width:815px;min-height:310px;" +
-            $"font-family:{bodyFont},system-ui,sans-serif;font-size:38px;line-height:1.22;" +
-            "font-weight:500;color:#F8FAFC;text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.62);",
+            $"font-family:{bodyFont},system-ui,sans-serif;font-size:{measuredBodySize ?? 38}px;line-height:1.22;" +
+            $"font-weight:500;color:{textColor ?? "#F8FAFC"};text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.62);",
             6);
 
         AddSlot(slots, "p", "cta", cta,
             "position:absolute;left:108px;bottom:220px;width:760px;min-height:58px;" +
             $"font-family:{captionFont},system-ui,sans-serif;font-size:{captionSize ?? 28}px;line-height:1.1;" +
-            $"font-weight:{captionWeight};color:#FFFFFF;text-transform:uppercase;letter-spacing:1.1px;text-shadow:0 3px 18px rgba(0,0,0,0.62);",
+            $"font-weight:{captionWeight};color:{textColor ?? "#FFFFFF"};text-transform:uppercase;letter-spacing:1.1px;text-shadow:0 3px 18px rgba(0,0,0,0.62);",
             2);
 
         return string.Join(Environment.NewLine, slots);
@@ -2213,6 +2249,9 @@ public sealed class ContentGenerationJobProcessor
         var captionFont = CssString(spec.Typography.EffectiveCaptionFamily);
         var captionWeight = spec.Typography.CaptionWeight;
         var captionSize = spec.Typography.CaptionSize;
+        // D1: nullable measured heading/body sizes — null keeps the builder's own hardcoded literal.
+        var measuredHeadingSize = spec.Typography.MeasuredHeadingSize;
+        var measuredBodySize = spec.Typography.MeasuredBodySize;
 
         var title = FirstSlot(spec.CopySlots, ["title", "headline"]) ?? "Carousel";
         var subtitle = FirstSlot(spec.CopySlots, ["subtitle", "body", "text"]);
@@ -2229,7 +2268,8 @@ public sealed class ContentGenerationJobProcessor
         var safeAccent = IsSafeCssColor(accentHex) ? accentHex!.Trim() : null;
 
         var content = BuildFlatCarouselSlots(
-            title, subtitle, cta, headingFont, bodyFont, safeText, safeAccent, captionFont, captionWeight, captionSize);
+            title, subtitle, cta, headingFont, bodyFont, safeText, safeAccent, captionFont, captionWeight, captionSize,
+            measuredHeadingSize, measuredBodySize);
 
         return $$"""
             <div class="composition" data-format="{{Html(spec.FormatKey)}}" style="position:relative;width:{{width}}px;height:{{height}}px;overflow:hidden;background:{{safeBackground}};">
@@ -2258,7 +2298,10 @@ public sealed class ContentGenerationJobProcessor
         string? accentColor,
         string captionFont,
         int captionWeight = 800,
-        int? captionSize = null)
+        int? captionSize = null,
+        // client-aesthetic-generation-hardening D1: null keeps the pre-change literal (cold-start parity).
+        int? measuredHeadingSize = null,
+        int? measuredBodySize = null)
     {
         var slots = new List<string>();
 
@@ -2278,13 +2321,13 @@ public sealed class ContentGenerationJobProcessor
             "title",
             title,
             "position:absolute;left:104px;top:235px;width:872px;min-height:230px;" +
-            $"font-family:{headingFont},system-ui,sans-serif;font-size:74px;line-height:1.02;" +
+            $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 74}px;line-height:1.02;" +
             $"font-weight:900;letter-spacing:-1.8px;color:{textColor};text-align:left;",
             3));
 
         AddSlot(slots, "p", "subtitle", subtitle,
             "position:absolute;left:108px;top:540px;width:815px;min-height:310px;" +
-            $"font-family:{bodyFont},system-ui,sans-serif;font-size:38px;line-height:1.22;" +
+            $"font-family:{bodyFont},system-ui,sans-serif;font-size:{measuredBodySize ?? 38}px;line-height:1.22;" +
             $"font-weight:500;color:{textColor};text-align:left;",
             6);
 

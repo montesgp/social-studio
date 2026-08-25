@@ -128,6 +128,47 @@ public sealed class ClientTypographyResolutionTests
         Assert.Equal(legacy, Resolve(profile, CarouselHeight));
     }
 
+    // ── client-aesthetic-generation-hardening D1: nullable measured heading/body size ──────────
+
+    [Fact]
+    public void MeasuredPresent_ResolvesMeasuredHeadingAndBodySize()
+    {
+        var profile = ProfileWith(
+            new AestheticTypography(TypographyRoles.Heading, "Liberation Sans", 800, false, 0.08),
+            new AestheticTypography(TypographyRoles.Body, "Liberation Sans", 400, false, 0.03));
+
+        var typography = Resolve(profile, CarouselHeight);
+
+        Assert.Equal(108, typography.MeasuredHeadingSize); // 0.08 * 1350
+        Assert.Equal(41, typography.MeasuredBodySize);      // 0.03 * 1350 -> 40.5 rounds to 41
+    }
+
+    [Fact]
+    public void MeasuredAbsent_LeavesMeasuredSizesNull()
+    {
+        var legacy = CompositionDefaults.ResolveTypography(EmptyBrand(), new InferenceAccumulator());
+
+        Assert.Null(legacy.MeasuredHeadingSize);
+        Assert.Null(legacy.MeasuredBodySize);
+        Assert.Null(Resolve(profile: null, CarouselHeight).MeasuredHeadingSize);
+        Assert.Null(Resolve(profile: null, CarouselHeight).MeasuredBodySize);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-0.05)]
+    [InlineData(0.9)]
+    public void MeasuredHeadingSize_UnusableSizeRatioResolvesNull(double ratio)
+    {
+        var profile = ProfileWith(
+            new AestheticTypography(TypographyRoles.Heading, "Liberation Sans", 700, false, ratio),
+            new AestheticTypography(TypographyRoles.Body, "Liberation Sans", 400, false, 0.03));
+
+        var typography = Resolve(profile, CarouselHeight);
+
+        Assert.Null(typography.MeasuredHeadingSize);
+    }
+
     // ── D4: caption/overline role ───────────────────────────────────────────
 
     [Fact]
