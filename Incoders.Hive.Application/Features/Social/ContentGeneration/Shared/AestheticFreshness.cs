@@ -37,8 +37,16 @@ public static class AestheticFreshness
     /// signature string on <c>brandMark</c>. Bumped per the established convention so profiles
     /// captured before this change are treated as stale and eligible for re-analysis.
     /// </para>
+    ///
+    /// <para>
+    /// v6 (WU-6b, CAGH-PA-03/04): the extractor now resolves an icon mark's source image index to
+    /// its archived <c>StoragePath</c> (<c>SourceImagePath</c>) and captures a validated, normalised
+    /// <c>BoundingBox</c>. Bumped per the same convention — a v5 profile has neither field, so it
+    /// must be treated as stale and eligible for re-analysis, rather than permanently missing the
+    /// crop-derivation inputs.
+    /// </para>
     /// </summary>
-    public const string CurrentSchemaVersion = "aesthetic-extractor/v5";
+    public const string CurrentSchemaVersion = "aesthetic-extractor/v6";
 
     /// <summary>
     /// Parses the trailing integer from an <c>"aesthetic-extractor/vN"</c> schema version string.

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Integrations;
@@ -36,6 +37,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     // and text (literal signature string, meaningful only for text marks). Additive/backward-compatible:
     // absent markType/text keys on an older response, or an unrecognised markType token, defensively
     // map to "unknown"/null rather than throwing (FFS-PA-02 convention).
+    // aesthetic-extractor/v6 (WU-6b, CAGH-PA-03/04): brandMark gains sourceImageIndex (resolved
+    // in-extractor to the post-skip loadedPairs StoragePath — D9) and boundingBox (normalised 0..1
+    // crop region, validated — D10/CAGH-PA-04). Additive/backward-compatible: absent/malformed
+    // sourceImageIndex or boundingBox keys defensively map to null rather than throwing.
     // aesthetic-freshness-versioning: MUST stay equal to AestheticFreshness.CurrentSchemaVersion —
     // referencing the constant directly (both are compile-time consts) guarantees they never drift.
     private const string PromptVersion = AestheticFreshness.CurrentSchemaVersion;
@@ -99,8 +104,11 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         }
 
         // Load image bytes from durable storage and base64-encode for vision input.
-        // Track loaded pairs so each image can be annotated with its post caption.
-        var loadedPairs = new List<(AiImageInput Image, string? Caption)>(referenceImages.Count);
+        // Track loaded pairs so each image can be annotated with its post caption. D9 (WU-6b,
+        // CAGH-PA-03): also track each pair's StoragePath so the model's Image {i} index — which is
+        // the POST-SKIP loadedPairs index, since a failed OpenAsync above is `continue`d — can be
+        // resolved to the archived storage path entirely inside this extractor.
+        var loadedPairs = new List<(AiImageInput Image, string? Caption, string StoragePath)>(referenceImages.Count);
         foreach (var pair in referenceImages)
         {
             var opened = await _storage.OpenAsync(pair.Image.StoragePath, ct);
@@ -115,7 +123,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             using var stream = opened.Value;
             using var buffer = new MemoryStream();
             await stream.Content.CopyToAsync(buffer, ct);
-            loadedPairs.Add((new AiImageInput(stream.Mime, Convert.ToBase64String(buffer.ToArray())), pair.Caption));
+            loadedPairs.Add((
+                new AiImageInput(stream.Mime, Convert.ToBase64String(buffer.ToArray())),
+                pair.Caption,
+                pair.Image.StoragePath));
         }
 
         if (loadedPairs.Count == 0)
@@ -186,6 +197,16 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "return `text` with the EXACT literal string as it appears (e.g. \"Dra. Lucia Fernandez\"); " +
             "never guess or paraphrase — omit/null `text` when the mark is an icon or the text is not " +
             "legible. " +
+            // CAGH-PA-03/04 (WU-6b, v6): for an icon mark, locate its clearest occurrence so a crop
+            // can be derived downstream. sourceImageIndex references the attached images by the SAME
+            // "Image {i}" indexing used in the caption block above.
+            "When `markType` is \"icon\", also return `sourceImageIndex` — the integer index (matching " +
+            "the \"Image {i}\" numbering used for the captions above) of the ONE attached image where " +
+            "the icon is most clearly visible — and `boundingBox`, a normalised crop region within that " +
+            "image as `{\"x\":0..1,\"y\":0..1,\"width\":0..1,\"height\":0..1}` (origin top-left, " +
+            "fractions of that image's width/height, tight around the icon). Omit/null both when the " +
+            "mark is a text signature, `present` is false, or you cannot confidently localise the icon " +
+            "— never guess a bounding box. " +
             // CAFF-PA-01 (exact-client-typography): three-role typography extraction. Each role is
             // independently optional — omit a role entirely when it is not distinguishable, never
             // invent one. This is separate from styleDescriptors: it is the CONCRETE type system
@@ -231,7 +252,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             return AestheticExtraction.Empty;
         }
 
-        return Map(result.Value.Payload);
+        // D9 (CAGH-PA-03): pass the post-skip StoragePath list so Map()/MapBrandMark() can resolve
+        // the model's sourceImageIndex without depending on prompt ordering elsewhere.
+        var storagePaths = loadedPairs.Select(lp => lp.StoragePath).ToArray();
+        return Map(result.Value.Payload, storagePaths);
     }
 
     // Default background-candidate roles used when calling ColorPairingDerivation from the extractor.
@@ -239,7 +263,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     private static readonly IReadOnlyList<ColorRole> DefaultBackgroundRoles =
         [ColorRole.Primary, ColorRole.Secondary, ColorRole.Accent];
 
-    private static AestheticExtraction Map(AestheticExtractionDto dto)
+    private static AestheticExtraction Map(AestheticExtractionDto dto, IReadOnlyList<string> storagePaths)
     {
         var palette = (dto.Palette ?? [])
             .Where(p => !string.IsNullOrWhiteSpace(p.Hex))
@@ -309,7 +333,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         // CAGH-PA-01/02 (WU-6a, v5): normalize markType defensively (never throws, unrecognised/
         // missing → "unknown"); text is meaningful — and kept — only when markType is "text".
         BrandMarkDetection? brandMark = dto.BrandMark is { } bm
-            ? MapBrandMark(bm)
+            ? MapBrandMark(bm, storagePaths)
             : null;
 
         // CAFF-PA-01 (exact-client-typography, WU-2a): map the three optional typography roles.
@@ -353,11 +377,31 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     // BrandMarkDetection.NormalizeMarkType (never throws; missing/unrecognised → "unknown"); text is
     // kept only when the normalised markType is "text" and the raw value is not blank, so a
     // mismatched/model-hallucinated text on an icon mark is never surfaced (CAGH-PA-02-b).
-    private static BrandMarkDetection MapBrandMark(BrandMarkDto bm)
+    // CAGH-PA-03/04 (WU-6b, v6): SourceImagePath/BoundingBox are meaningful only for icon marks that
+    // are actually Present — both null for text/unknown marks or absent marks, matching Text's guard.
+    private static BrandMarkDetection MapBrandMark(BrandMarkDto bm, IReadOnlyList<string> storagePaths)
     {
         var markType = BrandMarkDetection.NormalizeMarkType(bm.MarkType);
         var text = markType == "text" && !string.IsNullOrWhiteSpace(bm.Text) ? bm.Text : null;
-        return new BrandMarkDetection(bm.Present, bm.PositionHint, bm.ColorHex, markType, text);
+
+        string? sourceImagePath = null;
+        BrandMarkBoundingBox? boundingBox = null;
+        if (bm.Present && markType == "icon")
+        {
+            // CAGH-PA-03: resolve the model's post-skip loadedPairs index to a StoragePath. Any
+            // unresolvable index (missing, negative, out of range) defensively maps to null.
+            sourceImagePath = bm.SourceImageIndex is { } idx && idx >= 0 && idx < storagePaths.Count
+                ? storagePaths[idx]
+                : null;
+
+            // CAGH-PA-04: validate/normalise the raw box; malformed/out-of-range/below-minimum-area
+            // input maps to null, never throws.
+            boundingBox = bm.BoundingBox is { } box
+                ? BrandMarkDetection.TryValidateBoundingBox(box.X_, box.Y_, box.Width_, box.Height_)
+                : null;
+        }
+
+        return new BrandMarkDetection(bm.Present, bm.PositionHint, bm.ColorHex, markType, text, sourceImagePath, boundingBox);
     }
 
     // CAFF-PA-01: defensive per-role mapping — a role with no (or blank) family is skipped rather
@@ -433,12 +477,37 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
 
     // FFS-PA-01: brand-mark sub-DTO (present/positionHint/colorHex — v3)
     // CAGH-PA-01/02 (WU-6a, v5): markType/text additive nullable — absent on pre-v5 responses.
+    // CAGH-PA-03/04 (WU-6b, v6): sourceImageIndex/boundingBox additive nullable — absent on pre-v6
+    // responses; icon-only meaning is enforced at mapping time, not at the DTO shape.
     private sealed record BrandMarkDto(
         [property: JsonPropertyName("present")] bool Present,
         [property: JsonPropertyName("positionHint")] string? PositionHint,
         [property: JsonPropertyName("colorHex")] string? ColorHex,
         [property: JsonPropertyName("markType")] string? MarkType = null,
-        [property: JsonPropertyName("text")] string? Text = null);
+        [property: JsonPropertyName("text")] string? Text = null,
+        [property: JsonPropertyName("sourceImageIndex")] int? SourceImageIndex = null,
+        [property: JsonPropertyName("boundingBox")] BoundingBoxDto? BoundingBox = null);
+
+    // CAGH-PA-04 (WU-6b, v6): raw bounding-box sub-DTO. Coordinates deserialize as JsonElement? —
+    // NOT double? — so a non-numeric/malformed token (string, bool, array, NaN-as-string, etc.)
+    // deserializes successfully as a non-Number-kind element instead of throwing a JsonException;
+    // ReadDouble below is the single point that defensively converts to a nullable double.
+    private sealed record BoundingBoxDto(
+        [property: JsonPropertyName("x")] JsonElement? X = null,
+        [property: JsonPropertyName("y")] JsonElement? Y = null,
+        [property: JsonPropertyName("width")] JsonElement? Width = null,
+        [property: JsonPropertyName("height")] JsonElement? Height = null)
+    {
+        public double? X_ => ReadDouble(X);
+        public double? Y_ => ReadDouble(Y);
+        public double? Width_ => ReadDouble(Width);
+        public double? Height_ => ReadDouble(Height);
+
+        private static double? ReadDouble(JsonElement? element) =>
+            element is { ValueKind: JsonValueKind.Number } el && el.TryGetDouble(out var value)
+                ? value
+                : null;
+    }
 
     // CACD-PA-02: image-type counts sub-DTO (counts, not proportions — normalization is in Map)
     private sealed record ImageTypeCountsDto(

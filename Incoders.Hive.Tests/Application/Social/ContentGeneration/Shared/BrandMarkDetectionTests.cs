@@ -74,4 +74,71 @@ public sealed class BrandMarkDetectionTests
         Assert.Equal("icon", brandMark.MarkType);
         Assert.Null(brandMark.Text);
     }
+
+    // ── WU-6b (CAGH-PA-04): TryValidateBoundingBox ─────────────────────────
+
+    // CAGH-PA-04-a — a valid normalised box within bounds and above the minimum-area guard is retained.
+    [Fact]
+    public void TryValidateBoundingBox_ValidBox_IsRetained()
+    {
+        var box = BrandMarkDetection.TryValidateBoundingBox(0.1, 0.2, 0.3, 0.3);
+
+        Assert.NotNull(box);
+        Assert.Equal(0.1, box!.X, precision: 10);
+        Assert.Equal(0.2, box.Y, precision: 10);
+        Assert.Equal(0.3, box.Width, precision: 10);
+        Assert.Equal(0.3, box.Height, precision: 10);
+    }
+
+    // CAGH-PA-04-b — a box below the minimum-area guard (3%×3% = 0.0009) is rejected.
+    [Fact]
+    public void TryValidateBoundingBox_BelowMinimumArea_ReturnsNull()
+    {
+        var box = BrandMarkDetection.TryValidateBoundingBox(0.1, 0.1, 0.01, 0.01);
+
+        Assert.Null(box);
+    }
+
+    // CAGH-PA-04-c — malformed/out-of-range shapes are rejected, never throw.
+    [Theory]
+    [InlineData(-0.1, 0.2, 0.3, 0.3)]  // negative X
+    [InlineData(0.1, -0.2, 0.3, 0.3)]  // negative Y
+    [InlineData(1.1, 0.2, 0.3, 0.3)]   // X > 1.0
+    [InlineData(0.1, 1.2, 0.3, 0.3)]   // Y > 1.0
+    [InlineData(0.8, 0.2, 0.3, 0.3)]   // X + Width > 1.0
+    [InlineData(0.1, 0.8, 0.3, 0.3)]   // Y + Height > 1.0
+    [InlineData(0.1, 0.2, -0.3, 0.3)]  // inverted (negative Width)
+    [InlineData(0.1, 0.2, 0.3, -0.3)]  // inverted (negative Height)
+    [InlineData(0.1, 0.2, 0.0, 0.3)]   // zero-area (Width = 0)
+    [InlineData(0.1, 0.2, 0.3, 0.0)]   // zero-area (Height = 0)
+    public void TryValidateBoundingBox_MalformedOrOutOfRange_ReturnsNull_NoThrow(
+        double x, double y, double width, double height)
+    {
+        var box = BrandMarkDetection.TryValidateBoundingBox(x, y, width, height);
+
+        Assert.Null(box);
+    }
+
+    // CAGH-PA-04-c — non-finite values (NaN/Infinity) are rejected, never throw.
+    [Theory]
+    [InlineData(double.NaN, 0.2, 0.3, 0.3)]
+    [InlineData(0.1, double.PositiveInfinity, 0.3, 0.3)]
+    [InlineData(0.1, 0.2, double.NegativeInfinity, 0.3)]
+    public void TryValidateBoundingBox_NonFiniteValues_ReturnsNull_NoThrow(
+        double x, double y, double width, double height)
+    {
+        var box = BrandMarkDetection.TryValidateBoundingBox(x, y, width, height);
+
+        Assert.Null(box);
+    }
+
+    // Missing (null) coordinates never throw and never fabricate a box.
+    [Fact]
+    public void TryValidateBoundingBox_MissingCoordinate_ReturnsNull_NoThrow()
+    {
+        Assert.Null(BrandMarkDetection.TryValidateBoundingBox(null, 0.2, 0.3, 0.3));
+        Assert.Null(BrandMarkDetection.TryValidateBoundingBox(0.1, null, 0.3, 0.3));
+        Assert.Null(BrandMarkDetection.TryValidateBoundingBox(0.1, 0.2, null, 0.3));
+        Assert.Null(BrandMarkDetection.TryValidateBoundingBox(0.1, 0.2, 0.3, null));
+    }
 }

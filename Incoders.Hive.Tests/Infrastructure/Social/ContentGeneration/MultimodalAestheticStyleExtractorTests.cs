@@ -519,15 +519,16 @@ public sealed class MultimodalAestheticStyleExtractorTests
     }
 
     [Fact]
-    public async Task ExtractorPromptVersion_IsBumpedToV5()
+    public async Task ExtractorPromptVersion_IsBumpedToV6()
     {
-        // Extraction prompt/schema version MUST be bumped v4→v5 (WU-6a, CAGH-PA-01/02: markType/text)
+        // Extraction prompt/schema version MUST be bumped v5→v6 (WU-6b, CAGH-PA-03/04:
+        // sourceImagePath/boundingBox)
         var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
         var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
 
         await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v5", gateway.CapturedPromptVersionKey);
+        Assert.Equal("aesthetic-extractor/v6", gateway.CapturedPromptVersionKey);
     }
 
     /// <summary>
@@ -543,8 +544,262 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v5", result.SchemaVersion);
+        Assert.Equal("aesthetic-extractor/v6", result.SchemaVersion);
         Assert.Equal(gateway.CapturedPromptVersionKey, result.SchemaVersion);
+    }
+
+    // ── WU-6b task 6b.2 [RED] — SourceImagePath resolution via post-skip loadedPairs index (CAGH-PA-03, D9) ─
+
+    private static readonly IReadOnlyList<ProfilePostImageCaptionPair> ThreePairs =
+    [
+        new ProfilePostImageCaptionPair(new ProfilePostImageRef("p1", 0, "org/c/a/aesthetic/img0.jpg", "h0"), null),
+        new ProfilePostImageCaptionPair(new ProfilePostImageRef("p1", 1, "org/c/a/aesthetic/img1.jpg", "h1"), null),
+        new ProfilePostImageCaptionPair(new ProfilePostImageRef("p1", 2, "org/c/a/aesthetic/img2.jpg", "h2"), null),
+    ];
+
+    [Fact]
+    public async Task BrandMark_IconWithValidSourceIndex_ResolvesToStoragePath()
+    {
+        // CAGH-PA-03-a: source index 2 (all opens succeed → post-skip index == raw index) resolves
+        // to that image's archived StoragePath.
+        const string brandMarkJson =
+            """{"present":true,"positionHint":"bottom-right","colorHex":"#112233","markType":"icon","sourceImageIndex":2,"boundingBox":{"x":0.1,"y":0.1,"width":0.2,"height":0.2}}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, ThreePairs, CancellationToken.None);
+
+        Assert.NotNull(result.BrandMark);
+        Assert.Equal("org/c/a/aesthetic/img2.jpg", result.BrandMark!.SourceImagePath);
+    }
+
+    [Fact]
+    public async Task BrandMark_IconWithOutOfRangeSourceIndex_ReturnsNull_NoThrow_RestUnaffected()
+    {
+        // CAGH-PA-03-b: an index with no corresponding loaded image → SourceImagePath null; the rest
+        // of BrandMarkDetection (Present/PositionHint/ColorHex/MarkType) is unaffected.
+        const string brandMarkJson =
+            """{"present":true,"positionHint":"bottom-right","colorHex":"#112233","markType":"icon","sourceImageIndex":99}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, ThreePairs, CancellationToken.None);
+
+        Assert.NotNull(result.BrandMark);
+        Assert.Null(result.BrandMark!.SourceImagePath);
+        Assert.True(result.BrandMark.Present);
+        Assert.Equal("bottom-right", result.BrandMark.PositionHint);
+        Assert.Equal("#112233", result.BrandMark.ColorHex);
+        Assert.Equal("icon", result.BrandMark.MarkType);
+    }
+
+    [Fact]
+    public async Task BrandMark_EarlierImageFailsToOpen_SourceIndexShiftsToPostSkipOrdering()
+    {
+        // D9 regression: referenceImages[0] fails OpenAsync and is `continue`d, so loadedPairs only
+        // contains images originally at index 1 and 2, now at post-skip loadedPairs indices 0 and 1.
+        // The model's sourceImageIndex=1 (post-skip) MUST resolve to the image originally at index 2,
+        // NOT the raw referenceImages[1].
+        const string brandMarkJson =
+            """{"present":true,"markType":"icon","sourceImageIndex":1}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var storage = new SelectiveFailStorage(failingPaths: ["org/c/a/aesthetic/img0.jpg"]);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), storage);
+
+        var result = await extractor.ExtractAsync(Org, ThreePairs, CancellationToken.None);
+
+        Assert.NotNull(result.BrandMark);
+        Assert.Equal("org/c/a/aesthetic/img2.jpg", result.BrandMark!.SourceImagePath);
+    }
+
+    [Fact]
+    public async Task BrandMark_TextMark_SourceImagePathAndBoundingBoxAreNull()
+    {
+        // SourceImagePath/BoundingBox are meaningful only for icon marks — a text mark never
+        // carries either, even if the model returns a sourceImageIndex/boundingBox alongside it.
+        const string brandMarkJson =
+            """{"present":true,"markType":"text","text":"Studio Marisol","sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.1,"width":0.2,"height":0.2}}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, ThreePairs, CancellationToken.None);
+
+        Assert.NotNull(result.BrandMark);
+        Assert.Null(result.BrandMark!.SourceImagePath);
+        Assert.Null(result.BrandMark.BoundingBox);
+    }
+
+    // ── WU-6b task 6b.3 [RED] — BoundingBox validation (CAGH-PA-04) ─────────
+
+    [Fact]
+    public async Task BrandMark_ValidBoundingBox_IsRetained()
+    {
+        // CAGH-PA-04-a
+        const string brandMarkJson =
+            """{"present":true,"markType":"icon","sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.2,"width":0.3,"height":0.3}}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, ThreePairs, CancellationToken.None);
+
+        Assert.NotNull(result.BrandMark!.BoundingBox);
+        Assert.Equal(0.1, result.BrandMark.BoundingBox!.X, precision: 10);
+        Assert.Equal(0.3, result.BrandMark.BoundingBox.Width, precision: 10);
+    }
+
+    [Fact]
+    public async Task BrandMark_BoundingBoxBelowMinimumArea_ReturnsNull()
+    {
+        // CAGH-PA-04-b
+        const string brandMarkJson =
+            """{"present":true,"markType":"icon","sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.1,"width":0.01,"height":0.01}}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, ThreePairs, CancellationToken.None);
+
+        Assert.Null(result.BrandMark!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task BrandMark_MalformedOutOfRangeBoundingBox_ReturnsNull()
+    {
+        // CAGH-PA-04-c
+        const string brandMarkJson =
+            """{"present":true,"markType":"icon","sourceImageIndex":0,"boundingBox":{"x":1.5,"y":0.2,"width":0.3,"height":0.3}}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, ThreePairs, CancellationToken.None);
+
+        Assert.Null(result.BrandMark!.BoundingBox);
+    }
+
+    // ── WU-6b task 6b.4 — explicit 11-case defensive-parsing suite (CAGH-PA-04-c/d, CAGH-PA-05) ──
+    // Every case MUST yield BrandMark.BoundingBox (and, where noted, SourceImagePath) == null and
+    // MUST NOT throw.
+
+    [Fact]
+    public async Task DefensiveParsing_01_MissingBoundingBox_ReturnsNull()
+    {
+        const string brandMarkJson = """{"present":true,"markType":"icon","sourceImageIndex":0}""";
+        var result = await ExtractWithBrandMark(brandMarkJson);
+
+        Assert.Null(result.BrandMark!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_02_NonNumericValues_ReturnsNull_NoThrow()
+    {
+        const string brandMarkJson =
+            """{"present":true,"markType":"icon","sourceImageIndex":0,"boundingBox":{"x":"left","y":"top","width":"wide","height":"tall"}}""";
+        var result = await ExtractWithBrandMark(brandMarkJson);
+
+        Assert.Null(result.BrandMark!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_03_NegativeCoordinates_ReturnsNull()
+    {
+        const string brandMarkJson =
+            """{"present":true,"markType":"icon","sourceImageIndex":0,"boundingBox":{"x":-0.1,"y":-0.2,"width":0.3,"height":0.3}}""";
+        var result = await ExtractWithBrandMark(brandMarkJson);
+
+        Assert.Null(result.BrandMark!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_04_ValuesAboveOne_ReturnsNull()
+    {
+        const string brandMarkJson =
+            """{"present":true,"markType":"icon","sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.2,"width":1.3,"height":1.3}}""";
+        var result = await ExtractWithBrandMark(brandMarkJson);
+
+        Assert.Null(result.BrandMark!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_05_ZeroArea_ReturnsNull()
+    {
+        const string brandMarkJson =
+            """{"present":true,"markType":"icon","sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.2,"width":0,"height":0.3}}""";
+        var result = await ExtractWithBrandMark(brandMarkJson);
+
+        Assert.Null(result.BrandMark!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_06_InvertedWidthNegative_ReturnsNull()
+    {
+        const string brandMarkJson =
+            """{"present":true,"markType":"icon","sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.2,"width":-0.3,"height":0.3}}""";
+        var result = await ExtractWithBrandMark(brandMarkJson);
+
+        Assert.Null(result.BrandMark!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_07_XPlusWidthExceedsOne_ReturnsNull()
+    {
+        const string brandMarkJson =
+            """{"present":true,"markType":"icon","sourceImageIndex":0,"boundingBox":{"x":0.8,"y":0.2,"width":0.3,"height":0.3}}""";
+        var result = await ExtractWithBrandMark(brandMarkJson);
+
+        Assert.Null(result.BrandMark!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_08_BelowMinimumArea_ReturnsNull()
+    {
+        const string brandMarkJson =
+            """{"present":true,"markType":"icon","sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.1,"width":0.02,"height":0.02}}""";
+        var result = await ExtractWithBrandMark(brandMarkJson);
+
+        Assert.Null(result.BrandMark!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_09_BoxPresentButMarkTypeIsText_ReturnsNull()
+    {
+        const string brandMarkJson =
+            """{"present":true,"markType":"text","text":"Studio Marisol","sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.2,"width":0.3,"height":0.3}}""";
+        var result = await ExtractWithBrandMark(brandMarkJson);
+
+        Assert.Null(result.BrandMark!.BoundingBox);
+        Assert.Null(result.BrandMark.SourceImagePath);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_10_BoxPresentButPresentIsFalse_ReturnsNull()
+    {
+        const string brandMarkJson =
+            """{"present":false,"markType":"icon","sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.2,"width":0.3,"height":0.3}}""";
+        var result = await ExtractWithBrandMark(brandMarkJson);
+
+        Assert.Null(result.BrandMark!.BoundingBox);
+        Assert.Null(result.BrandMark.SourceImagePath);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_11_SourceIndexOutOfRange_SourceImagePathNull_BoxStillValidated()
+    {
+        const string brandMarkJson =
+            """{"present":true,"markType":"icon","sourceImageIndex":42,"boundingBox":{"x":0.1,"y":0.2,"width":0.3,"height":0.3}}""";
+        var result = await ExtractWithBrandMark(brandMarkJson);
+
+        Assert.Null(result.BrandMark!.SourceImagePath);
+        // BoundingBox validation is independent of SourceImagePath resolution — a still-valid box is
+        // retained even when the source index cannot be resolved.
+        Assert.NotNull(result.BrandMark.BoundingBox);
+    }
+
+    private static async Task<AestheticExtraction> ExtractWithBrandMark(string brandMarkJson)
+    {
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", brandMarkJson: brandMarkJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+        var result = await extractor.ExtractAsync(Org, ThreePairs, CancellationToken.None);
+        Assert.NotNull(result.BrandMark);
+        return result;
     }
 
     // ── WU-2a task 2a.1 [RED] — three-role typography mapping (CAFF-PA-01) ──────
@@ -714,6 +969,31 @@ file sealed class OneImageStorage : IGeneratedAssetStorage
         Task.FromResult<IReadOnlyList<StoredAssetEntry>>([]);
     public Task<Result<StoredAssetStream>> OpenAsync(string storagePath, CancellationToken ct)
     {
+        var stream = new MemoryStream(Encoding.UTF8.GetBytes("fake-image-bytes"));
+        return Task.FromResult(Result.Success(new StoredAssetStream(stream, "image/jpeg", stream.Length)));
+    }
+    public Task DeleteAsync(string storagePath, CancellationToken ct) => Task.CompletedTask;
+}
+
+/// <summary>
+/// WU-6b (D9): a storage fake that fails <see cref="OpenAsync"/> for a configured set of paths and
+/// succeeds for everything else — used to prove the post-skip <c>loadedPairs</c> index resolution
+/// (an earlier failing image shifts the index of subsequent successfully-loaded images).
+/// </summary>
+file sealed class SelectiveFailStorage(HashSet<string> failingPaths) : IGeneratedAssetStorage
+{
+    public Task<StoredAssetRef> PutAssetAsync(StoredAssetKey key, StoredAssetContent content, CancellationToken ct) =>
+        throw new NotSupportedException();
+    public Task PutFolderPlaceholderAsync(string folderPath, CancellationToken ct) => Task.CompletedTask;
+    public Task<IReadOnlyList<StoredAssetEntry>> ListAsync(string prefix, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<StoredAssetEntry>>([]);
+    public Task<Result<StoredAssetStream>> OpenAsync(string storagePath, CancellationToken ct)
+    {
+        if (failingPaths.Contains(storagePath))
+        {
+            return Task.FromResult(Result.Failure<StoredAssetStream>(IntegrationErrors.AiJsonInvalid));
+        }
+
         var stream = new MemoryStream(Encoding.UTF8.GetBytes("fake-image-bytes"));
         return Task.FromResult(Result.Success(new StoredAssetStream(stream, "image/jpeg", stream.Length)));
     }

@@ -38,7 +38,7 @@ Two flags, neither raises risk above Low:
 | WU-4 | ComfyUI `BackgroundOnly` parity + anatomy negative-prompt terms | 4 | `dotnet test --filter FullyQualifiedName~ComfyUiImageModelClientTests` | Owner-run real ComfyUI generation confirms non-blank background (manual, credential-gated) | `ImagePromptDirectives.cs` (new), `ComfyUiImageModelClient.cs`, `OpenAiImageModelClient.cs` |
 | WU-5 | Detailer feasibility report | 5 | N/A — documentation only, no test | N/A — investigation deliverable, not executable | single new `.md` file, trivially removable |
 | WU-6a | `BrandMarkDetection` MarkType + Text, defensive parsing, v5 | 6 | `dotnet test --filter FullyQualifiedName~BrandMarkDetectionTests|MultimodalAestheticStyleExtractorTests|AestheticProfilePersistenceTests` | N/A — JSON round-trip assertion | `BrandMarkDetection.cs`, `MultimodalAestheticStyleExtractor.cs`, `AestheticProfilePersistence.cs` |
-| WU-6b | SourceImagePath + BoundingBox, validation, v6, reliability suite | 7 | `dotnet test --filter FullyQualifiedName~MultimodalAestheticStyleExtractorTests` | N/A for suite; fixture IoU measurement is a recorded verdict, not a gated run | `BrandMarkDetection.cs`, `MultimodalAestheticStyleExtractor.cs`, new fixtures dir |
+| WU-6b | SourceImagePath + BoundingBox, validation, v6, reliability suite | 7 | `dotnet test --filter FullyQualifiedName~MultimodalAestheticStyleExtractorTests` | N/A for suite; fixture IoU measurement is a recorded verdict — this batch's verdict is "not measurable offline", not a gated run | `BrandMarkDetection.cs`, `MultimodalAestheticStyleExtractor.cs`; fixtures dir NOT created this batch (no real images/ground-truth available offline — see verdict) |
 | WU-7a | Text-mark rendering via caption typography | 8 | `dotnet test --filter FullyQualifiedName~ContentGenerationJobProcessorTests` | N/A — markup assertion | `ContentGenerationJobProcessor.cs` (`BuildBrandMarkSlot`) only |
 | WU-7b | `IBrandMarkAssetExtractor` port + SkiaSharp adapter + ADR | 9 | `dotnet test --filter FullyQualifiedName~SkiaBrandMarkAssetExtractorTests` | N/A — in-memory storage fake + synthesised bitmaps | `IBrandMarkAssetExtractor.cs`, `SkiaBrandMarkAssetExtractor.cs`, `Program.cs` DI line(s), ADR doc |
 | WU-7c | Icon-mark `<img>` render + `renderInlineRefs` + PPTX 2nd picture | 10 | `dotnet test --filter FullyQualifiedName~ContentGenerationJobProcessorTests|PptxExportAdapterTests` | Owner reviews first real crop before this unit is considered verified (manual) | `ContentGenerationJobProcessor.cs`, `PptxExportAdapter.cs`; degrade-to-chip is pre-change behaviour |
@@ -86,11 +86,11 @@ Two flags, neither raises risk above Low:
 
 ## WU-6b: SourceImagePath + BoundingBox, Validation, Reliability Suite (Infrastructure, ~400 lines)
 
-- [ ] 6b.1 RED+GREEN: `Application/.../Shared/BrandMarkDetection.cs` — add nullable `SourceImagePath` and `BrandMarkBoundingBox(X, Y, Width, Height)` record (D8/D9).
-- [ ] 6b.2 RED+GREEN: `Infrastructure/.../MultimodalAestheticStyleExtractor.cs` — widen `loadedPairs` from `(AiImageInput, Caption)` to `(AiImageInput, Caption, StoragePath)` (D9); resolve the model's `Image {i}` **post-skip** `loadedPairs` index to `SourceImagePath`. Tests: valid index resolves to `StoragePath` (CAGH-PA-03-a); out-of-range/unresolvable index → null, no throw, rest of `BrandMarkDetection` unaffected (CAGH-PA-03-b); a failing `OpenAsync` on an earlier image correctly shifts subsequent index resolution (D9 post-skip regression).
-- [ ] 6b.3 RED+GREEN: same file — validate/normalise `BoundingBox`: X/Y/Width/Height finite in `[0,1]`, `X+Width≤1.0`, `Y+Height≤1.0`, normalised area ≥0.0009 (3%×3%), crop ≥24×24px after scaling; bump `CurrentSchemaVersion`/`PromptVersion` to `aesthetic-extractor/v6` (D10). Tests: valid box retained (CAGH-PA-04-a), below-minimum-area rejected → null (CAGH-PA-04-b), malformed/out-of-range rejected → null (CAGH-PA-04-c).
-- [ ] 6b.4 **Explicit** defensive-parsing suite: `Tests/Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractorTests.cs` — 11 canned-JSON cases, each MUST yield null and MUST NOT throw: missing `boundingBox`; non-numeric values; negative coords; `>1.0` values; zero-area; inverted (`Width<0`); `X+Width>1.0`; below-minimum-area; box present but `markType:"text"`; box present but `present:false`; source index out of range.
-- [ ] 6b.5 **Explicit** fixture IoU measurement (non-gating): add 3-5 checked-in reference images with hand-annotated expected regions under `Tests/Infrastructure/Social/ContentGeneration/Fixtures/`; measure extractor bounding-box output against expected region with IoU (informal floor ≥0.5). This is measurement, not a pass/fail gate — deliverable is a **written reliability verdict** recorded below in [Bounding-Box Reliability Verdict](#bounding-box-reliability-verdict-wu-6b). If it fails, the WU-7b ADR (task 7b.5) records the decision to cut WU-7b/WU-7c. CAGH-PA-04-d, CAGH-PA-05.
+- [x] 6b.1 RED+GREEN: `Application/.../Shared/BrandMarkDetection.cs` — add nullable `SourceImagePath` and `BrandMarkBoundingBox(X, Y, Width, Height)` record (D8/D9).
+- [x] 6b.2 RED+GREEN: `Infrastructure/.../MultimodalAestheticStyleExtractor.cs` — widen `loadedPairs` from `(AiImageInput, Caption)` to `(AiImageInput, Caption, StoragePath)` (D9); resolve the model's `Image {i}` **post-skip** `loadedPairs` index to `SourceImagePath`. Tests: valid index resolves to `StoragePath` (CAGH-PA-03-a); out-of-range/unresolvable index → null, no throw, rest of `BrandMarkDetection` unaffected (CAGH-PA-03-b); a failing `OpenAsync` on an earlier image correctly shifts subsequent index resolution (D9 post-skip regression).
+- [x] 6b.3 RED+GREEN: same file — validate/normalise `BoundingBox`: X/Y/Width/Height finite in `[0,1]`, `X+Width≤1.0`, `Y+Height≤1.0`, normalised area ≥0.0009 (3%×3%); bump `CurrentSchemaVersion`/`PromptVersion` to `aesthetic-extractor/v6` (D10). Tests: valid box retained (CAGH-PA-04-a), below-minimum-area rejected → null (CAGH-PA-04-b), malformed/out-of-range rejected → null (CAGH-PA-04-c). **Note**: the design's `crop ≥24×24px after scaling` guard is validated later, at actual crop time, by WU-7b's `SkiaBrandMarkAssetExtractor` (task 7b.2's "sub-24×24 crop" failure mode) — it needs the source image's real pixel dimensions, which this extractor-side normalised-geometry check does not have/decode.
+- [x] 6b.4 **Explicit** defensive-parsing suite: `Tests/Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractorTests.cs` — 11 canned-JSON cases, each MUST yield null and MUST NOT throw: missing `boundingBox`; non-numeric values; negative coords; `>1.0` values; zero-area; inverted (`Width<0`); `X+Width>1.0`; below-minimum-area; box present but `markType:"text"`; box present but `present:false`; source index out of range. Delivered as `DefensiveParsing_01`..`_11` in `MultimodalAestheticStyleExtractorTests.cs`. Non-numeric-value defence required widening `BoundingBoxDto`'s raw fields from `double?` to `JsonElement?` (a non-numeric JSON token deserializes cleanly as a non-Number-kind element instead of throwing `JsonException` at the `System.Text.Json` layer, before `BrandMarkDetection.TryValidateBoundingBox` ever runs).
+- [x] 6b.5 **Explicit** fixture IoU measurement (non-gating): add 3-5 checked-in reference images with hand-annotated expected regions under `Tests/Infrastructure/Social/ContentGeneration/Fixtures/`; measure extractor bounding-box output against expected region with IoU (informal floor ≥0.5). This is measurement, not a pass/fail gate — deliverable is a **written reliability verdict** recorded below in [Bounding-Box Reliability Verdict](#bounding-box-reliability-verdict-wu-6b). If it fails, the WU-7b ADR (task 7b.5) records the decision to cut WU-7b/WU-7c. CAGH-PA-04-d, CAGH-PA-05. **Not executable in this offline apply session** — see the verdict section below for why and what an owner-run follow-up needs to do.
 
 ## WU-7a: Text-Mark Rendering (Application, ~340 lines — depends on WU-6a only)
 
@@ -126,10 +126,58 @@ Two flags, neither raises risk above Low:
 
 ## Bounding-Box Reliability Verdict (WU-6b)
 
-_To be filled in by whoever executes task 6b.5, before WU-7b/WU-7c are considered started._
-Record here: fixture count, per-fixture IoU, mean IoU vs. the ≥0.5 informal floor, and the Ship /
-Cut-WU-7b-7c decision. If cut, WU-7b/WU-7c tasks above are skipped and icon marks ship the WU-6a
-`PositionHint`+`ColorHex` chip treatment only (proposal risk table, "High" likelihood risk).
+**Verdict: NOT MEASURABLE IN THIS SESSION.**
+
+This `sdd-apply` batch ran offline, with no live vision-model (multimodal AI) access and no
+owner-provided reference images or hand-annotated ground-truth bounding boxes. Task 6b.5 calls for:
+(a) 3-5 checked-in reference images with hand-annotated expected icon regions, and (b) running the
+*real* `MultimodalAestheticStyleExtractor` against a *real* configured vision route to see what
+bounding box it actually returns for each image, then computing IoU between the model's output and
+the hand-annotated ground truth.
+
+Neither ingredient exists in this environment:
+
+- No real client reference images with a known, hand-annotated icon-mark region were supplied or
+  could be sourced without fabricating them (using stock/placeholder images with invented "expected"
+  boxes would not measure the vision model's real-world reliability — it would just measure whether
+  a made-up number matches another made-up number).
+- No live call to a configured multimodal route (OpenAI/Anthropic vision) was made or is available
+  from this offline apply context — `CandidateResolver()`/`CaptureGateway()` in the test suite are
+  in-memory fakes that return canned JSON; they intentionally do NOT exercise the real vision model's
+  actual geometric-localisation behaviour, which is precisely the thing being measured here.
+
+Fabricating an IoU score (e.g. "measured mean IoU 0.62 across 4 fixtures") would be worse than no
+number at all — it would misrepresent an untested claim as an empirical result and could wrongly
+green-light WU-7b/WU-7c (or wrongly cut them) on invented evidence. Per the explicit instruction for
+this batch, no such number is recorded.
+
+**What this batch DID deliver toward WU-6b's reliability goal**: the defensive-parsing suite
+(task 6b.4, 11 cases) proves the *code path* never throws and never fabricates a value on
+malformed/adversarial model output — this is a correctness guarantee, not a reliability measurement.
+It is a necessary precondition for trusting any future IoU measurement (a crash or a silently-wrong
+value would corrupt the measurement itself), but it says nothing about whether the vision model's
+*correctly-shaped* bounding boxes are geometrically accurate.
+
+**Required owner-run follow-up before WU-7b/WU-7c start** (per task 6b.5's own gating language):
+
+1. Pick 3-5 real client reference images (from an org with a genuinely recurring icon mark) already
+   archived via `ProfilePostImageRef`/`IGeneratedAssetStorage`.
+2. Hand-annotate the true icon bounding box on each (any simple image-annotation tool; record as
+   normalised 0..1 `{x,y,width,height}`), commit them under
+   `Tests/Infrastructure/Social/ContentGeneration/Fixtures/` alongside the images.
+3. Run `MultimodalAestheticStyleExtractor.ExtractAsync` against a real configured `ai-aesthetic`
+   route (not the test fakes) for each fixture; capture the returned `BoundingBox`.
+4. Compute IoU between each returned box and its ground truth; record per-fixture IoU and the mean
+   against the informal ≥0.5 floor.
+5. Record the Ship / Cut-WU-7b-7c decision here, and carry it into the WU-7b ADR (task 7b.5) either
+   way — a Ship verdict lets WU-7b/WU-7c proceed as designed; a Cut verdict means icon marks ship the
+   WU-6a `PositionHint`+`ColorHex` chip treatment only (proposal risk table, "High" likelihood risk),
+   and WU-7b/WU-7c tasks above are skipped.
+
+Until that owner-run measurement lands, WU-7b/WU-7c MUST NOT be started from this session's output
+alone — the code in this batch (defensive parsing, D9 index resolution) is a correct, tested
+*plumbing* layer regardless of the verdict, but the reliability question task 6b.5 exists to answer
+remains open.
 
 ## Key Learnings
 
