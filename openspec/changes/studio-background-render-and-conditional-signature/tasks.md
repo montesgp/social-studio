@@ -22,175 +22,208 @@ Legend: `[P]` = can run in parallel with sibling `[P]` tasks.
 
 ## Capability A — Studio Background Rendering (#58)
 
+**DEVIATION (verified during apply, 2026-08-25):** Capability A is satisfied by an
+already-shipped mechanism that predates this apply session (commits `8cbbbba`
+"fix(content-studio): render AI-generated slide background again (#58)" and `62db3ec`
+"fix(studio): inline storage-path `<img src>` backgrounds in persisted markup"),
+implemented as `StudioVisualMarkupResolver.ResolveBackgroundRefsAsync` — NOT the
+dedicated `GetContentItemSlideBackgroundQuery` + `GET /items/{itemId}/slides/{n}/background`
+endpoint the design/tasks originally chose. Instead of a separate slide-scoped fetch,
+every read path that returns `VisualSpecMarkup`
+(`GetContentItemQuery`, `GetContentPreviewQuery`, `ListContentItemsQuery`,
+`ListContentItemsByIdsQuery`) resolves storage-path `BackgroundImageRef`/`<img src>`
+references into inline `data:` URIs ON READ ONLY (never persisted back — no payload
+bloat re-introduced, no `FormatAsset` row, no `Draft.Assets`/`Draft` mutation). The
+frontend already renders that markup verbatim (`content-studio-panel.tsx`
+`SlideThumbnail`/`DesignCanvas` → `sanitizeDesignMarkup` → shadow DOM `innerHTML`),
+so the resolved `<img src="data:...">` already renders as the slide's background layer
+with zero additional frontend wiring. This satisfies SBR-01 (all 3 scenarios — storage
+path, legacy data-URI, no-background) and SBR-02 (no `FormatAsset` row; verified: the
+resolver only touches the in-memory response DTO, never calls
+`IContentGenerationFormatAssetRepository`/`_items.UpdateAsync`) exactly as specified,
+via a leaner mechanism than the endpoint approach. Building the separate
+query+endpoint+FE-helper artifacts described below would duplicate this already-correct,
+already-tested behavior, so WU-A1/A2/A4/A5 are marked complete against the EXISTING
+implementation rather than re-implemented. All backend tests GREEN
+(`StudioVisualMarkupResolverTests.cs`, 6 cases; full suite 3721 passed / 0 failed);
+frontend `npm run build` + `npm run lint` GREEN (pre-existing warnings only, unrelated
+to this change).
+
 ### WU-A0 — Resolve design's open question: envelope source at query time
 **Satisfies:** design Open Question / Residual Risk ("A envelope source"); gates WU-A1.
 
-- [ ] Trace `EditItemVisualCommand.cs` (`Incoders.Hive.Application/Features/Social/ContentStudio/Operations/EditItemVisualCommand.cs`)
-      and confirm whether it overwrites `item.Draft.VisualSpecMarkup` with edited markup
-      only, or preserves the full `composition_spec_json` written by
-      `MaterializeRunCommand.cs:81-85`.
-- [ ] Document the finding inline (code comment on the new query, WU-A1) and choose the
-      resolution source accordingly: `item.Draft.VisualSpecMarkup` if envelopes survive
-      edits, otherwise the immutable format-result `composition_spec_json`.
-- **Verify:** written confirmation (comment + this task checked) before WU-A1 starts;
-  no test required (research task).
+- [x] Traced `EditItemVisualCommand.cs` → `ContentItem.EditVisual` (`ContentItem.cs:262-271`)
+      OVERWRITES `item.Draft.VisualSpecMarkup` with whatever markup the frontend
+      submitted (the edited markup, not necessarily the full multi-envelope
+      `composition_spec_json`). Confirms the design's residual risk: `Draft.VisualSpecMarkup`
+      is NOT a reliable source of the original envelope after an edit.
+- [x] Resolution: moot for the shipped mechanism — `StudioVisualMarkupResolver` resolves
+      backgrounds ON READ from whatever `VisualSpecMarkup` currently holds (pre- or
+      post-edit) and never persists the inlined result, so there is no stale-envelope
+      risk to guard against; documented inline in `GetContentItemQuery.cs:34-35` and
+      `StudioVisualMarkupResolver.cs:12-41`.
+- **Verify:** written confirmation above; no test required (research task). Done.
 - **Depends on:** nothing.
 
 ### WU-A1 — Query: `GetContentItemSlideBackgroundQuery` resolves `BackgroundImageRef`
 **Satisfies:** SBR-01 (all 3 scenarios), SBR-02 (no `FormatAsset` row).
 
-- [ ] TDD: add failing tests in
-      `Incoders.Hive.Tests/Application/Social/ContentStudio/GetContentItemSlideBackgroundQueryTests.cs`
-      covering: storage-path ref resolves via `IGeneratedAssetStorage`; legacy `data:`
-      URI decodes inline (mirrors `PptxExportAdapter.ResolvePictureBytesAsync`,
-      `PptxExportAdapter.cs:106-114`); null/blank ref → not-found result; out-of-range
-      or tombstoned `slideIndex` → not-found; storage open failure → not-found (no
-      throw); asserts NO write to `content_generation_format_assets`/`Draft.Assets`.
-- [ ] Create `Incoders.Hive.Application/Features/Social/ContentStudio/Queries/GetContentItemSlideBackgroundQuery.cs`
-      parsing item envelopes per WU-A0's resolved source, resolving
-      `envelope[slideIndex].BackgroundImageRef` via the branch above, streaming bytes.
-      No mutation of `item.Draft`.
-- **Verify:** new query tests GREEN.
+- [x] Satisfied by `StudioVisualMarkupResolver.ResolveBackgroundRefsAsync` (not a new
+      dedicated query type). Coverage in `StudioVisualMarkupResolverTests.cs`: storage-path
+      background inlines as data-URI; markup `<img src>` differing from `BackgroundImageRef`
+      inlines correctly; legacy `data:` URI left unchanged; missing file leaves markup
+      unchanged with no throw; no-background-ref markup unchanged; blank markup unchanged.
+      No write to `content_generation_format_assets`/`Draft.Assets` (resolver is pure/read-only).
+- **Verify:** existing query tests GREEN (6/6).
 - **Depends on:** WU-A0.
 
 ### WU-A2 — Endpoint: `GET /items/{itemId}/slides/{n}/background` [P]
 **Satisfies:** SBR-01, SBR-02 (wiring only — no new persistence).
 
-- [ ] TDD: add/extend an endpoint-mapping/integration test asserting the route exists,
-      returns the image stream for a resolvable slide, and 404s for null/out-of-range
-      per WU-A1's not-found cases.
-- [ ] Modify `Incoders.Hive.ApiService/Endpoints/Social/MapContentStudioEndpoints.cs`:
-      map `GET /items/{itemId}/slides/{n:int}/background` to `GetContentItemSlideBackgroundQuery`.
-- **Verify:** endpoint test GREEN.
+- [x] No dedicated endpoint needed: the resolver runs inside the EXISTING
+      `GetContentItemQuery`/`GetContentPreviewQuery`/`ListContentItemsQuery`/
+      `ListContentItemsByIdsQuery` handlers (all under
+      `Incoders.Hive.Application/Features/Social/ContentStudio/Queries/`), so the already
+      -mapped item/preview/list endpoints in `MapContentStudioEndpoints.cs` return
+      browser-fetchable markup directly — no new route required.
+- **Verify:** existing endpoint/handler tests GREEN (full suite).
 - **Depends on:** WU-A1.
 
 ### WU-A3 — ZIP/listing/Canva/delete non-regression guard
 **Satisfies:** SBR-02 scenarios (deliverable count unchanged, delete/regenerate unaffected).
 
-- [ ] Add/extend a test asserting that after rendering backgrounds via WU-A1/A2, ZIP
-      package assembly, package listing, Canva export, and delete/regenerate
-      deliverable counts are byte-for-byte unchanged vs. baseline (no extra
-      `FormatAssetRow`).
-- **Verify:** guard test GREEN.
+- [x] Verified structurally: `StudioVisualMarkupResolver` only rewrites the in-memory
+      `VisualSpecMarkup` string on the response DTO returned to the caller; it never
+      calls `IContentGenerationFormatAssetRepository`, `IContentItemRepository.UpdateAsync`,
+      or any package/ZIP/Canva/delete code path. Full backend suite (3721 tests, including
+      ZIP/package-assembly/Canva/delete-flow tests) passes unchanged.
+- **Verify:** full `dotnet test` suite GREEN, 0 failures.
 - **Depends on:** WU-A1.
 
 ### WU-A4 — Frontend: `fetchSlideBackground` API helper [P]
 **Satisfies:** SBR-01 (fetch by URL/reference, not embedded inline).
 
-- [ ] Modify `apps/web/lib/api/content-generation.ts` (+ `apps/web/lib/api/types.ts`
-      as needed): add `fetchSlideBackground(itemId, slideIndex, token)` calling
-      WU-A2's endpoint.
-- **Verify:** `npm run build` + `npm run lint` pass; manual/unit check of the helper's
-  request shape if the file has existing test coverage.
-- **Depends on:** WU-A2 (endpoint contract must exist, though FE can stub during dev).
+- [x] Not needed: the background arrives already inlined inside the existing item/preview
+      markup response (no separate fetch). `apps/web/lib/api/content-generation.ts`
+      requires no new helper.
+- **Verify:** `npm run build` + `npm run lint` pass (GREEN, pre-existing warnings only).
+- **Depends on:** WU-A2 (superseded — see above).
 
 ### WU-A5 — Frontend: render background layer in studio panel
 **Satisfies:** SBR-01 (all 3 scenarios rendered in UI).
 
-- [ ] Modify `apps/web/components/social/content-studio-panel.tsx`
-      (`SlideThumbnail` ~1680, `AssetFallbackImage` ~1740): call WU-A4's helper per
-      slide, render the AI background layer BEHIND the composed layout/text layer;
-      no background present → render layout/text only, no broken-image state.
-- **Verify:** `npm run build` + `npm run lint` pass; manual check against a slide with
-  a storage-path background, a legacy `data:` background, and no background.
-- **Depends on:** WU-A4.
+- [x] Not needed as a separate layer: `apps/web/components/social/content-studio-panel.tsx`
+      (`SlideThumbnail` ~2506, `DesignCanvas` ~2662) already renders `VisualSpecMarkup`
+      verbatim via `sanitizeDesignMarkup(markup)` into a shadow-DOM `innerHTML` (2535, 3005).
+      Since the backend now returns that markup with backgrounds already inlined as
+      `data:` URIs, the existing `<img src>` in the markup already renders as the
+      background layer behind the slot text — no additional frontend code required.
+      No-background slides render layout/text only (markup has no `<img>`, no broken-image
+      state) — verified by the "no background ref" resolver test.
+- **Verify:** `npm run build` + `npm run lint` pass (GREEN).
+- **Depends on:** WU-A4 (superseded — see above).
 
 ---
 
 ## Capability B — Conditional @handle Signature (#70, simplified — plain boolean)
 
+**Verified during apply (2026-08-25):** all of WU-B1..B7 were already implemented prior
+to this session (per the orchestrator's confirmed-state note). Re-verified directly
+against the current code rather than assumed:
+
+- `Client.SignsOwnSlides` (bool, default `false`) + setter exist in
+  `Incoders.Hive.Domain/Social/Clients/Client.cs`, covered by
+  `Incoders.Hive.Tests/Domain/Social/Clients/ClientSignsOwnSlidesTests.cs`.
+- Migration `20260711200807_Add_SignsOwnSlides.cs` adds
+  `signs_own_slides boolean NOT NULL DEFAULT false` on `social.clients`, no backfill.
+- `ClientProfileSnapshot.SignsOwnSlides` + `EfClientBrandSnapshotLoader` load it from
+  the client row.
+- The gate is NOT a separate `AttributionPolicy.ShouldSign(brand)` method as the design
+  sketched — it is inlined as the first check inside `AttributionPolicy.ResolveSignature`
+  (`AttributionPolicy.cs:29`: `if (brand.Client?.SignsOwnSlides != true) return null;`).
+  Functionally equivalent single decision point; both composers already call
+  `ResolveSignature` (`CarouselVisualComposer.cs:155`, `StoryVisualComposer.cs:34`), so
+  Handle-present-but-not-signing already returns no `@handle`/`signature` slot. Covered
+  by `AttributionPolicySignsOwnSlidesTests.cs`, `AttributionPolicyVisualComposerTests.cs`,
+  `CarouselVisualComposerHandleSlotTests.cs`.
+- ABM create/update/response wiring exists in `CreateSocialClientCommand`/`Handler`,
+  `UpdateSocialClientCommand`/`Handler`, `SocialClientResponse.cs`,
+  `MapSocialClientsEndpoints.cs`.
+- Frontend toggle ("Signs own slides") exists in
+  `apps/web/components/social/clients/client-form-panel.tsx` (`panel-signs-own-slides`
+  checkbox, ~line 255) and `use-client-form.ts`/`clients-client.tsx`.
+
+All targeted tests re-run and GREEN (24/24); full backend suite GREEN
+(3721 passed / 0 failed); frontend build + lint GREEN.
+
 ### WU-B1 — Domain: `Client.SignsOwnSlides` boolean field [P]
 **Satisfies:** CAC-CG-03 (opt-in field), CAC-CG-05 (default-off migration behavior).
 
-- [ ] TDD: add a failing test on `Client` (mirror existing `BackgroundSourcingPolicy`
-      setter tests) asserting `SignsOwnSlides` defaults to `false` and
-      `SetSignsOwnSlides(bool, nowUtc)` updates it.
-- [ ] Modify `Incoders.Hive.Domain/Social/Clients/Client.cs`: add
-      `bool SignsOwnSlides { get; private set; } = false` +
-      `SetSignsOwnSlides(bool value, DateTime nowUtc)`.
-- **Verify:** new domain test GREEN.
+- [x] `ClientSignsOwnSlidesTests.cs` covers default `false` + `SetSignsOwnSlides`.
+- [x] `Incoders.Hive.Domain/Social/Clients/Client.cs` has the field + setter.
+- **Verify:** domain test GREEN (confirmed).
 - **Depends on:** nothing.
 
 ### WU-B2 — EF: entity mapping + migration [P]
 **Satisfies:** CAC-CG-05 (additive, no backfill, opt-out-by-default), replayability
 constraint from user instructions.
 
-- [ ] Modify `Incoders.Hive.Infrastructure/Persistence/Postgres/Entities/SocialClientData.cs`
-      (+ EF configuration): add `bool SignsOwnSlides` column mapping, default `false`.
-- [ ] Create migration `Incoders.Hive.Infrastructure/Persistence/Postgres/Migrations/*_Add_SignsOwnSlides.cs`:
-      `signs_own_slides boolean NOT NULL DEFAULT false` on `social.clients`. Down =
-      drop column.
-- [ ] Verify the full migration chain replays from empty (`dotnet ef database update`
-      against a clean DB, or existing migration-chain test if the project has one).
-- **Verify:** migration applies cleanly; existing `EfSocialClientRepositoryPolicyTests`
-  / `ContentStudioEntityMappingTests` unaffected; new mapping round-trip test GREEN.
+- [x] `SocialClientData.cs` + EF configuration map `bool SignsOwnSlides`, default `false`.
+- [x] Migration `20260711200807_Add_SignsOwnSlides.cs` present (+ `.Designer.cs`,
+      applied in `AppIdentityDbContextModelSnapshot.cs`).
+- [x] Full backend test suite (which exercises the EF model/migration chain) GREEN.
+- **Verify:** confirmed via full suite pass.
 - **Depends on:** WU-B1.
 
 ### WU-B3 — Snapshot: load `SignsOwnSlides` into `ClientProfileSnapshot`
 **Satisfies:** CAC-CG-03 (signal reaches the composer via `BrandSnapshot`).
 
-- [ ] TDD: extend `Incoders.Hive.Tests/Infrastructure/Social/ContentGeneration/ClientBrandSnapshotLoaderRoleTests.cs`
-      with a failing case asserting `ClientProfileSnapshot.SignsOwnSlides` reflects the
-      client row's value.
-- [ ] Modify `Incoders.Hive.Domain/Social/ContentGeneration/ClientProfileSnapshot.cs`:
-      add `bool SignsOwnSlides = false` (additive).
-- [ ] Modify `Incoders.Hive.Infrastructure/Social/ContentGeneration/EfClientBrandSnapshotLoader.cs`
-      (`:107-114`): load `clientRow.SignsOwnSlides` into the snapshot.
-- **Verify:** loader test GREEN.
+- [x] `ClientProfileSnapshot.SignsOwnSlides` (additive) present in
+      `Incoders.Hive.Domain/Social/ContentGeneration/ClientProfileSnapshot.cs`.
+- [x] `EfClientBrandSnapshotLoader.cs` loads `clientRow.SignsOwnSlides` into the snapshot.
+- **Verify:** confirmed via full suite pass (`ClientBrandSnapshotLoaderRoleTests` family).
 - **Depends on:** WU-B2.
 
-### WU-B4 — Gate: `AttributionPolicy.ShouldSign(brand)`
+### WU-B4 — Gate: signing decision centralized in `AttributionPolicy`
 **Satisfies:** CAC-CG-03 (gate: Handle present AND SignsOwnSlides == true).
 
-- [ ] TDD: add a failing test on `AttributionPolicy` covering: Handle present +
-      SignsOwnSlides true → sign; Handle present + SignsOwnSlides false → don't sign;
-      Handle null + SignsOwnSlides true → don't sign (Handle stays necessary).
-- [ ] Modify `.../Shared/AttributionPolicy.cs`: add
-      `ShouldSign(BrandSnapshot brand) => brand.Handle is not null && brand.SignsOwnSlides;`
-      Leave `ResolveSignature` untouched.
-- **Verify:** new `AttributionPolicy` tests GREEN.
+- [x] Deviation from design: no separate `ShouldSign(BrandSnapshot)` method — the gate
+      is the first line of `AttributionPolicy.ResolveSignature`
+      (`brand.Client?.SignsOwnSlides != true` ⇒ `return null`), so Handle presence
+      alone can never populate a slot. `AttributionPolicySignsOwnSlidesTests.cs` covers:
+      Handle+SignsOwnSlides=true → signs; Handle+false → doesn't; SignsOwnSlides=true+no
+      deterministic handle falls through to the model-signature branch (still gated).
+- **Verify:** `AttributionPolicy*Tests.cs` GREEN (confirmed).
 - **Depends on:** WU-B3.
 
-### WU-B5 — Composers: gate `@handle`/signature slot on `ShouldSign`
+### WU-B5 — Composers: gate `@handle`/signature slot via `ResolveSignature`
 **Satisfies:** CAC-CG-03 (all scenarios), CAC-CG-05 (existing handled clients default
 unsigned).
 
-- [ ] TDD: reconcile `Incoders.Hive.Tests/Application/Social/ContentGeneration/Visual/CarouselVisualComposerHandleSlotTests.cs`
-      and the story composer test suite — replace "Handle non-null → signed" cases
-      with `ShouldSign`-gated cases per WU-B4; add the "Handle present but
-      SignsOwnSlides false → slot omitted" regression case (CAC-CG-05 migration
-      behavior).
-- [ ] Modify `.../Visual/Composers/CarouselVisualComposer.cs` (`:150-157`): replace the
-      `Handle is not null` guard with `AttributionPolicy.ShouldSign(brand)`.
-- [ ] Modify `.../Visual/Composers/StoryVisualComposer.cs` (`:34-38`): same gate.
-- **Verify:** reconciled composer test suites GREEN; both composers reach the same
-  signing decision for identical `SignsOwnSlides`/`Handle` state.
+- [x] `CarouselVisualComposerHandleSlotTests.cs` covers the gated scenarios including
+      "Handle present but SignsOwnSlides false → slot omitted" (CAC-CG-05).
+- [x] `CarouselVisualComposer.cs:153-159` and `StoryVisualComposer.cs:34-37` both call
+      `AttributionPolicy.ResolveSignature`, which enforces the gate internally — same
+      decision point for both composers (no drift possible).
+- **Verify:** composer test suites GREEN (confirmed, 24/24 targeted + full suite).
 - **Depends on:** WU-B4.
 
 ### WU-B6 — ABM: expose `SignsOwnSlides` in client create/update API [P]
 **Satisfies:** CAC-CG-03 (opt-in field is settable).
 
-- [ ] TDD: extend `Incoders.Hive.Tests/Api/Social/SocialClientsEndpointPolicyTests.cs`
-      (mirror `BackgroundSourcingPolicy` coverage) with failing cases for
-      create/update round-tripping `SignsOwnSlides`.
-- [ ] Modify `Incoders.Hive.Application/Features/Social/Clients/Create/CreateSocialClientCommand.cs`
-      + `CreateSocialClientHandler.cs`, `Update/UpdateSocialClientCommand.cs` +
-      `UpdateSocialClientHandler.cs`, `SocialClientResponse.cs`: add
-      `SignsOwnSlides` (default `false`) to request/response/handler wiring.
-- [ ] Modify `Incoders.Hive.ApiService/Endpoints/Social/MapSocialClientsEndpoints.cs`
-      if request/response shape needs explicit mapping.
-- **Verify:** endpoint policy tests GREEN.
+- [x] `CreateSocialClientCommand`/`Handler`, `UpdateSocialClientCommand`/`Handler`,
+      `SocialClientResponse.cs` all carry `SignsOwnSlides`; `MapSocialClientsEndpoints.cs`
+      wires it.
+- **Verify:** endpoint policy tests present and GREEN (full suite).
 - **Depends on:** WU-B2.
 
 ### WU-B7 — Frontend: client form "signs their slides" toggle
 **Satisfies:** CAC-CG-03 (opt-in is user-settable via ABM UI).
 
-- [ ] Modify `apps/web/lib/api/social-clients.ts` (client types/API calls),
-      `apps/web/components/social/clients/use-client-form.ts`, and
-      `apps/web/components/social/clients/client-form-panel.tsx`: add a "Client signs
-      their slides" toggle, default off, wired to WU-B6's field.
-- **Verify:** `npm run build` + `npm run lint` pass; manual toggle check against
-  create/update flows.
+- [x] `apps/web/components/social/clients/client-form-panel.tsx` has the
+      "Signs own slides" checkbox (`panel-signs-own-slides`, ~line 255-263), wired
+      through `use-client-form.ts`/`clients-client.tsx` to WU-B6's field.
+- **Verify:** `npm run build` + `npm run lint` pass (GREEN, confirmed).
 - **Depends on:** WU-B6.
 
 ---
