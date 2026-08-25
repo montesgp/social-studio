@@ -1301,55 +1301,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     public async Task ClientAesthetic_DesignerGenuineFailure_DegradesToFaithfulFlat_NoScrimCard()
     {
         var rendererSpy = new FC_CapturingRenderer();
-
-        var profile = FC_Profile(
-            backgroundPattern: [SlideBackgroundKind.Decorator],
-            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
-
-        var processor = FC_BuildProcessor(
-            slideCount: 1,
-            profile: profile,
-            renderer: rendererSpy,
-            designer: new ActiveFailingDesigner());
-
-        await processor.ProcessAsync(JobId, CancellationToken.None);
-
-        Assert.NotNull(rendererSpy.ReceivedMarkup);
-        Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
-        Assert.DoesNotContain("rgba(0,0,0,0.5", rendererSpy.ReceivedMarkup);
-        Assert.DoesNotContain("linear-gradient", rendererSpy.ReceivedMarkup);
-    }
-
-    [Fact]
-    public async Task ClientAesthetic_GuardrailRejectsDesign_DegradesToFaithfulFlat_NoScrimCard()
-    {
-        var rendererSpy = new FC_CapturingRenderer();
-
-        var profile = FC_Profile(
-            backgroundPattern: [SlideBackgroundKind.Decorator],
-            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
-
-        var processor = FC_BuildProcessor(
-            slideCount: 1,
-            profile: profile,
-            renderer: rendererSpy,
-            designer: new FC_SucceedingDesigner(),
-            guardrails: new FailingGuardrailValidator());
-
-        await processor.ProcessAsync(JobId, CancellationToken.None);
-
-        Assert.NotNull(rendererSpy.ReceivedMarkup);
-        Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
-        Assert.DoesNotContain("rgba(0,0,0,0.5", rendererSpy.ReceivedMarkup);
-        Assert.DoesNotContain("linear-gradient", rendererSpy.ReceivedMarkup);
-    }
-
-    [Fact]
-    public async Task NonClientAesthetic_DesignerGenuineFailure_ScrimCardStillRenders_Regression()
-    {
-        // GIVEN a non-ClientAesthetic job whose designer fails: trigger B MUST NOT apply — the
-        // legacy scrim-card resilience fallback MUST render unchanged.
-        var rendererSpy = new FC_CapturingRenderer();
+        var formatResultsSpy = new FC_FormatResultRepository();
 
         var profile = FC_Profile(
             backgroundPattern: [SlideBackgroundKind.Decorator],
@@ -1360,12 +1312,84 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
             profile: profile,
             renderer: rendererSpy,
             designer: new ActiveFailingDesigner(),
-            policy: BackgroundSourcingPolicy.AiPalette);
+            formatResults: formatResultsSpy);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("rgba(0,0,0,0.5", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("linear-gradient", rendererSpy.ReceivedMarkup);
+
+        // CAFF-CG-04: the persisted envelope carries the trigger-B degrade marker.
+        var persisted = formatResultsSpy.LastUpsert;
+        Assert.NotNull(persisted?.CompositionSpecJson);
+        var envelope = CompositionSpecJson.ParseList(persisted!.CompositionSpecJson).Single();
+        Assert.Equal(SlideDegradeReason.DesignerUnusable, envelope.DegradeReason);
+    }
+
+    [Fact]
+    public async Task ClientAesthetic_GuardrailRejectsDesign_DegradesToFaithfulFlat_NoScrimCard()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+        var formatResultsSpy = new FC_FormatResultRepository();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.Decorator],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_SucceedingDesigner(),
+            guardrails: new FailingGuardrailValidator(),
+            formatResults: formatResultsSpy);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("rgba(0,0,0,0.5", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("linear-gradient", rendererSpy.ReceivedMarkup);
+
+        // CAFF-CG-04: the persisted envelope carries the trigger-B degrade marker.
+        var persisted = formatResultsSpy.LastUpsert;
+        Assert.NotNull(persisted?.CompositionSpecJson);
+        var envelope = CompositionSpecJson.ParseList(persisted!.CompositionSpecJson).Single();
+        Assert.Equal(SlideDegradeReason.DesignerUnusable, envelope.DegradeReason);
+    }
+
+    [Fact]
+    public async Task NonClientAesthetic_DesignerGenuineFailure_ScrimCardStillRenders_Regression()
+    {
+        // GIVEN a non-ClientAesthetic job whose designer fails: trigger B MUST NOT apply — the
+        // legacy scrim-card resilience fallback MUST render unchanged.
+        var rendererSpy = new FC_CapturingRenderer();
+        var formatResultsSpy = new FC_FormatResultRepository();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.Decorator],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new ActiveFailingDesigner(),
+            policy: BackgroundSourcingPolicy.AiPalette,
+            formatResults: formatResultsSpy);
 
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
         Assert.NotNull(rendererSpy.ReceivedMarkup);
         Assert.Contains("rgba(0,0,0,0.5", rendererSpy.ReceivedMarkup);
+
+        // CAFF-CG-04 (regression): no degrade marker — trigger B is scoped to ClientAesthetic only.
+        var persisted = formatResultsSpy.LastUpsert;
+        Assert.NotNull(persisted?.CompositionSpecJson);
+        var envelope = CompositionSpecJson.ParseList(persisted!.CompositionSpecJson).Single();
+        Assert.Null(envelope.DegradeReason);
     }
 
     [Fact]
@@ -1376,6 +1400,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         // using FC_NeverCalledDesigner proves trigger B's designer-failure path is never evaluated for
         // this slide either (CAFF-CG-03).
         var rendererSpy = new FC_CapturingRenderer();
+        var formatResultsSpy = new FC_FormatResultRepository();
 
         var profile = FC_Profile(
             backgroundPattern: [SlideBackgroundKind.FlatColor],
@@ -1385,13 +1410,20 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
             slideCount: 1,
             profile: profile,
             renderer: rendererSpy,
-            designer: new FC_NeverCalledDesigner());
+            designer: new FC_NeverCalledDesigner(),
+            formatResults: formatResultsSpy);
 
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
         Assert.NotNull(rendererSpy.ReceivedMarkup);
         Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
         Assert.DoesNotContain("rgba(0,0,0,0.5", rendererSpy.ReceivedMarkup);
+
+        // CAFF-CG-04 (regression): the FlatColor short-circuit is not a degrade — no marker.
+        var persisted = formatResultsSpy.LastUpsert;
+        Assert.NotNull(persisted?.CompositionSpecJson);
+        var envelope = CompositionSpecJson.ParseList(persisted!.CompositionSpecJson).Single();
+        Assert.Null(envelope.DegradeReason);
     }
 
     // -----------------------------------------------------------------------
@@ -1426,7 +1458,9 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         IVisualGuardrailValidator? guardrails = null,
         // CAFF-CG-02: overridable so the non-ClientAesthetic regression scenario (scrim card MUST
         // still render) can be exercised with the same builder.
-        BackgroundSourcingPolicy policy = BackgroundSourcingPolicy.ClientAesthetic)
+        BackgroundSourcingPolicy policy = BackgroundSourcingPolicy.ClientAesthetic,
+        // CAFF-CG-04: overridable so degrade-marker tests can inspect the persisted envelope.
+        IContentGenerationFormatResultRepository? formatResults = null)
     {
         var fakeJob = new ContentGenerationJob(
             Id: JobId,
@@ -1495,7 +1529,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
             jobs: new FC_JobRepository(fakeJob),
             analyses: new FC_AnalysisRepository(analysisRecord),
             orchestrator: new FC_Orchestrator(formatKey, payload, brand),
-            formatResults: new FC_FormatResultRepository(),
+            formatResults: formatResults ?? new FC_FormatResultRepository(),
             brandLoader: new FC_BrandLoader(brand),
             composer: new FC_CompositionService(formatKey, slideCount),
             renderer: renderer,
@@ -1709,9 +1743,14 @@ file sealed class FC_FormatResultRepository : IContentGenerationFormatResultRepo
 {
     private readonly Dictionary<(Guid JobId, string FormatKey), ContentGenerationFormatResult> _store = new();
 
+    // CAFF-CG-04: last persisted format result, so degrade-marker tests can inspect the actual
+    // persisted CompositionSpecJson without a dedicated spy repository per test.
+    public ContentGenerationFormatResult? LastUpsert { get; private set; }
+
     public Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult r, CancellationToken ct)
     {
         _store[(r.JobId, r.FormatKey)] = r;
+        LastUpsert = r;
         return Task.FromResult(r);
     }
 

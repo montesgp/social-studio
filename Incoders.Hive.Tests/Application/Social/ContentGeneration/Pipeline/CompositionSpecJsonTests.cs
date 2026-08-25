@@ -69,4 +69,44 @@ public sealed class CompositionSpecJsonTests
     {
         Assert.Empty(CompositionSpecJson.ParseList(json));
     }
+
+    // CAFF-CG-04 (D2): the degrade marker is a trailing additive-nullable member. A non-degraded
+    // envelope's serialized JSON MUST stay byte-identical to today's — no "degradeReason" key at
+    // all — because JsonSerializerDefaults.Web writes nulls by default and only the
+    // WhenWritingNull annotation suppresses that.
+
+    [Fact]
+    public void Serialize_NonDegradedEnvelope_OmitsDegradeReasonKey_ByteIdentical()
+    {
+        var json = CompositionSpecJson.Serialize([Envelope("<div>one</div>")]);
+
+        Assert.NotNull(json);
+        Assert.DoesNotContain("degradeReason", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Serialize_DegradedEnvelope_RoundTripsDegradeReasonToken()
+    {
+        var degraded = Envelope("<div>flat</div>") with { DegradeReason = "photo-image-unavailable" };
+
+        var json = CompositionSpecJson.Serialize([degraded]);
+        var parsed = CompositionSpecJson.ParseList(json);
+
+        Assert.Contains("degradeReason", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(parsed);
+        Assert.Equal("photo-image-unavailable", parsed[0].DegradeReason);
+    }
+
+    [Fact]
+    public void ParseList_LegacyBlobWithoutDegradeReasonKey_ParsesAsNull()
+    {
+        const string legacy =
+            "{\"schemaVersion\":1,\"markup\":\"<div>legacy</div>\"," +
+            "\"canvas\":{\"width\":1080,\"height\":1920,\"dpi\":96},\"slotGeometry\":[]}";
+
+        var parsed = CompositionSpecJson.ParseList(legacy);
+
+        Assert.Single(parsed);
+        Assert.Null(parsed[0].DegradeReason);
+    }
 }

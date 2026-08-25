@@ -211,6 +211,7 @@ public sealed class ProcessorImageBackgroundResilienceTests
         // as Photo, ColorPairings resolved, but image generation fails for that slide (empty map).
         var rendererSpy = new ResilienceTrackingRenderer();
         var designerSpy = new SelectionCapturingDesigner();
+        var formatResultsSpy = new ResilienceFormatResultRepository();
         var profile = new ClientAestheticProfile(
             BackgroundDescriptors: ["minimal"],
             VoiceTone: "professional",
@@ -228,7 +229,8 @@ public sealed class ProcessorImageBackgroundResilienceTests
             designer: designerSpy,
             composer: null,
             providerCallContext: null,
-            formatKey: "feed-carousel");
+            formatKey: "feed-carousel",
+            formatResults: formatResultsSpy);
 
         // WHEN
         await processor.ProcessAsync(JobId, CancellationToken.None);
@@ -242,6 +244,12 @@ public sealed class ProcessorImageBackgroundResilienceTests
         Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
         Assert.DoesNotContain("rgba(0,0,0,0.52)", rendererSpy.ReceivedMarkup);
         Assert.DoesNotContain("linear-gradient", rendererSpy.ReceivedMarkup);
+
+        // AND (CAFF-CG-04) the persisted envelope carries the trigger-A degrade marker.
+        var persisted = formatResultsSpy.LastUpsert;
+        Assert.NotNull(persisted?.CompositionSpecJson);
+        var envelope = CompositionSpecJson.ParseList(persisted!.CompositionSpecJson).Single();
+        Assert.Equal(SlideDegradeReason.PhotoImageUnavailable, envelope.DegradeReason);
     }
 
     // -----------------------------------------------------------------------
@@ -329,7 +337,9 @@ public sealed class ProcessorImageBackgroundResilienceTests
         // CAFF-CG-01: "carousel" is a legacy alias EXCLUDED from DesignedRasterFormats (ADR-3.6),
         // so it never reaches the designer+guardrail block the degrade triggers live inside.
         // Degrade-routing tests pass "feed-carousel" (a real canonical carousel format key).
-        string formatKey = "carousel")
+        string formatKey = "carousel",
+        // CAFF-CG-04: overridable so degrade-marker tests can inspect the persisted envelope.
+        IContentGenerationFormatResultRepository? formatResults = null)
     {
         var fakeJob = new ContentGenerationJob(
             Id: JobId,
@@ -397,7 +407,7 @@ public sealed class ProcessorImageBackgroundResilienceTests
             jobs: new ResilienceJobRepository(fakeJob),
             analyses: new ResilienceAnalysisRepository(analysisRecord),
             orchestrator: new ResilienceOrchestrator(formatKey, payload, brand),
-            formatResults: new ResilienceFormatResultRepository(),
+            formatResults: formatResults ?? new ResilienceFormatResultRepository(),
             brandLoader: new ResilienceBrandLoader(brand),
             composer: composer ?? new ResilienceCompositionService(formatKey, slideCount),
             renderer: renderer,
@@ -641,9 +651,15 @@ file sealed class ResilienceAnalysisRepository(SingleContentAnalysisRecord recor
 file sealed class ResilienceFormatResultRepository : IContentGenerationFormatResultRepository
 {
     private readonly Dictionary<(Guid JobId, string FormatKey), ContentGenerationFormatResult> _store = new();
+
+    // CAFF-CG-04: last persisted format result, so degrade-marker tests can inspect the actual
+    // persisted CompositionSpecJson without a dedicated spy repository per test.
+    public ContentGenerationFormatResult? LastUpsert { get; private set; }
+
     public Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult r, CancellationToken ct)
     {
         _store[(r.JobId, r.FormatKey)] = r;
+        LastUpsert = r;
         return Task.FromResult(r);
     }
     public Task<IReadOnlyList<ContentGenerationFormatResult>> ListByJobAsync(Guid jobId, CancellationToken ct) =>

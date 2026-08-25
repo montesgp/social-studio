@@ -474,7 +474,10 @@ public sealed class ContentGenerationJobProcessor
                 VariationSeed: job.Id.ToString(),
                 // FFS-CG-02: threaded so the placement stage below can emit the editable
                 // brand-mark slot; null → no mark rendered (cold-start parity, FFS-CG-03-a).
-                BrandMark: aestheticProfile.BrandMark);
+                BrandMark: aestheticProfile.BrandMark,
+                // client-driven-decoration: lets the designer suppress its default shapes/blobs/glow
+                // for a client whose measured corpus contains no decorated slides.
+                ImageTypeRatio: aestheticProfile.ImageTypeRatio);
         }
 
         // 3. Run the orchestrator only on formats that need fresh AI work.
@@ -751,6 +754,10 @@ public sealed class ContentGenerationJobProcessor
                     CompositionDimensions? capturedDimensions = null;
                     IReadOnlyList<SlotGeometryEntry> capturedGeometry = [];
                     string? capturedBackgroundDataUri = null;
+                    // CAFF-CG-04 (D2): set only when trigger A or trigger B fired for THIS slide.
+                    // Null for every other slide, including the pre-existing FlatColor short-circuit
+                    // (that path is not a degrade — it is the proven, always-faithful treatment).
+                    string? capturedDegradeReason = null;
                     // Storage-path of the enforced background, when any. The persisted markup keeps this
                     // lightweight reference; the data URI is inlined transiently for the render pass only,
                     // so we do not bloat content_generation_format_results / studio drafts with base64.
@@ -860,6 +867,7 @@ public sealed class ContentGenerationJobProcessor
                             if (triggerA != SlideDegradeTrigger.None)
                             {
                                 RenderFaithfulFlat();
+                                capturedDegradeReason = SlideDegradeReason.PhotoImageUnavailable;
                             }
                             else
                             {
@@ -970,6 +978,7 @@ public sealed class ContentGenerationJobProcessor
                             if (triggerB != SlideDegradeTrigger.None)
                             {
                                 RenderFaithfulFlat();
+                                capturedDegradeReason = SlideDegradeReason.DesignerUnusable;
                             }
                             else
                             {
@@ -1212,7 +1221,8 @@ public sealed class ContentGenerationJobProcessor
                             capturedMarkup,
                             canvas,
                             capturedGeometry,
-                            backgroundImageRef));
+                            backgroundImageRef,
+                            DegradeReason: capturedDegradeReason));
                     }
 
                     // 5c. INCIDENT (job 8757e85a-6acd-49b4-af11-a2d19fbcd3e1): persist THIS slide's

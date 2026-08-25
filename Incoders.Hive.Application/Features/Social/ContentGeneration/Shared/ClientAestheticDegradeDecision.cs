@@ -26,6 +26,20 @@ public enum SlideDegradeTrigger
 }
 
 /// <summary>
+/// Verbatim degrade-reason tokens written onto <c>CompositionSpecEnvelope.DegradeReason</c> (D2).
+/// One place both the processor and its tests (and eventually the Content Studio badge) agree on
+/// the exact spelling.
+/// </summary>
+public static class SlideDegradeReason
+{
+    /// <summary>Trigger A fired: <see cref="SlideDegradeTrigger.PhotoImageUnavailable"/>.</summary>
+    public const string PhotoImageUnavailable = "photo-image-unavailable";
+
+    /// <summary>Trigger B fired: <see cref="SlideDegradeTrigger.DesignerUnusable"/>.</summary>
+    public const string DesignerUnusable = "designer-unusable";
+}
+
+/// <summary>
 /// Pure, directly-testable predicates that decide whether a ClientAesthetic carousel slide degrades
 /// to the deterministic palette-backed flat treatment instead of the AI-designer/scrim-card path.
 /// Design §1 (D1). The processor branches ONLY on these calls — no degrade logic lives inline in

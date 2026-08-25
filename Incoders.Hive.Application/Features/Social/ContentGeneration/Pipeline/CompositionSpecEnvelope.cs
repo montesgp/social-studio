@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 
@@ -116,6 +117,14 @@ public static class CompositionSpecJson
 /// paths skip it via <see cref="CompositionSpecJson.ParseActiveList"/>. Additive — envelopes written
 /// before this field deserialize it as false.
 /// </param>
+/// <param name="DegradeReason">
+/// D2 (design decision): set to a verbatim token (see
+/// <c>Shared.SlideDegradeReason</c>) when this slide rendered through the deterministic
+/// faithful-flat degrade path instead of its normal designer/scrim-card path. Null for every
+/// other slide. <c>[JsonIgnore(Condition = WhenWritingNull)]</c> keeps a non-degraded envelope's
+/// serialized JSON byte-identical to its pre-change form — no key is written at all when null.
+/// Additive — envelopes written before this field deserialize it as null.
+/// </param>
 public sealed record CompositionSpecEnvelope(
     int SchemaVersion,
     string Markup,
@@ -123,7 +132,9 @@ public sealed record CompositionSpecEnvelope(
     IReadOnlyList<SlotGeometryEntry> SlotGeometry,
     string? BackgroundImageRef = null,
     string? FlattenedImageRef = null,
-    bool Deleted = false)
+    bool Deleted = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? DegradeReason = null)
 {
     /// <summary>Current envelope schema version.</summary>
     public const int CurrentSchemaVersion = 1;

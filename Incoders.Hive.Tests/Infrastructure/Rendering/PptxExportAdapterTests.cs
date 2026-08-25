@@ -463,6 +463,36 @@ public sealed class PptxExportAdapterTests
     }
 
     // ------------------------------------------------------------------
+    // CAFF-CG-04: degrade marker MUST NOT leak into the exported PPTX. The adapter is a pure
+    // function of Markup + Canvas + SlotGeometry (+ image refs) — DegradeReason is never read by
+    // it, so a degraded envelope's export MUST be byte-shape-identical (no "degradeReason" or
+    // its token values anywhere in the produced package).
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task BuildAsync_DegradedEnvelope_NoDegradeReasonTextInExportedPptx()
+    {
+        var degraded = StubMarkupBuilder.BuildStoryEnvelope() with { DegradeReason = "photo-image-unavailable" };
+
+        var result = await Adapter.BuildAsync(degraded, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
+
+        // A PPTX is a ZIP of (compressed) XML parts — inspect every decompressed entry, not the
+        // raw archive bytes, since a substring match against compressed bytes proves nothing.
+        using var ms = new MemoryStream(result.Value);
+        using var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read);
+        foreach (var entry in zip.Entries)
+        {
+            using var reader = new StreamReader(entry.Open());
+            var partText = await reader.ReadToEndAsync();
+            Assert.DoesNotContain("degradeReason", partText, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("photo-image-unavailable", partText, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("designer-unusable", partText, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
