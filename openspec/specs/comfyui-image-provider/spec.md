@@ -222,12 +222,12 @@ content changed as a result of this flag).
 - WHEN the background-only directive text is inspected in both adapters
 - THEN both adapters reference the same single defined directive text (no duplicated/drifted string)
 
-**Implementation note (non-normative)**: this batch injects the directive via a local
-`BackgroundOnlyDirective` const in `ComfyUiImageModelClient.cs`, mirrored verbatim from
-`OpenAiImageModelClient`'s directive text rather than a shared `ImagePromptDirectives` file — the
-extraction into one physically shared constant (fully satisfying CAGH-CUI-01-c's "same defined
-directive text" at the source level, not just semantically) is deferred to a follow-up batch
-(`tasks.md` WU-4, task 4.1).
+**Implementation note (non-normative)**: the directive is injected via the shared
+`Infrastructure/Ai/Providers/ImagePromptDirectives.BackgroundOnly` constant, referenced directly by
+both `OpenAiImageModelClient` and `ComfyUiImageModelClient` (`tasks.md` WU-4, task 4.1, closed by a
+follow-up batch under issue #80). CAGH-CUI-01-c is satisfied at the source level, not just
+semantically: both adapters trace back to the exact same defined constant, asserted by
+`ImagePromptDirectivesTests.cs`.
 
 ---
 

@@ -3,11 +3,16 @@
 ## Status: COMPLETE
 
 All 11 work units (WU-1 through WU-8, with WU-6a/6b and WU-7a/7b/7c as sub-units) landed on `dev`.
-WU-4 shipped a scoped-down local const instead of the fully shared `ImagePromptDirectives.cs`
-(task 4.1, explicitly deferred). WU-6b's fixture IoU reliability measurement is a recorded verdict
+WU-4 originally shipped a scoped-down local const instead of the fully shared
+`ImagePromptDirectives.cs` (task 4.1, explicitly deferred). A follow-up batch (issue #80) closed
+that deferral: `Infrastructure/Ai/Providers/ImagePromptDirectives.cs` now holds the single shared
+`internal const string BackgroundOnly`, both `OpenAiImageModelClient.cs` and
+`ComfyUiImageModelClient.cs` reference it directly (no local copies remain), and
+`ImagePromptDirectivesTests.cs` asserts both adapters trace back to the same constant, closing
+`CAGH-CUI-01-c` for real. WU-6b's fixture IoU reliability measurement is a recorded verdict
 of "not measurable offline" rather than a pass/fail gate (see "Bounding-Box Reliability Verdict"
 below); WU-7b/WU-7c shipped anyway per ADR 0014's documented rationale. Final gate run
-(`pwsh -File scripts/gates/Run-Gates.ps1`): all MUST gates pass, `tests.backend` 3826/3828 passed,
+(`pwsh -File scripts/gates/Run-Gates.ps1`): all MUST gates pass, `tests.backend` 3829/3831 passed,
 2 skipped, 0 failed.
 
 ## Review Workload Forecast
@@ -79,7 +84,7 @@ Two flags, neither raises risk above Low:
 
 ## WU-4: ComfyUI BackgroundOnly Parity + Anatomy Terms (Infrastructure, ~300 lines)
 
-- [ ] 4.1 DEFERRED (not started this batch — scoped out): create `Infrastructure/Ai/Providers/ImagePromptDirectives.cs` — `internal const string BackgroundOnly` moved verbatim from `OpenAiImageModelClient.cs:61-62` (D5); update `OpenAiImageModelClient` to reference it; test asserts both adapters reference the same const instance. CAGH-CUI-01-c. This batch was explicitly scoped to `ComfyUiImageModelClient.cs` only (no `OpenAiImageModelClient.cs` edit, no new shared file); a local `BackgroundOnlyDirective` const with the identical mirrored text was added directly in `ComfyUiImageModelClient.cs` instead (see 4.2). A follow-up batch should extract the shared `ImagePromptDirectives.cs` and wire both adapters to it to fully satisfy D5/CAGH-CUI-01-c.
+- [x] 4.1 RED+GREEN (follow-up batch, issue #80): created `Infrastructure/Ai/Providers/ImagePromptDirectives.cs` — `internal const string BackgroundOnly` moved verbatim from `OpenAiImageModelClient.cs` (D5); updated both `OpenAiImageModelClient.cs` and `ComfyUiImageModelClient.cs` to reference it (removed both local `BackgroundOnlyDirective` consts); `ImagePromptDirectivesTests.cs` asserts the shared constant's text and that neither adapter defines its own local copy of it. CAGH-CUI-01-c.
 - [x] 4.2 RED+GREEN: `Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs` — read `request.BackgroundOnly`, compose `$"{BackgroundOnlyDirective}\n\n{request.Prompt}"` before `BuildWorkflowGraph` (D5, adapted — local const, not yet the shared `ImagePromptDirectives.BackgroundOnly` per 4.1's deferral); tests: `true` injects directive, `false`/unset leaves prompt identical to pre-change (regression). CAGH-CUI-01-a/b.
 - [x] 4.3 RED+GREEN: same file `DefaultNegativePrompt` — append anatomy-defect terms in place, `extra limbs, extra fingers, missing fingers, fused fingers, bad hands, malformed hands, deformed face, duplicate face, cloned face, two heads, extra person, mutated, disfigured, bad anatomy` (D6); tests: every pre-existing text-suppression term retained (regression), every new anatomy term present. CAGH-CUI-02-a/b.
 

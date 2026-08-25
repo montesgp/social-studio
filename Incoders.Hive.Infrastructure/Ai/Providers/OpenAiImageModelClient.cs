@@ -54,13 +54,6 @@ public sealed class OpenAiImageModelClient : IImageModelClient
     private const string DefaultImageMime = "image/png";
     private const string ProviderKey = "openai";
 
-    /// <summary>
-    /// Directive injected when <see cref="ImageGenerationRequest.BackgroundOnly"/> is true
-    /// (CAC-IMG-02): tells the provider to generate only the background layer.
-    /// </summary>
-    private const string BackgroundOnlyDirective =
-        "generate ONLY the background; never render text, logos, @handles, or signatures";
-
     private readonly ResolvedProviderCredential _credential;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IGeneratedAssetStorage _storage;
@@ -118,7 +111,7 @@ public sealed class OpenAiImageModelClient : IImageModelClient
 
         // CAC-IMG-02: inject background-only directive when requested (both paths).
         var effectivePrompt = request.BackgroundOnly
-            ? $"{BackgroundOnlyDirective}\n\n{request.Prompt}"
+            ? $"{ImagePromptDirectives.BackgroundOnly}\n\n{request.Prompt}"
             : request.Prompt;
 
         // CAC-IMG-01: resolve Url-handle reference images from storage (byte resolution).

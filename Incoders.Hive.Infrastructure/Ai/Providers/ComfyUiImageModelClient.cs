@@ -53,15 +53,6 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
         "duplicate face, cloned face, two heads, extra person, mutated, disfigured, bad anatomy";
 
     /// <summary>
-    /// Directive injected when <see cref="ImageGenerationRequest.BackgroundOnly"/> is true
-    /// (WU-4, CAGH-CUI-01), mirroring <c>OpenAiImageModelClient.BackgroundOnlyDirective</c>'s text
-    /// and placement so the two adapters cannot drift: tells the model to generate only the
-    /// background layer.
-    /// </summary>
-    private const string BackgroundOnlyDirective =
-        "generate ONLY the background; never render text, logos, @handles, or signatures";
-
-    /// <summary>
     /// Exact JSON substring for the KSampler "model" edge wired to the IP-Adapter output (node
     /// "6"). When no reference image resolves, this edge is replaced by
     /// <see cref="PassThroughModelEdge"/> so the graph bypasses the LoadImage/IP-Adapter chain
@@ -188,10 +179,11 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                 ? LoadBundledDefaultTemplate()
                 : settings.WorkflowTemplateJson;
 
-            // WU-4 (CAGH-CUI-01): mirrors OpenAiImageModelClient's BackgroundOnly handling — prepend
-            // the directive to the positive prompt so it reaches KSampler's positive CLIPTextEncode.
+            // CAGH-CUI-01: mirrors OpenAiImageModelClient's BackgroundOnly handling — prepend the
+            // shared directive (ImagePromptDirectives, D5/CAGH-CUI-01-c) to the positive prompt so
+            // it reaches KSampler's positive CLIPTextEncode.
             var effectivePrompt = request.BackgroundOnly
-                ? $"{BackgroundOnlyDirective}\n\n{request.Prompt}"
+                ? $"{ImagePromptDirectives.BackgroundOnly}\n\n{request.Prompt}"
                 : request.Prompt;
 
             var seed = Random.Shared.NextInt64(0, int.MaxValue);
