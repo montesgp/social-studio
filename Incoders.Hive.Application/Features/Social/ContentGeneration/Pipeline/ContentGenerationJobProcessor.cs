@@ -480,7 +480,11 @@ public sealed class ContentGenerationJobProcessor
                 ImageTypeRatio: aestheticProfile.ImageTypeRatio,
                 // D4/D7: the client's observed per-role typography, so AiVisualDesigner can
                 // supplement AllowedFonts with the client's own classes instead of the brand kit alone.
-                Typography: aestheticProfile.Typography);
+                Typography: aestheticProfile.Typography,
+                // WU-3b (D3/D5): the client's observed per-slide photo-transparency signal, threaded
+                // so the render loop can resolve it per specIndex via
+                // CreativeSlideIndexResolver.ResolveTransparencyForSlide.
+                BackgroundTransparency: aestheticProfile.BackgroundTransparency);
         }
 
         // 3. Run the orchestrator only on formats that need fresh AI work.
@@ -993,8 +997,15 @@ public sealed class ContentGenerationJobProcessor
                                     // bare storage path (no base URL), so the data URI is inlined transiently for
                                     // the render pass only (renderSpec below) — keeping the persisted markup, and
                                     // therefore the DB rows, small.
+                                    // WU-3b (D3/D5): resolved per specIndex — the SAME proportional
+                                    // mapping formula ResolveKindForSlide already applies, so the two
+                                    // signals never drift for a carousel whose length differs from the
+                                    // analyzed corpus. This is the enforced-background case, which is
+                                    // where a real generated photo actually renders.
+                                    var slideTransparency = CreativeSlideIndexResolver.ResolveTransparencyForSlide(
+                                        aestheticDesignContext?.BackgroundTransparency, specs.Count, specIndex + 1);
                                     validatedMarkup = BuildTemplateBackedMarkup(
-                                        spec, enforcedBackground, aestheticDesignContext);
+                                        spec, enforcedBackground, aestheticDesignContext, slideTransparency);
                                     renderBackgroundStoragePath = enforcedBackground.Url;
                                 }
                                 else if (aiMarkup is not null)
@@ -1961,7 +1972,12 @@ public sealed class ContentGenerationJobProcessor
     private static string BuildTemplateBackedMarkup(
         VisualCompositionSpec spec,
         EnforcedBackgroundTemplate? background,
-        ClientAestheticDesignContext? aesthetic = null)
+        ClientAestheticDesignContext? aesthetic = null,
+        // WU-3b (D3 render half + D5): resolved by the caller per specIndex via
+        // CreativeSlideIndexResolver.ResolveTransparencyForSlide. Applies ONLY when there is a real
+        // enforced background AND the resolved signal is Blended:true — absent/false preserves
+        // today's unconditional object-fit:cover byte-identically (cold-start parity).
+        SlideBackgroundTransparency? transparency = null)
     {
         var isCarousel = string.Equals(spec.FormatKey, "carousel", StringComparison.OrdinalIgnoreCase);
         var width = spec.Dimensions.Width;
@@ -2017,13 +2033,28 @@ public sealed class ContentGenerationJobProcessor
         // tier / resilience fallback) we synthesize a deterministic brand-palette gradient. A dark
         // legibility overlay keeps the white content text readable regardless of the brand colors.
         string backgroundLayerInner;
+        // WU-3b (D5): the wrapping data-layer="background" div's own backdrop — only populated when
+        // the photo <img> below is rendered at reduced opacity, so the reduced-alpha photo composites
+        // against the client's own palette background instead of the transparent root.
+        var backgroundLayerBackdropStyle = string.Empty;
         if (background is not null)
         {
             var safeUrl = Html(background.Url);
             var safeName = Html(string.IsNullOrWhiteSpace(background.Name) ? "Brand background template" : background.Name);
             var source = Html(background.Source);
+
+            // WU-3b (D3 render half + D5): a flat opacity, never a parsed descriptor (the descriptor is
+            // advisory metadata only). One named constant so a visual review can retune it without a
+            // contract change. Absent/false signal → byte-identical to before this change.
+            var photoOpacityStyle = string.Empty;
+            if (transparency is { Blended: true })
+            {
+                photoOpacityStyle = $"opacity:{CompositionDefaults.BlendedPhotoOpacity.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)};";
+                backgroundLayerBackdropStyle = $"background:{CssColor(spec.Palette.Background, CompositionDefaults.Palette.Background)};";
+            }
+
             backgroundLayerInner = $"""
-                <img src="{safeUrl}" alt="{safeName}" data-background-source="{source}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" />
+                <img src="{safeUrl}" alt="{safeName}" data-background-source="{source}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;{photoOpacityStyle}" />
                 {accentDecor}
                 """;
         }
@@ -2054,7 +2085,7 @@ public sealed class ContentGenerationJobProcessor
 
         return $$"""
             <div class="composition" data-format="{{Html(spec.FormatKey)}}" style="position:relative;width:{{width}}px;height:{{height}}px;overflow:hidden;background:#000000;">
-              <div data-layer="background" style="position:absolute;inset:0;width:100%;height:100%;overflow:hidden;">
+              <div data-layer="background" style="position:absolute;inset:0;width:100%;height:100%;overflow:hidden;{{backgroundLayerBackdropStyle}}">
                 {{backgroundLayerInner}}
               </div>
               <div data-layer="content" style="position:absolute;inset:0;width:100%;height:100%;">

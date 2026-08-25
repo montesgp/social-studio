@@ -220,4 +220,32 @@ public static class CreativeSlideIndexResolver
         var patternIndex = (slideIndex - 1) * patternCount / slideCount;
         return pattern[patternIndex];
     }
+
+    /// <summary>
+    /// Resolves the per-slide transparency signal for a SINGLE 1-based slide index, using the
+    /// IDENTICAL proportional mapping formula as <see cref="ResolveKindForSlide"/>
+    /// (<c>patternIndex = (slideIndex-1) * transparencyCount / slideCount</c>), so the transparency
+    /// and background-kind signals can never drift for a carousel whose length differs from the
+    /// analyzed corpus.
+    /// Refs: design §3 D3; CAFF-CG-05, CAFF-CG-06.
+    /// </summary>
+    /// <param name="transparency">
+    /// Ordered per-slide transparency sequence from <c>ClientAestheticProfile.BackgroundTransparency</c>
+    /// (or the design context's mirrored field). Null or empty → <c>null</c> (no signal — caller
+    /// preserves today's unconditional <c>object-fit:cover</c>).
+    /// </param>
+    /// <param name="slideCount">Total number of slides in the carousel (1-based upper bound).</param>
+    /// <param name="slideIndex">The 1-based slide index to resolve.</param>
+    /// <returns>The mapped entry (which may itself be <c>null</c> for an unmeasured slide), or <c>null</c> when the list is absent.</returns>
+    public static SlideBackgroundTransparency? ResolveTransparencyForSlide(
+        IReadOnlyList<SlideBackgroundTransparency?>? transparency, int slideCount, int slideIndex)
+    {
+        if (transparency is null || transparency.Count == 0)
+            return null;
+
+        var transparencyCount = transparency.Count;
+        // Same proportional formula as ResolveKindForSlide/ResolveFromPattern.
+        var patternIndex = (slideIndex - 1) * transparencyCount / slideCount;
+        return transparency[patternIndex];
+    }
 }

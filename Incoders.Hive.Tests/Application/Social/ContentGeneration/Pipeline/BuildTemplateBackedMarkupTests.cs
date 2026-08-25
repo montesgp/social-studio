@@ -1,3 +1,6 @@
+using System.Reflection;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Domain.Social.ContentGeneration;
@@ -90,4 +93,112 @@ public sealed class BuildTemplateBackedMarkupTests
                 VoiceAndTone: null,
                 Notes: null),
             null, null);
+}
+
+/// <summary>
+/// WU-3b (D3 render half + D5) — task 3b.5: <c>BuildTemplateBackedMarkup</c>'s per-slide transparency
+/// treatment. Signal true → the enforced-background <c>&lt;img&gt;</c> carries
+/// <c>opacity:{CompositionDefaults.BlendedPhotoOpacity}</c> composited over a palette-derived backdrop.
+/// Signal absent/false → today's unconditional <c>object-fit:cover</c>, byte-identical, no opacity
+/// token. Satisfies CAFF-CG-05.
+/// </summary>
+public sealed class BuildTemplateBackedMarkupTransparencyTests
+{
+    private static readonly CompositionPalette Palette = new(
+        Primary: "#333333", Secondary: "#666666", Accent: "#999999", Text: "#FFFFFF", Background: "#ABCDEF");
+
+    private static readonly CompositionTypography Typography = new("Inter", 24, "Inter", 14);
+
+    [Fact]
+    public void BlendedTrue_EnforcedBackground_AppliesOpacityOverPaletteBackdrop()
+    {
+        var spec = BuildSpec();
+        var background = BuildTemplateBackedMarkupAccessor.BuildEnforcedBackground(
+            "https://cdn/photo.jpg", "Client photo", "brand-manual-forced-default");
+        var transparency = new SlideBackgroundTransparency(true, "faded overlay");
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, background, aesthetic: null, transparency);
+
+        Assert.Contains("opacity:0.72", markup);
+        // The reduced-alpha photo composites against the palette background, not the #000000 root.
+        Assert.Contains("#ABCDEF", markup);
+    }
+
+    [Fact]
+    public void BlendedFalse_EnforcedBackground_NoOpacityToken_UnchangedObjectFitCover()
+    {
+        var spec = BuildSpec();
+        var background = BuildTemplateBackedMarkupAccessor.BuildEnforcedBackground(
+            "https://cdn/photo.jpg", "Client photo", "brand-manual-forced-default");
+        var transparency = new SlideBackgroundTransparency(false, null);
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, background, aesthetic: null, transparency);
+
+        Assert.DoesNotContain("opacity:", markup);
+        Assert.Contains(
+            """style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" """.Trim(),
+            markup);
+    }
+
+    [Fact]
+    public void NullTransparency_EnforcedBackground_ColdStart_UnchangedObjectFitCover()
+    {
+        var spec = BuildSpec();
+        var background = BuildTemplateBackedMarkupAccessor.BuildEnforcedBackground(
+            "https://cdn/photo.jpg", "Client photo", "brand-manual-forced-default");
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, background, aesthetic: null, transparency: null);
+
+        Assert.DoesNotContain("opacity:", markup);
+        Assert.Contains(
+            """style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" """.Trim(),
+            markup);
+    }
+
+    private static VisualCompositionSpec BuildSpec() => new(
+        FormatKey: "carousel",
+        LayoutType: "story-story",
+        Palette: Palette,
+        Typography: Typography,
+        AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+        CopySlots: new Dictionary<string, string> { ["title"] = "Test" },
+        Dimensions: new CompositionDimensions(1080, 1350, 96));
+}
+
+/// <summary>
+/// Test accessor for the private static <c>ContentGenerationJobProcessor.BuildTemplateBackedMarkup</c>,
+/// mirroring <c>ResolveEnforcedBackgroundAccessor</c>'s pattern: reflection so the production class
+/// stays un-modified while the test pins the exact behavioral contract.
+/// </summary>
+file static class BuildTemplateBackedMarkupAccessor
+{
+    private static readonly MethodInfo Method;
+    private static readonly Type EnforcedBackgroundTemplateType;
+
+    static BuildTemplateBackedMarkupAccessor()
+    {
+        Method = typeof(ContentGenerationJobProcessor)
+            .GetMethod(
+                "BuildTemplateBackedMarkup",
+                BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException(
+                "ContentGenerationJobProcessor.BuildTemplateBackedMarkup not found. " +
+                "If the method was renamed or removed, update this accessor.");
+
+        EnforcedBackgroundTemplateType = typeof(ContentGenerationJobProcessor)
+            .GetNestedType("EnforcedBackgroundTemplate", BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "ContentGenerationJobProcessor.EnforcedBackgroundTemplate not found. " +
+                "If the type was renamed or removed, update this accessor.");
+    }
+
+    public static object BuildEnforcedBackground(string url, string name, string source) =>
+        Activator.CreateInstance(EnforcedBackgroundTemplateType, url, name, source)!;
+
+    public static string Invoke(
+        VisualCompositionSpec spec,
+        object? background,
+        ClientAestheticDesignContext? aesthetic,
+        SlideBackgroundTransparency? transparency) =>
+        (string)Method.Invoke(null, [spec, background, aesthetic, transparency])!;
 }

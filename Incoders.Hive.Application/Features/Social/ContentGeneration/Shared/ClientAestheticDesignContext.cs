@@ -37,7 +37,14 @@ public sealed record ClientAestheticDesignContext(
     // D4/D7 (additive trailing nullable): the client's observed per-role typography, threaded so
     // AiVisualDesigner.BuildInputJson can supplement AllowedFonts with the client's own classes.
     // Null when the profile carries no typography (cold-start parity).
-    IReadOnlyList<AestheticTypography>? Typography = null)
+    IReadOnlyList<AestheticTypography>? Typography = null,
+    // client-aesthetic-fidelity-fixes (WU-3b, D3/D5, additive trailing nullable): the client's
+    // observed per-slide photo-transparency signal, index-aligned with BackgroundPattern. Mirrored
+    // from ClientAestheticProfile.BackgroundTransparency so the render stage (BuildTemplateBackedMarkup)
+    // and the AI designer prompt can both resolve it per specIndex via
+    // CreativeSlideIndexResolver.ResolveTransparencyForSlide. Null when the profile carries no
+    // transparency signal (cold-start parity; render stays unchanged object-fit:cover).
+    IReadOnlyList<SlideBackgroundTransparency?>? BackgroundTransparency = null)
 {
     /// <summary>
     /// A decorator share at or below this is treated as noise, not a style — one stray ornamented

@@ -37,6 +37,16 @@ internal static class CompositionDefaults
     internal static readonly CompositionDimensions StandardDimensions = new(1080, 1080, 96);
 
     /// <summary>
+    /// client-aesthetic-fidelity-fixes (WU-3b, D5): flat opacity applied to a real photo `&lt;img&gt;`
+    /// when the resolved per-slide <see cref="SlideBackgroundTransparency.Blended"/> signal is true,
+    /// composited over a solid palette-derived backdrop. The only render mechanism that is
+    /// deterministic, direction-free, and stacking-context-independent under headless Chromium
+    /// screenshotting. Design-chosen, not measured — a single named constant so a visual review can
+    /// retune it without a contract change.
+    /// </summary>
+    internal const double BlendedPhotoOpacity = 0.72;
+
+    /// <summary>
     /// Feed carousel slides use the modern 4:5 feed ratio (1080×1350) — more screen real-estate in the
     /// Instagram feed than the legacy 1:1 square. Stories use 9:16; text cards stay square.
     /// </summary>

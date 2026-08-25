@@ -433,4 +433,75 @@ public sealed class CreativeSlideIndexResolverTests
         Assert.Contains(5, result);
         Assert.Equal([1, 2, 5], result);
     }
+
+    // -----------------------------------------------------------------------
+    // ResolveTransparencyForSlide — task 3b.1 (CAFF-CG-05, CAFF-CG-06). Sibling to
+    // ResolveKindForSlide: SAME proportional mapping formula
+    // (patternIndex = (slideIndex-1)*patternCount/slideCount), but resolves the per-slide
+    // transparency signal instead of the background kind.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void ResolveTransparencyForSlide_NullTransparency_ReturnsNull()
+    {
+        var result = CreativeSlideIndexResolver.ResolveTransparencyForSlide(null, slideCount: 5, slideIndex: 1);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ResolveTransparencyForSlide_EmptyTransparency_ReturnsNull()
+    {
+        var result = CreativeSlideIndexResolver.ResolveTransparencyForSlide([], slideCount: 5, slideIndex: 1);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ResolveTransparencyForSlide_EqualLength_ReturnsMappedEntryForEachIndex()
+    {
+        // Pattern length == slideCount → 1:1 mapping, same proportional formula as
+        // ResolveKindForSlide_EqualLength_ReturnsMappedKindForEachIndex.
+        IReadOnlyList<SlideBackgroundTransparency?> transparency =
+        [
+            new SlideBackgroundTransparency(true, "faded overlay"),
+            null,
+            new SlideBackgroundTransparency(false, null),
+            null,
+            new SlideBackgroundTransparency(true, "soft blend"),
+        ];
+
+        Assert.Equal(new SlideBackgroundTransparency(true, "faded overlay"),
+            CreativeSlideIndexResolver.ResolveTransparencyForSlide(transparency, 5, 1));
+        Assert.Null(CreativeSlideIndexResolver.ResolveTransparencyForSlide(transparency, 5, 2));
+        Assert.Equal(new SlideBackgroundTransparency(false, null),
+            CreativeSlideIndexResolver.ResolveTransparencyForSlide(transparency, 5, 3));
+        Assert.Null(CreativeSlideIndexResolver.ResolveTransparencyForSlide(transparency, 5, 4));
+        Assert.Equal(new SlideBackgroundTransparency(true, "soft blend"),
+            CreativeSlideIndexResolver.ResolveTransparencyForSlide(transparency, 5, 5));
+    }
+
+    [Fact]
+    public void ResolveTransparencyForSlide_ShorterList_ProportionalMapping_MatchesResolveKindForSlideFormula()
+    {
+        // Same fixture shape as ResolveKindForSlide_ShorterPattern_ProportionalMapping_MatchesResolveFromPattern:
+        // list of 3 entries mapped onto 5 slides via patternIndex = (i-1)*3/5.
+        //   i=1 → index 0 → entry[0]
+        //   i=2 → index 0 → entry[0]
+        //   i=3 → index 1 → entry[1]
+        //   i=4 → index 1 → entry[1]
+        //   i=5 → index 2 → entry[2]
+        IReadOnlyList<SlideBackgroundTransparency?> transparency =
+        [
+            new SlideBackgroundTransparency(true, "faded overlay"),
+            null,
+            new SlideBackgroundTransparency(true, "soft blend"),
+        ];
+
+        Assert.Equal(transparency[0], CreativeSlideIndexResolver.ResolveTransparencyForSlide(transparency, 5, 1));
+        Assert.Equal(transparency[0], CreativeSlideIndexResolver.ResolveTransparencyForSlide(transparency, 5, 2));
+        Assert.Null(CreativeSlideIndexResolver.ResolveTransparencyForSlide(transparency, 5, 3));
+        Assert.Null(CreativeSlideIndexResolver.ResolveTransparencyForSlide(transparency, 5, 4));
+        Assert.Equal(transparency[2], CreativeSlideIndexResolver.ResolveTransparencyForSlide(transparency, 5, 5));
+    }
 }

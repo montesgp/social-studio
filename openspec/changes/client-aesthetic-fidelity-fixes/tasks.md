@@ -80,12 +80,12 @@ Chain strategy: pending
 
 ## WU-3b — Per-Slide Transparency: Render (D3 render + D5)
 
-- [ ] 3b.1 RED — extend `CreativeSlideIndexResolver` tests with `ResolveTransparencyForSlide` sibling to `ResolveKindForSlide`, proportional formula parity. Satisfies CAFF-CG-05, CAFF-CG-06.
-- [ ] 3b.2 GREEN — modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Background/CreativeSlideIndexResolver.cs`: add `ResolveTransparencyForSlide`.
-- [ ] 3b.3 GREEN — modify `ClientAestheticDesignContext.cs`: add per-slide transparency signal field (built at processor L469-481).
-- [ ] 3b.4 GREEN — modify `CompositionDefaults.cs`: add `BlendedPhotoOpacity = 0.72` constant (D5).
-- [ ] 3b.5 RED — extend `BuildTemplateBackedMarkupTests`: signal true on slide index 2 only → `<img>` carries `opacity:0.72` over `ResolvePalette` backdrop; every other slide keeps unchanged `object-fit:cover`, no opacity token; no-signal cold start unchanged. Satisfies CAFF-CG-05.
-- [ ] 3b.6 GREEN — modify `ContentGenerationJobProcessor.cs` `BuildTemplateBackedMarkup` (~L1891-1989): add optional `SlideBackgroundTransparency? transparency = null` param; caller resolves per `specIndex`.
+- [x] 3b.1 RED — extend `CreativeSlideIndexResolver` tests with `ResolveTransparencyForSlide` sibling to `ResolveKindForSlide`, proportional formula parity. Satisfies CAFF-CG-05, CAFF-CG-06.
+- [x] 3b.2 GREEN — modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Background/CreativeSlideIndexResolver.cs`: add `ResolveTransparencyForSlide`.
+- [x] 3b.3 GREEN — modify `ClientAestheticDesignContext.cs`: add per-slide transparency signal field (built at processor L469-481).
+- [x] 3b.4 GREEN — modify `CompositionDefaults.cs`: add `BlendedPhotoOpacity = 0.72` constant (D5).
+- [x] 3b.5 RED — extend `BuildTemplateBackedMarkupTests`: signal true on slide index 2 only → `<img>` carries `opacity:0.72` over `ResolvePalette` backdrop; every other slide keeps unchanged `object-fit:cover`, no opacity token; no-signal cold start unchanged. Satisfies CAFF-CG-05.
+- [x] 3b.6 GREEN — modify `ContentGenerationJobProcessor.cs` `BuildTemplateBackedMarkup` (~L1891-1989): add optional `SlideBackgroundTransparency? transparency = null` param; caller resolves per `specIndex`.
 
 ## WU-4 — Content Studio Degrade Badge (D6, depends on WU-1b)
 
