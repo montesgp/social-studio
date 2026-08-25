@@ -83,6 +83,7 @@ public sealed class ContentGenerationJobProcessor
     private readonly IClientAestheticEnsureFreshService? _aestheticEnsureFreshService;
     private readonly IClientAestheticImageBackgroundService? _imageBackgroundService;
     private readonly ContentGenerationAestheticGatingOptions _aestheticGatingOptions;
+    private readonly IBrandMarkAssetExtractor? _brandMarkAssetExtractor;
 
     public ContentGenerationJobProcessor(
         IContentGenerationJobRepository jobs,
@@ -123,7 +124,11 @@ public sealed class ContentGenerationJobProcessor
         // issue #67 (BAPA-CG-01/02): aesthetic-gating config (max wait, feature toggle).
         // Injected optionally so existing unit tests and DI registrations compile without change.
         // When null, falls back to the documented defaults (BlockOnFirstTime=true, MaxWaitSeconds=600).
-        IOptions<ContentGenerationAestheticGatingOptions>? aestheticGatingOptions = null)
+        IOptions<ContentGenerationAestheticGatingOptions>? aestheticGatingOptions = null,
+        // WU-7b (D13): icon-mark crop extractor. NULLABLE — when null (adapter not registered, or
+        // a pre-WU-7b test) the icon branch degrades to the PositionHint+ColorHex chip exactly as
+        // it did before this port existed; the "unknown"/"text" mark-type paths are unaffected.
+        IBrandMarkAssetExtractor? brandMarkAssetExtractor = null)
     {
         _jobs = jobs;
         _analyses = analyses;
@@ -152,6 +157,7 @@ public sealed class ContentGenerationJobProcessor
         _aestheticEnsureFreshService = aestheticEnsureFreshService;
         _imageBackgroundService = imageBackgroundService;
         _aestheticGatingOptions = aestheticGatingOptions?.Value ?? new ContentGenerationAestheticGatingOptions();
+        _brandMarkAssetExtractor = brandMarkAssetExtractor;
     }
 
     /// <summary>
@@ -1050,6 +1056,38 @@ public sealed class ContentGenerationJobProcessor
                             var brandMarkCaptionFont = CssString(spec.Typography.EffectiveCaptionFamily);
                             var brandMarkCaptionWeight = spec.Typography.CaptionWeight;
                             var brandMarkCaptionSize = spec.Typography.CaptionSize;
+
+                            // WU-7b (D13, CAGH-CG-06-a — wiring half): icon-type marks with a valid
+                            // source image + bounding box are crop-extracted now so the durable asset
+                            // exists by the time WU-7c wires the <img> render. Extraction failure
+                            // degrades silently to the pre-existing chip below — the generation job is
+                            // NEVER failed by this. A successful crop is not yet consumed by markup in
+                            // this batch (rendering it as <img> is WU-7c's scope, not this one's).
+                            if (string.Equals(brandMark.MarkType, "icon", StringComparison.OrdinalIgnoreCase)
+                                && brandMark.BoundingBox is { } brandMarkBox
+                                && !string.IsNullOrWhiteSpace(brandMark.SourceImagePath)
+                                && _brandMarkAssetExtractor is not null)
+                            {
+                                var brandMarkAssetKey = new StoredAssetKey(
+                                    job.OrganizationId,
+                                    effectiveClientId.Value,
+                                    job.AnalysisId,
+                                    "brand-mark.png");
+
+                                var brandMarkExtractResult = await _brandMarkAssetExtractor.ExtractAsync(
+                                    brandMarkAssetKey,
+                                    brandMark.SourceImagePath,
+                                    brandMarkBox,
+                                    ct);
+
+                                if (brandMarkExtractResult.IsFailure)
+                                {
+                                    _logger.LogWarning(
+                                        "ContentGeneration: brand-mark icon crop extraction failed for job {JobId} ({ErrorCode}) — degrading to chip.",
+                                        job.Id, brandMarkExtractResult.Error.Code);
+                                }
+                            }
+
                             var brandMarkSlot = BuildBrandMarkSlot(
                                 brandMark,
                                 defaultBrandMarkColorHex,

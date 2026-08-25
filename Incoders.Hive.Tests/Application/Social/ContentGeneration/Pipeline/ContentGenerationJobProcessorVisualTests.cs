@@ -1548,6 +1548,115 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     }
 
     // -----------------------------------------------------------------------
+    // WU-7b (CAGH-CG-06-a, wiring half): icon-type marks with a valid source image + bounding box
+    // are crop-extracted via IBrandMarkAssetExtractor. Rendering the crop as <img> is WU-7c's
+    // scope — this batch only wires the call + the failure degrade, chip markup is unchanged.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task IconMarkType_ValidBoxAndSource_InvokesExtractor_StillRendersChip_CAGH_CG_06_a()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+        var extractorSpy = new FC_SpyBrandMarkAssetExtractor(
+            Result.Success(new StoredAssetRef("orgs/x/brand-mark.png", "image/png", 1024, "hash")));
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(
+                Present: true,
+                PositionHint: "bottom-right",
+                ColorHex: "#445566",
+                MarkType: "icon",
+                SourceImagePath: "clients/reference.png",
+                BoundingBox: new BrandMarkBoundingBox(0.1, 0.1, 0.5, 0.5)));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner(),
+            brandMarkAssetExtractor: extractorSpy);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.Equal(1, extractorSpy.CallCount);
+        Assert.Equal("clients/reference.png", extractorSpy.LastSourceImagePath);
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
+        Assert.Contains("#445566", brandMarkSlot);
+        // WU-7b does not render the crop yet — the <img> swap is WU-7c's scope.
+        Assert.DoesNotContain("<img", brandMarkSlot);
+    }
+
+    [Fact]
+    public async Task IconMarkType_ExtractionFails_DegradesToChip_NeverThrows_CAGH_CG_06_a()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+        var extractorSpy = new FC_SpyBrandMarkAssetExtractor(
+            Result.Failure<StoredAssetRef>(Error.Failure("brand-mark-asset.decode-failed", "brandMarkAsset.decodeFailed")));
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(
+                Present: true,
+                PositionHint: "bottom-right",
+                ColorHex: "#445566",
+                MarkType: "icon",
+                SourceImagePath: "clients/reference.png",
+                BoundingBox: new BrandMarkBoundingBox(0.1, 0.1, 0.5, 0.5)));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner(),
+            brandMarkAssetExtractor: extractorSpy);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.Equal(1, extractorSpy.CallCount);
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
+        Assert.Contains("#445566", brandMarkSlot);
+        Assert.DoesNotContain("<img", brandMarkSlot);
+    }
+
+    [Fact]
+    public async Task IconMarkType_NoBoundingBox_ExtractorNeverCalled_DegradesToChip_CAGH_CG_06_a()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+        var extractorSpy = new FC_SpyBrandMarkAssetExtractor(
+            Result.Success(new StoredAssetRef("orgs/x/brand-mark.png", "image/png", 1024, "hash")));
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(
+                Present: true,
+                PositionHint: "bottom-right",
+                ColorHex: "#445566",
+                MarkType: "icon",
+                SourceImagePath: null,
+                BoundingBox: null));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner(),
+            brandMarkAssetExtractor: extractorSpy);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.Equal(0, extractorSpy.CallCount);
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
+        Assert.Contains("#445566", brandMarkSlot);
+    }
+
+    // -----------------------------------------------------------------------
     // CAFF-CG-02 (trigger B): a ClientAesthetic carousel slide whose AI designer returns no usable
     // background (genuine failure OR guardrail rejection) MUST route through the same deterministic
     // flat treatment as trigger A, replacing the rgba(0,0,0,0.52) scrim card. Scoped to
@@ -1724,7 +1833,11 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         IContentGenerationFormatResultRepository? formatResults = null,
         // CAFF-CG-06 (D4): overridable so caption-consumption tests can inject a resolved
         // CompositionTypography with a distinct CaptionFamily.
-        CompositionTypography? typography = null)
+        CompositionTypography? typography = null,
+        // WU-7b (CAGH-CG-06-a): overridable so icon-mark wiring tests can inject a spy/failing
+        // IBrandMarkAssetExtractor; null (default) mirrors every pre-WU-7b test — the port is
+        // unregistered and the icon branch is a no-op.
+        IBrandMarkAssetExtractor? brandMarkAssetExtractor = null)
     {
         var fakeJob = new ContentGenerationJob(
             Id: JobId,
@@ -1810,7 +1923,8 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
             aestheticDescriptorReader: null,
             aestheticProfileReader: new FC_FixedProfileReader(profile),
             aestheticEnsureFreshService: null,
-            imageBackgroundService: null);
+            imageBackgroundService: null,
+            brandMarkAssetExtractor: brandMarkAssetExtractor);
     }
 
     private static object FC_BuildPayload(int slideCount)
@@ -1866,6 +1980,32 @@ file sealed class FC_NeverCalledDesigner : IVisualDesigner
         return Task.FromResult(
             Result.Failure<VisualDesignOutput>(
                 Error.Failure("visual-designer.should-not-be-called", "FlatColor short-circuit must skip the designer.")));
+    }
+}
+
+/// <summary>WU-7b spy: records invocation + last args, returns a fixed canned <see cref="Result{T}"/>.</summary>
+file sealed class FC_SpyBrandMarkAssetExtractor : IBrandMarkAssetExtractor
+{
+    private readonly Result<StoredAssetRef> _result;
+
+    public FC_SpyBrandMarkAssetExtractor(Result<StoredAssetRef> result)
+    {
+        _result = result;
+    }
+
+    public int CallCount { get; private set; }
+
+    public string? LastSourceImagePath { get; private set; }
+
+    public Task<Result<StoredAssetRef>> ExtractAsync(
+        StoredAssetKey targetKey,
+        string sourceImagePath,
+        BrandMarkBoundingBox box,
+        CancellationToken ct)
+    {
+        CallCount++;
+        LastSourceImagePath = sourceImagePath;
+        return Task.FromResult(_result);
     }
 }
 

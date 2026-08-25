@@ -182,6 +182,12 @@ public static class InfrastructureContentGenerationExtensions
         // path activates — rejects near-black/flat generated backgrounds instead of shipping them.
         services.AddScoped<IImageGuardrailValidator, DegenerateImageGuardrailValidator>();
 
+        // WU-7b (D13): icon-mark crop extraction. Same SkiaSharp-behind-a-port shape as the
+        // guardrail validator above (F4) — decodes the pipeline's own archived reference image,
+        // never throws; ContentGenerationJobProcessor degrades to the PositionHint+ColorHex chip
+        // on any Result.Failure.
+        services.AddScoped<IBrandMarkAssetExtractor, SkiaBrandMarkAssetExtractor>();
+
         return services;
     }
 }
