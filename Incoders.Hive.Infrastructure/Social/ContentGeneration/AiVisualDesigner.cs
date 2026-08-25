@@ -4,6 +4,7 @@ using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fonts;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Domain.Social.ContentGeneration;
@@ -206,6 +207,26 @@ public sealed class AiVisualDesigner : IVisualDesigner
     }
 
     /// <summary>
+    /// D7: supplements — never replaces — the brand kit's <c>AllowedFonts</c> with the client's own
+    /// resolved font classes (heading, body, caption — profile order), so a degenerate client set (0
+    /// or 1 family) can never starve the designer. Client classes come first (preferred by the
+    /// model), the brand kit is appended, and duplicates are removed case-insensitively. A null
+    /// design context or an empty/unresolvable client set yields an array equal to today's
+    /// <c>brand.Typography.ToArray()</c> exactly (cold-start parity).
+    /// </summary>
+    private static string[] BuildAllowedFonts(ClientAestheticDesignContext? aesthetic, BrandManualSnapshot brand)
+    {
+        var clientClasses = (aesthetic?.Typography ?? [])
+            .Select(t => FontFamilyResolution.Resolve(t.FontFamily).Renderable)
+            .Where(f => !string.IsNullOrWhiteSpace(f));
+
+        return clientClasses
+            .Concat(brand.Typography)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <summary>
     /// Builds the JSON input for the AI gateway.
     /// Embeds brand palette, typography, copy slots, canvas dimensions, and background selection.
     /// For Tier-1 ForcedDefault the exact URL is included so the prompt can reference it.
@@ -283,7 +304,7 @@ public sealed class AiVisualDesigner : IVisualDesigner
             LayoutType: spec.LayoutType,
             Canvas: new CanvasDto(spec.Dimensions.Width, spec.Dimensions.Height),
             BrandPalette: palette,
-            AllowedFonts: brand.Typography.ToArray(),
+            AllowedFonts: BuildAllowedFonts(aesthetic, brand),
             CopySlots: spec.CopySlots.ToDictionary(kv => kv.Key, kv => kv.Value),
             Background: backgroundGuidance,
             Aesthetic: BuildAestheticGuidance(aesthetic),

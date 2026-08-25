@@ -477,7 +477,10 @@ public sealed class ContentGenerationJobProcessor
                 BrandMark: aestheticProfile.BrandMark,
                 // client-driven-decoration: lets the designer suppress its default shapes/blobs/glow
                 // for a client whose measured corpus contains no decorated slides.
-                ImageTypeRatio: aestheticProfile.ImageTypeRatio);
+                ImageTypeRatio: aestheticProfile.ImageTypeRatio,
+                // D4/D7: the client's observed per-role typography, so AiVisualDesigner can
+                // supplement AllowedFonts with the client's own classes instead of the brand kit alone.
+                Typography: aestheticProfile.Typography);
         }
 
         // 3. Run the orchestrator only on formats that need fresh AI work.
@@ -1965,6 +1968,12 @@ public sealed class ContentGenerationJobProcessor
         var height = spec.Dimensions.Height;
         var headingFont = CssString(spec.Typography.HeadingFamily);
         var bodyFont = CssString(spec.Typography.BodyFamily);
+        // D4: caption/overline role — falls back to BodyFamily when unmeasured, so a client
+        // without an observed caption renders exactly as before (CaptionWeight also defaults to
+        // today's hardcoded cta weight, and a null CaptionSize keeps the builder's own hardcoded size).
+        var captionFont = CssString(spec.Typography.EffectiveCaptionFamily);
+        var captionWeight = spec.Typography.CaptionWeight;
+        var captionSize = spec.Typography.CaptionSize;
 
         var title = FirstSlot(spec.CopySlots, isCarousel ? ["title", "headline"] : ["headline", "title"])
             ?? (isCarousel ? "Carousel" : "Story");
@@ -1976,8 +1985,8 @@ public sealed class ContentGenerationJobProcessor
         var signature = FirstSlot(spec.CopySlots, ["signature"]);
 
         var content = isCarousel
-            ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont)
-            : BuildStoryTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont);
+            ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont, captionFont, captionWeight, captionSize)
+            : BuildStoryTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont, captionFont, captionWeight, captionSize);
 
         // No-scrim fix: the full-bleed dark box below ("scrimBox") is ONLY safe over a synthesized
         // CSS/gradient background, which has no inherent contrast guarantee. An ENFORCED background
@@ -2062,7 +2071,10 @@ public sealed class ContentGenerationJobProcessor
         string? cta,
         string? signature,
         string headingFont,
-        string bodyFont)
+        string bodyFont,
+        string captionFont,
+        int captionWeight = 800,
+        int? captionSize = null)
     {
         var slots = new List<string>
         {
@@ -2099,13 +2111,13 @@ public sealed class ContentGenerationJobProcessor
 
         AddSlot(slots, "p", "cta", cta,
             "position:absolute;left:100px;bottom:245px;width:640px;min-height:58px;" +
-            $"font-family:{bodyFont},system-ui,sans-serif;font-size:34px;line-height:1.05;" +
-            "font-weight:800;color:#FFFFFF;text-transform:uppercase;letter-spacing:1.2px;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
+            $"font-family:{captionFont},system-ui,sans-serif;font-size:{captionSize ?? 34}px;line-height:1.05;" +
+            $"font-weight:{captionWeight};color:#FFFFFF;text-transform:uppercase;letter-spacing:1.2px;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
             2);
 
         AddSlot(slots, "p", "signature", signature,
             "position:absolute;right:98px;bottom:190px;width:460px;min-height:42px;" +
-            $"font-family:{bodyFont},system-ui,sans-serif;font-size:25px;line-height:1.1;" +
+            $"font-family:{captionFont},system-ui,sans-serif;font-size:25px;line-height:1.1;" +
             "font-weight:600;color:#E5E7EB;text-align:right;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
             1);
 
@@ -2117,7 +2129,10 @@ public sealed class ContentGenerationJobProcessor
         string? subtitle,
         string? cta,
         string headingFont,
-        string bodyFont)
+        string bodyFont,
+        string captionFont,
+        int captionWeight = 800,
+        int? captionSize = null)
     {
         var slots = new List<string>
         {
@@ -2139,8 +2154,8 @@ public sealed class ContentGenerationJobProcessor
 
         AddSlot(slots, "p", "cta", cta,
             "position:absolute;left:108px;bottom:220px;width:760px;min-height:58px;" +
-            $"font-family:{bodyFont},system-ui,sans-serif;font-size:28px;line-height:1.1;" +
-            "font-weight:800;color:#FFFFFF;text-transform:uppercase;letter-spacing:1.1px;text-shadow:0 3px 18px rgba(0,0,0,0.62);",
+            $"font-family:{captionFont},system-ui,sans-serif;font-size:{captionSize ?? 28}px;line-height:1.1;" +
+            $"font-weight:{captionWeight};color:#FFFFFF;text-transform:uppercase;letter-spacing:1.1px;text-shadow:0 3px 18px rgba(0,0,0,0.62);",
             2);
 
         return string.Join(Environment.NewLine, slots);
@@ -2163,6 +2178,10 @@ public sealed class ContentGenerationJobProcessor
         var height = spec.Dimensions.Height;
         var headingFont = CssString(spec.Typography.HeadingFamily);
         var bodyFont = CssString(spec.Typography.BodyFamily);
+        // D4: caption/overline role — falls back to BodyFamily when unmeasured (cold-start parity).
+        var captionFont = CssString(spec.Typography.EffectiveCaptionFamily);
+        var captionWeight = spec.Typography.CaptionWeight;
+        var captionSize = spec.Typography.CaptionSize;
 
         var title = FirstSlot(spec.CopySlots, ["title", "headline"]) ?? "Carousel";
         var subtitle = FirstSlot(spec.CopySlots, ["subtitle", "body", "text"]);
@@ -2178,7 +2197,8 @@ public sealed class ContentGenerationJobProcessor
             ?.Hex;
         var safeAccent = IsSafeCssColor(accentHex) ? accentHex!.Trim() : null;
 
-        var content = BuildFlatCarouselSlots(title, subtitle, cta, headingFont, bodyFont, safeText, safeAccent);
+        var content = BuildFlatCarouselSlots(
+            title, subtitle, cta, headingFont, bodyFont, safeText, safeAccent, captionFont, captionWeight, captionSize);
 
         return $$"""
             <div class="composition" data-format="{{Html(spec.FormatKey)}}" style="position:relative;width:{{width}}px;height:{{height}}px;overflow:hidden;background:{{safeBackground}};">
@@ -2204,7 +2224,10 @@ public sealed class ContentGenerationJobProcessor
         string headingFont,
         string bodyFont,
         string textColor,
-        string? accentColor)
+        string? accentColor,
+        string captionFont,
+        int captionWeight = 800,
+        int? captionSize = null)
     {
         var slots = new List<string>();
 
@@ -2236,8 +2259,8 @@ public sealed class ContentGenerationJobProcessor
 
         AddSlot(slots, "p", "cta", cta,
             "position:absolute;left:108px;bottom:220px;width:760px;min-height:58px;" +
-            $"font-family:{bodyFont},system-ui,sans-serif;font-size:28px;line-height:1.1;" +
-            $"font-weight:800;color:{textColor};text-transform:uppercase;letter-spacing:1.1px;",
+            $"font-family:{captionFont},system-ui,sans-serif;font-size:{captionSize ?? 28}px;line-height:1.1;" +
+            $"font-weight:{captionWeight};color:{textColor};text-transform:uppercase;letter-spacing:1.1px;",
             2);
 
         return string.Join(Environment.NewLine, slots);

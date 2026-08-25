@@ -128,6 +128,83 @@ public sealed class ClientTypographyResolutionTests
         Assert.Equal(legacy, Resolve(profile, CarouselHeight));
     }
 
+    // ── D4: caption/overline role ───────────────────────────────────────────
+
+    [Fact]
+    public void CaptionRole_Present_ResolvesFamilySizeWeightItalic()
+    {
+        var profile = ProfileWith(
+            new AestheticTypography(TypographyRoles.Heading, "Liberation Sans", 800, false, 0.08),
+            new AestheticTypography(TypographyRoles.Body, "Liberation Sans", 400, false, 0.03),
+            new AestheticTypography(TypographyRoles.Caption, "Liberation Serif", 700, true, 0.02));
+
+        var typography = Resolve(profile, CarouselHeight);
+
+        Assert.Equal("Liberation Serif", typography.CaptionFamily);
+        Assert.Equal(27, typography.CaptionSize); // 0.02 * 1350 = 27
+        Assert.Equal(700, typography.CaptionWeight);
+        Assert.True(typography.CaptionItalic);
+        Assert.Equal("Liberation Serif", typography.EffectiveCaptionFamily);
+    }
+
+    [Fact]
+    public void CaptionRole_Absent_FallsBackToBodyViaEffectiveCaptionFamily()
+    {
+        var profile = ProfileWith(
+            new AestheticTypography(TypographyRoles.Heading, "Liberation Sans", 800, false, 0.08),
+            new AestheticTypography(TypographyRoles.Body, "Liberation Serif", 400, false, 0.03));
+
+        var typography = Resolve(profile, CarouselHeight);
+
+        Assert.Null(typography.CaptionFamily);
+        Assert.Null(typography.CaptionSize);
+        Assert.Equal(800, typography.CaptionWeight); // default, matches today's hardcoded cta weight
+        Assert.False(typography.CaptionItalic);
+        Assert.Equal("Liberation Serif", typography.EffectiveCaptionFamily); // == BodyFamily
+    }
+
+    [Fact]
+    public void OverlineRole_IsAnAliasForCaption()
+    {
+        var profile = ProfileWith(
+            new AestheticTypography(TypographyRoles.Heading, "Liberation Sans", 800, false, 0.08),
+            new AestheticTypography(TypographyRoles.Body, "Liberation Sans", 400, false, 0.03),
+            new AestheticTypography(TypographyRoles.Overline, "Liberation Mono", 600, false, 0.018));
+
+        var typography = Resolve(profile, CarouselHeight);
+
+        Assert.Equal("Liberation Mono", typography.CaptionFamily);
+        Assert.Equal(600, typography.CaptionWeight);
+    }
+
+    [Fact]
+    public void AccentRole_IsTheLegacySynonymForCaption_WhenNoCaptionOrOverlinePresent()
+    {
+        var profile = ProfileWith(
+            new AestheticTypography(TypographyRoles.Heading, "Liberation Sans", 800, false, 0.08),
+            new AestheticTypography(TypographyRoles.Body, "Liberation Sans", 400, false, 0.03),
+            new AestheticTypography(TypographyRoles.Accent, "Liberation Serif", 500, true, 0.02));
+
+        var typography = Resolve(profile, CarouselHeight);
+
+        Assert.Equal("Liberation Serif", typography.CaptionFamily);
+        Assert.Equal(500, typography.CaptionWeight);
+        Assert.True(typography.CaptionItalic);
+    }
+
+    [Fact]
+    public void CaptionRoleAlone_WithoutHeadingOrBody_StillEarlyOutsToLegacyDefaults()
+    {
+        // Caption alone never activates the profile-aware branch — matches the existing
+        // "heading and body both absent" early-out per D4.
+        var profile = ProfileWith(
+            new AestheticTypography(TypographyRoles.Caption, "Liberation Serif", 700, true, 0.02));
+
+        var legacy = CompositionDefaults.ResolveTypography(EmptyBrand(), new InferenceAccumulator());
+
+        Assert.Equal(legacy, Resolve(profile, CarouselHeight));
+    }
+
     // ── FontFamilyResolution ─────────────────────────────────────────────────
 
     [Theory]

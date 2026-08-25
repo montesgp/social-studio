@@ -59,14 +59,14 @@ Chain strategy: pending
 
 ## WU-2b — Typography Render (D4 render half + D7)
 
-- [ ] 2b.1 RED — extend `Incoders.Hive.Tests` `CompositionDefaults` typography tests: caption present/absent/overline-alias/accent-alias/caption-only (must still early-out). Satisfies CAFF-CG-06 (Typography on context).
-- [ ] 2b.2 GREEN — modify `Incoders.Hive.Domain/Social/ContentGeneration/VisualCompositionSpec.cs`: add `CaptionFamily`, `CaptionSize`, `CaptionWeight=800`, `CaptionItalic`, `RequestedCaptionFamily`, `EffectiveCaptionFamily` to `CompositionTypography`.
-- [ ] 2b.3 GREEN — modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/AestheticTypography.cs`: add `TypographyRoles.Caption`/`.Overline`.
-- [ ] 2b.4 GREEN — modify `CompositionDefaults.cs` (`ResolveTypography` 4-arg, L159-199): resolve `Caption ?? Overline ?? Accent` role.
-- [ ] 2b.5 GREEN — modify `ContentGenerationJobProcessor.cs` markup builders (`BuildCarouselTemplateSlots`, `BuildFlatCarouselSlots`, `BuildStoryTemplateSlots`): consume `EffectiveCaptionFamily`/`CaptionWeight`/`CaptionSize` for `cta`/`signature` slots.
-- [ ] 2b.6 GREEN — modify `ClientAestheticDesignContext.cs` (built at processor L469-481): add `Typography` field.
-- [ ] 2b.7 RED — extend tests asserting `AllowedFonts` reflects client-derived classes when populated, and legacy brand-kit fallback when absent (regression). Satisfies CAFF-CG-07.
-- [ ] 2b.8 GREEN — modify `Incoders.Hive.Infrastructure/Social/ContentGeneration/AiVisualDesigner.cs` (L286): `AllowedFonts = clientClasses.Concat(brand.Typography).Distinct(OrdinalIgnoreCase)` per D7; update `TypographyNormalizer` effective-family-set call site.
+- [x] 2b.1 RED — extend `Incoders.Hive.Tests` `CompositionDefaults` typography tests: caption present/absent/overline-alias/accent-alias/caption-only (must still early-out). Satisfies CAFF-CG-06 (Typography on context).
+- [x] 2b.2 GREEN — modify `Incoders.Hive.Domain/Social/ContentGeneration/VisualCompositionSpec.cs`: add `CaptionFamily`, `CaptionSize`, `CaptionWeight=800`, `CaptionItalic`, `RequestedCaptionFamily`, `EffectiveCaptionFamily` to `CompositionTypography`.
+- [x] 2b.3 GREEN — modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/AestheticTypography.cs`: add `TypographyRoles.Caption`/`.Overline`.
+- [x] 2b.4 GREEN — modify `CompositionDefaults.cs` (`ResolveTypography` 4-arg, L159-199): resolve `Caption ?? Overline ?? Accent` role.
+- [x] 2b.5 GREEN — modify `ContentGenerationJobProcessor.cs` markup builders (`BuildCarouselTemplateSlots`, `BuildFlatCarouselSlots`, `BuildStoryTemplateSlots`): consume `EffectiveCaptionFamily`/`CaptionWeight`/`CaptionSize` for `cta`/`signature` slots.
+- [x] 2b.6 GREEN — modify `ClientAestheticDesignContext.cs` (built at processor L469-481): add `Typography` field.
+- [x] 2b.7 RED — extend tests asserting `AllowedFonts` reflects client-derived classes when populated, and legacy brand-kit fallback when absent (regression). Satisfies CAFF-CG-07.
+- [x] 2b.8 GREEN — modify `Incoders.Hive.Infrastructure/Social/ContentGeneration/AiVisualDesigner.cs` (L286): `AllowedFonts = clientClasses.Concat(brand.Typography).Distinct(OrdinalIgnoreCase)` per D7. Note: `TypographyNormalizer` call site was NOT touched — it is out of this batch's explicit 5-item scope (D4's "AI path" note in design.md is a separate consumer not enumerated in the apply-phase instruction); the `BuildAllowedFonts` helper covers D7 fully.
 
 ## WU-3a — Per-Slide Transparency: Extraction + Persistence (D3)
 

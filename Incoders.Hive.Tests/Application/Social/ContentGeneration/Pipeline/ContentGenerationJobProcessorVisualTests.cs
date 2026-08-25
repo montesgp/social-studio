@@ -945,6 +945,80 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     // profile signals an accent color role; never baked into the rasterized background.
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // CAFF-CG-06 (D4): the caption/overline role drives the cta slot's font-family, size, and
+    // weight — never for a client with no observed caption (falls back to today's hardcoded values).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task FlatColorSlide_CaptionFamilyResolved_CtaSlotUsesCaptionFont()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var typography = new CompositionTypography("Inter", 24, "Inter", 14)
+        {
+            CaptionFamily = "Liberation Serif",
+            CaptionWeight = 650,
+            CaptionSize = 33,
+        };
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner(),
+            typography: typography);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("data-slot=\"cta\"", rendererSpy.ReceivedMarkup);
+        var ctaSlot = ExtractSlot(rendererSpy.ReceivedMarkup!, "cta");
+        Assert.Contains("font-family:'Liberation Serif'", ctaSlot);
+        Assert.Contains("font-weight:650", ctaSlot);
+        Assert.Contains("font-size:33px", ctaSlot);
+    }
+
+    [Fact]
+    public async Task FlatColorSlide_NoCaptionObserved_CtaSlotKeepsLegacyDefaults()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        var ctaSlot = ExtractSlot(rendererSpy.ReceivedMarkup!, "cta");
+        // Default typography families both roles under "Inter" — caption falls back to BodyFamily,
+        // so the cta font stays Inter, and weight/size stay today's hardcoded 800/28px.
+        Assert.Contains("font-family:'Inter'", ctaSlot);
+        Assert.Contains("font-weight:800", ctaSlot);
+        Assert.Contains("font-size:28px", ctaSlot);
+    }
+
+    private static string ExtractSlot(string markup, string slotName)
+    {
+        var marker = $"data-slot=\"{slotName}\"";
+        var idx = markup.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(idx >= 0, $"Expected slot '{slotName}' in markup.");
+        var start = markup.LastIndexOf('<', idx);
+        var end = markup.IndexOf('>', idx);
+        return markup[start..(end + 1)];
+    }
+
     [Fact]
     public async Task FlatColorSlide_AccentRoleSignaled_EmitsEditableAccentSlot()
     {
@@ -1434,7 +1508,8 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         IReadOnlyList<SlideBackgroundKind>? backgroundPattern,
         IReadOnlyList<ColorPairing>? colorPairings,
         IReadOnlyList<AestheticPaletteEntry>? palette = null,
-        BrandMarkDetection? brandMark = null) =>
+        BrandMarkDetection? brandMark = null,
+        IReadOnlyList<AestheticTypography>? typography = null) =>
         new(
             BackgroundDescriptors: [],
             VoiceTone: null,
@@ -1443,7 +1518,8 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
             Palette: palette,
             BackgroundPattern: backgroundPattern,
             ColorPairings: colorPairings,
-            BrandMark: brandMark);
+            BrandMark: brandMark,
+            Typography: typography);
 
     private ContentGenerationJobProcessor FC_BuildProcessor(
         int slideCount,
@@ -1460,7 +1536,10 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         // still render) can be exercised with the same builder.
         BackgroundSourcingPolicy policy = BackgroundSourcingPolicy.ClientAesthetic,
         // CAFF-CG-04: overridable so degrade-marker tests can inspect the persisted envelope.
-        IContentGenerationFormatResultRepository? formatResults = null)
+        IContentGenerationFormatResultRepository? formatResults = null,
+        // CAFF-CG-06 (D4): overridable so caption-consumption tests can inject a resolved
+        // CompositionTypography with a distinct CaptionFamily.
+        CompositionTypography? typography = null)
     {
         var fakeJob = new ContentGenerationJob(
             Id: JobId,
@@ -1531,7 +1610,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
             orchestrator: new FC_Orchestrator(formatKey, payload, brand),
             formatResults: formatResults ?? new FC_FormatResultRepository(),
             brandLoader: new FC_BrandLoader(brand),
-            composer: new FC_CompositionService(formatKey, slideCount),
+            composer: new FC_CompositionService(formatKey, slideCount, typography),
             renderer: renderer,
             packageBuilder: new FC_PackageBuilder(),
             packageStorage: new FC_PackageStorage(),
@@ -1667,11 +1746,12 @@ file sealed class FC_ClientAestheticStrategy(string formatKey) : IBackgroundSour
     }
 }
 
-file sealed class FC_CompositionService(string designedFormat, int slideCount) : IVisualCompositionService
+file sealed class FC_CompositionService(string designedFormat, int slideCount, CompositionTypography? typography = null) : IVisualCompositionService
 {
     private static readonly CompositionPalette DefaultPalette = new("#333", "#666", "#999", "#FFF", "#EEE");
     private static readonly CompositionTypography DefaultTypo = new("Inter", 24, "Inter", 14);
     private static readonly CompositionDimensions DefaultDim = new(1080, 1350, 96);
+    private readonly CompositionTypography _typography = typography ?? DefaultTypo;
 
     public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct) =>
         Task.FromResult(BuildSpec(formatKey));
@@ -1692,9 +1772,14 @@ file sealed class FC_CompositionService(string designedFormat, int slideCount) :
             FormatKey: formatKey,
             LayoutType: "carousel-carousel",
             Palette: DefaultPalette,
-            Typography: DefaultTypo,
+            Typography: _typography,
             AssetSlots: new Dictionary<string, AssetSlotSpec>(),
-            CopySlots: new Dictionary<string, string> { ["title"] = "Slide title 1", ["subtitle"] = "Slide subtitle 1" },
+            CopySlots: new Dictionary<string, string>
+            {
+                ["title"] = "Slide title 1",
+                ["subtitle"] = "Slide subtitle 1",
+                ["cta"] = "Learn more",
+            },
             Dimensions: DefaultDim)
         with { OutputKind = outputKind, TextBody = outputKind == CompositionOutputKind.Text ? "body" : null };
     }

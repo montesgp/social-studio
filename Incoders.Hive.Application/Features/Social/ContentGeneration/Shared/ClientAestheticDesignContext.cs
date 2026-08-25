@@ -33,7 +33,11 @@ public sealed record ClientAestheticDesignContext(
     BrandMarkDetection? BrandMark = null,
     // client-driven-decoration (additive trailing nullable): measured photo/flat/decorator mix from
     // the client's corpus. Null when never measured → the designer keeps its default direction.
-    ImageTypeRatio? ImageTypeRatio = null)
+    ImageTypeRatio? ImageTypeRatio = null,
+    // D4/D7 (additive trailing nullable): the client's observed per-role typography, threaded so
+    // AiVisualDesigner.BuildInputJson can supplement AllowedFonts with the client's own classes.
+    // Null when the profile carries no typography (cold-start parity).
+    IReadOnlyList<AestheticTypography>? Typography = null)
 {
     /// <summary>
     /// A decorator share at or below this is treated as noise, not a style — one stray ornamented

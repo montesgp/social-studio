@@ -45,4 +45,10 @@ public static class TypographyRoles
     public const string Heading = "heading";
     public const string Body = "body";
     public const string Accent = "accent";
+
+    /// <summary>Small emphasised copy — a CTA or signature line (D4). Resolved with an <see cref="Overline"/> alias fallback.</summary>
+    public const string Caption = "caption";
+
+    /// <summary>Synonym some extractions use for <see cref="Caption"/>.</summary>
+    public const string Overline = "overline";
 }

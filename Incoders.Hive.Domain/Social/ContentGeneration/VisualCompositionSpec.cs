@@ -96,6 +96,28 @@ public sealed record CompositionTypography(
 
     /// <summary>Body counterpart of <see cref="RequestedHeadingFamily"/>.</summary>
     public string? RequestedBodyFamily { get; init; }
+
+    /// <summary>
+    /// Family the client uses for the caption/overline role (small emphasised copy — e.g. a CTA or
+    /// signature line). Null falls back to <see cref="BodyFamily"/> via <see cref="EffectiveCaptionFamily"/>
+    /// — additive with an init default, so every existing positional construction site keeps compiling.
+    /// </summary>
+    public string? CaptionFamily { get; init; }
+
+    /// <summary>Observed caption size in pixels. Null keeps the builder's existing hardcoded size.</summary>
+    public int? CaptionSize { get; init; }
+
+    /// <summary>CSS numeric weight for the caption role. Defaults to today's hardcoded cta weight.</summary>
+    public int CaptionWeight { get; init; } = 800;
+
+    /// <summary>True when the caption/overline role is consistently italic in the client's posts.</summary>
+    public bool CaptionItalic { get; init; }
+
+    /// <summary>Caption counterpart of <see cref="RequestedHeadingFamily"/>.</summary>
+    public string? RequestedCaptionFamily { get; init; }
+
+    /// <summary>The family actually used to render the caption role — falls back to <see cref="BodyFamily"/> when unmeasured.</summary>
+    public string EffectiveCaptionFamily => CaptionFamily ?? BodyFamily;
 }
 
 /// <summary>

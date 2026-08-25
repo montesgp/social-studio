@@ -114,6 +114,78 @@ public sealed class AiVisualDesignerAestheticTests
         Assert.Equal(0, ExtractBrandPaletteCount(gateway.CapturedInput!));
     }
 
+    // ── D7: AllowedFonts merge — client classes supplement, never replace, the brand kit ──────
+
+    [Fact]
+    public async Task ClientTypography_Present_SupplementsAllowedFontsWithClientClasses_ClientFirst()
+    {
+        var gateway = new CaptureGateway();
+        var designer = new AiVisualDesigner(gateway, new StubResolver());
+        var brand = BrandWithNoPalette(); // Typography = ["Inter"]
+        var aesthetic = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: [],
+            StyleDescriptors: ["editorial"],
+            Motifs: [],
+            VariationSeed: "job-8",
+            Typography:
+            [
+                new AestheticTypography(TypographyRoles.Heading, "Playfair Display", 700, false, 0.08),
+                new AestheticTypography(TypographyRoles.Body, "Poppins", 400, false, 0.03),
+            ]);
+
+        await designer.ComposeAsync(OrgId, BuildSpec(), brand, new BackgroundSelection.Creative(), CancellationToken.None, aesthetic);
+
+        Assert.NotNull(gateway.CapturedInput);
+        var allowedFonts = ExtractAllowedFonts(gateway.CapturedInput!);
+        // Client-first ordering: resolved client classes (Playfair -> Liberation Serif,
+        // Poppins -> Liberation Sans), deduped case-insensitively, THEN the brand kit appended.
+        Assert.Equal(["Liberation Serif", "Liberation Sans", "Inter"], allowedFonts);
+    }
+
+    [Fact]
+    public async Task ClientTypography_Null_AllowedFontsIsByteIdenticalToBrandTypographyAlone()
+    {
+        // Regression: a null/empty client typography set must never starve the designer — the
+        // resulting array must equal today's `brand.Typography.ToArray()` exactly.
+        var gateway = new CaptureGateway();
+        var designer = new AiVisualDesigner(gateway, new StubResolver());
+        var brand = BrandWithNoPalette(); // Typography = ["Inter"]
+        var aesthetic = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: [],
+            StyleDescriptors: ["editorial"],
+            Motifs: [],
+            VariationSeed: "job-9",
+            Typography: null);
+
+        await designer.ComposeAsync(OrgId, BuildSpec(), brand, new BackgroundSelection.Creative(), CancellationToken.None, aesthetic);
+
+        Assert.NotNull(gateway.CapturedInput);
+        Assert.Equal(["Inter"], ExtractAllowedFonts(gateway.CapturedInput!));
+    }
+
+    [Fact]
+    public async Task NonAestheticJob_AllowedFontsIsBrandTypographyAlone_Unchanged()
+    {
+        var gateway = new CaptureGateway();
+        var designer = new AiVisualDesigner(gateway, new StubResolver());
+        var brand = BrandWithNoPalette(); // Typography = ["Inter"]
+
+        await designer.ComposeAsync(OrgId, BuildSpec(), brand, new BackgroundSelection.Creative(), CancellationToken.None, aesthetic: null);
+
+        Assert.NotNull(gateway.CapturedInput);
+        Assert.Equal(["Inter"], ExtractAllowedFonts(gateway.CapturedInput!));
+    }
+
+    /// <summary>Reads the top-level "allowedFonts" JSON array as a string list.</summary>
+    private static IReadOnlyList<string> ExtractAllowedFonts(string capturedInputJson)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(capturedInputJson);
+        return doc.RootElement.GetProperty("allowedFonts")
+            .EnumerateArray().Select(e => e.GetString()!).ToArray();
+    }
+
     [Fact]
     public async Task NonAestheticJob_StillReceivesBrandManualPalette()
     {

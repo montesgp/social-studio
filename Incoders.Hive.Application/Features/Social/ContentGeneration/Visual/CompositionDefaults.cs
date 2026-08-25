@@ -171,7 +171,8 @@ internal static class CompositionDefaults
         var heading = FindRole(observed, TypographyRoles.Heading);
         var body = FindRole(observed, TypographyRoles.Body);
 
-        // A profile that names neither slot tells us nothing usable.
+        // A profile that names neither slot tells us nothing usable. Caption alone never activates
+        // this branch — matches the "caption-only still early-outs" contract (D4).
         if (heading is null && body is null)
         {
             return ResolveTypography(brand, inferred);
@@ -184,6 +185,13 @@ internal static class CompositionDefaults
         var headingResolved = FontFamilyResolution.Resolve(heading?.FontFamily);
         var bodyResolved = FontFamilyResolution.Resolve(body?.FontFamily);
 
+        // D4: caption role, with an overline alias and an accent legacy-synonym fallback — the
+        // closest existing role when neither caption nor overline was named.
+        var caption = FindRole(observed, TypographyRoles.Caption)
+            ?? FindRole(observed, TypographyRoles.Overline)
+            ?? FindRole(observed, TypographyRoles.Accent);
+        var captionResolved = caption is null ? default : FontFamilyResolution.Resolve(caption.FontFamily);
+
         return new CompositionTypography(
             HeadingFamily: heading is null ? fallback.HeadingFamily : headingResolved.Renderable,
             HeadingSize: SizeFor(heading, canvasHeight, fallback.HeadingSize),
@@ -195,6 +203,11 @@ internal static class CompositionDefaults
             BodyItalic = body?.Italic ?? false,
             RequestedHeadingFamily = heading is not null && !headingResolved.IsExact ? headingResolved.Requested : null,
             RequestedBodyFamily = body is not null && !bodyResolved.IsExact ? bodyResolved.Requested : null,
+            CaptionFamily = caption is null ? null : captionResolved.Renderable,
+            CaptionSize = SizeForCaption(caption, canvasHeight),
+            CaptionWeight = caption?.Weight ?? 800,
+            CaptionItalic = caption?.Italic ?? false,
+            RequestedCaptionFamily = caption is not null && !captionResolved.IsExact ? captionResolved.Requested : null,
         };
     }
 
@@ -236,6 +249,22 @@ internal static class CompositionDefaults
         // Typography entry is a free-text font family name
         var fontFamily = brand.Brand!.Typography[0];
         return new CompositionTypography(fontFamily, 28, fontFamily, 16);
+    }
+
+    /// <summary>
+    /// Converts an observed caption size ratio into pixels, or <c>null</c> when unmeasured/unusable —
+    /// unlike <see cref="SizeFor"/> there is no hardcoded caption default to fall back to; a null keeps
+    /// the caller's own hardcoded size (D4).
+    /// </summary>
+    private static int? SizeForCaption(AestheticTypography? entry, int canvasHeight)
+    {
+        if (entry is null || entry.SizeRatio <= 0 || entry.SizeRatio > MaxSizeRatio || canvasHeight <= 0)
+        {
+            return null;
+        }
+
+        var pixels = (int)Math.Round(entry.SizeRatio * canvasHeight, MidpointRounding.AwayFromZero);
+        return Math.Max(MinTypeSize, pixels);
     }
 
     private static string Pick(IReadOnlyList<string> values, int index, string fallback) =>
