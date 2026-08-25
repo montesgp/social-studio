@@ -93,6 +93,16 @@ builder.Services.AddHostedService<LegacyPackageReconstructionStartupJob>();
 // Studio items (task 3.6). No-op once every visual item already has a caption.
 builder.Services.AddHostedService<ContentStudioCaptionBackfillStartupJob>();
 
+// Rebuilds Content Studio flattened previews off the save request. The queue is a singleton because
+// the producer (the save handler) and the consumer (this worker) must share one channel; the worker
+// opens its own scope per item. Registered as the concrete type as well so the worker can read from
+// it while callers only ever see the IVisualFlattenQueue write side.
+builder.Services.AddSingleton<Incoders.Hive.Infrastructure.Social.ContentGeneration.VisualFlattenQueue>();
+builder.Services.AddSingleton<Incoders.Hive.Application.Abstractions.Social.ContentStudio.IVisualFlattenQueue>(
+    sp => sp.GetRequiredService<Incoders.Hive.Infrastructure.Social.ContentGeneration.VisualFlattenQueue>());
+builder.Services.AddScoped<Incoders.Hive.Application.Features.Social.ContentStudio.Operations.VisualFlattener>();
+builder.Services.AddHostedService<VisualFlattenBackgroundService>();
+
 var app = builder.Build();
 
 var clientAssetStorageOptions = app.Services.GetRequiredService<IOptions<ClientAssetStorageOptions>>().Value;

@@ -1,4 +1,4 @@
-using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+﻿using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
 
 namespace Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
@@ -74,7 +74,11 @@ public sealed record AestheticExtraction(
     // number of slides the model actually counted across the attached posts, resisting outliers.
     // Null when the model omits/cannot determine it (cold-start parity) — the caller falls back to
     // BackgroundPattern's length, the prior (invented) proxy for "typical slide count".
-    int? TypicalSlideCount = null)
+    int? TypicalSlideCount = null,
+    // exact-client-typography (additive TRAILING nullable): per-role families/weights/size ratios
+    // OBSERVED in the client's posts. Null when the extractor could not read type off the pixels,
+    // in which case the legacy single-family, hardcoded 28/16 px typography stands.
+    IReadOnlyList<AestheticTypography>? Typography = null)
 {
     /// <summary>An empty extraction (no signal) — used when extraction is skipped or yields nothing.</summary>
     public static AestheticExtraction Empty { get; } = new([], [], [], null);

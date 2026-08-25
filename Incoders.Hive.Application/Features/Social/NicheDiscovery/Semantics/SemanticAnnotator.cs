@@ -1,7 +1,8 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Domain.Common;
 
 namespace Incoders.Hive.Application.Features.Social.NicheDiscovery.Semantics;
@@ -35,13 +36,21 @@ public sealed class SemanticAnnotator
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>The workflow step the operator configures to choose the AI provider/model.</summary>
+    public const string WorkflowKey = "niche-discovery";
+    public const string AnalysisType = "market-opportunity";
+    public const string StepKey = "semantic-clustering";
+
     private readonly IAiCompletionGateway _ai;
+    private readonly IWorkflowConfigurationResolver _workflowResolver;
     private readonly Dictionary<string, SemanticAnnotation> _memo = new(StringComparer.Ordinal);
 
-    public SemanticAnnotator(IAiCompletionGateway ai)
+    public SemanticAnnotator(IAiCompletionGateway ai, IWorkflowConfigurationResolver workflowResolver)
     {
         ArgumentNullException.ThrowIfNull(ai);
+        ArgumentNullException.ThrowIfNull(workflowResolver);
         _ai = ai;
+        _workflowResolver = workflowResolver;
     }
 
     public async Task<SemanticAnnotationOutcome> AnnotateAsync(
@@ -64,6 +73,24 @@ public sealed class SemanticAnnotator
             return new SemanticAnnotationOutcome(cached, Degraded: false);
         }
 
+        // The gateway rejects a blank provider key before calling anything, so the route has to be
+        // resolved HERE — the same way every other AI caller in the system does it. Sending null made the
+        // semantic layer permanently unreachable: every run degraded to the lexical fallback.
+        var route = await _workflowResolver.ResolveStepAsync(
+            new WorkflowStepResolutionRequest(organizationId, WorkflowKey, AnalysisType, StepKey, StepKey, NetworkKey: null),
+            cancellationToken);
+
+        var candidate = route.IsSuccess
+            ? route.Value.Where(c => c.IsEnabled).OrderBy(c => c.Priority).FirstOrDefault()
+            : null;
+
+        if (candidate is null)
+        {
+            // A legitimate state, not a crash: the run still ranks on deterministic metrics, and the
+            // labels come from the lexical path. Degraded is how the operator learns to configure it.
+            return new SemanticAnnotationOutcome(LexicalClusterFallback.Cluster(candidates), Degraded: true);
+        }
+
         Result<AiJsonCompletionResponse<SemanticAnnotation>> completion;
         try
         {
@@ -74,8 +101,8 @@ public sealed class SemanticAnnotator
                     CapabilityKey,
                     ClusterPromptVersionKey,
                     inputJson,
-                    PreferredProviderKey: null,
-                    PreferredModel: null),
+                    PreferredProviderKey: candidate.ProviderKey,
+                    PreferredModel: candidate.ModelId),
                 cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)

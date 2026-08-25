@@ -75,7 +75,28 @@ public sealed record CompositionTypography(
     string HeadingFamily,
     int HeadingSize,
     string BodyFamily,
-    int BodySize);
+    int BodySize)
+{
+    /// <summary>CSS numeric weight for headings. Additive with an init default, so every existing
+    /// positional construction site keeps compiling and keeps its previous rendering.</summary>
+    public int HeadingWeight { get; init; } = 700;
+
+    /// <summary>CSS numeric weight for body copy.</summary>
+    public int BodyWeight { get; init; } = 400;
+
+    /// <summary>True when body copy is set in italics (a serif-italic accent voice, for instance).</summary>
+    public bool BodyItalic { get; init; }
+
+    /// <summary>
+    /// Family the CLIENT actually uses for headings, when it differs from <see cref="HeadingFamily"/>
+    /// because no binary for it is bundled. Null when the rendered family is the real one. Purely
+    /// diagnostic — it lets a report say "substituted X for Y" instead of silently drawing X.
+    /// </summary>
+    public string? RequestedHeadingFamily { get; init; }
+
+    /// <summary>Body counterpart of <see cref="RequestedHeadingFamily"/>.</summary>
+    public string? RequestedBodyFamily { get; init; }
+}
 
 /// <summary>
 /// A named image slot — either a resolved URL or a placeholder hint for the renderer.

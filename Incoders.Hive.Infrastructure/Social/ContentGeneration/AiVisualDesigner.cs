@@ -400,6 +400,20 @@ public sealed class AiVisualDesigner : IVisualDesigner
                 "    rich image-like/creative backgrounds, others over solid/color backgrounds — never all identical.";
         }
 
+        // client-driven-decoration: rule 9 used to order "one or two soft geometric shapes/blobs" and
+        // a "subtle shadow or glow" from EVERY client, which stamped translucent decorative circles
+        // onto slides for clients whose real feed has none. When the corpus was MEASURED and shows the
+        // client does not decorate, that order is replaced by an explicit prohibition — merely dropping
+        // the rule is not an instruction, and the model decorates by default.
+        var depthRule = aesthetic is not null && !aesthetic.AllowsDecoration
+            ? "9. DEPTH: this client's own corpus contains NO decorative slides, so add NO decorative\n" +
+              "   elements whatsoever - no geometric shapes, blobs, circles, glows, halos, accent bars,\n" +
+              "   grain, or translucent overlays. Backgrounds are FLAT solid colour, or a photograph, and\n" +
+              "   nothing else. Depth comes from typography, scale and composition alone.\n"
+            : "9. DEPTH & MODERNITY: build the background in layers - gradients, one or two soft geometric\n" +
+              "   shapes/blobs, an accent bar or shape behind the headline, a subtle shadow or glow, optional\n" +
+              "   duotone or grain. Rounded corners. Tasteful and restrained - premium editorial, not clip-art.\n";
+
         return
             "You are a SENIOR ART DIRECTOR designing premium social-media graphics (Instagram stories\n" +
             "and feed carousels). Produce ONE self-contained, brand-bound HTML composition styled with\n" +
@@ -443,9 +457,7 @@ public sealed class AiVisualDesigner : IVisualDesigner
             "   anchor any CTA/signature that EXISTS in the copy slots toward the bottom, lead the eye top to\n" +
             "   bottom. Confident, purposeful placement (a bold off-center layout is welcome when it serves\n" +
             "   the hierarchy). Do not add a CTA or signature that is not in the copy slots or client directives.\n" +
-            "9. DEPTH & MODERNITY: build the background in layers - gradients, one or two soft geometric\n" +
-            "   shapes/blobs, an accent bar or shape behind the headline, a subtle shadow or glow, optional\n" +
-            "   duotone or grain. Rounded corners. Tasteful and restrained - premium editorial, not clip-art.\n" +
+            depthRule +
             $"10. COLOR: high contrast for legibility. The brand palette is ROLE-ORDERED by prevalence:\n" +
             $"    Primary = most dominant (use for hero backgrounds and key elements),\n" +
             $"    Secondary = supporting (complement the primary), Accent = sparingly (highlights only),\n" +

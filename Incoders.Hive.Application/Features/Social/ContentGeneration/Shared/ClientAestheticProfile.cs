@@ -1,4 +1,4 @@
-namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+﻿namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 
 /// <summary>
 /// Application value object representing the aesthetic profile of a client, derived from the
@@ -79,4 +79,10 @@ public sealed record ClientAestheticProfile(
     //
     // Recurring brand mark detected across the client's corpus. Null → no mark is rendered
     // (cold-start parity; FFS-CG-03-a).
-    BrandMarkDetection? BrandMark = null);
+    BrandMarkDetection? BrandMark = null,
+    // exact-client-typography (additive TRAILING nullable — every existing construction site and
+    // `with` expression compiles unchanged):
+    //
+    // Per-role families/weights/size ratios OBSERVED in the client's posts. Null → the legacy
+    // single-family, hardcoded 28/16 px typography stands (cold-start parity).
+    IReadOnlyList<AestheticTypography>? Typography = null);

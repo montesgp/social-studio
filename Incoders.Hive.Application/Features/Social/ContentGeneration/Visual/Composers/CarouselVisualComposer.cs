@@ -122,7 +122,10 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
         // when profile.ColorPairings is non-empty; null profile or empty pairings delegates
         // to the existing positional palette (cold-start parity — CAC-BSP-04-a).
         var palette = CompositionDefaults.ResolvePalette(brand, profile, slideIndex, inferred);
-        var typography = CompositionDefaults.ResolveTypography(brand, inferred);
+        // exact-client-typography: sizes are a ratio of canvas height, so the resolver needs the canvas
+        // it is composing for. Falls back to the brand/default typography when the profile has none.
+        var typography = CompositionDefaults.ResolveTypography(
+            brand, profile, CompositionDefaults.CarouselDimensions.Height, inferred);
 
         // WU-4 C5: use the pre-resolved selection when provided; fall back to the
         // legacy 3-tier selector (BG-03) when null (no plan supplied by the processor).

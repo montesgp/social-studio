@@ -59,6 +59,13 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     /// <summary>Pass-through model edge wired directly to the checkpoint loader (node "1").</summary>
     private const string PassThroughModelEdge = "\"model\": [\"1\", 0]";
 
+    /// <summary>
+    /// Budget for releasing an abandoned prompt on the backend. Short by design: the generation has
+    /// already failed and the caller is waiting to retry, so cleanup must not extend the outage it
+    /// is trying to end.
+    /// </summary>
+    private static readonly TimeSpan CleanupTimeout = TimeSpan.FromSeconds(10);
+
     private readonly ResolvedProviderCredential _credential;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IGeneratedAssetStorage _storage;
@@ -136,6 +143,10 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
         var effectiveCt = linkedCts.Token;
 
+        // Tracked outside the try so the cancellation handler knows whether this call left work
+        // outstanding on the backend. Set only once POST /prompt is acknowledged.
+        string? queuedPromptId = null;
+
         try
         {
             using var http = _httpClientFactory.CreateClient(nameof(ComfyUiImageModelClient));
@@ -197,6 +208,8 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                 return Result.Failure<ImageGenerationResult>(promptIdResult.Error);
             }
 
+            queuedPromptId = promptIdResult.Value;
+
             var outputImageResult = await PollHistoryAsync(http, baseUrl, promptIdResult.Value, settings, _logger, effectiveCt);
             if (outputImageResult.IsFailure)
             {
@@ -225,15 +238,30 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
         }
         catch (OperationCanceledException)
         {
-            // CUI-02-c: overall Timeout elapsed OR the caller-supplied CancellationToken was
-            // cancelled — both degrade identically, never propagate.
-            _logger.LogWarning(
-                "ComfyUiImageModelClient: generation timed out or was cancelled. " +
-                "OrganizationId={OrganizationId} CapabilityKey={CapabilityKey}",
-                request.OrganizationId,
-                request.CapabilityKey);
+            // CUI-02-c: never propagate. But WHICH budget ran out decides what the caller should do
+            // next, and the two are not interchangeable: our own Timeout elapsing is a provider fault
+            // worth retrying, while the caller withdrawing the work is not. Collapsing both onto
+            // ProviderTimeout meant a cancelled job kept buying full provider attempts for every
+            // slide it had left.
+            var callerWithdrew = ct.IsCancellationRequested;
 
-            return Result.Failure<ImageGenerationResult>(IntegrationErrors.ProviderTimeout);
+            _logger.LogWarning(
+                "ComfyUiImageModelClient: generation {Reason}. " +
+                "OrganizationId={OrganizationId} CapabilityKey={CapabilityKey} PromptId={PromptId}",
+                callerWithdrew ? "was cancelled by the caller" : "exceeded its own timeout",
+                request.OrganizationId,
+                request.CapabilityKey,
+                queuedPromptId ?? "(none)");
+
+            // Giving up on the HTTP flow does not stop the backend: an outstanding prompt keeps
+            // occupying the GPU and the caller's retry queues another one behind it. Abandon it on
+            // the server too, or every subsequent attempt waits out its full budget behind work
+            // nobody will collect, and the stacked prompts exhaust video memory.
+            await TryAbandonQueuedPromptAsync(baseUrl, queuedPromptId);
+
+            return Result.Failure<ImageGenerationResult>(callerWithdrew
+                ? IntegrationErrors.OperationCancelled
+                : IntegrationErrors.ProviderTimeout);
         }
         catch (HttpRequestException ex)
         {
@@ -445,6 +473,128 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
         {
             _logger.LogDebug(ex, "ComfyUI /free call failed; continuing without reclaiming video memory.");
         }
+    }
+
+    /// <summary>
+    /// Releases the prompt this call queued once the call has given up on it: drops it from the
+    /// pending queue, and interrupts execution when it is the prompt currently running.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Ordered delete-then-check on purpose. Deleting first removes a still-pending prompt so it can
+    /// never start between the check and the action; a prompt that is already running is unaffected
+    /// by the delete and is caught by the <c>GET /queue</c> read that follows.
+    /// </para>
+    /// <para>
+    /// <c>POST /interrupt</c> carries no prompt id — it stops whatever the backend is executing — so
+    /// it is issued ONLY after <c>GET /queue</c> confirms the running prompt is ours. A blanket
+    /// interrupt would cancel an unrelated render on a shared backend.
+    /// </para>
+    /// <para>
+    /// Runs on its own token: the caller's is already cancelled, which is precisely why we are here.
+    /// Best-effort throughout — this is cleanup on a path that has already failed and must never
+    /// change the error the caller sees.
+    /// </para>
+    /// </remarks>
+    private async Task TryAbandonQueuedPromptAsync(string baseUrl, string? promptId)
+    {
+        if (string.IsNullOrWhiteSpace(promptId))
+        {
+            // Nothing was queued, so there is nothing of ours to cancel.
+            return;
+        }
+
+        try
+        {
+            using var cleanupCts = new CancellationTokenSource(CleanupTimeout);
+            var cleanupCt = cleanupCts.Token;
+            using var http = _httpClientFactory.CreateClient(nameof(ComfyUiImageModelClient));
+
+            using var deleteContent = new StringContent(
+                $$"""{"delete":[{{JsonSerializer.Serialize(promptId)}}]}""",
+                Encoding.UTF8,
+                "application/json");
+
+            using var deleteResponse = await http.PostAsync($"{baseUrl}/queue", deleteContent, cleanupCt);
+            if (!deleteResponse.IsSuccessStatusCode)
+            {
+                _logger.LogDebug(
+                    "ComfyUI queue delete for prompt {PromptId} returned {StatusCode}.",
+                    promptId,
+                    (int)deleteResponse.StatusCode);
+            }
+
+            if (!await IsPromptRunningAsync(http, baseUrl, promptId, cleanupCt))
+            {
+                return;
+            }
+
+            using var interruptContent = new StringContent(string.Empty, Encoding.UTF8, "application/json");
+            using var interruptResponse = await http.PostAsync($"{baseUrl}/interrupt", interruptContent, cleanupCt);
+
+            _logger.LogInformation(
+                "ComfyUI: interrupted abandoned prompt {PromptId} (status {StatusCode}).",
+                promptId,
+                (int)interruptResponse.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            // Includes the cleanup budget elapsing. An unreachable or wedged backend cannot be told
+            // to stop, and saying so louder would not help the caller.
+            _logger.LogDebug(ex, "ComfyUI: could not abandon prompt {PromptId} on the backend.", promptId);
+        }
+    }
+
+    /// <summary>
+    /// Reads <c>GET /queue</c> and reports whether <paramref name="promptId"/> is the entry ComfyUI
+    /// is currently executing. Each <c>queue_running</c> entry is a positional array whose second
+    /// element is the prompt id. Returns <c>false</c> on any unexpected shape or failure: not
+    /// knowing must never escalate into interrupting a render that may not be ours.
+    /// </summary>
+    private async Task<bool> IsPromptRunningAsync(
+        HttpClient http,
+        string baseUrl,
+        string promptId,
+        CancellationToken ct)
+    {
+        using var response = await http.GetAsync($"{baseUrl}/queue", ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            return false;
+        }
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty("queue_running", out var running)
+                || running.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            foreach (var entry in running.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.Array || entry.GetArrayLength() < 2)
+                {
+                    continue;
+                }
+
+                var idElement = entry[1];
+                if (idElement.ValueKind == JsonValueKind.String
+                    && string.Equals(idElement.GetString(), promptId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        return false;
     }
 
     /// <summary>

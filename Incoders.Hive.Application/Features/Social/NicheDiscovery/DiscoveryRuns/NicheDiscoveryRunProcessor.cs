@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Ai;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Features.Social.NicheDiscovery.Analytics;
 using Incoders.Hive.Application.Features.Social.NicheDiscovery.MarketComparison;
@@ -72,6 +73,7 @@ public sealed class NicheDiscoveryRunProcessor : INicheDiscoveryRunProcessor
     private readonly IDiscoveryRunRepository _runRepository;
     private readonly NicheDiscoverySourceChain _chain;
     private readonly IAiCompletionGateway _ai;
+    private readonly IWorkflowConfigurationResolver _workflowResolver;
     private readonly INicheOpportunityRepository _opportunityRepository;
     private readonly INicheDiscoveryEvidenceRepository _evidenceRepository;
     private readonly IClock _clock;
@@ -84,6 +86,7 @@ public sealed class NicheDiscoveryRunProcessor : INicheDiscoveryRunProcessor
         INicheOpportunityRepository opportunityRepository,
         INicheDiscoveryEvidenceRepository evidenceRepository,
         IClock clock,
+        IWorkflowConfigurationResolver workflowResolver,
         ILogger<NicheDiscoveryRunProcessor>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(runRepository);
@@ -92,6 +95,7 @@ public sealed class NicheDiscoveryRunProcessor : INicheDiscoveryRunProcessor
         ArgumentNullException.ThrowIfNull(opportunityRepository);
         ArgumentNullException.ThrowIfNull(evidenceRepository);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(workflowResolver);
 
         _runRepository = runRepository;
         _chain = new NicheDiscoverySourceChain(sources);
@@ -99,6 +103,7 @@ public sealed class NicheDiscoveryRunProcessor : INicheDiscoveryRunProcessor
         _opportunityRepository = opportunityRepository;
         _evidenceRepository = evidenceRepository;
         _clock = clock;
+        _workflowResolver = workflowResolver;
         _logger = logger ?? NullLogger<NicheDiscoveryRunProcessor>.Instance;
     }
 
@@ -145,7 +150,7 @@ public sealed class NicheDiscoveryRunProcessor : INicheDiscoveryRunProcessor
 
         // One SemanticAnnotator per run (WU-10: its within-run memoisation cache is an instance field
         // implicitly scoped to one run).
-        var annotator = new SemanticAnnotator(_ai);
+        var annotator = new SemanticAnnotator(_ai, _workflowResolver);
         var semanticOutcome = await annotator.AnnotateAsync(organizationId, candidates, ct);
         var aiCompletionsSpent = candidates.Count > 0 ? 1 : 0;
 

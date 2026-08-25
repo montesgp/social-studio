@@ -107,12 +107,17 @@ export function shouldClearRegistry(prevSlideCount: number, nextSlideCount: numb
   return prevSlideCount !== nextSlideCount;
 }
 
-export type ShortcutAction = "undo" | "redo" | "none";
+export type ShortcutAction = "undo" | "redo" | "delete" | "none";
 
 /**
  * Decides whether a keydown drives the custom stack (R8). While a slot is in text-editing mode
  * (`contenteditable` active), native undo/redo must win — this returns `"none"` unconditionally so
  * the caller falls through instead of intercepting.
+ *
+ * Delete/Backspace remove the selected element. They carry NO modifier, so they are resolved before
+ * the `ctrlOrMeta` gate below — that gate used to reject every unmodified key, which is why the only
+ * way to delete a component was the toolbar's trash button. While text is being edited these keys
+ * must keep deleting characters, which the `isTextEditing` guard above already ensures.
  */
 export function resolveShortcut(i: {
   key: string;
@@ -121,6 +126,7 @@ export function resolveShortcut(i: {
   isTextEditing: boolean;
 }): ShortcutAction {
   if (i.isTextEditing) return "none";
+  if (!i.ctrlOrMeta && (i.key === "Delete" || i.key === "Backspace")) return "delete";
   if (!i.ctrlOrMeta) return "none";
   if (i.key.toLowerCase() !== "z") return "none";
   return i.shift ? "redo" : "undo";

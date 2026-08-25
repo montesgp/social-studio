@@ -513,7 +513,26 @@ public sealed class NicheDiscoveryRunProcessorTests
         IAiCompletionGateway ai,
         FakeOpportunityRepository opportunityRepo,
         FakeEvidenceRepository evidenceRepo) =>
-        new(runRepo, sources, ai, opportunityRepo, evidenceRepo, new FakeClock(Now));
+        new(runRepo, sources, ai, opportunityRepo, evidenceRepo, new FakeClock(Now), new FakeWorkflowResolver());
+
+
+    /// <summary>An enabled AI route, so the semantic layer is reachable in these tests.</summary>
+    private sealed class FakeWorkflowResolver : Incoders.Hive.Application.Abstractions.Integrations.IWorkflowConfigurationResolver
+    {
+        public Task<Result<IReadOnlyList<Incoders.Hive.Application.Abstractions.Integrations.WorkflowStepRouteCandidate>>> ResolveStepAsync(
+            Incoders.Hive.Application.Abstractions.Integrations.WorkflowStepResolutionRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result.Success<IReadOnlyList<Incoders.Hive.Application.Abstractions.Integrations.WorkflowStepRouteCandidate>>(
+                [new Incoders.Hive.Application.Abstractions.Integrations.WorkflowStepRouteCandidate(
+                    ProviderId: Guid.NewGuid(),
+                    ProviderKey: "claude",
+                    OrganizationIntegrationId: Guid.NewGuid(),
+                    ConnectionMode: Incoders.Hive.Domain.Integrations.IntegrationConnectionMode.BringYourOwnKey,
+                    Priority: 1,
+                    ModelId: null,
+                    ActorId: null,
+                    IsEnabled: true)]));
+    }
 
     /// <summary>More clusters than any depth ceiling allows, so the cut is actually exercised.</summary>
     private const int ClusterCount = 40;

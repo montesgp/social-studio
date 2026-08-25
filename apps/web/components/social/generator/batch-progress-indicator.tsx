@@ -18,6 +18,30 @@ import { listActiveBatches, type BatchProgress } from "@/lib/api/content-batches
 
 const POLL_INTERVAL_MS = 5000;
 
+/**
+ * Whether two poll results are the same progress state. Compared field by field rather than by
+ * reference, because every poll deserialises a brand-new array that is almost always identical to
+ * the last one.
+ */
+function sameProgress(a: BatchProgress[], b: BatchProgress[]): boolean {
+  if (a.length !== b.length) return false;
+
+  return a.every((left, i) => {
+    const right = b[i];
+    return (
+      left.batchId === right.batchId &&
+      left.status === right.status &&
+      left.totalPieces === right.totalPieces &&
+      left.completedPieces === right.completedPieces &&
+      left.failedPieces === right.failedPieces &&
+      left.runningPieces === right.runningPieces &&
+      left.queuedPieces === right.queuedPieces &&
+      left.currentPieceIndex === right.currentPieceIndex &&
+      left.currentFormatKey === right.currentFormatKey
+    );
+  });
+}
+
 export function BatchProgressIndicator() {
   const token = useAccessToken();
   const { orgId, isInitialized } = useActiveOrg();
@@ -46,7 +70,13 @@ export function BatchProgressIndicator() {
         }
 
         previousRef.current = active;
-        setBatches(active);
+
+        // This indicator lives in the GLOBAL app shell, so it polls on every route — including the
+        // content studio. Handing React a fresh array every 5s re-rendered the whole shell subtree
+        // even when nothing had changed, which is what produced the
+        // `[Violation] 'setInterval' handler took ~150ms` warnings while the studio canvas was
+        // mounted. Skip the state write unless the payload actually moved.
+        setBatches((prev) => (sameProgress(prev, active) ? prev : active));
       } catch {
         // A failed poll is not worth a toast every five seconds; the next tick recovers.
       }

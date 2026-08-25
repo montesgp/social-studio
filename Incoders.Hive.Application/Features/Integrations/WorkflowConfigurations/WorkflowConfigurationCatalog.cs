@@ -1,4 +1,4 @@
-using Incoders.Hive.Domain.Integrations;
+﻿using Incoders.Hive.Domain.Integrations;
 
 namespace Incoders.Hive.Application.Features.Integrations.WorkflowConfigurations;
 
@@ -322,7 +322,22 @@ public static class WorkflowConfigurationCatalog
                             AllowedProviderKeys: [],
                             SupportsModelSelection: false,
                             SupportsActorSelection: true,
-                            ActorVariantKey: "trending-sweep")
+                            ActorVariantKey: "trending-sweep"),
+                        new(
+                            "semantic-clustering",
+                            "Group the results into niches with AI",
+                            "ai-analysis",
+                            "AI analysis",
+                            "Choose the AI provider/model that groups harvested videos into niches and names " +
+                            "them. Without it the run still ranks, but the niche LABELS fall back to shared " +
+                            "keywords, which only reads well in Spanish and English.",
+                            RequiresNetwork: false,
+                            SupportedNetworkKeys: [],
+                            AllowedProviderCategories: [IntegrationProviderCategory.AiModel],
+                            AllowedProviderKeys: [],
+                            SupportsModelSelection: true,
+                            SupportsActorSelection: false,
+                            ActorVariantKey: null)
                     ])
             ])
     ];

@@ -51,6 +51,33 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
         {
             for (var attempt = 1; attempt <= candidate.MaxAttempts; attempt++)
             {
+                // Retry and fallback exist to survive a failing PROVIDER. Neither is a reason to keep
+                // spending a budget the caller has already withdrawn, so the token is checked before
+                // every attempt — including the first one of a fallback candidate.
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    // The provider is NOT called — but the abandonment is still recorded against this
+                    // candidate. Incident 8757e85a: a job whose final state is missing from
+                    // integration_execution_attempts is a job nobody can diagnose afterwards. The row
+                    // is what makes "cancelled here" visible; skipping the call is what stops a
+                    // badly-behaved adapter from burning its full timeout on work already withdrawn.
+                    var cancelledAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+                    await PersistAttemptAsync(
+                        request,
+                        candidate,
+                        IntegrationExecutionAttemptStatus.Failed,
+                        attempt,
+                        IntegrationErrors.OperationCancelled.Code,
+                        retryCount: attempt - 1,
+                        elapsedMs: 0,
+                        diagnosticsJson: IntegrationErrors.OperationCancelled.MessageKey,
+                        cancelledAtUtc,
+                        completedAtUtc: cancelledAtUtc,
+                        cancellationToken);
+
+                    return CancelledExecution<TResponse>(request, diagnostics);
+                }
+
                 var startedAt = _timeProvider.GetUtcNow().UtcDateTime;
                 var stopwatch = Stopwatch.StartNew();
                 var result = await executeAsync(candidate, cancellationToken);
@@ -123,6 +150,16 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
                     completedAtUtc: diagnostic.OccurredAtUtc,
                     cancellationToken);
 
+                // Checked again here, not only at the loop top: the attempt itself may have been what
+                // consumed the budget, and the retry path would otherwise reach a backoff delay that
+                // throws on a cancelled token instead of returning the typed cancellation result.
+                // No extra telemetry row here — the attempt that just ran was persisted above, and it
+                // carries the real failure.
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return CancelledExecution<TResponse>(request, diagnostics);
+                }
+
                 var decision = _fallbackPolicy.Decide(candidate, diagnostic);
                 if (decision.ShouldRetry)
                 {
@@ -161,6 +198,28 @@ public sealed class IntegrationExecutionPolicy : IIntegrationExecutionPolicy
             diagnostics.Count);
 
         return Result.Failure<ProviderExecutionResult<TResponse>>(finalError);
+    }
+
+    /// <summary>
+    /// Terminal result for a withdrawn caller. Distinct from
+    /// <see cref="IntegrationErrors.ProviderTimeout"/> on purpose: the providers did not fail, so the
+    /// diagnostics gathered so far describe attempts that are no longer worth acting on, and nothing
+    /// downstream should read this as a reason to try again.
+    /// </summary>
+    private Result<ProviderExecutionResult<TResponse>> CancelledExecution<TResponse>(
+        IntegrationExecutionRequest request,
+        List<ProviderFailureDiagnostic> diagnostics)
+        where TResponse : notnull
+    {
+        _logger.LogInformation(
+            "Integration execution abandoned: the caller's token was cancelled. OrganizationId={OrganizationId} AnalysisId={AnalysisId} FlowKey={FlowKey} CapabilityKey={CapabilityKey} DiagnosticsCount={DiagnosticsCount}",
+            request.OrganizationId,
+            request.AnalysisId,
+            request.FlowKey,
+            request.CapabilityKey,
+            diagnostics.Count);
+
+        return Result.Failure<ProviderExecutionResult<TResponse>>(IntegrationErrors.OperationCancelled);
     }
 
     private ProviderFailureDiagnostic CreateDiagnostic(

@@ -30,8 +30,30 @@ public sealed record ClientAestheticDesignContext(
     IReadOnlyList<string> StyleDescriptors,
     IReadOnlyList<string> Motifs,
     string VariationSeed,
-    BrandMarkDetection? BrandMark = null)
+    BrandMarkDetection? BrandMark = null,
+    // client-driven-decoration (additive trailing nullable): measured photo/flat/decorator mix from
+    // the client's corpus. Null when never measured → the designer keeps its default direction.
+    ImageTypeRatio? ImageTypeRatio = null)
 {
+    /// <summary>
+    /// A decorator share at or below this is treated as noise, not a style — one stray ornamented
+    /// slide in a large corpus does not make a client a decorator.
+    /// </summary>
+    private const double DecoratorNoiseFloor = 0.05;
+
     /// <summary>True when an actual colour palette is available; false when the client has none (free-derive colour).</summary>
     public bool HasPalette => Palette is { Count: > 0 };
+
+    /// <summary>
+    /// Whether the designer may add decorative shapes, blobs and glows.
+    ///
+    /// <para>
+    /// True unless the client's corpus was actually MEASURED and shows they do not decorate. An
+    /// unmeasured client (null ratio, or a zero-slide sample, which proves nothing) keeps the
+    /// default design direction, so this can only ever remove decoration from a client we have
+    /// positive evidence about.
+    /// </para>
+    /// </summary>
+    public bool AllowsDecoration =>
+        ImageTypeRatio is not { SampleSize: > 0 } measured || measured.Decorator > DecoratorNoiseFloor;
 }

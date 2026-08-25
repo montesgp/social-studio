@@ -3,6 +3,7 @@ using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 using Microsoft.Extensions.Logging.Abstractions;
 // WU-9: alias removed — IImageGenerationClient retired; ImageGenerationRequest is unambiguous now.
@@ -351,6 +352,30 @@ public sealed class ClientAestheticImageBackgroundServiceTests
     // Helpers
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // A cancelled job must stop the slide walk, not degrade slide by slide. Degrading is the right
+    // answer when a slide FAILS — the rest of the carousel is still wanted. It is the wrong answer
+    // when the job itself is over: every remaining slide then buys a fresh round of provider
+    // attempts against a budget nobody is waiting on.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task BuildCreativeBackgroundsAsync_JobCancelledDuringSlide1_DoesNotStartSlide4()
+    {
+        var callTracker = new List<int>();
+        var promptWriter = new TrackingPromptWriter(callTracker, prompt: "background prompt");
+        using var cts = new CancellationTokenSource();
+        var imageGateway = new CancellingImageGateway(cts);
+        var storage = new CapturingStorage(url: "https://example.com/image.png");
+
+        var sut = BuildSut(promptWriter, imageGateway, storage);
+
+        var result = await sut.BuildCreativeBackgroundsAsync(BuildRequest([1, 4]), cts.Token);
+
+        Assert.Equal([1], callTracker);
+        Assert.DoesNotContain(4, result.Keys);
+    }
+
     private static ClientAestheticImageBackgroundService BuildSut(
         IImagePromptWriter promptWriter,
         IImageGenerationGateway imageGateway,
@@ -539,6 +564,27 @@ file sealed class PerSlideImageGateway : IImageGenerationGateway
         }
 
         return Task.FromResult(Result.Success(new ImageGenerationResult(_bytes, _mime, "openai", "dall-e-3")));
+    }
+
+    public Task<Result<ImageModelCapabilities>> DescribeAsync(Guid organizationId, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new ImageModelCapabilities(false, 0)));
+}
+
+/// <summary>
+/// Stands in for the job budget expiring mid-render: the token is cancelled while the provider call
+/// is in flight, and the call reports the cancellation the way the adapters do — as a failed
+/// <c>Result</c>, not a thrown exception.
+/// </summary>
+file sealed class CancellingImageGateway : IImageGenerationGateway
+{
+    private readonly CancellationTokenSource _cts;
+
+    public CancellingImageGateway(CancellationTokenSource cts) => _cts = cts;
+
+    public Task<Result<ImageGenerationResult>> GenerateAsync(ImageGenerationRequest request, CancellationToken ct = default)
+    {
+        _cts.Cancel();
+        return Task.FromResult(Result.Failure<ImageGenerationResult>(IntegrationErrors.OperationCancelled));
     }
 
     public Task<Result<ImageModelCapabilities>> DescribeAsync(Guid organizationId, CancellationToken ct = default)

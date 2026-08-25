@@ -178,6 +178,19 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
         var map = new Dictionary<int, BackgroundSelection.ForcedDefault>();
         foreach (var slideIndex in cappedIndices)
         {
+            // Per-slide degradation is the right answer when a slide FAILS: the rest of the carousel
+            // is still wanted. It is the wrong answer when the JOB is over — every remaining slide
+            // then buys a fresh round of provider attempts nobody is waiting on. The adapters report
+            // a cancelled token as a failed Result rather than throwing, so the loop has to ask.
+            if (ct.IsCancellationRequested)
+            {
+                _logger.LogInformation(
+                    "ClientAestheticImageBackgroundService: job cancelled — stopping before slide {SlideIndex} " +
+                    "(org {OrgId}). {Completed} slide(s) resolved.",
+                    slideIndex, request.OrganizationId, map.Count);
+                break;
+            }
+
             var (index, forcedDefault) = await BuildSingleSlideAsync(
                 request, slideIndex, referenceImages, targetWidth, targetHeight, ct);
             if (forcedDefault is not null)

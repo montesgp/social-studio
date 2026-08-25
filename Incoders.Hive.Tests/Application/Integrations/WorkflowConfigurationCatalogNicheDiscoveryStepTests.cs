@@ -20,6 +20,7 @@ public sealed class WorkflowConfigurationCatalogNicheDiscoveryStepTests
         "channel-detail",
         "video-detail",
         "trending-sweep",
+        "semantic-clustering",
     ];
 
     [Fact]

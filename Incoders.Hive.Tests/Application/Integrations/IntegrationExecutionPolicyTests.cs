@@ -270,6 +270,97 @@ public sealed class IntegrationExecutionPolicyTests
         Assert.True(IntegrationExecutionPolicy.TelemetryWriteTimeout < TimeSpan.FromMinutes(1));
     }
 
+    // -----------------------------------------------------------------------
+    // The caller's token is the authority on whether the work is still wanted. Retry and fallback
+    // are recovery strategies for a failing PROVIDER; neither is a reason to keep spending a budget
+    // the caller has already withdrawn. Before this guard the loop only ever observed cancellation
+    // through the backoff delay, so an exhausted attempt — which has no delay after it — walked
+    // straight on to the next candidate.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ExecuteAsync_TokenAlreadyCancelled_DoesNotCallTheProvider()
+    {
+        var candidate = Candidate("openai", maxAttempts: 2);
+        var policy = new IntegrationExecutionPolicy(new ProviderFallbackPolicy(), new InMemoryAttemptRepository(), new ImmediateTimeProvider());
+        var calls = 0;
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        var result = await policy.ExecuteAsync(
+            Request(),
+            [candidate],
+            (_, _) =>
+            {
+                calls++;
+                return Task.FromResult(Result.Success("ok"));
+            },
+            cts.Token);
+
+        Assert.Equal(0, calls);
+        Assert.True(result.IsFailure);
+        Assert.Equal(IntegrationErrors.OperationCancelled.Code, result.Error.Code);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TokenCancelledDuringAnAttempt_DoesNotRetryTheSameProvider()
+    {
+        var candidate = Candidate("openai", maxAttempts: 3);
+        var policy = new IntegrationExecutionPolicy(new ProviderFallbackPolicy(), new InMemoryAttemptRepository(), new ImmediateTimeProvider());
+        var calls = 0;
+        using var cts = new CancellationTokenSource();
+
+        var result = await policy.ExecuteAsync(
+            Request(),
+            [candidate],
+            (_, _) =>
+            {
+                calls++;
+                cts.Cancel();
+                return Task.FromResult(Result.Failure<string>(IntegrationErrors.ProviderTimeout));
+            },
+            cts.Token);
+
+        Assert.Equal(1, calls);
+        Assert.True(result.IsFailure);
+        Assert.Equal(IntegrationErrors.OperationCancelled.Code, result.Error.Code);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TokenCancelledDuringAnAttempt_DoesNotFallBackToTheNextCandidate()
+    {
+        var first = Candidate("openai", priority: 10, maxAttempts: 1);
+        var second = Candidate("claude", priority: 20, maxAttempts: 1);
+        var policy = new IntegrationExecutionPolicy(new ProviderFallbackPolicy(), new InMemoryAttemptRepository(), new ImmediateTimeProvider());
+        var providersCalled = new List<string>();
+        using var cts = new CancellationTokenSource();
+
+        var result = await policy.ExecuteAsync(
+            Request(),
+            [first, second],
+            (candidate, _) =>
+            {
+                providersCalled.Add(candidate.ProviderKey);
+                cts.Cancel();
+                return Task.FromResult(Result.Failure<string>(IntegrationErrors.ProviderTimeout));
+            },
+            cts.Token);
+
+        Assert.Equal(["openai"], providersCalled);
+        Assert.True(result.IsFailure);
+        Assert.Equal(IntegrationErrors.OperationCancelled.Code, result.Error.Code);
+    }
+
+    [Fact]
+    public void OperationCancelled_IsNotClassifiedAsRetryable()
+    {
+        // IsRetryable matches on substrings of the failure code, so a cancellation code that
+        // happened to contain "timeout" or "unavailable" would silently be retried.
+        Assert.DoesNotContain("timeout", IntegrationErrors.OperationCancelled.Code, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("unavailable", IntegrationErrors.OperationCancelled.Code, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("rate_limited", IntegrationErrors.OperationCancelled.Code, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static IntegrationExecutionRequest Request() => new(
         OrganizationId,
         AnalysisId: Guid.NewGuid(),

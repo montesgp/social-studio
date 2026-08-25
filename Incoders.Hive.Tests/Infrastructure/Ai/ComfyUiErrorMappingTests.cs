@@ -85,8 +85,12 @@ public sealed class ComfyUiErrorMappingTests
     }
 
     [Fact]
-    public async Task GenerateAsync_CancellationTokenCancelled_ReturnsProviderTimeout()
+    public async Task GenerateAsync_CallerTokenCancelled_ReturnsOperationCancelledNotProviderTimeout()
     {
+        // These two used to collapse onto ProviderTimeout, and the difference matters: the provider
+        // running out of ITS budget is a retryable provider fault, while the CALLER withdrawing the
+        // work is not. Reported as a timeout, a cancelled job's remaining slides each bought two
+        // more full provider attempts.
         var handler = new RoutedHandler(historyBody: "{}");
         var client = BuildClient(handler, pollIntervalMs: "5");
         using var cts = new CancellationTokenSource();
@@ -95,7 +99,7 @@ public sealed class ComfyUiErrorMappingTests
         var result = await client.GenerateAsync(BuildRequest(), cts.Token);
 
         Assert.True(result.IsFailure);
-        Assert.Equal(IntegrationErrors.ProviderTimeout.Code, result.Error.Code);
+        Assert.Equal(IntegrationErrors.OperationCancelled.Code, result.Error.Code);
     }
 
     [Fact]

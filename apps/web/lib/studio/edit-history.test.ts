@@ -194,3 +194,50 @@ test("resolveShortcut: plain z with no modifier resolves to none", () => {
 test("resolveShortcut: a non-z key resolves to none even with modifiers", () => {
   assert.equal(resolveShortcut({ isTextEditing: false, key: "a", ctrlOrMeta: true, shift: false }), "none");
 });
+
+// --- resolveShortcut: Delete/Backspace remove the selected component ---
+// Deleting used to be reachable only through the toolbar's trash button: the resolver bailed on
+// `if (!i.ctrlOrMeta) return "none"`, so no unmodified key could ever resolve to an action.
+
+test("resolveShortcut: Delete outside text-editing resolves to delete", () => {
+  assert.equal(
+    resolveShortcut({ key: "Delete", ctrlOrMeta: false, shift: false, isTextEditing: false }),
+    "delete",
+  );
+});
+
+test("resolveShortcut: Backspace outside text-editing resolves to delete", () => {
+  assert.equal(
+    resolveShortcut({ key: "Backspace", ctrlOrMeta: false, shift: false, isTextEditing: false }),
+    "delete",
+  );
+});
+
+test("resolveShortcut: Delete while editing text stays native so it deletes characters", () => {
+  assert.equal(
+    resolveShortcut({ key: "Delete", ctrlOrMeta: false, shift: false, isTextEditing: true }),
+    "none",
+  );
+  assert.equal(
+    resolveShortcut({ key: "Backspace", ctrlOrMeta: false, shift: false, isTextEditing: true }),
+    "none",
+  );
+});
+
+test("resolveShortcut: Ctrl+Z still resolves to undo after the delete branch was added", () => {
+  assert.equal(
+    resolveShortcut({ key: "z", ctrlOrMeta: true, shift: false, isTextEditing: false }),
+    "undo",
+  );
+  assert.equal(
+    resolveShortcut({ key: "z", ctrlOrMeta: true, shift: true, isTextEditing: false }),
+    "redo",
+  );
+});
+
+test("resolveShortcut: an ordinary character key is still ignored", () => {
+  assert.equal(
+    resolveShortcut({ key: "a", ctrlOrMeta: false, shift: false, isTextEditing: false }),
+    "none",
+  );
+});

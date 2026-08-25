@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Infrastructure.Identity;
@@ -84,7 +84,7 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
         // IProfileAnalysisRepository.GetLatestAestheticFreshnessAsync — so it is discarded here.
         var (palette, styleDescriptors, motifs, captionVoice, referenceImages,
                 backgroundPattern, typicalSlideCount, colorPairings,
-                conceptualMethod, imageTypeRatio, brandMark, _) =
+                conceptualMethod, imageTypeRatio, brandMark, _, typography) =
             AestheticProfilePersistence.Read(row.AestheticProfileJson);
 
         return new ClientAestheticProfile(
@@ -102,7 +102,10 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
             ColorPairings: colorPairings,
             ConceptualMethod: conceptualMethod,
             ImageTypeRatio: imageTypeRatio,
-            BrandMark: brandMark);
+            BrandMark: brandMark,
+            // exact-client-typography: observed per-role families/weights/size ratios drive
+            // CompositionDefaults.ResolveTypography; null keeps the legacy 28/16 defaults.
+            Typography: typography);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────

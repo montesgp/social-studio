@@ -11,4 +11,15 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 /// <param name="BackgroundHex">Background hex colour (e.g. "#1A2B3C").</param>
 /// <param name="TextHex">Text hex colour with WCAG ≥ 4.5:1 contrast against <see cref="BackgroundHex"/>.</param>
 /// <param name="Rank">Prevalence rank from the source brand palette; 1 = highest priority.</param>
-public sealed record ColorPairing(string BackgroundHex, string TextHex, int Rank);
+/// <param name="AccentTextHex">
+/// Optional THIRD colour for emphasised copy on the same slide — the "fixed background, body copy in
+/// one colour, highlighted words in another" combination real client feeds use (e.g. red background,
+/// white body, yellow highlight). Holds WCAG ≥ 4.5:1 against <see cref="BackgroundHex"/> and is never
+/// equal to <see cref="TextHex"/>. Null when the palette offers no legible third colour, in which case
+/// the slide renders as a plain two-colour pairing exactly as before.
+/// </param>
+public sealed record ColorPairing(
+    string BackgroundHex,
+    string TextHex,
+    int Rank,
+    string? AccentTextHex = null);

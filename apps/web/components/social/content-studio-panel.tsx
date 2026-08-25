@@ -2688,6 +2688,10 @@ const DesignCanvas = forwardRef<
   const onDirtyRef = useRef(onDirty);
   const onUndoRef = useRef(onUndo);
   const onRedoRef = useRef(onRedo);
+  // `deleteSelected` is declared further down, but the keydown effect is registered once and must
+  // not re-subscribe on every render — so it reaches the current closure through a ref, exactly
+  // like undo/redo above.
+  const deleteSelectedRef = useRef<() => void>(() => {});
   useEffect(() => {
     onDirtyRef.current = onDirty;
     onUndoRef.current = onUndo;
@@ -2994,6 +2998,12 @@ const DesignCanvas = forwardRef<
       } else if (action === "redo") {
         e.preventDefault();
         onRedoRef.current();
+      } else if (action === "delete") {
+        // Only intercept when something is actually selected; otherwise Delete/Backspace keeps its
+        // normal meaning everywhere else on the page.
+        if (!selectedRef.current) return;
+        e.preventDefault();
+        deleteSelectedRef.current();
       }
     };
 
@@ -3017,6 +3027,7 @@ const DesignCanvas = forwardRef<
     select(null);
     onDirty();
   };
+  deleteSelectedRef.current = deleteSelected;
 
   /** Reorders the selected element among its siblings (later in DOM paints on top). */
   const reorderSelected = (direction: "forward" | "backward") => {
@@ -3202,7 +3213,10 @@ const DesignCanvas = forwardRef<
         />
       ) : null}
     </div>
-    {selRect ? (
+    {/* A PINNED toolbar stays mounted even with nothing selected. It used to render on `selRect`
+        alone, so moving between slides cleared the selection and the pinned panel vanished — the
+        pin only stopped the drag, it never kept the panel alive. */}
+    {selRect || toolbarPinned ? (
         <div
           data-cs-toolbar
           className="fixed z-[60] w-max rounded-md border border-border bg-background shadow-2xl"
@@ -3235,7 +3249,17 @@ const DesignCanvas = forwardRef<
               {toolbarPinned ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
             </button>
           </div>
-          <div className="flex flex-col items-center gap-0.5 p-1">
+          {/* Every element-scoped handler already no-ops without a selection (`apply`,
+              `deleteSelected` and `reorderSelected` all bail on a null `selectedRef`), so an idle
+              pinned toolbar is inert. This just makes that state visible instead of offering
+              controls that silently do nothing. */}
+          <div
+            aria-disabled={!selRect}
+            className={cn(
+              "flex flex-col items-center gap-0.5 p-1",
+              selRect ? undefined : "pointer-events-none opacity-40",
+            )}
+          >
           {/* Undo/redo also live up on the bar above the canvas, but that bar sits over the black
               media backdrop where the controls are hard to make out. The floating toolbar is where
               the operator already is while editing. */}

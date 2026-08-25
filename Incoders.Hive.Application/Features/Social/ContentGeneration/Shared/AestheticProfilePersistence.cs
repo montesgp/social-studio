@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
 
@@ -36,7 +36,11 @@ public static class AestheticProfilePersistence
             // deriving from the pattern length exactly as before (cold-start parity).
             TypicalSlideCount: extraction.TypicalSlideCount ?? extraction.BackgroundPattern?.Count,
             ColorPairings: extraction.ColorPairings?
-                .Select(p => new StoredColorPairing(p.BackgroundHex, p.TextHex, p.Rank))
+                .Select(p => new StoredColorPairing(p.BackgroundHex, p.TextHex, p.Rank, p.AccentTextHex))
+                .ToArray(),
+            // exact-client-typography: additive key; absent on older blobs -> null on Read.
+            Typography: extraction.Typography?
+                .Select(t => new StoredTypography(t.Role, t.FontFamily, t.Weight, t.Italic, t.SizeRatio))
                 .ToArray(),
             // client-aesthetic-conceptual-detection: additive keys; absent on old blobs → null on Read (OQ-4)
             ConceptualMethod: extraction.ConceptualMethod is null ? null
@@ -88,11 +92,14 @@ public static class AestheticProfilePersistence
         // reachable so callers (freshness checks) can compare schema versions. Null on old blobs
         // that predate the PromptVersion key (malformed/absent → treated as oldest by
         // AestheticFreshness.ParseSchemaVersion).
-        string? SchemaVersion) Read(string? json)
+        string? SchemaVersion,
+        // exact-client-typography (additive trailing element): observed per-role typography, or null
+        // on blobs written before it existed.
+        IReadOnlyList<AestheticTypography>? Typography) Read(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
-            return (null, null, null, null, null, null, null, null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null, null, null, null, null, null);
         }
 
         try
@@ -100,7 +107,7 @@ public static class AestheticProfilePersistence
             var dto = JsonSerializer.Deserialize<StoredAestheticProfile>(json, JsonOpts);
             if (dto is null)
             {
-                return (null, null, null, null, null, null, null, null, null, null, null, null);
+                return (null, null, null, null, null, null, null, null, null, null, null, null, null);
             }
 
             var palette = (dto.Palette ?? [])
@@ -120,7 +127,13 @@ public static class AestheticProfilePersistence
             var colorPairings = dto.ColorPairings is null
                 ? null
                 : (IReadOnlyList<ColorPairing>?)dto.ColorPairings
-                    .Select(p => new ColorPairing(p.BackgroundHex, p.TextHex, p.Rank))
+                    .Select(p => new ColorPairing(p.BackgroundHex, p.TextHex, p.Rank, p.AccentTextHex))
+                    .ToArray();
+
+            var typography = dto.Typography is null
+                ? null
+                : (IReadOnlyList<AestheticTypography>?)dto.Typography
+                    .Select(t => new AestheticTypography(t.Role, t.FontFamily, t.Weight, t.Italic, t.SizeRatio))
                     .ToArray();
 
             // client-aesthetic-conceptual-detection additive fields (absent on old blobs → null; CACD-PA-05-b)
@@ -144,11 +157,11 @@ public static class AestheticProfilePersistence
 
             return (palette, dto.StyleDescriptors ?? [], dto.Motifs ?? [], dto.CaptionVoice, refs,
                 backgroundPattern, dto.TypicalSlideCount, colorPairings,
-                conceptualMethod, imageTypeRatio, brandMark, dto.PromptVersion);
+                conceptualMethod, imageTypeRatio, brandMark, dto.PromptVersion, typography);
         }
         catch
         {
-            return (null, null, null, null, null, null, null, null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null, null, null, null, null, null);
         }
     }
 
@@ -210,13 +223,20 @@ public static class AestheticProfilePersistence
         StoredImageTypeRatio? ImageTypeRatio = null,
         string? PromptVersion = null,
         // faithful-flat-slide-rendering additive key (nullable; absent on pre-v3 blobs; FFS-PA-02)
-        StoredBrandMark? BrandMark = null);
+        StoredBrandMark? BrandMark = null,
+        // exact-client-typography additive key (nullable; absent on older blobs)
+        IReadOnlyList<StoredTypography>? Typography = null);
 
     private sealed record StoredPaletteEntry(string Hex, string? Role, int Rank);
 
     private sealed record StoredImageRef(string SourcePostId, int AssetIndex, string StoragePath, string ContentHash);
 
-    private sealed record StoredColorPairing(string BackgroundHex, string TextHex, int Rank);
+    // three-colour-slide-combinations: AccentTextHex is an additive trailing nullable, so blobs written
+    // before it existed deserialize with a null accent and read back as plain two-colour pairings.
+    private sealed record StoredColorPairing(string BackgroundHex, string TextHex, int Rank, string? AccentTextHex = null);
+
+    private sealed record StoredTypography(
+        string Role, string FontFamily, int Weight = 400, bool Italic = false, double SizeRatio = 0);
 
     /// <summary>Stored shape for ConceptualMethod; method serialized as its enum name string.</summary>
     private sealed record StoredConceptualMethod(

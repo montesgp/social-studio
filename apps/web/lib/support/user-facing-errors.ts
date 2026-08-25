@@ -48,6 +48,14 @@ const ERROR_COPY: Record<string, UserFacingError> = {
     message: "The source took too long to respond. Please try again in a moment.",
     isConfigIssue: false,
   },
+  // Distinct from provider_timeout on purpose: nothing failed on the provider's side, so telling
+  // the user "the service took too long" would send them chasing the wrong problem.
+  "integrations.operation_cancelled": {
+    title: "The job ran out of time",
+    message:
+      "This job hit its time limit and was stopped before it finished. Nothing was left running. Please try again.",
+    isConfigIssue: false,
+  },
   "integrations.external_provider_unavailable": {
     title: "Extraction service unavailable",
     message: "The extraction service is temporarily unavailable. Please try again shortly.",

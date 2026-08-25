@@ -110,7 +110,8 @@ public sealed class SecondTargetMarketNoCodeChangeTests
             new FakeGateway(),
             opportunityRepo,
             new FakeEvidenceRepository(),
-            new FakeClock(Now));
+            new FakeClock(Now),
+            new FakeWorkflowResolver());
 
         await processor.RunAsync(Org, run.Id, CancellationToken.None);
 
@@ -163,6 +164,24 @@ public sealed class SecondTargetMarketNoCodeChangeTests
 
         public Task<MarketCatalogEntry?> GetByCodeAsync(MarketCode code, CancellationToken ct = default) =>
             Task.FromResult(_entries.FirstOrDefault(e => e.Code.Value == code.Value));
+    }
+
+/// <summary>An enabled AI route, so the semantic layer is reachable in these tests.</summary>
+    private sealed class FakeWorkflowResolver : Incoders.Hive.Application.Abstractions.Integrations.IWorkflowConfigurationResolver
+    {
+        public Task<Result<IReadOnlyList<Incoders.Hive.Application.Abstractions.Integrations.WorkflowStepRouteCandidate>>> ResolveStepAsync(
+            Incoders.Hive.Application.Abstractions.Integrations.WorkflowStepResolutionRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result.Success<IReadOnlyList<Incoders.Hive.Application.Abstractions.Integrations.WorkflowStepRouteCandidate>>(
+                [new Incoders.Hive.Application.Abstractions.Integrations.WorkflowStepRouteCandidate(
+                    ProviderId: Guid.NewGuid(),
+                    ProviderKey: "claude",
+                    OrganizationIntegrationId: Guid.NewGuid(),
+                    ConnectionMode: Incoders.Hive.Domain.Integrations.IntegrationConnectionMode.BringYourOwnKey,
+                    Priority: 1,
+                    ModelId: null,
+                    ActorId: null,
+                    IsEnabled: true)]));
     }
 
     private sealed class FakeRunRepository : IDiscoveryRunRepository

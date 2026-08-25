@@ -116,6 +116,17 @@ public static class IntegrationErrors
         "integrations.provider_rate_limited",
         "integrations.errors.provider_rate_limited");
 
+    /// <summary>
+    /// The CALLER withdrew the work — a cancelled job budget or host shutdown — as opposed to
+    /// <see cref="ProviderTimeout"/>, where the provider ran out of its own budget and a retry is
+    /// worth paying for. Deliberately worded to contain none of the substrings the execution policy
+    /// classifies as retryable, so no amount of fallback logic can turn a cancelled job back into
+    /// more provider calls.
+    /// </summary>
+    public static readonly Error OperationCancelled = Error.Failure(
+        "integrations.operation_cancelled",
+        "integrations.errors.operation_cancelled");
+
     public static readonly Error ProviderCredentialUnavailable = Error.Validation(
         "integrations.provider_credential_unavailable",
         "integrations.errors.provider_credential_unavailable");

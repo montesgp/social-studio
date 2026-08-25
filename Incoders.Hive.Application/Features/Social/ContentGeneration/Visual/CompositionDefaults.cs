@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fonts;
 using Incoders.Hive.Domain.Social.ContentFormats;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
@@ -122,10 +123,101 @@ internal static class CompositionDefaults
             {
                 Background = p.BackgroundHex,
                 Text = p.TextHex,
+                // three-colour-slide-combinations: when the pairing carries a third colour, it drives
+                // the slide's emphasis colour. Null accent keeps the brand-derived accent untouched,
+                // so two-colour clients render exactly as they did before.
+                Accent = p.AccentTextHex ?? basePalette.Accent,
             };
         }
 
         return ResolvePalette(brand, inferred);
+    }
+
+    /// <summary>
+    /// Smallest type we will ever emit. Below this, body copy stops being legible once the slide is
+    /// scaled down to a feed thumbnail, so a bad measurement can never produce unreadable output.
+    /// </summary>
+    private const int MinTypeSize = 12;
+
+    /// <summary>
+    /// Largest fraction of canvas height a single line of type may claim. A headline past this is a
+    /// measurement error, not a design choice.
+    /// </summary>
+    private const double MaxSizeRatio = 0.30;
+
+    /// <summary>
+    /// Resolves typography from the client's OBSERVED per-role typography when the aesthetic profile
+    /// carries it, falling back to the brand manual and then to defaults.
+    ///
+    /// <para>
+    /// Sizes come from <see cref="AestheticTypography.SizeRatio"/> scaled by the canvas height, so the
+    /// same profile drives a square carousel and a tall story without the copy changing apparent
+    /// weight. The previous behaviour — one family for both roles at a hardcoded 28/16 px — survives
+    /// unchanged whenever the profile has no typography, which keeps every existing client identical.
+    /// </para>
+    /// </summary>
+    internal static CompositionTypography ResolveTypography(
+        BrandSnapshot brand,
+        ClientAestheticProfile? profile,
+        int canvasHeight,
+        InferenceAccumulator inferred)
+    {
+        var observed = profile?.Typography;
+        if (observed is not { Count: > 0 })
+        {
+            return ResolveTypography(brand, inferred);
+        }
+
+        var heading = FindRole(observed, TypographyRoles.Heading);
+        var body = FindRole(observed, TypographyRoles.Body);
+
+        // A profile that names neither slot tells us nothing usable.
+        if (heading is null && body is null)
+        {
+            return ResolveTypography(brand, inferred);
+        }
+
+        inferred.Track("brand.Typography", false);
+
+        var fallback = ResolveTypography(brand, inferred);
+
+        var headingResolved = FontFamilyResolution.Resolve(heading?.FontFamily);
+        var bodyResolved = FontFamilyResolution.Resolve(body?.FontFamily);
+
+        return new CompositionTypography(
+            HeadingFamily: heading is null ? fallback.HeadingFamily : headingResolved.Renderable,
+            HeadingSize: SizeFor(heading, canvasHeight, fallback.HeadingSize),
+            BodyFamily: body is null ? fallback.BodyFamily : bodyResolved.Renderable,
+            BodySize: SizeFor(body, canvasHeight, fallback.BodySize))
+        {
+            HeadingWeight = heading?.Weight ?? 700,
+            BodyWeight = body?.Weight ?? 400,
+            BodyItalic = body?.Italic ?? false,
+            RequestedHeadingFamily = heading is not null && !headingResolved.IsExact ? headingResolved.Requested : null,
+            RequestedBodyFamily = body is not null && !bodyResolved.IsExact ? bodyResolved.Requested : null,
+        };
+    }
+
+    private static AestheticTypography? FindRole(IReadOnlyList<AestheticTypography> entries, string role) =>
+        entries.FirstOrDefault(e => string.Equals(e.Role?.Trim(), role, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Converts an observed size ratio into pixels for this canvas. An absent, non-positive, or
+    /// implausibly large ratio means the extractor could not measure it, so the caller's existing
+    /// default stands rather than a fabricated number.
+    /// </summary>
+    private static int SizeFor(AestheticTypography? entry, int canvasHeight, int fallbackSize)
+    {
+        if (entry is null || entry.SizeRatio <= 0 || entry.SizeRatio > MaxSizeRatio || canvasHeight <= 0)
+        {
+            return fallbackSize;
+        }
+
+        // AwayFromZero, not the Math.Round default: banker's rounding turns 40.5px into 40 and 41.5px
+        // into 42, so two adjacent measurements round in opposite directions. Type sizes should just
+        // round up at the midpoint.
+        var pixels = (int)Math.Round(entry.SizeRatio * canvasHeight, MidpointRounding.AwayFromZero);
+        return Math.Max(MinTypeSize, pixels);
     }
 
     /// <summary>
