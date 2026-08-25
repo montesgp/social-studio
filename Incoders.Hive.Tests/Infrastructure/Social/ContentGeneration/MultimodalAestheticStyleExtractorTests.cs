@@ -556,6 +556,69 @@ public sealed class MultimodalAestheticStyleExtractorTests
         Assert.Null(result.Typography);
     }
 
+    // ── WU-3a task 3a.1 [RED] — per-slide photo-transparency mapping (CAFF-PA-03) ──────
+
+    [Fact]
+    public async Task SlideBackgroundTransparency_ConsistentBlendedHabit_MapsBooleanAndDescriptor_AtIndices1And3()
+    {
+        // CAFF-PA-03: slides at index 1 and 3 show a faded/blended photo background.
+        var gateway = new CaptureGateway(
+            paletteJson: "[]",
+            descriptors: "[]",
+            slideMixPattern: """["photo","photo","photo","photo"]""",
+            transparencyJson:
+                """[{"blended":false,"descriptor":null},{"blended":true,"descriptor":"faded overlay"},{"blended":false,"descriptor":null},{"blended":true,"descriptor":"soft blend"}]""");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.BackgroundTransparency);
+        Assert.Equal(4, result.BackgroundTransparency!.Count);
+        Assert.False(result.BackgroundTransparency[0]!.Blended);
+        Assert.True(result.BackgroundTransparency[1]!.Blended);
+        Assert.Equal("faded overlay", result.BackgroundTransparency[1]!.Descriptor);
+        Assert.False(result.BackgroundTransparency[2]!.Blended);
+        Assert.True(result.BackgroundTransparency[3]!.Blended);
+        Assert.Equal("soft blend", result.BackgroundTransparency[3]!.Descriptor);
+    }
+
+    [Fact]
+    public async Task SlideBackgroundTransparency_NoTreatment_ColdStartUnaffected_NoException()
+    {
+        // CAFF-PA-03: no slideBackgroundTransparency key at all → null; extraction still succeeds.
+        var gateway = new CaptureGateway(
+            paletteJson: "[]",
+            descriptors: "[]",
+            slideMixPattern: """["flat","flat"]""");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Null(result.BackgroundTransparency);
+        Assert.True(gateway.WasCalled);
+    }
+
+    [Fact]
+    public async Task SlideBackgroundTransparency_NeverExposesNumericAlpha_BooleanAndDescriptorOnly()
+    {
+        // CAFF-PA-03: the DTO contract carries boolean + string descriptor ONLY — asserted by
+        // deserializing straight through the boolean/descriptor pair with no numeric field accepted.
+        var gateway = new CaptureGateway(
+            paletteJson: "[]",
+            descriptors: "[]",
+            slideMixPattern: """["photo"]""",
+            transparencyJson: """[{"blended":true,"descriptor":"faded overlay"}]""");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.BackgroundTransparency);
+        var entry = Assert.Single(result.BackgroundTransparency!);
+        Assert.NotNull(entry);
+        Assert.IsType<bool>(entry!.Blended);
+        Assert.True(entry.Descriptor is null || entry.Descriptor is string);
+    }
+
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);
     private static IWorkflowConfigurationResolver CandidateResolver() => new StubResolver(candidate: true);
 }
@@ -600,7 +663,8 @@ file sealed class CaptureGateway(
     string? imageTypeCountsJson = null,
     string? brandMarkJson = null,
     int? typicalSlideCount = null,
-    string? typographyJson = null)
+    string? typographyJson = null,
+    string? transparencyJson = null)
     : IAiCompletionGateway
 {
     public bool WasCalled { get; private set; }
@@ -641,8 +705,11 @@ file sealed class CaptureGateway(
         var typographyPart = typographyJson is null
             ? string.Empty
             : $",\"typography\":{typographyJson}";
+        var transparencyPart = transparencyJson is null
+            ? string.Empty
+            : $",\"slideBackgroundTransparency\":{transparencyJson}";
         var json =
-            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}{{brandMarkPart}}{{typicalSlideCountPart}}{{typographyPart}}}""";
+            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}{{brandMarkPart}}{{typicalSlideCountPart}}{{typographyPart}}{{transparencyPart}}}""";
         var payload = JsonSerializer.Deserialize<TResponse>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         return Task.FromResult(Result.Success(new AiJsonCompletionResponse<TResponse>(payload, "claude", "claude-opus-4-8", [], null)));
     }

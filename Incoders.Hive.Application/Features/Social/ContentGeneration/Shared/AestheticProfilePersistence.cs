@@ -42,6 +42,11 @@ public static class AestheticProfilePersistence
             Typography: extraction.Typography?
                 .Select(t => new StoredTypography(t.Role, t.FontFamily, t.Weight, t.Italic, t.SizeRatio))
                 .ToArray(),
+            // client-aesthetic-fidelity-fixes (WU-3a, D3): additive key; absent on older blobs -> null
+            // on Read. Entries are independently nullable — an unmeasured slide stays null.
+            BackgroundTransparency: extraction.BackgroundTransparency?
+                .Select(t => t is null ? null : new StoredSlideTransparency(t.Blended, t.Descriptor))
+                .ToArray(),
             // client-aesthetic-conceptual-detection: additive keys; absent on old blobs → null on Read (OQ-4)
             ConceptualMethod: extraction.ConceptualMethod is null ? null
                 : new StoredConceptualMethod(
@@ -95,11 +100,14 @@ public static class AestheticProfilePersistence
         string? SchemaVersion,
         // exact-client-typography (additive trailing element): observed per-role typography, or null
         // on blobs written before it existed.
-        IReadOnlyList<AestheticTypography>? Typography) Read(string? json)
+        IReadOnlyList<AestheticTypography>? Typography,
+        // client-aesthetic-fidelity-fixes (WU-3a, D3, additive trailing element): per-slide
+        // photo-transparency signal, or null on blobs written before it existed.
+        IReadOnlyList<SlideBackgroundTransparency?>? BackgroundTransparency) Read(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
-            return (null, null, null, null, null, null, null, null, null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         }
 
         try
@@ -107,7 +115,7 @@ public static class AestheticProfilePersistence
             var dto = JsonSerializer.Deserialize<StoredAestheticProfile>(json, JsonOpts);
             if (dto is null)
             {
-                return (null, null, null, null, null, null, null, null, null, null, null, null, null);
+                return (null, null, null, null, null, null, null, null, null, null, null, null, null, null);
             }
 
             var palette = (dto.Palette ?? [])
@@ -155,13 +163,20 @@ public static class AestheticProfilePersistence
                 PositionHint: dto.BrandMark.PositionHint,
                 ColorHex: dto.BrandMark.ColorHex);
 
+            // client-aesthetic-fidelity-fixes (WU-3a, D3) additive field (absent on older blobs → null)
+            var backgroundTransparency = dto.BackgroundTransparency is null
+                ? null
+                : (IReadOnlyList<SlideBackgroundTransparency?>?)dto.BackgroundTransparency
+                    .Select(t => t is null ? null : new SlideBackgroundTransparency(t.Blended ?? false, t.Descriptor))
+                    .ToArray();
+
             return (palette, dto.StyleDescriptors ?? [], dto.Motifs ?? [], dto.CaptionVoice, refs,
                 backgroundPattern, dto.TypicalSlideCount, colorPairings,
-                conceptualMethod, imageTypeRatio, brandMark, dto.PromptVersion, typography);
+                conceptualMethod, imageTypeRatio, brandMark, dto.PromptVersion, typography, backgroundTransparency);
         }
         catch
         {
-            return (null, null, null, null, null, null, null, null, null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         }
     }
 
@@ -225,7 +240,9 @@ public static class AestheticProfilePersistence
         // faithful-flat-slide-rendering additive key (nullable; absent on pre-v3 blobs; FFS-PA-02)
         StoredBrandMark? BrandMark = null,
         // exact-client-typography additive key (nullable; absent on older blobs)
-        IReadOnlyList<StoredTypography>? Typography = null);
+        IReadOnlyList<StoredTypography>? Typography = null,
+        // client-aesthetic-fidelity-fixes (WU-3a, D3) additive key (nullable; absent on older blobs)
+        IReadOnlyList<StoredSlideTransparency?>? BackgroundTransparency = null);
 
     private sealed record StoredPaletteEntry(string Hex, string? Role, int Rank);
 
@@ -259,4 +276,12 @@ public static class AestheticProfilePersistence
         bool Present = false,
         string? PositionHint = null,
         string? ColorHex = null);
+
+    /// <summary>
+    /// Stored shape for <see cref="SlideBackgroundTransparency"/> (WU-3a, D3). Boolean + qualitative
+    /// descriptor ONLY — never a numeric opacity/alpha field (CAFF-PA-03).
+    /// </summary>
+    private sealed record StoredSlideTransparency(
+        bool? Blended = null,
+        string? Descriptor = null);
 }

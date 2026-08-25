@@ -531,6 +531,75 @@ public sealed class AestheticProfilePersistenceTests
         Assert.Contains("editorial", read.StyleDescriptors!);
     }
 
+    // ── WU-3a (CAFF-PA-02/03): per-slide BackgroundTransparency round-trip ───
+
+    /// <summary>
+    /// CAFF-PA-03 — Serialize with a populated per-slide transparency signal, then Read returns the
+    /// same boolean + descriptor values with no data loss, including a null (unmeasured) entry.
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_PreservesBackgroundTransparency()
+    {
+        IReadOnlyList<SlideBackgroundTransparency?> transparency =
+        [
+            new SlideBackgroundTransparency(false, null),
+            new SlideBackgroundTransparency(true, "faded overlay"),
+            null,
+        ];
+
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            BackgroundTransparency: transparency);
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.NotNull(read.BackgroundTransparency);
+        Assert.Equal(3, read.BackgroundTransparency!.Count);
+        Assert.False(read.BackgroundTransparency[0]!.Blended);
+        Assert.Null(read.BackgroundTransparency[0]!.Descriptor);
+        Assert.True(read.BackgroundTransparency[1]!.Blended);
+        Assert.Equal("faded overlay", read.BackgroundTransparency[1]!.Descriptor);
+        Assert.Null(read.BackgroundTransparency[2]);
+    }
+
+    /// <summary>
+    /// CAFF-PA-02 (persistence half) — a legacy blob without the <c>backgroundTransparency</c> key
+    /// deserializes with the field null, no exception (cold-start parity).
+    /// </summary>
+    [Fact]
+    public void Read_LegacyBlobWithoutBackgroundTransparencyKey_ReturnsNull_NoException()
+    {
+        const string legacyJson =
+            """{"palette":[],"styleDescriptors":["editorial"],"motifs":[],"captionVoice":"playful","referenceImages":[]}""";
+
+        var read = AestheticProfilePersistence.Read(legacyJson);
+
+        Assert.Null(read.BackgroundTransparency);
+        Assert.NotNull(read.StyleDescriptors);
+        Assert.Contains("editorial", read.StyleDescriptors!);
+    }
+
+    [Fact]
+    public void Serialize_ThenRead_NullBackgroundTransparency_RemainsNull()
+    {
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null
+            // BackgroundTransparency = null (default)
+        );
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.Null(read.BackgroundTransparency);
+    }
+
     // ── client-analysis-data admin panel: WithBackgroundPattern patches ONLY the
     // BackgroundPattern (+ derived TypicalSlideCount) fields, round-tripping every other
     // stored field untouched (must-not-corrupt-other-fields constraint) ──────────────────

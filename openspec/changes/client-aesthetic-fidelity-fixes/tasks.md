@@ -70,13 +70,13 @@ Chain strategy: pending
 
 ## WU-3a — Per-Slide Transparency: Extraction + Persistence (D3)
 
-- [ ] 3a.1 RED — extend extractor tests: consistent per-slide blended habit at indices 1,3; no-treatment cold start; asserts boolean+descriptor only, never numeric alpha. Satisfies CAFF-PA-03.
-- [ ] 3a.2 GREEN — modify `MultimodalAestheticStyleExtractor.cs`: prompt + DTO `slideBackgroundTransparency` + defensive `Map()`.
-- [ ] 3a.3 GREEN — modify `IClientAestheticStyleExtractor.cs`: add `AestheticExtraction.BackgroundTransparency` (trailing, nullable).
-- [ ] 3a.4 RED — new `BackgroundTransparencyReconcilerTests.cs`: shorter/longer/equal/empty/null arrays pad-with-null/truncate, never throws. Satisfies CAFF-PA-04.
-- [ ] 3a.5 GREEN — create `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/SlideBackgroundTransparency.cs` (`bool Blended, string? Descriptor`) and `BackgroundTransparencyReconciler.cs` (`Align`), modeled on `BackgroundPatternReconciler`.
-- [ ] 3a.6 GREEN — modify `AestheticProfilePersistence.cs`: `StoredSlideTransparency(bool?, string?)` under `backgroundTransparency` key, trailing `Read` element; modify `ClientAestheticProfile.cs` with trailing nullable list. Wire `Align` at extractor `Map()` site.
-- [ ] 3a.7 RED+GREEN — round-trip persistence tests: populated round-trip preserves values; legacy blob without key reads null. Satisfies CAFF-PA-02/03 persistence half.
+- [x] 3a.1 RED — extend extractor tests: consistent per-slide blended habit at indices 1,3; no-treatment cold start; asserts boolean+descriptor only, never numeric alpha. Satisfies CAFF-PA-03.
+- [x] 3a.2 GREEN — modify `MultimodalAestheticStyleExtractor.cs`: prompt + DTO `slideBackgroundTransparency` + defensive `Map()`.
+- [x] 3a.3 GREEN — modify `IClientAestheticStyleExtractor.cs`: add `AestheticExtraction.BackgroundTransparency` (trailing, nullable).
+- [x] 3a.4 RED — new `BackgroundTransparencyReconcilerTests.cs`: shorter/longer/equal/empty/null arrays pad-with-null/truncate, never throws. Satisfies CAFF-PA-04.
+- [x] 3a.5 GREEN — create `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/SlideBackgroundTransparency.cs` (`bool Blended, string? Descriptor`) and `BackgroundTransparencyReconciler.cs` (`Align`), modeled on `BackgroundPatternReconciler`.
+- [x] 3a.6 GREEN — modify `AestheticProfilePersistence.cs`: `StoredSlideTransparency(bool?, string?)` under `backgroundTransparency` key, trailing `Read` element; modify `ClientAestheticProfile.cs` with trailing nullable list. Wire `Align` at extractor `Map()` site. Also wired `EfClientAestheticProfileReader.cs` (required for compilation; completes the D3 layer-4 profile round-trip).
+- [x] 3a.7 RED+GREEN — round-trip persistence tests: populated round-trip preserves values; legacy blob without key reads null. Satisfies CAFF-PA-02/03 persistence half.
 
 ## WU-3b — Per-Slide Transparency: Render (D3 render + D5)
 

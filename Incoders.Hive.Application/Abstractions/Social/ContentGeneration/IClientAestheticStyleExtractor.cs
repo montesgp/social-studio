@@ -78,7 +78,14 @@ public sealed record AestheticExtraction(
     // exact-client-typography (additive TRAILING nullable): per-role families/weights/size ratios
     // OBSERVED in the client's posts. Null when the extractor could not read type off the pixels,
     // in which case the legacy single-family, hardcoded 28/16 px typography stands.
-    IReadOnlyList<AestheticTypography>? Typography = null)
+    IReadOnlyList<AestheticTypography>? Typography = null,
+    // client-aesthetic-fidelity-fixes (WU-3a, D3, additive TRAILING nullable): per-slide
+    // photo-transparency signal, index-aligned and parallel to <see cref="BackgroundPattern"/>.
+    // A null ENTRY means that slide's signal is unmeasured; the whole list being null means the
+    // signal was never measured at all (cold-start parity). Reconciled against BackgroundPattern's
+    // length by <see cref="Shared.BackgroundTransparencyReconciler.Align"/> before it is stored
+    // (CAFF-PA-03/04).
+    IReadOnlyList<SlideBackgroundTransparency?>? BackgroundTransparency = null)
 {
     /// <summary>An empty extraction (no signal) — used when extraction is skipped or yields nothing.</summary>
     public static AestheticExtraction Empty { get; } = new([], [], [], null);

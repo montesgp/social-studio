@@ -85,4 +85,11 @@ public sealed record ClientAestheticProfile(
     //
     // Per-role families/weights/size ratios OBSERVED in the client's posts. Null → the legacy
     // single-family, hardcoded 28/16 px typography stands (cold-start parity).
-    IReadOnlyList<AestheticTypography>? Typography = null);
+    IReadOnlyList<AestheticTypography>? Typography = null,
+    // client-aesthetic-fidelity-fixes (WU-3a, D3, additive TRAILING nullable — every existing
+    // construction site and `with` expression compiles unchanged):
+    //
+    // Per-slide photo-transparency signal, index-aligned with BackgroundPattern. A null entry means
+    // that slide is unmeasured; the whole list being null means the client was never measured at all
+    // (cold-start parity). Null → render-time treatment stays exactly as today (WU-3b).
+    IReadOnlyList<SlideBackgroundTransparency?>? BackgroundTransparency = null);

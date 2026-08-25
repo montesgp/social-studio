@@ -185,7 +185,19 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "or closest-matching style name, e.g. \"Poppins\"), `weight` (CSS numeric weight 100-900), " +
             "`italic` (boolean), and `sizeRatio` (the type's height as a fraction of the slide's total " +
             "height, e.g. 0.08). Omit a sub-object entirely (do not fabricate placeholder values) when " +
-            "that role is not reliably distinguishable in the attached images.";
+            "that role is not reliably distinguishable in the attached images. " +
+            // CAFF-PA-03 (client-aesthetic-fidelity-fixes, WU-3a): per-slide photo-transparency signal,
+            // index-aligned with slideMixPattern. Boolean + qualitative descriptor ONLY — never a
+            // numeric opacity/alpha value.
+            "Also determine, for EACH slide in the SAME order as `slideMixPattern`, whether its " +
+            "background photo is deliberately shown BLENDED/FADED (semi-transparent, composited over a " +
+            "solid colour rather than a fully opaque photo). Return `slideBackgroundTransparency` as an " +
+            "array, one entry per slide, aligned index-for-index with `slideMixPattern`. Each entry is " +
+            "either an object with `blended` (boolean — true only when that slide clearly shows the " +
+            "faded/blended treatment) and `descriptor` (a short qualitative phrase describing the " +
+            "treatment, e.g. \"faded overlay\", \"soft blend\" — null when not applicable or not " +
+            "describable), or `null` when you cannot reliably tell for that slide. NEVER return a " +
+            "numeric opacity or alpha value for this signal — boolean + qualitative descriptor only.";
 
         var request = new AiJsonCompletionRequest(
             OrganizationId: organizationId,
@@ -266,6 +278,17 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         // proportional number of photo slides. Only adds; never drops a pattern-derived photo slide.
         backgroundPattern = BackgroundPatternReconciler.Reconcile(backgroundPattern, imageTypeRatio);
 
+        // CAFF-PA-03/04 (client-aesthetic-fidelity-fixes, WU-3a, D3): map the per-slide transparency
+        // signal, then reconcile it against the (possibly just-reconciled) BackgroundPattern length so
+        // the persisted array can never drift from the pattern it is index-aligned to. Defensive: an
+        // absent `slideBackgroundTransparency` key, or a null model entry, never fabricates a value.
+        IReadOnlyList<SlideBackgroundTransparency?>? backgroundTransparency = dto.SlideBackgroundTransparency is null
+            ? null
+            : dto.SlideBackgroundTransparency
+                .Select(t => t is null ? null : new SlideBackgroundTransparency(t.Blended ?? false, t.Descriptor))
+                .ToArray();
+        backgroundTransparency = BackgroundTransparencyReconciler.Align(backgroundPattern, backgroundTransparency);
+
         // FFS-PA-01: map brandMark DTO → BrandMarkDetection VO. `Present: false` is a valid,
         // non-fabricated "no recurring mark" result — mapped whenever the model returns the
         // brandMark object at all. Absent brandMark key (older v2 responses) → null (cold-start
@@ -306,7 +329,9 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             // (AestheticProfilePersistence) falls back to BackgroundPattern's length in that case.
             TypicalSlideCount: dto.TypicalSlideCount,
             // CAFF-PA-01: three-role typography (heading/body/caption), mapped above.
-            Typography: typography);
+            Typography: typography,
+            // CAFF-PA-03/04: per-slide transparency signal, reconciled to BackgroundPattern's length.
+            BackgroundTransparency: backgroundTransparency);
     }
 
     // CAFF-PA-01: defensive per-role mapping — a role with no (or blank) family is skipped rather
@@ -363,7 +388,11 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         [property: JsonPropertyName("typicalSlideCount")] int? TypicalSlideCount = null,
         // CAFF-PA-01 (exact-client-typography): three optional typography roles (additive nullable;
         // absent on pre-WU-2a responses → null; cold-start parity)
-        [property: JsonPropertyName("typography")] TypographyDto? Typography = null);
+        [property: JsonPropertyName("typography")] TypographyDto? Typography = null,
+        // CAFF-PA-03 (client-aesthetic-fidelity-fixes, WU-3a): per-slide photo-transparency signal,
+        // index-aligned with slideMixPattern (additive nullable; absent on pre-WU-3a responses → null;
+        // cold-start parity). An entry itself may be null when the model could not tell for that slide.
+        [property: JsonPropertyName("slideBackgroundTransparency")] SlideTransparencyDto?[]? SlideBackgroundTransparency = null);
 
     private sealed record PaletteEntryDto(
         [property: JsonPropertyName("hex")] string? Hex,
@@ -400,4 +429,11 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         [property: JsonPropertyName("weight")] int? Weight = null,
         [property: JsonPropertyName("italic")] bool? Italic = null,
         [property: JsonPropertyName("sizeRatio")] double? SizeRatio = null);
+
+    // CAFF-PA-03: per-slide transparency sub-DTO — boolean + qualitative descriptor ONLY, never a
+    // numeric opacity/alpha field (settled decision 2). Array elements are independently nullable so
+    // the model can mark a specific slide as "cannot tell" without invalidating the whole array.
+    private sealed record SlideTransparencyDto(
+        [property: JsonPropertyName("blended")] bool? Blended = null,
+        [property: JsonPropertyName("descriptor")] string? Descriptor = null);
 }

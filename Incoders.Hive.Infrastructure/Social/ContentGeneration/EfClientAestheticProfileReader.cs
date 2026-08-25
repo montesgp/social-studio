@@ -84,7 +84,7 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
         // IProfileAnalysisRepository.GetLatestAestheticFreshnessAsync — so it is discarded here.
         var (palette, styleDescriptors, motifs, captionVoice, referenceImages,
                 backgroundPattern, typicalSlideCount, colorPairings,
-                conceptualMethod, imageTypeRatio, brandMark, _, typography) =
+                conceptualMethod, imageTypeRatio, brandMark, _, typography, backgroundTransparency) =
             AestheticProfilePersistence.Read(row.AestheticProfileJson);
 
         return new ClientAestheticProfile(
@@ -105,7 +105,10 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
             BrandMark: brandMark,
             // exact-client-typography: observed per-role families/weights/size ratios drive
             // CompositionDefaults.ResolveTypography; null keeps the legacy 28/16 defaults.
-            Typography: typography);
+            Typography: typography,
+            // client-aesthetic-fidelity-fixes (WU-3a, D3): per-slide photo-transparency signal;
+            // null keeps render-time treatment exactly as today (cold-start parity; WU-3b consumes it).
+            BackgroundTransparency: backgroundTransparency);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────
