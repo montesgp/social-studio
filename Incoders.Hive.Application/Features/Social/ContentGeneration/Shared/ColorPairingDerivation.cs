@@ -217,48 +217,14 @@ public static class ColorPairingDerivation
     /// <summary>
     /// Computes WCAG relative luminance for a hex colour string (#RRGGBB or #RGB).
     /// Returns 0 for unrecognised inputs (treated as black).
+    /// Delegates to <see cref="WcagContrast.RelativeLuminance"/> (design D4) — behaviour-identical.
     /// </summary>
-    private static double RelativeLuminance(string hex)
-    {
-        hex = hex.TrimStart('#');
-
-        // Expand #RGB → #RRGGBB
-        if (hex.Length == 3)
-        {
-            hex = $"{hex[0]}{hex[0]}{hex[1]}{hex[1]}{hex[2]}{hex[2]}";
-        }
-
-        if (hex.Length < 6)
-        {
-            return 0.0;
-        }
-
-        try
-        {
-            var r = Convert.ToInt32(hex[0..2], 16) / 255.0;
-            var g = Convert.ToInt32(hex[2..4], 16) / 255.0;
-            var b = Convert.ToInt32(hex[4..6], 16) / 255.0;
-
-            return 0.2126 * Linearise(r) + 0.7152 * Linearise(g) + 0.0722 * Linearise(b);
-        }
-        catch
-        {
-            return 0.0;
-        }
-    }
-
-    private static double Linearise(double channel) =>
-        channel <= 0.04045
-            ? channel / 12.92
-            : Math.Pow((channel + 0.055) / 1.055, 2.4);
+    private static double RelativeLuminance(string hex) => WcagContrast.RelativeLuminance(hex);
 
     /// <summary>
     /// WCAG contrast ratio between two relative luminance values.
+    /// Delegates to <see cref="WcagContrast.ContrastRatio(double, double)"/> (design D4) — behaviour-identical.
     /// </summary>
-    private static double ContrastRatio(double luminance1, double luminance2)
-    {
-        var lighter = Math.Max(luminance1, luminance2);
-        var darker  = Math.Min(luminance1, luminance2);
-        return (lighter + 0.05) / (darker + 0.05);
-    }
+    private static double ContrastRatio(double luminance1, double luminance2) =>
+        WcagContrast.ContrastRatio(luminance1, luminance2);
 }
