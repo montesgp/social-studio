@@ -45,8 +45,15 @@ public static class AestheticFreshness
     /// must be treated as stale and eligible for re-analysis, rather than permanently missing the
     /// crop-derivation inputs.
     /// </para>
+    ///
+    /// <para>
+    /// v7 (WU-2, CAVS-PA-01/02/03): the extractor now detects <c>decorationMotifs</c> — a divider-rule
+    /// style and an OPEN composition-archetype token (unrecognised tokens preserved verbatim; see
+    /// <c>CompositionArchetypes.Normalize</c>). Bumped per the same convention so a v6 profile (which
+    /// has neither signal) is treated as stale and eligible for re-analysis.
+    /// </para>
     /// </summary>
-    public const string CurrentSchemaVersion = "aesthetic-extractor/v6";
+    public const string CurrentSchemaVersion = "aesthetic-extractor/v7";
 
     /// <summary>
     /// Parses the trailing integer from an <c>"aesthetic-extractor/vN"</c> schema version string.

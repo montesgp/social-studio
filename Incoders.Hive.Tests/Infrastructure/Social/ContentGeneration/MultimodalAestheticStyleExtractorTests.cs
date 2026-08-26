@@ -519,16 +519,17 @@ public sealed class MultimodalAestheticStyleExtractorTests
     }
 
     [Fact]
-    public async Task ExtractorPromptVersion_IsBumpedToV6()
+    public async Task ExtractorPromptVersion_IsBumpedToV7()
     {
-        // Extraction prompt/schema version MUST be bumped v5→v6 (WU-6b, CAGH-PA-03/04:
-        // sourceImagePath/boundingBox)
+        // Extraction prompt/schema version MUST be bumped v6→v7 (WU-2, CAVS-PA-01/02/03:
+        // decorationMotifs)
         var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
         var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
 
         await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v6", gateway.CapturedPromptVersionKey);
+        Assert.Equal("aesthetic-extractor/v7", gateway.CapturedPromptVersionKey);
+        Assert.Equal(AestheticFreshness.CurrentSchemaVersion, gateway.CapturedPromptVersionKey);
     }
 
     /// <summary>
@@ -544,7 +545,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v6", result.SchemaVersion);
+        Assert.Equal("aesthetic-extractor/v7", result.SchemaVersion);
         Assert.Equal(gateway.CapturedPromptVersionKey, result.SchemaVersion);
     }
 
@@ -802,6 +803,84 @@ public sealed class MultimodalAestheticStyleExtractorTests
         return result;
     }
 
+    // ── WU-2 task 2.1 [RED] — decorationMotifs mapping (CAVS-PA-01/02/03) ───────
+
+    [Fact]
+    public async Task DecorationMotifs_RecognisedDividerAndArchetype_MapsBoth()
+    {
+        // CAVS-PA-03-a / CAVS-PA-02-a: a recognised dividerRule token and a recognised archetype
+        // token both map through unchanged (archetype normalised to lowercase).
+        const string decorationMotifsJson = """{"dividerRule":"line-with-diamond","compositionArchetype":"Centered"}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", decorationMotifsJson: decorationMotifsJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.DecorationMotifs);
+        Assert.Equal(DividerRuleStyle.LineWithDiamond, result.DecorationMotifs!.DividerRule);
+        Assert.Equal("centered", result.DecorationMotifs.CompositionArchetype);
+    }
+
+    [Fact]
+    public async Task DecorationMotifs_UnrecognisedArchetypeToken_PreservedVerbatim()
+    {
+        // CAVS-PA-02-b (design D1): an invented/unrecognised archetype token is NEVER collapsed to a
+        // fallback value — it is preserved verbatim (trim + lowercase only).
+        const string decorationMotifsJson = """{"dividerRule":null,"compositionArchetype":"Diagonal-Split"}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", decorationMotifsJson: decorationMotifsJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.DecorationMotifs);
+        Assert.Equal("diagonal-split", result.DecorationMotifs!.CompositionArchetype);
+        Assert.False(CompositionArchetypes.IsRecognised(result.DecorationMotifs.CompositionArchetype));
+    }
+
+    [Fact]
+    public async Task DecorationMotifs_MalformedDividerRule_MapsToNull_NoThrow()
+    {
+        // CAVS-PA-03-b: an unrecognised/malformed dividerRule token maps to null, never throws; the
+        // rest of decorationMotifs (compositionArchetype) is unaffected.
+        const string decorationMotifsJson = """{"dividerRule":"squiggly-line","compositionArchetype":"lower-third"}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", decorationMotifsJson: decorationMotifsJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.DecorationMotifs);
+        Assert.Null(result.DecorationMotifs!.DividerRule);
+        Assert.Equal("lower-third", result.DecorationMotifs.CompositionArchetype);
+    }
+
+    [Fact]
+    public async Task DecorationMotifs_AbsentKey_IsNull_ExtractionSucceeds()
+    {
+        // No decorationMotifs key at all in the model response (pre-v7 response) → null (cold-start
+        // parity); no throw.
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Null(result.DecorationMotifs);
+        Assert.True(gateway.WasCalled);
+    }
+
+    [Fact]
+    public async Task DecorationMotifs_BothSignalsAbsentOrNull_IsNull()
+    {
+        // decorationMotifs object present but both signals null/absent → null, matching the
+        // extractor's established convention for other optional AI-elicited compound fields.
+        const string decorationMotifsJson = """{"dividerRule":null,"compositionArchetype":null}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", decorationMotifsJson: decorationMotifsJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Null(result.DecorationMotifs);
+    }
+
     // ── WU-2a task 2a.1 [RED] — three-role typography mapping (CAFF-PA-01) ──────
 
     [Fact]
@@ -1010,7 +1089,8 @@ file sealed class CaptureGateway(
     string? brandMarkJson = null,
     int? typicalSlideCount = null,
     string? typographyJson = null,
-    string? transparencyJson = null)
+    string? transparencyJson = null,
+    string? decorationMotifsJson = null)
     : IAiCompletionGateway
 {
     public bool WasCalled { get; private set; }
@@ -1054,8 +1134,11 @@ file sealed class CaptureGateway(
         var transparencyPart = transparencyJson is null
             ? string.Empty
             : $",\"slideBackgroundTransparency\":{transparencyJson}";
+        var decorationMotifsPart = decorationMotifsJson is null
+            ? string.Empty
+            : $",\"decorationMotifs\":{decorationMotifsJson}";
         var json =
-            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}{{brandMarkPart}}{{typicalSlideCountPart}}{{typographyPart}}{{transparencyPart}}}""";
+            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}{{brandMarkPart}}{{typicalSlideCountPart}}{{typographyPart}}{{transparencyPart}}{{decorationMotifsPart}}}""";
         var payload = JsonSerializer.Deserialize<TResponse>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         return Task.FromResult(Result.Success(new AiJsonCompletionResponse<TResponse>(payload, "claude", "claude-opus-4-8", [], null)));
     }

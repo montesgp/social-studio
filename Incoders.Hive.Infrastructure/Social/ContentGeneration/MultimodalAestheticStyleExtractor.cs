@@ -41,6 +41,12 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     // in-extractor to the post-skip loadedPairs StoragePath — D9) and boundingBox (normalised 0..1
     // crop region, validated — D10/CAGH-PA-04). Additive/backward-compatible: absent/malformed
     // sourceImageIndex or boundingBox keys defensively map to null rather than throwing.
+    // aesthetic-extractor/v7 (WU-2, CAVS-PA-01/02/03): adds decorationMotifs {dividerRule,
+    // compositionArchetype} detection. dividerRule maps through the closed DividerRuleStyle enum —
+    // unrecognised/malformed tokens map to null, never throw (CAVS-PA-03-b). compositionArchetype is
+    // an OPEN, normalised (trim+lowercase) token — an unrecognised token is preserved VERBATIM, never
+    // collapsed to a placeholder (CAVS-PA-02-b, design D1). Additive/backward-compatible: absent
+    // decorationMotifs key on an older response maps to null (cold-start parity).
     // aesthetic-freshness-versioning: MUST stay equal to AestheticFreshness.CurrentSchemaVersion —
     // referencing the constant directly (both are compile-time consts) guarantees they never drift.
     private const string PromptVersion = AestheticFreshness.CurrentSchemaVersion;
@@ -231,7 +237,20 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "faded/blended treatment) and `descriptor` (a short qualitative phrase describing the " +
             "treatment, e.g. \"faded overlay\", \"soft blend\" — null when not applicable or not " +
             "describable), or `null` when you cannot reliably tell for that slide. NEVER return a " +
-            "numeric opacity or alpha value for this signal — boolean + qualitative descriptor only.";
+            "numeric opacity or alpha value for this signal — boolean + qualitative descriptor only. " +
+            // CAVS-PA-01/02/03 (client-aesthetic-visual-sophistication, WU-2): recurring decoration
+            // signals — a divider-rule style and a composition-archetype classification. Both are
+            // OPTIONAL; omit either when not reliably distinguishable, never invent one.
+            "Also identify the client's recurring DECORATION signals, if any are consistent enough " +
+            "across the attached images to report reliably. Return `decorationMotifs` with " +
+            "`dividerRule` — EXACTLY ONE of \"line\" (a plain horizontal/vertical rule, no glyph), " +
+            "\"line-with-diamond\" (a rule with a nested rotated-square glyph), or " +
+            "\"line-with-dot\" (a rule with a nested dot glyph) — null when no recurring divider " +
+            "rule is visible. Also return `compositionArchetype`, a short lowercase-hyphenated token " +
+            "describing the client's recurring slide-layout system (e.g. \"left-aligned\", " +
+            "\"centered\", \"lower-third\", or another token that best matches an archetype you " +
+            "observe — do not force-fit an ill-matching one of those three), null when no consistent " +
+            "layout archetype recurs across the attached images.";
 
         var request = new AiJsonCompletionRequest(
             OrganizationId: organizationId,
@@ -350,6 +369,23 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             typography = roles.Count > 0 ? roles : null;
         }
 
+        // CAVS-PA-01/02/03 (client-aesthetic-visual-sophistication, WU-2): map decorationMotifs.
+        // dividerRule defensively parses through CompositionArchetypes.TryParseDividerRule (closed
+        // enum; unrecognised/malformed → null, never throws). compositionArchetype is normalised
+        // (trim+lowercase) but NEVER collapsed — an unrecognised token is preserved verbatim (D1).
+        // Absent decorationMotifs key or a decorationMotifs object with both signals unset → null
+        // (cold-start parity).
+        DecorationMotifs? decorationMotifs = null;
+        if (dto.DecorationMotifs is { } motifs)
+        {
+            var dividerRule = CompositionArchetypes.TryParseDividerRule(motifs.DividerRule);
+            var compositionArchetype = CompositionArchetypes.Normalize(motifs.CompositionArchetype);
+            if (dividerRule is not null || compositionArchetype is not null)
+            {
+                decorationMotifs = new DecorationMotifs(dividerRule, compositionArchetype);
+            }
+        }
+
         return new AestheticExtraction(
             Palette: palette,
             StyleDescriptors: dto.StyleDescriptors ?? [],
@@ -370,7 +406,9 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             // CAFF-PA-01: three-role typography (heading/body/caption), mapped above.
             Typography: typography,
             // CAFF-PA-03/04: per-slide transparency signal, reconciled to BackgroundPattern's length.
-            BackgroundTransparency: backgroundTransparency);
+            BackgroundTransparency: backgroundTransparency,
+            // CAVS-PA-01/02/03: recurring decoration signals, mapped above.
+            DecorationMotifs: decorationMotifs);
     }
 
     // CAGH-PA-01/02 (WU-6a, v5): defensive brandMark mapping — markType is normalised through
@@ -462,7 +500,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         // CAFF-PA-03 (client-aesthetic-fidelity-fixes, WU-3a): per-slide photo-transparency signal,
         // index-aligned with slideMixPattern (additive nullable; absent on pre-WU-3a responses → null;
         // cold-start parity). An entry itself may be null when the model could not tell for that slide.
-        [property: JsonPropertyName("slideBackgroundTransparency")] SlideTransparencyDto?[]? SlideBackgroundTransparency = null);
+        [property: JsonPropertyName("slideBackgroundTransparency")] SlideTransparencyDto?[]? SlideBackgroundTransparency = null,
+        // CAVS-PA-01/02/03 (client-aesthetic-visual-sophistication, WU-2): recurring decoration
+        // signals (additive nullable; absent on pre-v7 responses → null; cold-start parity).
+        [property: JsonPropertyName("decorationMotifs")] DecorationMotifsDto? DecorationMotifs = null);
 
     private sealed record PaletteEntryDto(
         [property: JsonPropertyName("hex")] string? Hex,
@@ -534,4 +575,11 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     private sealed record SlideTransparencyDto(
         [property: JsonPropertyName("blended")] bool? Blended = null,
         [property: JsonPropertyName("descriptor")] string? Descriptor = null);
+
+    // CAVS-PA-01/02/03: recurring decoration signals sub-DTO — dividerRule maps through the closed
+    // DividerRuleStyle enum (defensive: unrecognised/malformed → null); compositionArchetype is an
+    // OPEN raw token, normalised (never collapsed) at mapping time by CompositionArchetypes.Normalize.
+    private sealed record DecorationMotifsDto(
+        [property: JsonPropertyName("dividerRule")] string? DividerRule = null,
+        [property: JsonPropertyName("compositionArchetype")] string? CompositionArchetype = null);
 }

@@ -80,11 +80,11 @@ Touches already-shipped code from `client-aesthetic-generation-hardening`. Own c
 
 Spec: CAVS-PA-01, CAVS-PA-02, CAVS-PA-03. File: `Incoders.Hive.Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractor.cs`.
 
-- [ ] 2.1 RED: extend `MultimodalAestheticStyleExtractorTests.cs` — divider/archetype DTO fields map correctly (CAVS-PA-03-a, CAVS-PA-02-a); unrecognised archetype token preserved verbatim through `Map()` (CAVS-PA-02-b); malformed/absent divider → null, no throw (CAVS-PA-03-b).
-- [ ] 2.2 RED: extend `PromptVersionBumpAestheticTests.cs` — `PromptVersion` bumps to v7 and equals `AestheticFreshness.CurrentSchemaVersion`.
-- [ ] 2.3 GREEN: add `decorationMotifs { dividerRule, compositionArchetype }` prompt section + DTO members + `Map()` wiring in `MultimodalAestheticStyleExtractor.cs`; bump `PromptVersion`/`CurrentSchemaVersion` to v7.
-- [ ] 2.4 GREEN: extend `Abstractions/Social/ContentGeneration/IClientAestheticStyleExtractor.cs` — 13th trailing-nullable field `DecorationMotifs? DecorationMotifs` on `AestheticExtraction`.
-- [ ] 2.5 REFACTOR: confirm regression fixture (full-size extractor response) still parses every pre-existing field intact (schema-fatigue regression discipline, CAVS-PA-05).
+- [x] 2.1 RED: extend `MultimodalAestheticStyleExtractorTests.cs` — divider/archetype DTO fields map correctly (CAVS-PA-03-a, CAVS-PA-02-a); unrecognised archetype token preserved verbatim through `Map()` (CAVS-PA-02-b); malformed/absent divider → null, no throw (CAVS-PA-03-b).
+- [x] 2.2 RED: bumped the extractor's prompt/schema version test to v7 and asserted it equals `AestheticFreshness.CurrentSchemaVersion` (in `MultimodalAestheticStyleExtractorTests.cs`'s `ExtractorPromptVersion_IsBumpedToV7`/`Extract_StampsSchemaVersion_OnProducedExtraction` — `PromptVersionBumpAestheticTests.cs` tests unrelated `ContentGenerationPromptVersions` constants, not the aesthetic-extractor schema version; no change needed there).
+- [x] 2.3 GREEN: added `decorationMotifs { dividerRule, compositionArchetype }` prompt section + DTO members + `Map()` wiring in `MultimodalAestheticStyleExtractor.cs`; bumped `PromptVersion`/`CurrentSchemaVersion` to v7.
+- [x] 2.4 GREEN: extended `Abstractions/Social/ContentGeneration/IClientAestheticStyleExtractor.cs` — 13th trailing-nullable field `DecorationMotifs? DecorationMotifs` on `AestheticExtraction`.
+- [x] 2.5 REFACTOR: full suite (3864 passed/0 failed/2 skipped) confirms every pre-existing field still parses intact — no dedicated fixture file exists for this; regression coverage is the full test suite (schema-fatigue regression discipline, CAVS-PA-05).
 
 ## Phase 3 (WU-3): Persistence Round-Trip — design's flagged "mechanical but line-costly" change
 

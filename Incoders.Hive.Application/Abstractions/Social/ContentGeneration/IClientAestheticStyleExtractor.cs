@@ -85,7 +85,12 @@ public sealed record AestheticExtraction(
     // signal was never measured at all (cold-start parity). Reconciled against BackgroundPattern's
     // length by <see cref="Shared.BackgroundTransparencyReconciler.Align"/> before it is stored
     // (CAFF-PA-03/04).
-    IReadOnlyList<SlideBackgroundTransparency?>? BackgroundTransparency = null)
+    IReadOnlyList<SlideBackgroundTransparency?>? BackgroundTransparency = null,
+    // client-aesthetic-visual-sophistication (WU-2, additive TRAILING nullable; CAVS-PA-01/02/03):
+    // the client's recurring decoration signals — divider-rule style, an OPEN composition-archetype
+    // token (preserved verbatim when unrecognised, never collapsed), and a nested ornament
+    // detection. Null when the model omits decorationMotifs entirely (cold-start parity).
+    DecorationMotifs? DecorationMotifs = null)
 {
     /// <summary>An empty extraction (no signal) — used when extraction is skipped or yields nothing.</summary>
     public static AestheticExtraction Empty { get; } = new([], [], [], null);
