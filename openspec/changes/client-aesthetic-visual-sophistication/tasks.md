@@ -107,10 +107,10 @@ Spec: CAVS-PA-01-b, CAVS-PA-02-b. Files: `Shared/AestheticProfilePersistence.cs`
 
 Spec: CAVS-CG-01, CAVS-CG-03. File: `Application/.../Pipeline/ContentGenerationJobProcessor.cs` (`BuildFlatColorMarkup` L2312, `BuildFlatCarouselSlots` L2364).
 
-- [ ] 4.1 RED (blocking): confirm `FlatCarouselMarkupGoldenTests.cs` (from Phase 0) still asserts byte-identical output against `Goldens/flat-carousel-cold-start.html` for `DecorationMotifs = null` — this MUST stay green through every remaining Phase 4-8 task.
-- [ ] 4.2 RED: add divider-present cases to `FlatCarouselMarkupGoldenTests.cs` — `LineWithDiamond` renders `data-slot="divider"` + rotated-square glyph in the resolved accent colour (CAVS-CG-01-a); no `Accent` role resolves ⇒ falls back to text colour (CAVS-CG-01-b); `DividerRule = null` ⇒ no divider element (CAVS-CG-01-c).
-- [ ] 4.3 GREEN: implement the divider primitive in `BuildFlatCarouselSlots` as one `data-slot="divider"` raw-string-built `<div>` with a nested non-slot glyph child (design D2) — never a second `data-slot`.
-- [ ] 4.4 REFACTOR: assert exactly one `data-slot="divider"` occurrence in markup per slide; confirm the byte-identity golden (4.1) is still green.
+- [x] 4.1 RED (blocking): confirm `FlatCarouselMarkupGoldenTests.cs` (from Phase 0) still asserts byte-identical output against `Goldens/flat-carousel-cold-start.html` for `DecorationMotifs = null` — this MUST stay green through every remaining Phase 4-8 task.
+- [x] 4.2 RED: add divider-present cases to `FlatCarouselMarkupGoldenTests.cs` — `LineWithDiamond` renders `data-slot="divider"` + rotated-square glyph in the resolved accent colour (CAVS-CG-01-a); no `Accent` role resolves ⇒ falls back to text colour (CAVS-CG-01-b); `DividerRule = null` ⇒ no divider element (CAVS-CG-01-c).
+- [x] 4.3 GREEN: implement the divider primitive in `BuildFlatCarouselSlots` as one `data-slot="divider"` raw-string-built `<div>` with a nested non-slot glyph child (design D2) — never a second `data-slot`.
+- [x] 4.4 REFACTOR: assert exactly one `data-slot="divider"` occurrence in markup per slide; confirm the byte-identity golden (4.1) is still green.
 
 ## Phase 5 (WU-5): Composition-Archetype Geometry Presets
 

@@ -39,6 +39,93 @@ public sealed class FlatCarouselMarkupGoldenTests
         Assert.Equal(golden, actual);
     }
 
+    [Fact]
+    public void LineWithDiamond_RendersDividerInAccentColour_WithDiamondGlyph()
+    {
+        var spec = BuildRepresentativeSpec();
+        var palette = new CompositionPalette("#1A2B3C", "#334455", "#66AACC", "#F8FAFC", "#0B1220");
+        var aesthetic = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: [new AestheticPaletteEntry("#66AACC", "Accent", 1)],
+            StyleDescriptors: [],
+            Motifs: [],
+            VariationSeed: "golden-seed",
+            DecorationMotifs: new DecorationMotifs(DividerRule: DividerRuleStyle.LineWithDiamond));
+
+        var actual = InvokeBuildFlatColorMarkup(spec, palette, aesthetic);
+
+        Assert.Contains("data-slot=\"divider\"", actual, StringComparison.Ordinal);
+        Assert.Contains("#66AACC", ExtractDividerElement(actual), StringComparison.Ordinal);
+        // Diamond glyph: nested non-slot child, rotated 45deg, no second data-slot attribute.
+        Assert.Contains("rotate(45deg)", actual, StringComparison.Ordinal);
+        Assert.Equal(1, CountOccurrences(actual, "data-slot=\"divider\""));
+    }
+
+    [Fact]
+    public void LineWithDot_NoAccentRole_DividerFallsBackToTextColour()
+    {
+        var spec = BuildRepresentativeSpec();
+        var palette = new CompositionPalette("#1A2B3C", "#334455", "#66AACC", "#F8FAFC", "#0B1220");
+        var aesthetic = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            VariationSeed: "golden-seed",
+            DecorationMotifs: new DecorationMotifs(DividerRule: DividerRuleStyle.LineWithDot));
+
+        var actual = InvokeBuildFlatColorMarkup(spec, palette, aesthetic);
+
+        var dividerElement = ExtractDividerElement(actual);
+        Assert.Contains(palette.Text, dividerElement, StringComparison.Ordinal);
+        Assert.DoesNotContain("rotate(45deg)", dividerElement, StringComparison.Ordinal);
+        Assert.Contains("border-radius:50%", actual, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NullDividerRule_RendersNoDividerElement()
+    {
+        var spec = BuildRepresentativeSpec();
+        var palette = new CompositionPalette("#1A2B3C", "#334455", "#66AACC", "#F8FAFC", "#0B1220");
+        var aesthetic = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: [new AestheticPaletteEntry("#66AACC", "Accent", 1)],
+            StyleDescriptors: [],
+            Motifs: [],
+            VariationSeed: "golden-seed",
+            DecorationMotifs: new DecorationMotifs(DividerRule: null));
+
+        var actual = InvokeBuildFlatColorMarkup(spec, palette, aesthetic);
+
+        Assert.DoesNotContain("data-slot=\"divider\"", actual, StringComparison.Ordinal);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = haystack.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += needle.Length;
+        }
+
+        return count;
+    }
+
+    private static string ExtractDividerElement(string markup)
+    {
+        var start = markup.IndexOf("data-slot=\"divider\"", StringComparison.Ordinal);
+        Assert.True(start >= 0, "Expected a data-slot=\"divider\" element in the markup.");
+        var divStart = markup.LastIndexOf("<div", start, StringComparison.Ordinal);
+        // Each slot is emitted on its own line (slots are joined with Environment.NewLine and no
+        // slot's own markup embeds a literal newline), so the divider's full element — including its
+        // nested glyph child — is exactly the text from its opening tag to the next line break.
+        var lineEnd = markup.IndexOf('\n', divStart);
+        var end = lineEnd >= 0 ? lineEnd : markup.Length;
+        return markup[divStart..end];
+    }
+
     private static string InvokeBuildFlatColorMarkup(
         VisualCompositionSpec spec,
         CompositionPalette palette,

@@ -2358,7 +2358,7 @@ public sealed class ContentGenerationJobProcessor
 
         var content = BuildFlatCarouselSlots(
             title, subtitle, cta, headingFont, bodyFont, safeText, safeAccent, captionFont, captionWeight, captionSize,
-            measuredHeadingSize, measuredBodySize, measuredHeadingWeight);
+            measuredHeadingSize, measuredBodySize, measuredHeadingWeight, aesthetic?.DecorationMotifs?.DividerRule);
 
         return $$"""
             <div class="composition" data-format="{{Html(spec.FormatKey)}}" style="position:relative;width:{{width}}px;height:{{height}}px;overflow:hidden;background:{{safeBackground}};">
@@ -2393,7 +2393,11 @@ public sealed class ContentGenerationJobProcessor
         int? measuredBodySize = null,
         // Issue #81: the client's REAL observed heading weight. Null keeps the pre-change 900 literal
         // (cold-start / non-ClientAesthetic parity).
-        int? measuredHeadingWeight = null)
+        int? measuredHeadingWeight = null,
+        // client-aesthetic-visual-sophistication (WU-4, CAVS-CG-01): the client's measured recurring
+        // divider-rule style. Null (unmeasured/absent/unrecognised token) renders NO divider element —
+        // required for the DecorationMotifs=null byte-identity cold-start guarantee (CAVS-CG-03).
+        DividerRuleStyle? dividerRule = null)
     {
         var slots = new List<string>();
 
@@ -2416,6 +2420,12 @@ public sealed class ContentGenerationJobProcessor
             $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 74}px;line-height:1.02;" +
             $"font-weight:{measuredHeadingWeight ?? 900};letter-spacing:-1.8px;color:{textColor};text-align:left;",
             3));
+
+        var dividerElement = BuildDividerSlot(dividerRule, accentColor, textColor);
+        if (dividerElement is not null)
+        {
+            slots.Add(dividerElement);
+        }
 
         AddSlot(slots, "p", "subtitle", subtitle,
             "position:absolute;left:108px;top:540px;width:815px;min-height:310px;" +
@@ -2601,6 +2611,50 @@ public sealed class ContentGenerationJobProcessor
         {
             slots.Add(Slot(tag, slotName, value, style, maxLines));
         }
+    }
+
+    /// <summary>
+    /// CAVS-CG-01: builds the deterministic <c>data-slot="divider"</c> rule element for a client's
+    /// measured recurring divider-rule style. Design D2 — this is exactly ONE
+    /// <c>data-slot="divider"</c> element; the diamond/dot glyph is a nested plain <c>&lt;div&gt;</c>
+    /// with NO <c>data-slot</c> attribute of its own (a second <c>data-slot="divider"</c> would emit
+    /// two <see cref="Pipeline.SlotGeometryEntry"/> captures and two <c>PptxExportAdapter</c> matches
+    /// for one logical slot). Built as a raw inline string — the <see cref="Slot"/> helper HTML-encodes
+    /// its text content and cannot carry a child element (same technique as
+    /// <see cref="BuildBrandMarkSlot"/>'s icon <c>&lt;img&gt;</c> branch). Returns <c>null</c> —
+    /// meaning "render nothing" — when <paramref name="dividerRule"/> is <c>null</c> (unmeasured,
+    /// absent, or an unrecognised token already collapsed to <c>null</c> upstream), which is what
+    /// keeps the <c>DecorationMotifs = null</c> cold-start path byte-identical (CAVS-CG-03).
+    /// </summary>
+    /// <param name="dividerRule">The client's measured divider-rule style, or <c>null</c>.</param>
+    /// <param name="accentColor">
+    /// The slide's resolved accent hex (already CSS-safety-checked by the caller), or <c>null</c>
+    /// when no <c>Accent</c> palette role resolved.
+    /// </param>
+    /// <param name="textColor">The slide's resolved text colour — the fallback when there is no accent (CAVS-CG-01-b).</param>
+    private static string? BuildDividerSlot(DividerRuleStyle? dividerRule, string? accentColor, string textColor)
+    {
+        if (dividerRule is null)
+        {
+            return null;
+        }
+
+        var ruleColor = accentColor ?? textColor;
+
+        var glyph = dividerRule switch
+        {
+            DividerRuleStyle.LineWithDiamond =>
+                "<div style=\"position:absolute;left:50%;top:50%;width:12px;height:12px;" +
+                $"transform:translate(-50%,-50%) rotate(45deg);background:{ruleColor};\"></div>",
+            DividerRuleStyle.LineWithDot =>
+                "<div style=\"position:absolute;left:50%;top:50%;width:12px;height:12px;" +
+                $"transform:translate(-50%,-50%);border-radius:50%;background:{ruleColor};\"></div>",
+            _ => string.Empty,
+        };
+
+        return "<div class=\"slot\" data-slot=\"divider\" data-max-lines=\"1\" " +
+            "style=\"position:absolute;left:104px;top:492px;width:872px;height:2px;" +
+            $"background:{ruleColor};\">{glyph}</div>";
     }
 
     private static string Slot(string tag, string slotName, string value, string style, int maxLines) =>
