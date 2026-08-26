@@ -116,10 +116,10 @@ Spec: CAVS-CG-01, CAVS-CG-03. File: `Application/.../Pipeline/ContentGenerationJ
 
 Spec: CAVS-CG-02. Files: `Shared/FlatGeometryPresets.cs` (new), `Pipeline/ContentGenerationJobProcessor.cs`.
 
-- [ ] 5.1 RED: extend `FlatCarouselMarkupGoldenTests.cs` — `"left-aligned"` reproduces today's literal offsets exactly (CAVS-CG-02-a, must pass against the Phase 0 golden bytes); two profiles differing only in `CompositionArchetype` produce measurably different title/subtitle/cta geometry (CAVS-CG-02-b); invented unrecognised token ⇒ identical to `"left-aligned"` geometry, no exception (CAVS-CG-02-c); `DecorationMotifs = null` or `CompositionArchetype = null` ⇒ `"left-aligned"` geometry (CAVS-CG-02-d).
-- [ ] 5.2 GREEN: create `FlatGeometryPresets.cs` — `Resolve(string? token)` token → preset lookup covering accent/title/divider/subtitle/cta/ornament slots per the design's geometry table; `_ =>` arm returns the `"left-aligned"` identity preset.
-- [ ] 5.3 GREEN: wire `FlatGeometryPresets.Resolve` into `BuildFlatColorMarkup`/`BuildFlatCarouselSlots`, replacing the hardcoded `left:104px`/`left:108px`/`text-align:left` literals.
-- [ ] 5.4 REFACTOR: add an apply-time assertion that no preset's geometry overlaps the title block or the brand-mark `bottom:56` anchor; confirm the accent pill's markup is unchanged from pre-change output in every archetype (CAVS-CG-03-b).
+- [x] 5.1 RED: extend `FlatCarouselMarkupGoldenTests.cs` — `"left-aligned"` reproduces today's literal offsets exactly (CAVS-CG-02-a, must pass against the Phase 0 golden bytes); two profiles differing only in `CompositionArchetype` produce measurably different title/subtitle/cta geometry (CAVS-CG-02-b); invented unrecognised token ⇒ identical to `"left-aligned"` geometry, no exception (CAVS-CG-02-c); `DecorationMotifs = null` or `CompositionArchetype = null` ⇒ `"left-aligned"` geometry (CAVS-CG-02-d).
+- [x] 5.2 GREEN: create `FlatGeometryPresets.cs` — `Resolve(string? token)` token → preset lookup covering accent/title/divider/subtitle/cta/ornament slots per the design's geometry table; `_ =>` arm returns the `"left-aligned"` identity preset.
+- [x] 5.3 GREEN: wire `FlatGeometryPresets.Resolve` into `BuildFlatColorMarkup`/`BuildFlatCarouselSlots`, replacing the hardcoded `left:104px`/`left:108px`/`text-align:left` literals.
+- [x] 5.4 REFACTOR: add an apply-time assertion that no preset's geometry overlaps the title block or the brand-mark `bottom:56` anchor; confirm the accent pill's markup is unchanged from pre-change output in every archetype (CAVS-CG-03-b).
 
 ## Phase 6 (WU-6): Ornament Detection Schema + Reliability Gate — GATES WU-7/WU-8
 

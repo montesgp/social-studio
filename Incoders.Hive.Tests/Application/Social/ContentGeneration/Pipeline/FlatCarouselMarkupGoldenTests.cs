@@ -100,6 +100,128 @@ public sealed class FlatCarouselMarkupGoldenTests
         Assert.DoesNotContain("data-slot=\"divider\"", actual, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void LeftAlignedArchetype_ReproducesColdStartGeometryExactly()
+    {
+        var spec = BuildRepresentativeSpec();
+        var palette = new CompositionPalette("#1A2B3C", "#334455", "#66AACC", "#F8FAFC", "#0B1220");
+        var coldStartAesthetic = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: [new AestheticPaletteEntry("#66AACC", "Accent", 1)],
+            StyleDescriptors: [],
+            Motifs: [],
+            VariationSeed: "golden-seed");
+        var explicitLeftAligned = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: [new AestheticPaletteEntry("#66AACC", "Accent", 1)],
+            StyleDescriptors: [],
+            Motifs: [],
+            VariationSeed: "golden-seed",
+            DecorationMotifs: new DecorationMotifs(CompositionArchetype: "left-aligned"));
+
+        var coldStartMarkup = InvokeBuildFlatColorMarkup(spec, palette, coldStartAesthetic);
+        var explicitMarkup = InvokeBuildFlatColorMarkup(spec, palette, explicitLeftAligned);
+
+        Assert.Equal(coldStartMarkup, explicitMarkup);
+    }
+
+    [Fact]
+    public void CenteredArchetype_ProducesDifferentTitleGeometryThanLeftAligned()
+    {
+        var spec = BuildRepresentativeSpec();
+        var palette = new CompositionPalette("#1A2B3C", "#334455", "#66AACC", "#F8FAFC", "#0B1220");
+        var leftAligned = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: [new AestheticPaletteEntry("#66AACC", "Accent", 1)],
+            StyleDescriptors: [],
+            Motifs: [],
+            VariationSeed: "golden-seed");
+        var centered = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: [new AestheticPaletteEntry("#66AACC", "Accent", 1)],
+            StyleDescriptors: [],
+            Motifs: [],
+            VariationSeed: "golden-seed",
+            DecorationMotifs: new DecorationMotifs(CompositionArchetype: "centered"));
+
+        var leftMarkup = InvokeBuildFlatColorMarkup(spec, palette, leftAligned);
+        var centeredMarkup = InvokeBuildFlatColorMarkup(spec, palette, centered);
+
+        Assert.NotEqual(leftMarkup, centeredMarkup);
+        Assert.Contains("left:456px", centeredMarkup, StringComparison.Ordinal);
+        Assert.Contains("text-align:center", ExtractTitleElement(centeredMarkup), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnrecognisedArchetypeToken_FallsBackToLeftAlignedGeometry_NoException()
+    {
+        var spec = BuildRepresentativeSpec();
+        var palette = new CompositionPalette("#1A2B3C", "#334455", "#66AACC", "#F8FAFC", "#0B1220");
+        var coldStartAesthetic = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: [new AestheticPaletteEntry("#66AACC", "Accent", 1)],
+            StyleDescriptors: [],
+            Motifs: [],
+            VariationSeed: "golden-seed");
+        var invented = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: [new AestheticPaletteEntry("#66AACC", "Accent", 1)],
+            StyleDescriptors: [],
+            Motifs: [],
+            VariationSeed: "golden-seed",
+            DecorationMotifs: new DecorationMotifs(CompositionArchetype: "diagonal-split"));
+
+        var coldStartMarkup = InvokeBuildFlatColorMarkup(spec, palette, coldStartAesthetic);
+        var inventedMarkup = InvokeBuildFlatColorMarkup(spec, palette, invented);
+
+        Assert.Equal(coldStartMarkup, inventedMarkup);
+    }
+
+    [Theory]
+    [InlineData("left-aligned")]
+    [InlineData("centered")]
+    [InlineData("lower-third")]
+    public void AccentPillMarkup_WidthHeightAndBorderRadius_AreUnchangedAcrossEveryArchetype(string archetype)
+    {
+        // CAVS-CG-03-b: an archetype changes the accent pill's position (left/top) only — its own
+        // markup (width/height/border-radius) is a literal in BuildFlatCarouselSlots, never
+        // parameterised by geometry.
+        var spec = BuildRepresentativeSpec();
+        var palette = new CompositionPalette("#1A2B3C", "#334455", "#66AACC", "#F8FAFC", "#0B1220");
+        var aesthetic = new ClientAestheticDesignContext(
+            ReferenceImages: [],
+            Palette: [new AestheticPaletteEntry("#66AACC", "Accent", 1)],
+            StyleDescriptors: [],
+            Motifs: [],
+            VariationSeed: "golden-seed",
+            DecorationMotifs: new DecorationMotifs(CompositionArchetype: archetype));
+
+        var actual = InvokeBuildFlatColorMarkup(spec, palette, aesthetic);
+        var accentElement = ExtractAccentElement(actual);
+
+        Assert.Contains("width:168px;height:10px;border-radius:999px;", accentElement, StringComparison.Ordinal);
+    }
+
+    private static string ExtractAccentElement(string markup)
+    {
+        var start = markup.IndexOf("data-slot=\"accent\"", StringComparison.Ordinal);
+        Assert.True(start >= 0, "Expected a data-slot=\"accent\" element in the markup.");
+        var tagStart = markup.LastIndexOf('<', start);
+        var lineEnd = markup.IndexOf('\n', tagStart);
+        var end = lineEnd >= 0 ? lineEnd : markup.Length;
+        return markup[tagStart..end];
+    }
+
+    private static string ExtractTitleElement(string markup)
+    {
+        var start = markup.IndexOf("data-slot=\"title\"", StringComparison.Ordinal);
+        Assert.True(start >= 0, "Expected a data-slot=\"title\" element in the markup.");
+        var tagStart = markup.LastIndexOf('<', start);
+        var lineEnd = markup.IndexOf('\n', tagStart);
+        var end = lineEnd >= 0 ? lineEnd : markup.Length;
+        return markup[tagStart..end];
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;

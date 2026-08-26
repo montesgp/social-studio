@@ -2358,7 +2358,8 @@ public sealed class ContentGenerationJobProcessor
 
         var content = BuildFlatCarouselSlots(
             title, subtitle, cta, headingFont, bodyFont, safeText, safeAccent, captionFont, captionWeight, captionSize,
-            measuredHeadingSize, measuredBodySize, measuredHeadingWeight, aesthetic?.DecorationMotifs?.DividerRule);
+            measuredHeadingSize, measuredBodySize, measuredHeadingWeight, aesthetic?.DecorationMotifs?.DividerRule,
+            aesthetic?.DecorationMotifs?.CompositionArchetype);
 
         return $$"""
             <div class="composition" data-format="{{Html(spec.FormatKey)}}" style="position:relative;width:{{width}}px;height:{{height}}px;overflow:hidden;background:{{safeBackground}};">
@@ -2397,8 +2398,14 @@ public sealed class ContentGenerationJobProcessor
         // client-aesthetic-visual-sophistication (WU-4, CAVS-CG-01): the client's measured recurring
         // divider-rule style. Null (unmeasured/absent/unrecognised token) renders NO divider element —
         // required for the DecorationMotifs=null byte-identity cold-start guarantee (CAVS-CG-03).
-        DividerRuleStyle? dividerRule = null)
+        DividerRuleStyle? dividerRule = null,
+        // client-aesthetic-visual-sophistication (WU-5, CAVS-CG-02): the client's measured recurring
+        // composition-archetype token. Resolved through FlatGeometryPresets.Resolve, whose catch-all
+        // arm returns the left-aligned identity preset for null/unrecognised tokens — required for the
+        // DecorationMotifs=null byte-identity cold-start guarantee (CAVS-CG-03).
+        string? compositionArchetype = null)
     {
+        var geometry = FlatGeometryPresets.Resolve(compositionArchetype);
         var slots = new List<string>();
 
         if (accentColor is not null)
@@ -2407,7 +2414,7 @@ public sealed class ContentGenerationJobProcessor
                 "div",
                 "accent",
                 string.Empty,
-                "position:absolute;left:104px;top:180px;width:168px;height:10px;" +
+                $"position:absolute;left:{geometry.AccentLeft}px;top:{geometry.AccentTop}px;width:168px;height:10px;" +
                 $"border-radius:999px;background:{accentColor};",
                 1));
         }
@@ -2416,27 +2423,33 @@ public sealed class ContentGenerationJobProcessor
             "h1",
             "title",
             title,
-            "position:absolute;left:104px;top:235px;width:872px;min-height:230px;" +
+            $"position:absolute;left:{geometry.TitleLeft}px;top:{geometry.TitleTop}px;width:{geometry.TitleWidth}px;min-height:230px;" +
             $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 74}px;line-height:1.02;" +
-            $"font-weight:{measuredHeadingWeight ?? 900};letter-spacing:-1.8px;color:{textColor};text-align:left;",
+            $"font-weight:{measuredHeadingWeight ?? 900};letter-spacing:-1.8px;color:{textColor};text-align:{geometry.TitleAlign};",
             3));
 
-        var dividerElement = BuildDividerSlot(dividerRule, accentColor, textColor);
+        var dividerElement = BuildDividerSlot(dividerRule, accentColor, textColor, geometry);
         if (dividerElement is not null)
         {
             slots.Add(dividerElement);
         }
 
         AddSlot(slots, "p", "subtitle", subtitle,
-            "position:absolute;left:108px;top:540px;width:815px;min-height:310px;" +
+            $"position:absolute;left:{geometry.SubtitleLeft}px;top:{geometry.SubtitleTop}px;width:{geometry.SubtitleWidth}px;min-height:310px;" +
             $"font-family:{bodyFont},system-ui,sans-serif;font-size:{measuredBodySize ?? 38}px;line-height:1.22;" +
-            $"font-weight:500;color:{textColor};text-align:left;",
+            $"font-weight:500;color:{textColor};text-align:{geometry.SubtitleAlign};",
             6);
 
+        // The pre-change literal never emitted text-align on the cta slot (it was implicitly
+        // left-aligned by document flow) — only append the property for a non-identity preset, or
+        // the DecorationMotifs=null / "left-aligned" byte-identity guarantee breaks (CAVS-CG-03).
+        var ctaAlignCss = geometry.CtaAlign == FlatGeometryPresets.LeftAligned.CtaAlign
+            ? string.Empty
+            : $"text-align:{geometry.CtaAlign};";
         AddSlot(slots, "p", "cta", cta,
-            "position:absolute;left:108px;bottom:220px;width:760px;min-height:58px;" +
+            $"position:absolute;left:{geometry.CtaLeft}px;bottom:{geometry.CtaBottom}px;width:{geometry.CtaWidth}px;min-height:58px;" +
             $"font-family:{captionFont},system-ui,sans-serif;font-size:{captionSize ?? 28}px;line-height:1.1;" +
-            $"font-weight:{captionWeight};color:{textColor};text-transform:uppercase;letter-spacing:1.1px;",
+            $"font-weight:{captionWeight};color:{textColor};text-transform:uppercase;letter-spacing:1.1px;{ctaAlignCss}",
             2);
 
         return string.Join(Environment.NewLine, slots);
@@ -2632,7 +2645,16 @@ public sealed class ContentGenerationJobProcessor
     /// when no <c>Accent</c> palette role resolved.
     /// </param>
     /// <param name="textColor">The slide's resolved text colour — the fallback when there is no accent (CAVS-CG-01-b).</param>
-    private static string? BuildDividerSlot(DividerRuleStyle? dividerRule, string? accentColor, string textColor)
+    /// <param name="geometry">
+    /// The resolved composition-archetype geometry (WU-5, CAVS-CG-02) supplying the divider's
+    /// left/top/width; the identity preset (<see cref="FlatGeometryPresets.LeftAligned"/>) reproduces
+    /// the WU-4 hardcoded literal exactly.
+    /// </param>
+    private static string? BuildDividerSlot(
+        DividerRuleStyle? dividerRule,
+        string? accentColor,
+        string textColor,
+        FlatCarouselGeometry geometry)
     {
         if (dividerRule is null)
         {
@@ -2653,7 +2675,7 @@ public sealed class ContentGenerationJobProcessor
         };
 
         return "<div class=\"slot\" data-slot=\"divider\" data-max-lines=\"1\" " +
-            "style=\"position:absolute;left:104px;top:492px;width:872px;height:2px;" +
+            $"style=\"position:absolute;left:{geometry.DividerLeft}px;top:{geometry.DividerTop}px;width:{geometry.DividerWidth}px;height:2px;" +
             $"background:{ruleColor};\">{glyph}</div>";
     }
 
