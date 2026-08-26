@@ -712,4 +712,131 @@ public sealed class AestheticProfilePersistenceTests
         Assert.Equal(SlideBackgroundKind.FlatColor, read.BackgroundPattern![0]);
         Assert.Equal(1, read.TypicalSlideCount);
     }
+
+    // ── client-aesthetic-visual-sophistication (WU-3): DecorationMotifs round-trip ──────────
+
+    /// <summary>
+    /// CAVS-PA-02-b — an unrecognised composition-archetype token round-trips VERBATIM through
+    /// Serialize/Read, never collapsed to a placeholder like "unknown".
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_PreservesUnrecognisedCompositionArchetypeVerbatim()
+    {
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            DecorationMotifs: new DecorationMotifs(CompositionArchetype: "diagonal-split"));
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.NotNull(read.DecorationMotifs);
+        Assert.Equal("diagonal-split", read.DecorationMotifs!.CompositionArchetype);
+    }
+
+    /// <summary>
+    /// CAVS-PA-03-a — a recognised divider-rule enum value round-trips intact.
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_PreservesDividerRule()
+    {
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            DecorationMotifs: new DecorationMotifs(DividerRule: DividerRuleStyle.LineWithDiamond));
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.NotNull(read.DecorationMotifs);
+        Assert.Equal(DividerRuleStyle.LineWithDiamond, read.DecorationMotifs!.DividerRule);
+    }
+
+    /// <summary>
+    /// CAVS-PA-04-a — a nested ornament detection (source path + bounding box) round-trips intact.
+    /// </summary>
+    [Fact]
+    public void Serialize_ThenRead_PreservesOrnamentDetection()
+    {
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null,
+            DecorationMotifs: new DecorationMotifs(
+                Ornament: new DecorativeOrnamentDetection(
+                    SourceImagePath: "clients/abc/posts/1/image-0.jpg",
+                    BoundingBox: new BrandMarkBoundingBox(0.1, 0.2, 0.3, 0.4))));
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.NotNull(read.DecorationMotifs);
+        Assert.NotNull(read.DecorationMotifs!.Ornament);
+        var ornament = read.DecorationMotifs.Ornament!;
+        Assert.Equal("clients/abc/posts/1/image-0.jpg", ornament.SourceImagePath);
+        Assert.NotNull(ornament.BoundingBox);
+        var box = ornament.BoundingBox!;
+        Assert.Equal(0.1, box.X);
+        Assert.Equal(0.2, box.Y);
+        Assert.Equal(0.3, box.Width);
+        Assert.Equal(0.4, box.Height);
+    }
+
+    /// <summary>CAVS-PA-01-a — no decoration signal ⇒ DecorationMotifs stays null, no exception.</summary>
+    [Fact]
+    public void Serialize_NullDecorationMotifs_RoundTripsNull()
+    {
+        var extraction = new AestheticExtraction(
+            Palette: [],
+            StyleDescriptors: [],
+            Motifs: [],
+            CaptionVoice: null
+            // DecorationMotifs = null (default)
+        );
+
+        var json = AestheticProfilePersistence.Serialize(extraction, []);
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.Null(read.DecorationMotifs);
+    }
+
+    /// <summary>
+    /// CAVS-PA-01-b — a pre-change blob (no <c>decorationMotifs</c> key) deserializes with
+    /// <c>DecorationMotifs = null</c>, all pre-existing fields intact, no exception.
+    /// </summary>
+    [Fact]
+    public void Read_PreV6BlobWithoutDecorationMotifsKey_ReturnsNullDecorationMotifs_PreExistingFieldsIntact_NoException()
+    {
+        const string preV6Json =
+            """{"palette":[],"styleDescriptors":["editorial"],"motifs":[],"captionVoice":"playful","referenceImages":[]}""";
+
+        var read = AestheticProfilePersistence.Read(preV6Json);
+
+        Assert.Null(read.DecorationMotifs);
+        Assert.Equal("playful", read.CaptionVoice);
+        Assert.Single(read.StyleDescriptors!);
+        Assert.Equal("editorial", read.StyleDescriptors![0]);
+    }
+
+    /// <summary>
+    /// CAVS-PA-03-b — a divider-rule token that was somehow stored as an unrecognised string
+    /// deserializes as <c>DividerRule = null</c>, never throws.
+    /// </summary>
+    [Fact]
+    public void Read_UnrecognisedStoredDividerRuleToken_ReturnsNullDividerRule_NoException()
+    {
+        const string json =
+            """{"palette":[],"styleDescriptors":[],"motifs":[],"captionVoice":null,"referenceImages":[],"decorationMotifs":{"dividerRule":"zigzag","compositionArchetype":"left-aligned"}}""";
+
+        var read = AestheticProfilePersistence.Read(json);
+
+        Assert.NotNull(read.DecorationMotifs);
+        Assert.Null(read.DecorationMotifs!.DividerRule);
+        Assert.Equal("left-aligned", read.DecorationMotifs.CompositionArchetype);
+    }
 }

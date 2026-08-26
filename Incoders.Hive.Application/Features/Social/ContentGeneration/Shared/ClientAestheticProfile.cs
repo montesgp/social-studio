@@ -92,4 +92,11 @@ public sealed record ClientAestheticProfile(
     // Per-slide photo-transparency signal, index-aligned with BackgroundPattern. A null entry means
     // that slide is unmeasured; the whole list being null means the client was never measured at all
     // (cold-start parity). Null → render-time treatment stays exactly as today (WU-3b).
-    IReadOnlyList<SlideBackgroundTransparency?>? BackgroundTransparency = null);
+    IReadOnlyList<SlideBackgroundTransparency?>? BackgroundTransparency = null,
+    // client-aesthetic-visual-sophistication (WU-3, additive TRAILING nullable — every existing
+    // construction site and `with` expression compiles unchanged; CAVS-PA-01):
+    //
+    // The client's recurring decoration signals — divider-rule style, an OPEN composition-archetype
+    // token (verbatim-preserved when unrecognised), and a nested ornament detection. Null when the
+    // profile carries no decoration signal (cold-start parity; CAVS-PA-01-b).
+    DecorationMotifs? DecorationMotifs = null);

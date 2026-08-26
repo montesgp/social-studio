@@ -44,7 +44,12 @@ public sealed record ClientAestheticDesignContext(
     // and the AI designer prompt can both resolve it per specIndex via
     // CreativeSlideIndexResolver.ResolveTransparencyForSlide. Null when the profile carries no
     // transparency signal (cold-start parity; render stays unchanged object-fit:cover).
-    IReadOnlyList<SlideBackgroundTransparency?>? BackgroundTransparency = null)
+    IReadOnlyList<SlideBackgroundTransparency?>? BackgroundTransparency = null,
+    // client-aesthetic-visual-sophistication (WU-3, additive trailing nullable): mirrored from
+    // ClientAestheticProfile.DecorationMotifs so later render-stage tasks (WU-4/WU-5/WU-8) can
+    // resolve the divider rule, composition archetype, and ornament detection per client. Null when
+    // the profile carries no decoration signal (cold-start parity).
+    DecorationMotifs? DecorationMotifs = null)
 {
     /// <summary>
     /// A decorator share at or below this is treated as noise, not a style — one stray ornamented

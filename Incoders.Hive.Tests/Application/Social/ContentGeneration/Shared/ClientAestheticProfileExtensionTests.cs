@@ -279,4 +279,64 @@ public sealed class ClientAestheticProfileExtensionTests
         Assert.Null(profile.ConceptualMethod);
         Assert.Null(profile.ImageTypeRatio);
     }
+
+    // ── client-aesthetic-visual-sophistication (WU-3): DecorationMotifs field ────────────
+
+    [Fact]
+    public void DecorationMotifs_DefaultsToNull_WhenOmittedFromConstruction()
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["dark minimal"],
+            VoiceTone: "warm",
+            AverageSlidesPerCarousel: 5.0,
+            AnalyzedAtUtc: DateTime.UtcNow);
+
+        Assert.Null(profile.DecorationMotifs);
+    }
+
+    [Fact]
+    public void DecorationMotifs_WhenSet_IsStoredCorrectly()
+    {
+        var motifs = new DecorationMotifs(DividerRuleStyle.Line, "lower-third");
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: [],
+            VoiceTone: null,
+            AverageSlidesPerCarousel: null,
+            AnalyzedAtUtc: null,
+            DecorationMotifs: motifs);
+
+        Assert.NotNull(profile.DecorationMotifs);
+        Assert.Equal(DividerRuleStyle.Line, profile.DecorationMotifs!.DividerRule);
+        Assert.Equal("lower-third", profile.DecorationMotifs.CompositionArchetype);
+    }
+
+    [Fact]
+    public void WithExpression_DecorationMotifs_Null_Compiles()
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: [],
+            VoiceTone: null,
+            AverageSlidesPerCarousel: null,
+            AnalyzedAtUtc: null,
+            DecorationMotifs: new DecorationMotifs(CompositionArchetype: "centered"));
+
+        var updated = profile with { DecorationMotifs = null };
+
+        Assert.Null(updated.DecorationMotifs);
+    }
+
+    [Fact]
+    public void ExistingConstruction_WithNoNewDecorationMotifsParam_FieldIsNull()
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["dark minimal"],
+            VoiceTone: "warm",
+            AverageSlidesPerCarousel: 5.0,
+            AnalyzedAtUtc: DateTime.UtcNow,
+            BackgroundPattern: [SlideBackgroundKind.Photo],
+            TypicalSlideCount: 5,
+            ColorPairings: [new ColorPairing("#111111", "#EEEEEE", 1)]);
+
+        Assert.Null(profile.DecorationMotifs);
+    }
 }

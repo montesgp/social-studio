@@ -90,18 +90,18 @@ Spec: CAVS-PA-01, CAVS-PA-02, CAVS-PA-03. File: `Incoders.Hive.Infrastructure/So
 
 Spec: CAVS-PA-01-b, CAVS-PA-02-b. Files: `Shared/AestheticProfilePersistence.cs`, `Shared/ClientAestheticProfile.cs`, `Shared/ClientAestheticDesignContext.cs`.
 
-- [ ] 3.1 RED: extend `AestheticProfilePersistenceTests.cs` — verbatim round-trip of an unrecognised archetype token (`"diagonal-split"` in ⇒ same string out, never `"unknown"`); pre-change blob (no `decorationMotifs` key) ⇒ `DecorationMotifs = null`, no throw (CAVS-PA-01-b).
-- [ ] 3.2 RED: extend `AestheticExtractionExtensionTests.cs` and `ClientAestheticProfileExtensionTests.cs` for the same round-trip on their respective mapping layers.
-- [ ] 3.3 GREEN: add `DecorationMotifs` as the 15th trailing-nullable named-tuple element on `AestheticProfilePersistence.Read(string?)`; update the DTO (`StoredAestheticProfile`) with the `DecorationMotifs` member; update the two early-return null-tuples at lines 113, 121, 187 (14 nulls → 15 nulls).
-- [ ] 3.4 GREEN: update every mechanical call site for the arity change:
+- [x] 3.1 RED: extend `AestheticProfilePersistenceTests.cs` — verbatim round-trip of an unrecognised archetype token (`"diagonal-split"` in ⇒ same string out, never `"unknown"`); pre-change blob (no `decorationMotifs` key) ⇒ `DecorationMotifs = null`, no throw (CAVS-PA-01-b).
+- [x] 3.2 RED: extend `AestheticExtractionExtensionTests.cs` and `ClientAestheticProfileExtensionTests.cs` for the same round-trip on their respective mapping layers.
+- [x] 3.3 GREEN: add `DecorationMotifs` as the 15th trailing-nullable named-tuple element on `AestheticProfilePersistence.Read(string?)`; update the DTO (`StoredAestheticProfile`) with the `DecorationMotifs` member; update the two early-return null-tuples at lines 113, 121, 187 (14 nulls → 15 nulls).
+- [x] 3.4 GREEN: update every mechanical call site for the arity change:
   - `Incoders.Hive.Infrastructure/Social/ContentGeneration/EfClientAestheticProfileReader.cs` L85-88 — positional `var (...)` deconstruction gains a 15th element (`decorationMotifs`), passed through to the `ClientAestheticProfile` constructor.
   - `Incoders.Hive.Infrastructure/Persistence/Postgres/EfProfileAnalysisRepository.cs` L209 — named `read.` access; no positional break, verify no new field needed for `AestheticFreshnessSnapshot`.
   - `Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/AestheticProfilePersistenceTests.cs` — every `AestheticProfilePersistence.Read(...)` call (35 occurrences, named `.` access) is unaffected by arity unless a test asserts the full tuple literal; audit and fix any literal-tuple `Assert.Equal` calls.
   - `Incoders.Hive.Tests/Application/Social/ContentGeneration/Visual/ClientTypographyResolutionTests.cs` L295, L312 — named access, verify unaffected.
   - `Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/ColorPairingAccentTests.cs` L133, L148 — named access, verify unaffected.
   - `Incoders.Hive.Tests/Application/Social/ClientAestheticProfileAdmin/UpdateClientAestheticProfileBackgroundPatternHandlerTests.cs` L98 — named access, verify unaffected.
-- [ ] 3.5 GREEN: add trailing-nullable `DecorationMotifs` passthrough on `Shared/ClientAestheticProfile.cs` and `Shared/ClientAestheticDesignContext.cs`.
-- [ ] 3.6 REFACTOR: confirm `AestheticProfilePersistence.Write`/`Serialize` round-trips `DecorationMotifs` symmetrically with `BrandMark` (nearest precedent field).
+- [x] 3.5 GREEN: add trailing-nullable `DecorationMotifs` passthrough on `Shared/ClientAestheticProfile.cs` and `Shared/ClientAestheticDesignContext.cs`.
+- [x] 3.6 REFACTOR: confirm `AestheticProfilePersistence.Write`/`Serialize` round-trips `DecorationMotifs` symmetrically with `BrandMark` (nearest precedent field).
 
 ## Phase 4 (WU-4): Divider-Rule Render Primitive — design D2, byte-identity guard is the RED gate
 

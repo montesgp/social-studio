@@ -82,9 +82,12 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
         // aesthetic-freshness-versioning: Read also returns the stored SchemaVersion (PromptVersion).
         // Not part of ClientAestheticProfile — it is only reachable for freshness comparisons via
         // IProfileAnalysisRepository.GetLatestAestheticFreshnessAsync — so it is discarded here.
+        // client-aesthetic-visual-sophistication (WU-3): Read now also returns DecorationMotifs;
+        // absent keys (pre-v6 blobs) → null, cold-start parity unchanged (CAVS-PA-01-b).
         var (palette, styleDescriptors, motifs, captionVoice, referenceImages,
                 backgroundPattern, typicalSlideCount, colorPairings,
-                conceptualMethod, imageTypeRatio, brandMark, _, typography, backgroundTransparency) =
+                conceptualMethod, imageTypeRatio, brandMark, _, typography, backgroundTransparency,
+                decorationMotifs) =
             AestheticProfilePersistence.Read(row.AestheticProfileJson);
 
         return new ClientAestheticProfile(
@@ -108,7 +111,10 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
             Typography: typography,
             // client-aesthetic-fidelity-fixes (WU-3a, D3): per-slide photo-transparency signal;
             // null keeps render-time treatment exactly as today (cold-start parity; WU-3b consumes it).
-            BackgroundTransparency: backgroundTransparency);
+            BackgroundTransparency: backgroundTransparency,
+            // client-aesthetic-visual-sophistication (WU-3): divider-rule/archetype/ornament
+            // signal; null keeps render output byte-identical to today (cold-start parity).
+            DecorationMotifs: decorationMotifs);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────

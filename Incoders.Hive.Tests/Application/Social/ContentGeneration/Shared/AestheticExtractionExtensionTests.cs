@@ -210,4 +210,45 @@ public sealed class AestheticExtractionExtensionTests
 
         Assert.Null(cleared.ConceptualMethod);
     }
+
+    // ── client-aesthetic-visual-sophistication (WU-3): DecorationMotifs field ────────────
+
+    [Fact]
+    public void DecorationMotifs_DefaultsToNull_WhenOmittedFromConstruction()
+    {
+        var extraction = new AestheticExtraction([], [], [], null);
+
+        Assert.Null(extraction.DecorationMotifs);
+    }
+
+    [Fact]
+    public void DecorationMotifs_WhenSet_IsStoredCorrectly()
+    {
+        var motifs = new DecorationMotifs(DividerRuleStyle.LineWithDot, "diagonal-split");
+        var extraction = new AestheticExtraction([], [], [], null, DecorationMotifs: motifs);
+
+        Assert.NotNull(extraction.DecorationMotifs);
+        Assert.Equal(DividerRuleStyle.LineWithDot, extraction.DecorationMotifs!.DividerRule);
+        Assert.Equal("diagonal-split", extraction.DecorationMotifs.CompositionArchetype);
+    }
+
+    [Fact]
+    public void WithExpression_DecorationMotifs_CompilesAndYieldsNewValue()
+    {
+        var original = new AestheticExtraction([], [], [], null);
+        var motifs    = new DecorationMotifs(CompositionArchetype: "centered");
+        var updated   = original with { DecorationMotifs = motifs };
+
+        Assert.Null(original.DecorationMotifs);
+        Assert.NotNull(updated.DecorationMotifs);
+        Assert.Equal("centered", updated.DecorationMotifs!.CompositionArchetype);
+    }
+
+    [Fact]
+    public void Empty_StaticProperty_DecorationMotifsIsNull()
+    {
+        var empty = AestheticExtraction.Empty;
+
+        Assert.Null(empty.DecorationMotifs);
+    }
 }

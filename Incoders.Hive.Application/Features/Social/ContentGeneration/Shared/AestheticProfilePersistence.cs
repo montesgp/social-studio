@@ -68,6 +68,22 @@ public static class AestheticProfilePersistence
                     // WU-6a (CAGH-PA-01/02): additive keys; absent on pre-v5 blobs → null on Read
                     MarkType: extraction.BrandMark.MarkType,
                     Text: extraction.BrandMark.Text),
+            // client-aesthetic-visual-sophistication (WU-3, CAVS-PA-01-b/CAVS-PA-02-b): additive
+            // key; absent on pre-v6 blobs → null on Read. CompositionArchetype round-trips VERBATIM
+            // (even an unrecognised token) — never re-normalised or collapsed here.
+            DecorationMotifs: extraction.DecorationMotifs is null ? null
+                : new StoredDecorationMotifs(
+                    DividerRule: extraction.DecorationMotifs.DividerRule?.ToString(),
+                    CompositionArchetype: extraction.DecorationMotifs.CompositionArchetype,
+                    Ornament: extraction.DecorationMotifs.Ornament is null ? null
+                        : new StoredDecorativeOrnamentDetection(
+                            SourceImagePath: extraction.DecorationMotifs.Ornament.SourceImagePath,
+                            BoundingBox: extraction.DecorationMotifs.Ornament.BoundingBox is null ? null
+                                : new StoredBrandMarkBoundingBox(
+                                    extraction.DecorationMotifs.Ornament.BoundingBox.X,
+                                    extraction.DecorationMotifs.Ornament.BoundingBox.Y,
+                                    extraction.DecorationMotifs.Ornament.BoundingBox.Width,
+                                    extraction.DecorationMotifs.Ornament.BoundingBox.Height))),
             // aesthetic-freshness-versioning: stamp the extraction's OWN schema version (the
             // extractor that actually produced it), NOT a hardcoded constant — otherwise every
             // stored profile would report the same version regardless of which extractor ran,
@@ -106,11 +122,15 @@ public static class AestheticProfilePersistence
         IReadOnlyList<AestheticTypography>? Typography,
         // client-aesthetic-fidelity-fixes (WU-3a, D3, additive trailing element): per-slide
         // photo-transparency signal, or null on blobs written before it existed.
-        IReadOnlyList<SlideBackgroundTransparency?>? BackgroundTransparency) Read(string? json)
+        IReadOnlyList<SlideBackgroundTransparency?>? BackgroundTransparency,
+        // client-aesthetic-visual-sophistication (WU-3, additive trailing element, CAVS-PA-01-b):
+        // divider-rule style, open composition-archetype token (verbatim), and nested ornament
+        // detection, or null on blobs written before it existed.
+        DecorationMotifs? DecorationMotifs) Read(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
-            return (null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         }
 
         try
@@ -118,7 +138,7 @@ public static class AestheticProfilePersistence
             var dto = JsonSerializer.Deserialize<StoredAestheticProfile>(json, JsonOpts);
             if (dto is null)
             {
-                return (null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+                return (null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
             }
 
             var palette = (dto.Palette ?? [])
@@ -178,13 +198,30 @@ public static class AestheticProfilePersistence
                     .Select(t => t is null ? null : new SlideBackgroundTransparency(t.Blended ?? false, t.Descriptor))
                     .ToArray();
 
+            // client-aesthetic-visual-sophistication (WU-3, CAVS-PA-01-b/CAVS-PA-02-b) additive
+            // field (absent on pre-v6 blobs → null). CompositionArchetype is read back VERBATIM —
+            // never re-normalised or collapsed here (that mutation happens once, in the extractor).
+            DecorationMotifs? decorationMotifs = dto.DecorationMotifs is null ? null : new DecorationMotifs(
+                DividerRule: Enum.TryParse<DividerRuleStyle>(dto.DecorationMotifs.DividerRule, ignoreCase: true, out var dividerRule)
+                    ? dividerRule : null,
+                CompositionArchetype: dto.DecorationMotifs.CompositionArchetype,
+                Ornament: dto.DecorationMotifs.Ornament is null ? null : new DecorativeOrnamentDetection(
+                    SourceImagePath: dto.DecorationMotifs.Ornament.SourceImagePath,
+                    BoundingBox: dto.DecorationMotifs.Ornament.BoundingBox is null ? null
+                        : new BrandMarkBoundingBox(
+                            dto.DecorationMotifs.Ornament.BoundingBox.X,
+                            dto.DecorationMotifs.Ornament.BoundingBox.Y,
+                            dto.DecorationMotifs.Ornament.BoundingBox.Width,
+                            dto.DecorationMotifs.Ornament.BoundingBox.Height)));
+
             return (palette, dto.StyleDescriptors ?? [], dto.Motifs ?? [], dto.CaptionVoice, refs,
                 backgroundPattern, dto.TypicalSlideCount, colorPairings,
-                conceptualMethod, imageTypeRatio, brandMark, dto.PromptVersion, typography, backgroundTransparency);
+                conceptualMethod, imageTypeRatio, brandMark, dto.PromptVersion, typography, backgroundTransparency,
+                decorationMotifs);
         }
         catch
         {
-            return (null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+            return (null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         }
     }
 
@@ -250,7 +287,9 @@ public static class AestheticProfilePersistence
         // exact-client-typography additive key (nullable; absent on older blobs)
         IReadOnlyList<StoredTypography>? Typography = null,
         // client-aesthetic-fidelity-fixes (WU-3a, D3) additive key (nullable; absent on older blobs)
-        IReadOnlyList<StoredSlideTransparency?>? BackgroundTransparency = null);
+        IReadOnlyList<StoredSlideTransparency?>? BackgroundTransparency = null,
+        // client-aesthetic-visual-sophistication (WU-3) additive key (nullable; absent on pre-v6 blobs)
+        StoredDecorationMotifs? DecorationMotifs = null);
 
     private sealed record StoredPaletteEntry(string Hex, string? Role, int Rank);
 
@@ -298,4 +337,23 @@ public static class AestheticProfilePersistence
     private sealed record StoredSlideTransparency(
         bool? Blended = null,
         string? Descriptor = null);
+
+    /// <summary>
+    /// Stored shape for <see cref="DecorationMotifs"/> (WU-3, CAVS-PA-01). <c>DividerRule</c> is
+    /// serialized by its enum name string (mirrors <c>ConceptualMethod</c>); <c>CompositionArchetype</c>
+    /// is stored VERBATIM — Read never re-normalises or collapses it, since that mutation happens
+    /// exactly once, in the extractor's <c>Map()</c> (design D1).
+    /// </summary>
+    private sealed record StoredDecorationMotifs(
+        string? DividerRule = null,
+        string? CompositionArchetype = null,
+        StoredDecorativeOrnamentDetection? Ornament = null);
+
+    /// <summary>Stored shape for <see cref="DecorativeOrnamentDetection"/> (WU-3, CAVS-PA-04).</summary>
+    private sealed record StoredDecorativeOrnamentDetection(
+        string? SourceImagePath = null,
+        StoredBrandMarkBoundingBox? BoundingBox = null);
+
+    /// <summary>Stored shape for <see cref="BrandMarkBoundingBox"/>, reused verbatim for the ornament crop region.</summary>
+    private sealed record StoredBrandMarkBoundingBox(double X, double Y, double Width, double Height);
 }
