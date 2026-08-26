@@ -47,6 +47,14 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     // an OPEN, normalised (trim+lowercase) token — an unrecognised token is preserved VERBATIM, never
     // collapsed to a placeholder (CAVS-PA-02-b, design D1). Additive/backward-compatible: absent
     // decorationMotifs key on an older response maps to null (cold-start parity).
+    // aesthetic-extractor/v8 (WU-6, CAVS-PA-04): decorationMotifs gains a nested ornament
+    // {sourceImageIndex, boundingBox} detection — a recurring decorative element (not the brand
+    // mark). Mirrors the WU-6b brandMark sourceImageIndex/boundingBox extraction pattern verbatim:
+    // sourceImageIndex resolves through the same post-skip loadedPairs StoragePath list (D9,
+    // CAGH-PA-03 precedent) and boundingBox validates through the same
+    // BrandMarkDetection.TryValidateBoundingBox/MinimumNormalizedArea guard (CAGH-PA-04 precedent).
+    // Additive/backward-compatible: absent ornament key, or a malformed/out-of-range/below-minimum-
+    // area box, defensively maps to null rather than throwing (CAVS-PA-04-b).
     // aesthetic-freshness-versioning: MUST stay equal to AestheticFreshness.CurrentSchemaVersion —
     // referencing the constant directly (both are compile-time consts) guarantees they never drift.
     private const string PromptVersion = AestheticFreshness.CurrentSchemaVersion;
@@ -250,7 +258,20 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "describing the client's recurring slide-layout system (e.g. \"left-aligned\", " +
             "\"centered\", \"lower-third\", or another token that best matches an archetype you " +
             "observe — do not force-fit an ill-matching one of those three), null when no consistent " +
-            "layout archetype recurs across the attached images.";
+            "layout archetype recurs across the attached images. " +
+            // CAVS-PA-04 (client-aesthetic-visual-sophistication, WU-6): recurring decorative
+            // ornament — a graphic element that is NOT the brand mark/logo.
+            "Also identify a recurring decorative ornament (a graphic element that is NOT the brand " +
+            "mark/logo — e.g. a repeated sticker, icon, or flourish that recurs across slides but " +
+            "carries no identifying/signature meaning). Only report one that RECURS consistently — " +
+            "never invent one from a single occurrence, and never confuse it with `brandMark`. " +
+            "Nest it inside `decorationMotifs` as `ornament` with `sourceImageIndex` — the integer " +
+            "index (matching the \"Image {i}\" " +
+            "numbering used for the captions above) of the ONE attached image where the ornament is " +
+            "most clearly visible — and `boundingBox`, a normalised crop region within that image as " +
+            "`{\"x\":0..1,\"y\":0..1,\"width\":0..1,\"height\":0..1}` (origin top-left, fractions of " +
+            "that image's width/height, tight around the ornament). Omit/null both when no recurring " +
+            "ornament is visible or you cannot confidently localise it — never guess a bounding box.";
 
         var request = new AiJsonCompletionRequest(
             OrganizationId: organizationId,
@@ -373,16 +394,19 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         // dividerRule defensively parses through CompositionArchetypes.TryParseDividerRule (closed
         // enum; unrecognised/malformed → null, never throws). compositionArchetype is normalised
         // (trim+lowercase) but NEVER collapsed — an unrecognised token is preserved verbatim (D1).
-        // Absent decorationMotifs key or a decorationMotifs object with both signals unset → null
-        // (cold-start parity).
+        // CAVS-PA-04 (WU-6): ornament mirrors the WU-6b brandMark sourceImageIndex/boundingBox
+        // extraction pattern verbatim (MapOrnament, below). Absent decorationMotifs key, or a
+        // decorationMotifs object with every signal unset (dividerRule/compositionArchetype/
+        // ornament all null), maps to null (cold-start parity).
         DecorationMotifs? decorationMotifs = null;
         if (dto.DecorationMotifs is { } motifs)
         {
             var dividerRule = CompositionArchetypes.TryParseDividerRule(motifs.DividerRule);
             var compositionArchetype = CompositionArchetypes.Normalize(motifs.CompositionArchetype);
-            if (dividerRule is not null || compositionArchetype is not null)
+            var ornament = motifs.Ornament is { } ornamentDto ? MapOrnament(ornamentDto, storagePaths) : null;
+            if (dividerRule is not null || compositionArchetype is not null || ornament is not null)
             {
-                decorationMotifs = new DecorationMotifs(dividerRule, compositionArchetype);
+                decorationMotifs = new DecorationMotifs(dividerRule, compositionArchetype, ornament);
             }
         }
 
@@ -440,6 +464,27 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         }
 
         return new BrandMarkDetection(bm.Present, bm.PositionHint, bm.ColorHex, markType, text, sourceImagePath, boundingBox);
+    }
+
+    // CAVS-PA-04 (WU-6): defensive ornament mapping — mirrors MapBrandMark's icon-mark
+    // sourceImageIndex/boundingBox extraction verbatim (same post-skip loadedPairs StoragePath
+    // resolution, same TryValidateBoundingBox/MinimumNormalizedArea guard). Unlike brandMark, there
+    // is no markType/present gate here: the ornament DTO only ever carries sourceImageIndex/
+    // boundingBox, so any malformed/out-of-range/below-minimum-area input maps straight to null,
+    // never throws (CAVS-PA-04-b).
+    private static DecorativeOrnamentDetection? MapOrnament(OrnamentDto ornament, IReadOnlyList<string> storagePaths)
+    {
+        var sourceImagePath = ornament.SourceImageIndex is { } idx && idx >= 0 && idx < storagePaths.Count
+            ? storagePaths[idx]
+            : null;
+
+        var boundingBox = ornament.BoundingBox is { } box
+            ? BrandMarkDetection.TryValidateBoundingBox(box.X_, box.Y_, box.Width_, box.Height_)
+            : null;
+
+        return sourceImagePath is null && boundingBox is null
+            ? null
+            : new DecorativeOrnamentDetection(sourceImagePath, boundingBox);
     }
 
     // CAFF-PA-01: defensive per-role mapping — a role with no (or blank) family is skipped rather
@@ -579,7 +624,16 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     // CAVS-PA-01/02/03: recurring decoration signals sub-DTO — dividerRule maps through the closed
     // DividerRuleStyle enum (defensive: unrecognised/malformed → null); compositionArchetype is an
     // OPEN raw token, normalised (never collapsed) at mapping time by CompositionArchetypes.Normalize.
+    // CAVS-PA-04 (WU-6): ornament is additive nullable — absent on pre-v8 responses → null.
     private sealed record DecorationMotifsDto(
         [property: JsonPropertyName("dividerRule")] string? DividerRule = null,
-        [property: JsonPropertyName("compositionArchetype")] string? CompositionArchetype = null);
+        [property: JsonPropertyName("compositionArchetype")] string? CompositionArchetype = null,
+        [property: JsonPropertyName("ornament")] OrnamentDto? Ornament = null);
+
+    // CAVS-PA-04 (WU-6): recurring decorative ornament sub-DTO — mirrors BrandMarkDto's
+    // sourceImageIndex/boundingBox shape (icon-mark meaning is n/a here; both fields are always
+    // meaningful when present). BoundingBoxDto is reused verbatim (same defensive JsonElement? read).
+    private sealed record OrnamentDto(
+        [property: JsonPropertyName("sourceImageIndex")] int? SourceImageIndex = null,
+        [property: JsonPropertyName("boundingBox")] BoundingBoxDto? BoundingBox = null);
 }

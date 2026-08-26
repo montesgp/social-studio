@@ -519,16 +519,15 @@ public sealed class MultimodalAestheticStyleExtractorTests
     }
 
     [Fact]
-    public async Task ExtractorPromptVersion_IsBumpedToV7()
+    public async Task ExtractorPromptVersion_IsBumpedToV8()
     {
-        // Extraction prompt/schema version MUST be bumped v6→v7 (WU-2, CAVS-PA-01/02/03:
-        // decorationMotifs)
+        // Extraction prompt/schema version MUST be bumped v7→v8 (WU-6, CAVS-PA-04: ornament)
         var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]");
         var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
 
         await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v7", gateway.CapturedPromptVersionKey);
+        Assert.Equal("aesthetic-extractor/v8", gateway.CapturedPromptVersionKey);
         Assert.Equal(AestheticFreshness.CurrentSchemaVersion, gateway.CapturedPromptVersionKey);
     }
 
@@ -545,7 +544,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v7", result.SchemaVersion);
+        Assert.Equal("aesthetic-extractor/v8", result.SchemaVersion);
         Assert.Equal(gateway.CapturedPromptVersionKey, result.SchemaVersion);
     }
 
@@ -879,6 +878,192 @@ public sealed class MultimodalAestheticStyleExtractorTests
         var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
         Assert.Null(result.DecorationMotifs);
+    }
+
+    // ── WU-6 task 6.2 [RED] — ornament DTO mapping (CAVS-PA-04) ─────────────────
+
+    [Fact]
+    public async Task Ornament_ValidSourceIndexAndBoundingBox_ResolvesBoth()
+    {
+        // CAVS-PA-04-a: sourceImageIndex resolves to the post-skip loadedPairs StoragePath (same
+        // mechanism as brandMark's sourceImageIndex, CAGH-PA-03 precedent); a valid box is retained.
+        const string decorationMotifsJson =
+            """{"dividerRule":null,"compositionArchetype":null,"ornament":{"sourceImageIndex":2,"boundingBox":{"x":0.1,"y":0.2,"width":0.3,"height":0.3}}}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", decorationMotifsJson: decorationMotifsJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, ThreePairs, CancellationToken.None);
+
+        Assert.NotNull(result.DecorationMotifs);
+        Assert.NotNull(result.DecorationMotifs!.Ornament);
+        Assert.Equal("org/c/a/aesthetic/img2.jpg", result.DecorationMotifs.Ornament!.SourceImagePath);
+        Assert.NotNull(result.DecorationMotifs.Ornament.BoundingBox);
+        Assert.Equal(0.1, result.DecorationMotifs.Ornament.BoundingBox!.X, precision: 10);
+        Assert.Equal(0.3, result.DecorationMotifs.Ornament.BoundingBox.Width, precision: 10);
+    }
+
+    [Fact]
+    public async Task Ornament_EarlierImageFailsToOpen_SourceIndexShiftsToPostSkipOrdering()
+    {
+        // D9 regression, mirrored for ornament: referenceImages[0] fails OpenAsync and is
+        // `continue`d, so loadedPairs' post-skip index 1 resolves to the image originally at index 2.
+        const string decorationMotifsJson =
+            """{"ornament":{"sourceImageIndex":1}}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", decorationMotifsJson: decorationMotifsJson);
+        var storage = new SelectiveFailStorage(failingPaths: ["org/c/a/aesthetic/img0.jpg"]);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), storage);
+
+        var result = await extractor.ExtractAsync(Org, ThreePairs, CancellationToken.None);
+
+        Assert.NotNull(result.DecorationMotifs);
+        Assert.Equal("org/c/a/aesthetic/img2.jpg", result.DecorationMotifs!.Ornament!.SourceImagePath);
+    }
+
+    [Fact]
+    public async Task Ornament_AbsentKey_IsNull_DecorationMotifsStillMapsOtherSignals()
+    {
+        // Absent ornament key (pre-v8 response) → null; other decorationMotifs signals unaffected.
+        const string decorationMotifsJson = """{"dividerRule":"line","compositionArchetype":"centered"}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", decorationMotifsJson: decorationMotifsJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.DecorationMotifs);
+        Assert.Null(result.DecorationMotifs!.Ornament);
+        Assert.Equal(DividerRuleStyle.Line, result.DecorationMotifs.DividerRule);
+        Assert.Equal("centered", result.DecorationMotifs.CompositionArchetype);
+    }
+
+    // ── WU-6 task 6.1/6.2 — 11-case defensive-parsing suite (mirrors WU-6b, CAVS-PA-04-b) ──────
+    // Every case MUST yield DecorationMotifs.Ornament.BoundingBox (and, where noted, SourceImagePath)
+    // == null and MUST NOT throw.
+
+    [Fact]
+    public async Task DefensiveParsing_Ornament01_MissingBoundingBox_ReturnsNull()
+    {
+        const string decorationMotifsJson = """{"ornament":{"sourceImageIndex":0}}""";
+        var result = await ExtractWithOrnament(decorationMotifsJson);
+
+        Assert.Null(result.DecorationMotifs!.Ornament!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_Ornament02_NonNumericValues_ReturnsNull_NoThrow()
+    {
+        const string decorationMotifsJson =
+            """{"ornament":{"sourceImageIndex":0,"boundingBox":{"x":"left","y":"top","width":"wide","height":"tall"}}}""";
+        var result = await ExtractWithOrnament(decorationMotifsJson);
+
+        Assert.Null(result.DecorationMotifs!.Ornament!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_Ornament03_NegativeCoordinates_ReturnsNull()
+    {
+        const string decorationMotifsJson =
+            """{"ornament":{"sourceImageIndex":0,"boundingBox":{"x":-0.1,"y":-0.2,"width":0.3,"height":0.3}}}""";
+        var result = await ExtractWithOrnament(decorationMotifsJson);
+
+        Assert.Null(result.DecorationMotifs!.Ornament!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_Ornament04_ValuesAboveOne_ReturnsNull()
+    {
+        const string decorationMotifsJson =
+            """{"ornament":{"sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.2,"width":1.3,"height":1.3}}}""";
+        var result = await ExtractWithOrnament(decorationMotifsJson);
+
+        Assert.Null(result.DecorationMotifs!.Ornament!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_Ornament05_ZeroArea_ReturnsNull()
+    {
+        const string decorationMotifsJson =
+            """{"ornament":{"sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.2,"width":0,"height":0.3}}}""";
+        var result = await ExtractWithOrnament(decorationMotifsJson);
+
+        Assert.Null(result.DecorationMotifs!.Ornament!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_Ornament06_InvertedWidthNegative_ReturnsNull()
+    {
+        const string decorationMotifsJson =
+            """{"ornament":{"sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.2,"width":-0.3,"height":0.3}}}""";
+        var result = await ExtractWithOrnament(decorationMotifsJson);
+
+        Assert.Null(result.DecorationMotifs!.Ornament!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_Ornament07_XPlusWidthExceedsOne_ReturnsNull()
+    {
+        const string decorationMotifsJson =
+            """{"ornament":{"sourceImageIndex":0,"boundingBox":{"x":0.8,"y":0.2,"width":0.3,"height":0.3}}}""";
+        var result = await ExtractWithOrnament(decorationMotifsJson);
+
+        Assert.Null(result.DecorationMotifs!.Ornament!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_Ornament08_BelowMinimumArea_ReturnsNull()
+    {
+        const string decorationMotifsJson =
+            """{"ornament":{"sourceImageIndex":0,"boundingBox":{"x":0.1,"y":0.1,"width":0.02,"height":0.02}}}""";
+        var result = await ExtractWithOrnament(decorationMotifsJson);
+
+        Assert.Null(result.DecorationMotifs!.Ornament!.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_Ornament09_SourceIndexOutOfRange_SourceImagePathNull_BoxStillValidated()
+    {
+        // BoundingBox validation is independent of SourceImagePath resolution — a still-valid box is
+        // retained even when the source index cannot be resolved (mirrors brandMark case 11).
+        const string decorationMotifsJson =
+            """{"ornament":{"sourceImageIndex":42,"boundingBox":{"x":0.1,"y":0.2,"width":0.3,"height":0.3}}}""";
+        var result = await ExtractWithOrnament(decorationMotifsJson);
+
+        Assert.Null(result.DecorationMotifs!.Ornament!.SourceImagePath);
+        Assert.NotNull(result.DecorationMotifs.Ornament.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_Ornament10_MissingSourceIndex_BoundingBoxStillValidated()
+    {
+        const string decorationMotifsJson =
+            """{"ornament":{"boundingBox":{"x":0.1,"y":0.2,"width":0.3,"height":0.3}}}""";
+        var result = await ExtractWithOrnament(decorationMotifsJson);
+
+        Assert.Null(result.DecorationMotifs!.Ornament!.SourceImagePath);
+        Assert.NotNull(result.DecorationMotifs.Ornament.BoundingBox);
+    }
+
+    [Fact]
+    public async Task DefensiveParsing_Ornament11_EmptyOrnamentObject_DecorationMotifsOrnamentIsNull_NoThrow()
+    {
+        // An `ornament` object with neither sourceImageIndex nor boundingBox → the whole Ornament
+        // maps to null (nothing reliably detected), never a half-populated record.
+        const string decorationMotifsJson = """{"ornament":{}}""";
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", decorationMotifsJson: decorationMotifsJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, ThreePairs, CancellationToken.None);
+
+        Assert.Null(result.DecorationMotifs);
+    }
+
+    private static async Task<AestheticExtraction> ExtractWithOrnament(string decorationMotifsJson)
+    {
+        var gateway = new CaptureGateway(paletteJson: "[]", descriptors: "[]", decorationMotifsJson: decorationMotifsJson);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+        var result = await extractor.ExtractAsync(Org, ThreePairs, CancellationToken.None);
+        Assert.NotNull(result.DecorationMotifs);
+        Assert.NotNull(result.DecorationMotifs!.Ornament);
+        return result;
     }
 
     // ── WU-2a task 2a.1 [RED] — three-role typography mapping (CAFF-PA-01) ──────

@@ -52,8 +52,15 @@ public static class AestheticFreshness
     /// <c>CompositionArchetypes.Normalize</c>). Bumped per the same convention so a v6 profile (which
     /// has neither signal) is treated as stale and eligible for re-analysis.
     /// </para>
+    ///
+    /// <para>
+    /// v8 (WU-6, CAVS-PA-04): <c>decorationMotifs</c> gains a nested <c>ornament</c> detection
+    /// (sourceImageIndex/boundingBox), mirroring the WU-6b brandMark bounding-box extraction pattern.
+    /// Bumped per the same convention so a v7 profile (which never asked the model for an ornament)
+    /// is treated as stale and eligible for re-analysis.
+    /// </para>
     /// </summary>
-    public const string CurrentSchemaVersion = "aesthetic-extractor/v7";
+    public const string CurrentSchemaVersion = "aesthetic-extractor/v8";
 
     /// <summary>
     /// Parses the trailing integer from an <c>"aesthetic-extractor/vN"</c> schema version string.

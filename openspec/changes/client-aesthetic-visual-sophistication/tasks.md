@@ -125,12 +125,12 @@ Spec: CAVS-CG-02. Files: `Shared/FlatGeometryPresets.cs` (new), `Pipeline/Conten
 
 Spec: CAVS-PA-04. Files: `MultimodalAestheticStyleExtractor.cs`, `DecorationMotifs.cs` (extend from Phase 1).
 
-- [ ] 6.1 RED: extend `DecorationMotifsTests.cs` — valid ornament bounding box (within 0..1, above `MinimumNormalizedArea`) is retained with resolved `SourceImagePath` (CAVS-PA-04-a); below-minimum-area/out-of-range/malformed box ⇒ `BoundingBox = null`, no throw (CAVS-PA-04-b).
-- [ ] 6.2 RED: extend `MultimodalAestheticStyleExtractorTests.cs` — `ornament { sourceImageIndex, boundingBox }` DTO parses; `sourceImageIndex` resolves to `StoragePath` via the existing post-skip `loadedPairs` mechanism (mirrors `CAGH-PA-03`).
-- [ ] 6.3 GREEN: add `ornament` prompt section + DTO + `Map()` wiring reusing `TryValidateBoundingBox`/`MinimumNormalizedArea` verbatim; bump `PromptVersion` to v8.
-- [ ] 6.4 GATE (blocking, non-code): run extraction against at least two real client feeds with archived reference images per the proposal's owner-side prerequisite; record ornament `BoundingBox` accept/reject outcomes in `openspec/changes/client-aesthetic-visual-sophistication/verify-report.md` (or an interim note) satisfying CAVS-PA-04-c. If the measurement is unusable, record the decision to cut WU-7/WU-8 explicitly and stop this track here.
+- [x] 6.1 RED: extend `DecorationMotifsTests.cs` — valid ornament bounding box (within 0..1, above `MinimumNormalizedArea`) is retained with resolved `SourceImagePath` (CAVS-PA-04-a); below-minimum-area/out-of-range/malformed box ⇒ `BoundingBox = null`, no throw (CAVS-PA-04-b). (Cases `DecorativeOrnamentDetection_ValidBox_IsRetained`/`DecorativeOrnamentDetection_InvalidBox_BoundingBoxIsNull_NoThrow` already existed in `DecorationMotifsTests.cs` from prior WU work; verified they satisfy this task's acceptance criteria — no duplicate added.)
+- [x] 6.2 RED: extend `MultimodalAestheticStyleExtractorTests.cs` — `ornament { sourceImageIndex, boundingBox }` DTO parses; `sourceImageIndex` resolves to `StoragePath` via the existing post-skip `loadedPairs` mechanism (mirrors `CAGH-PA-03`). Added `Ornament_ValidSourceIndexAndBoundingBox_ResolvesBoth`, `Ornament_EarlierImageFailsToOpen_SourceIndexShiftsToPostSkipOrdering`, `Ornament_AbsentKey_IsNull_DecorationMotifsStillMapsOtherSignals`, and an 11-case `DefensiveParsing_Ornament01..11` suite mirroring WU-6b's brand-mark defensive-parsing suite (malformed/out-of-range/zero-area/missing-index cases).
+- [x] 6.3 GREEN: added `ornament` prompt section + `OrnamentDto`/`DecorationMotifsDto.Ornament` + `MapOrnament()` wiring in `MultimodalAestheticStyleExtractor.cs`, reusing `BrandMarkDetection.TryValidateBoundingBox`/`MinimumNormalizedArea` verbatim; bumped `PromptVersion`/`AestheticFreshness.CurrentSchemaVersion` to `aesthetic-extractor/v8`.
+- [x] 6.4 GATE (blocking, non-code): **NOT PASSED.** Queried the local dev Postgres (`incoders-hive-dev-postgres`, `social.profile_analyses.aesthetic_profile_json`) for real brand-mark bounding-box data from the already-shipped `client-aesthetic-generation-hardening` change (same extraction mechanism, reused verbatim for the ornament). Found 14 populated `brandMark` rows; 0 carry a `boundingBox` value — the only post-v6 row classified its mark as `markType: "text"` (never bounding-box-eligible). No real bounding-box measurement exists to evaluate. Full verdict, query evidence, and the cut decision are recorded in `openspec/changes/client-aesthetic-visual-sophistication/wu6-reliability-gate.md`. Per this task's own fallback clause, **WU-7 and WU-8 are cut from this apply batch**; the schema/extraction (WU-1/WU-6) ship as inert additive-nullable fields with no renderer consuming them yet.
 
-## Phase 7 (WU-7): Ornament Crop Port + SkiaSharp Adapter *(gated on Phase 6.4 passing)*
+## Phase 7 (WU-7): Ornament Crop Port + SkiaSharp Adapter *(gated on Phase 6.4 passing — GATE NOT PASSED, see `wu6-reliability-gate.md`; cut from this apply batch)*
 
 Spec: CAVS-CG-04 (crop half). Files: new sibling files alongside the renamed WU-1b port/adapter.
 
@@ -138,7 +138,7 @@ Spec: CAVS-CG-04 (crop half). Files: new sibling files alongside the renamed WU-
 - [ ] 7.2 GREEN: extend `SkiaAestheticAssetCropExtractor` usage (no new adapter class per design D3 — one renamed sibling port serves both brand mark and ornament) to accept the ornament's `SourceImagePath`/`BoundingBox`.
 - [ ] 7.3 GREEN: draft `docs/architecture/adr/` — ornament crop-port ADR recording the one-port-vs-sibling-port decision (D3) and the ornament degrade contract (D4). Deferred to land alongside WU-9 if sequencing is tighter, but the decision text is authored here while context is fresh.
 
-## Phase 8 (WU-8): Ornament Render + Degrade Visibility + Token-Aware Badge *(gated on Phase 6.4 passing)*
+## Phase 8 (WU-8): Ornament Render + Degrade Visibility + Token-Aware Badge *(gated on Phase 6.4 passing — GATE NOT PASSED, see `wu6-reliability-gate.md`; cut from this apply batch)*
 
 Spec: CAVS-CG-04 (render half), CAVS-CG-05, CAVS-CS-01, CAVS-CS-02, CAFF-CS-01 (modified). Files: `ContentGenerationJobProcessor.cs`, `Shared/ClientAestheticDegradeDecision.cs`, `StudioVisualMarkupResolver.cs`, `Infrastructure/Rendering/PptxExportAdapter.cs`, `apps/web/lib/studio/degrade-badge.ts`, `apps/web/components/social/content-studio-panel.tsx`.
 
