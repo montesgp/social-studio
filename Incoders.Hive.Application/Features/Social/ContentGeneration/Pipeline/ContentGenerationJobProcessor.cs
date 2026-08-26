@@ -752,7 +752,10 @@ public sealed class ContentGenerationJobProcessor
                 // reflect the same per-slide background decision enforced below (CG-COH-02).
                 // FIX-2: ComposeManyAsync runs AFTER the ForcedDefaults overlay above so the
                 // composer sees AI image URLs for creative slides, not the stale CSS plan.
-                var specs = await _composer.ComposeManyAsync(formatKey, step.Payload, brand, ct, backgroundPlan);
+                // Issue #81: thread the already-resolved ClientAesthetic profile through so the
+                // carousel composer's profile-aware typography resolution (real observed
+                // family/weight) is reachable from production, not just from direct unit tests.
+                var specs = await _composer.ComposeManyAsync(formatKey, step.Payload, brand, ct, backgroundPlan, aestheticProfile);
                 foreach (var f in _composer.GetInferredFields())
                 {
                     inferred.Add(f);
@@ -2067,6 +2070,10 @@ public sealed class ContentGenerationJobProcessor
         // (cold-start parity); measured values come from CompositionDefaults.ResolveTypography.
         var measuredHeadingSize = spec.Typography.MeasuredHeadingSize;
         var measuredBodySize = spec.Typography.MeasuredBodySize;
+        // Issue #81: the client's REAL observed heading weight, when a ClientAesthetic profile
+        // measured one. Null keeps each builder's own pre-change font-weight:900 literal (cold-start
+        // / non-ClientAesthetic parity) — mirrors the measuredHeadingSize/measuredBodySize precedent.
+        var measuredHeadingWeight = spec.Typography.MeasuredHeadingWeight;
 
         var title = FirstSlot(spec.CopySlots, isCarousel ? ["title", "headline"] : ["headline", "title"])
             ?? (isCarousel ? "Carousel" : "Story");
@@ -2090,8 +2097,8 @@ public sealed class ContentGenerationJobProcessor
             : null;
 
         var content = isCarousel
-            ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize)
-            : BuildStoryTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize);
+            ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize, measuredHeadingWeight)
+            : BuildStoryTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize, measuredHeadingWeight);
 
         // No-scrim fix: the full-bleed dark box below ("scrimBox") is ONLY safe over a synthesized
         // CSS/gradient background, which has no inherent contrast guarantee. An ENFORCED background
@@ -2203,7 +2210,10 @@ public sealed class ContentGenerationJobProcessor
         int? captionSize = null,
         // client-aesthetic-generation-hardening D1: null keeps the pre-change literal (cold-start parity).
         int? measuredHeadingSize = null,
-        int? measuredBodySize = null)
+        int? measuredBodySize = null,
+        // Issue #81: the client's REAL observed heading weight. Null keeps the pre-change 900 literal
+        // (cold-start / non-ClientAesthetic parity).
+        int? measuredHeadingWeight = null)
     {
         var slots = new List<string>
         {
@@ -2222,7 +2232,7 @@ public sealed class ContentGenerationJobProcessor
                 title,
                 "position:absolute;left:96px;top:255px;width:888px;min-height:260px;" +
                 $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 88}px;line-height:0.98;" +
-                $"font-weight:900;letter-spacing:-2.5px;color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
+                $"font-weight:{measuredHeadingWeight ?? 900};letter-spacing:-2.5px;color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
                 3)
         };
 
@@ -2272,7 +2282,10 @@ public sealed class ContentGenerationJobProcessor
         int? captionSize = null,
         // client-aesthetic-generation-hardening D1: null keeps the pre-change literal (cold-start parity).
         int? measuredHeadingSize = null,
-        int? measuredBodySize = null)
+        int? measuredBodySize = null,
+        // Issue #81: the client's REAL observed heading weight. Null keeps the pre-change 900 literal
+        // (cold-start / non-ClientAesthetic parity).
+        int? measuredHeadingWeight = null)
     {
         var slots = new List<string>
         {
@@ -2282,7 +2295,7 @@ public sealed class ContentGenerationJobProcessor
                 title,
                 "position:absolute;left:104px;top:235px;width:872px;min-height:230px;" +
                 $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 74}px;line-height:1.02;" +
-                $"font-weight:900;letter-spacing:-1.8px;color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
+                $"font-weight:{measuredHeadingWeight ?? 900};letter-spacing:-1.8px;color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
                 3)
         };
 
@@ -2325,6 +2338,8 @@ public sealed class ContentGenerationJobProcessor
         // D1: nullable measured heading/body sizes — null keeps the builder's own hardcoded literal.
         var measuredHeadingSize = spec.Typography.MeasuredHeadingSize;
         var measuredBodySize = spec.Typography.MeasuredBodySize;
+        // Issue #81: the client's REAL observed heading weight — null keeps the pre-change 900 literal.
+        var measuredHeadingWeight = spec.Typography.MeasuredHeadingWeight;
 
         var title = FirstSlot(spec.CopySlots, ["title", "headline"]) ?? "Carousel";
         var subtitle = FirstSlot(spec.CopySlots, ["subtitle", "body", "text"]);
@@ -2342,7 +2357,7 @@ public sealed class ContentGenerationJobProcessor
 
         var content = BuildFlatCarouselSlots(
             title, subtitle, cta, headingFont, bodyFont, safeText, safeAccent, captionFont, captionWeight, captionSize,
-            measuredHeadingSize, measuredBodySize);
+            measuredHeadingSize, measuredBodySize, measuredHeadingWeight);
 
         return $$"""
             <div class="composition" data-format="{{Html(spec.FormatKey)}}" style="position:relative;width:{{width}}px;height:{{height}}px;overflow:hidden;background:{{safeBackground}};">
@@ -2374,7 +2389,10 @@ public sealed class ContentGenerationJobProcessor
         int? captionSize = null,
         // client-aesthetic-generation-hardening D1: null keeps the pre-change literal (cold-start parity).
         int? measuredHeadingSize = null,
-        int? measuredBodySize = null)
+        int? measuredBodySize = null,
+        // Issue #81: the client's REAL observed heading weight. Null keeps the pre-change 900 literal
+        // (cold-start / non-ClientAesthetic parity).
+        int? measuredHeadingWeight = null)
     {
         var slots = new List<string>();
 
@@ -2395,7 +2413,7 @@ public sealed class ContentGenerationJobProcessor
             title,
             "position:absolute;left:104px;top:235px;width:872px;min-height:230px;" +
             $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 74}px;line-height:1.02;" +
-            $"font-weight:900;letter-spacing:-1.8px;color:{textColor};text-align:left;",
+            $"font-weight:{measuredHeadingWeight ?? 900};letter-spacing:-1.8px;color:{textColor};text-align:left;",
             3));
 
         AddSlot(slots, "p", "subtitle", subtitle,

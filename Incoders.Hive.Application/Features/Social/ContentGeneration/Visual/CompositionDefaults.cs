@@ -224,6 +224,10 @@ internal static class CompositionDefaults
             // headline if consumed directly by a builder.
             MeasuredHeadingSize = SizeForCaption(heading, canvasHeight),
             MeasuredBodySize = SizeForCaption(body, canvasHeight),
+            // exact-client-typography follow-up: the client's REAL observed heading weight, so the
+            // rendered markup can use it instead of each builder's own hardcoded font-weight literal.
+            // Null (heading absent) keeps every builder's cold-start literal unchanged.
+            MeasuredHeadingWeight = heading?.Weight,
         };
     }
 

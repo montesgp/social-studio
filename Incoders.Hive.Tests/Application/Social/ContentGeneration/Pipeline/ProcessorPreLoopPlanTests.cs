@@ -393,7 +393,7 @@ file sealed class CapturingCarouselComposer(
     // over the final call's specs regardless of how many times the processor calls the composer.
     public List<VisualCompositionSpec> CapturedSpecs { get; private set; } = new();
 
-    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct)
+    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, ClientAestheticProfile? aestheticProfile = null)
     {
         var spec = BuildSlideSpec(1, templates);
         CapturedSpecs = [spec];
@@ -405,7 +405,7 @@ file sealed class CapturingCarouselComposer(
         object payload,
         BrandSnapshot brand,
         CancellationToken ct,
-        CarouselBackgroundPlan? plan = null)
+        CarouselBackgroundPlan? plan = null, ClientAestheticProfile? aestheticProfile = null)
     {
         // Deserialize slide count from the payload
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -501,7 +501,7 @@ file sealed class SimpleCarouselComposer(int slideCount) : IVisualCompositionSer
     private static readonly CompositionTypography DefaultTypo = new("Inter", 24, "Inter", 14);
     private static readonly CompositionDimensions DefaultDim = new(1080, 1080, 96);
 
-    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct) =>
+    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, ClientAestheticProfile? aestheticProfile = null) =>
         Task.FromResult(BuildSpec(1));
 
     public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
@@ -509,7 +509,7 @@ file sealed class SimpleCarouselComposer(int slideCount) : IVisualCompositionSer
         object payload,
         BrandSnapshot brand,
         CancellationToken ct,
-        CarouselBackgroundPlan? plan = null)
+        CarouselBackgroundPlan? plan = null, ClientAestheticProfile? aestheticProfile = null)
     {
         var specs = Enumerable.Range(1, slideCount)
             .Select(i => BuildSpec(i))

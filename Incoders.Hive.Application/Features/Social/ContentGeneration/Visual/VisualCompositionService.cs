@@ -1,4 +1,5 @@
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Composers;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
@@ -54,7 +55,8 @@ public sealed class VisualCompositionService : IVisualCompositionService
         string formatKey,
         object generatedPayload,
         BrandSnapshot brand,
-        CancellationToken ct)
+        CancellationToken ct,
+        ClientAestheticProfile? aestheticProfile = null)
     {
         _lastInferred = new InferenceAccumulator();
 
@@ -63,6 +65,10 @@ public sealed class VisualCompositionService : IVisualCompositionService
             throw new InvalidOperationException($"No visual composer registered for format key '{formatKey}'.");
         }
 
+        // Issue #81: the single-spec path has no plan to thread, so the combined interface is not
+        // needed here — a profile-aware-only composer (IClientAestheticAwareComposer) still resolves
+        // its multi-asset spec via ComposeManyAsync in production; this legacy single path is kept
+        // byte-identical (no composer.Compose overload consumes a profile).
         var spec = composer.Compose(generatedPayload, brand, _lastInferred);
         return Task.FromResult(spec);
     }
@@ -72,7 +78,8 @@ public sealed class VisualCompositionService : IVisualCompositionService
         object generatedPayload,
         BrandSnapshot brand,
         CancellationToken ct,
-        CarouselBackgroundPlan? plan = null)
+        CarouselBackgroundPlan? plan = null,
+        ClientAestheticProfile? aestheticProfile = null)
     {
         _lastInferred = new InferenceAccumulator();
 
@@ -81,11 +88,27 @@ public sealed class VisualCompositionService : IVisualCompositionService
             throw new InvalidOperationException($"No visual composer registered for format key '{formatKey}'.");
         }
 
+        // Issue #81: a composer that can consume BOTH a background plan AND a resolved
+        // ClientAestheticProfile in the SAME call takes priority. Before this fix, the plan-only
+        // dispatch below always won for carousel (production always supplies a plan), so the
+        // profile — and the client's real observed typography — never reached the composer.
+        // plan: null, profile: null reduces to the pre-existing legacy path byte-identically.
+        if (composer is IPlanAndProfileAwareComposer planAndProfileAware)
+        {
+            return Task.FromResult(planAndProfileAware.ComposeMany(generatedPayload, brand, _lastInferred, plan, aestheticProfile));
+        }
+
         // WU-4: When a pre-computed plan is available, thread it into plan-aware composers.
         // CarouselVisualComposer and SurfaceScopedCarouselVisualComposer implement IBackgroundPlanAwareComposer.
         if (plan is not null && composer is IBackgroundPlanAwareComposer planAware)
         {
             return Task.FromResult(planAware.ComposeMany(generatedPayload, brand, _lastInferred, plan));
+        }
+
+        // WU-3: when no plan is available but a profile is, thread it into profile-aware composers.
+        if (composer is IClientAestheticAwareComposer profileAware)
+        {
+            return Task.FromResult(profileAware.ComposeMany(generatedPayload, brand, _lastInferred, aestheticProfile));
         }
 
         // If the composer supports multi-asset composition, use it.

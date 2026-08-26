@@ -779,13 +779,13 @@ file sealed class RasterCompositionService(string designedFormat) : IVisualCompo
     private static readonly CompositionTypography DefaultTypo = new("Inter", 24, "Inter", 14);
     private static readonly CompositionDimensions DefaultDim = new(1080, 1920, 96);
 
-    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct)
+    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, ClientAestheticProfile? aestheticProfile = null)
     {
         var spec = BuildSpec(formatKey);
         return Task.FromResult(spec);
     }
 
-    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null, ClientAestheticProfile? aestheticProfile = null)
     {
         return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>([BuildSpec(formatKey)]);
     }
@@ -1046,6 +1046,63 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         var ctaSlot = ExtractSlot(rendererSpy.ReceivedMarkup!, "cta");
         // CaptionSize wiring (pre-existing) stays untouched by the new MeasuredHeadingSize/BodySize wiring.
         Assert.Contains("font-size:33px", ctaSlot);
+    }
+
+    // -----------------------------------------------------------------------
+    // GitHub issue #81: BuildFlatCarouselSlots' title font-weight was hardcoded to 900 regardless of
+    // spec.Typography — this consumes the new MeasuredHeadingWeight (heading?.Weight from the
+    // profile), and falls back to the pre-existing 900 literal when unmeasured (cold-start parity).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task FlatColorSlide_MeasuredHeadingWeightPresent_TitleUsesMeasuredWeight()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var typography = new CompositionTypography("Inter", 24, "Inter", 14)
+        {
+            MeasuredHeadingWeight = 550,
+        };
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner(),
+            typography: typography);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        var titleSlot = ExtractSlot(rendererSpy.ReceivedMarkup!, "title");
+        Assert.Contains("font-weight:550", titleSlot);
+        Assert.DoesNotContain("font-weight:900", titleSlot);
+    }
+
+    [Fact]
+    public async Task FlatColorSlide_MeasuredHeadingWeightAbsent_TitleKeepsLegacy900Literal()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        var titleSlot = ExtractSlot(rendererSpy.ReceivedMarkup!, "title");
+        Assert.Contains("font-weight:900", titleSlot);
     }
 
     [Fact]
@@ -2171,11 +2228,11 @@ file sealed class FC_CompositionService(string designedFormat, int slideCount, C
     private static readonly CompositionDimensions DefaultDim = new(1080, 1350, 96);
     private readonly CompositionTypography _typography = typography ?? DefaultTypo;
 
-    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct) =>
+    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, ClientAestheticProfile? aestheticProfile = null) =>
         Task.FromResult(BuildSpec(formatKey));
 
     public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
-        string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
+        string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null, ClientAestheticProfile? aestheticProfile = null)
     {
         var specs = Enumerable.Range(1, slideCount).Select(_ => BuildSpec(formatKey)).ToList();
         return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>(specs);

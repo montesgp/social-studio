@@ -1,3 +1,4 @@
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Social.ContentFormats;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
@@ -17,7 +18,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Com
 /// is correct for future divergence (S5 per-surface-template guard).
 /// </summary>
 /// <inheritdoc cref="CarouselVisualComposer"/>
-internal sealed class SurfaceScopedCarouselVisualComposer : IFormatVisualComposer, IMultiAssetVisualComposer, IBackgroundPlanAwareComposer
+internal sealed class SurfaceScopedCarouselVisualComposer : IFormatVisualComposer, IMultiAssetVisualComposer, IBackgroundPlanAwareComposer, IPlanAndProfileAwareComposer
 {
     private readonly FormatDefinition _def;
     private readonly CarouselVisualComposer _inner;
@@ -75,6 +76,23 @@ internal sealed class SurfaceScopedCarouselVisualComposer : IFormatVisualCompose
         CarouselBackgroundPlan plan)
     {
         var specs = ((IBackgroundPlanAwareComposer)_inner).ComposeMany(generatedPayload, brand, inferred, plan);
+        return specs.Select(s => s with { FormatKey = _def.FormatKey, Dimensions = Dimensions }).ToList();
+    }
+
+    /// <inheritdoc cref="IPlanAndProfileAwareComposer.ComposeMany"/>
+    /// <remarks>
+    /// GitHub issue #81: threads BOTH the plan and the resolved <see cref="ClientAestheticProfile"/>
+    /// to the inner <see cref="CarouselVisualComposer"/> so surface-scoped carousels (story-carousel,
+    /// feed-carousel) also receive the client's real observed typography, not just the background plan.
+    /// </remarks>
+    public IReadOnlyList<VisualCompositionSpec> ComposeMany(
+        object generatedPayload,
+        BrandSnapshot brand,
+        InferenceAccumulator inferred,
+        CarouselBackgroundPlan? plan,
+        ClientAestheticProfile? profile)
+    {
+        var specs = ((IPlanAndProfileAwareComposer)_inner).ComposeMany(generatedPayload, brand, inferred, plan, profile);
         return specs.Select(s => s with { FormatKey = _def.FormatKey, Dimensions = Dimensions }).ToList();
     }
 }

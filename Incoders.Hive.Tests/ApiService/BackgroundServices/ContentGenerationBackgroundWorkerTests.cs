@@ -408,7 +408,7 @@ file sealed class SpyBrandLoader : IClientBrandSnapshotLoader
 
 file sealed class SpyComposer : IVisualCompositionService
 {
-    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object generatedPayload, BrandSnapshot brand, CancellationToken ct) =>
+    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object generatedPayload, BrandSnapshot brand, CancellationToken ct, ClientAestheticProfile? aestheticProfile = null) =>
         Task.FromResult(new VisualCompositionSpec(
             FormatKey: formatKey,
             LayoutType: "stack",
@@ -418,7 +418,7 @@ file sealed class SpyComposer : IVisualCompositionService
             CopySlots: new Dictionary<string, string> { ["title"] = "stub" },
             Dimensions: new CompositionDimensions(100, 100, 72)));
 
-    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object generatedPayload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object generatedPayload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null, ClientAestheticProfile? aestheticProfile = null)
     {
         var spec = new VisualCompositionSpec(
             FormatKey: formatKey,

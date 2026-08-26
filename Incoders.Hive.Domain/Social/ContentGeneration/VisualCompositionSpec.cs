@@ -81,6 +81,17 @@ public sealed record CompositionTypography(
     /// positional construction site keeps compiling and keeps its previous rendering.</summary>
     public int HeadingWeight { get; init; } = 700;
 
+    /// <summary>
+    /// The client's REAL observed heading weight, when a <c>ClientAestheticProfile</c> measured one.
+    /// Null when unmeasured (cold-start / no profile) — unlike <see cref="HeadingWeight"/>, which
+    /// always carries a value (a non-nullable int with an init default), this nullable twin lets a
+    /// markup builder distinguish "the client's font really is this weight" from "no signal, use my
+    /// own pre-existing hardcoded literal" — the same pattern <see cref="MeasuredHeadingSize"/> already
+    /// established for size. Byte-identical cold-start parity depends on builders consulting THIS
+    /// field (not <see cref="HeadingWeight"/>) before falling back to their literal.
+    /// </summary>
+    public int? MeasuredHeadingWeight { get; init; }
+
     /// <summary>CSS numeric weight for body copy.</summary>
     public int BodyWeight { get; init; } = 400;
 

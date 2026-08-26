@@ -394,11 +394,11 @@ file sealed class ParityRasterCompositionService(string designedFormat) : IVisua
     private static readonly CompositionTypography DefaultTypo = new("Inter", 24, "Inter", 14);
     private static readonly CompositionDimensions DefaultDim = new(1080, 1080, 96);
 
-    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct) =>
+    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, ClientAestheticProfile? aestheticProfile = null) =>
         Task.FromResult(BuildSpec(formatKey));
 
     public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
-        string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
+        string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null, ClientAestheticProfile? aestheticProfile = null)
     {
         // Return one spec per slide by reading the payload's slide count
         int count = 1;

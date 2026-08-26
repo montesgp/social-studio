@@ -344,7 +344,7 @@ file sealed class CvlSimpleComposer : IVisualCompositionService
     private static readonly CompositionTypography Typo = new("Inter", 24, "Inter", 14);
     private static readonly CompositionDimensions Dim = new(1080, 1080, 96);
 
-    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct) =>
+    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, ClientAestheticProfile? aestheticProfile = null) =>
         Task.FromResult(BuildSpec(formatKey, 1));
 
     public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
@@ -352,7 +352,7 @@ file sealed class CvlSimpleComposer : IVisualCompositionService
         object payload,
         BrandSnapshot brand,
         CancellationToken ct,
-        CarouselBackgroundPlan? plan = null)
+        CarouselBackgroundPlan? plan = null, ClientAestheticProfile? aestheticProfile = null)
     {
         var specs = new List<VisualCompositionSpec> { BuildSpec(formatKey, 1) };
         return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>(specs);

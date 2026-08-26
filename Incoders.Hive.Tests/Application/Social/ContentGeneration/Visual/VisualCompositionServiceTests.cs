@@ -1,6 +1,10 @@
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Story;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Domain.Social.ClientBrandManuals;
+using Incoders.Hive.Domain.Social.Clients;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Visual;
@@ -136,6 +140,60 @@ public sealed class VisualCompositionServiceTests
 
         Assert.Equal("content-idea", spec.FormatKey);
         Assert.True(spec.AssetSlots.ContainsKey("summary-card"));
+    }
+
+    // -------------------------------------------------------------------
+    // GitHub issue #81 regression: ComposeManyAsync through the ACTUAL IVisualCompositionService
+    // port must thread a ClientAestheticProfile's real observed typography into the composed spec
+    // even when a CarouselBackgroundPlan is ALSO supplied (the production call shape —
+    // ContentGenerationJobProcessor always supplies a plan for carousel formats). Before the fix,
+    // VisualCompositionService dispatched plan-aware composers WITHOUT the profile, so a
+    // ClientAesthetic carousel's real family/weight never reached the rendered markup.
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task ComposeManyAsync_PlanAndProfileBothSupplied_UsesProfileTypography_NotGenericDefault()
+    {
+        IVisualCompositionService service = CreateService();
+        var brand = BuildFullBrand();
+        // PayloadReader.As<T> only recognizes an already-typed instance or a JsonElement (never an
+        // anonymous object) — CarouselContent constructed directly so the composer's slide-count
+        // guard actually resolves through ComposeManyCore instead of degrading to the empty fallback.
+        var payload = new CarouselContent(
+            CoverTitle: "5 Tips",
+            Slides: [new CarouselSlide("Slide 1", "Body 1", null)],
+            CtaText: "Learn more",
+            CtaLink: null);
+
+        // A real client-observed typography signal, distinct from the brand's "Roboto" fallback.
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: [],
+            VoiceTone: null,
+            AverageSlidesPerCarousel: null,
+            AnalyzedAtUtc: null,
+            Typography:
+            [
+                new AestheticTypography("heading", "Cormorant Garamond", Weight: 550, SizeRatio: 0.1),
+            ]);
+
+        // The production call shape: a non-null plan supplied ALONGSIDE the profile. Before the
+        // fix, VisualCompositionService's plan-aware dispatch branch ignored `aestheticProfile`
+        // entirely whenever a plan was present — this is the exact production call site's shape.
+        var plan = new CarouselBackgroundPlan(
+            BackgroundSourcingPolicy.ClientAesthetic,
+            [(BackgroundSelection)new BackgroundSelection.Creative()],
+            SeedToken: "seed");
+
+        var specs = await service.ComposeManyAsync(
+            "carousel", payload, brand, CancellationToken.None, plan, profile);
+
+        Assert.NotEmpty(specs);
+        var typography = specs[0].Typography;
+        // FontFamilyResolution substitutes an actual bundled font for "Cormorant Garamond" (a serif
+        // renderable, e.g. "Liberation Serif") — the assertion targets the OBSERVABLE symptom from
+        // the field report: real typography reached the spec, NOT the generic brand/default family.
+        Assert.NotEqual("Roboto", typography.HeadingFamily);
+        Assert.Equal(550, typography.MeasuredHeadingWeight);
     }
 
     // -------------------------------------------------------------------

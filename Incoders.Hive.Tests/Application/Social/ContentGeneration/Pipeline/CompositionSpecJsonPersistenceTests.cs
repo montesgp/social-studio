@@ -470,14 +470,14 @@ file sealed class HtmlCompositionService(
     int dpi) : IVisualCompositionService
 {
     public Task<VisualCompositionSpec> ComposeAsync(
-        string fmtKey, object payload, BrandSnapshot brand, CancellationToken ct)
+        string fmtKey, object payload, BrandSnapshot brand, CancellationToken ct, ClientAestheticProfile? aestheticProfile = null)
     {
         var spec = BuildSpec(fmtKey);
         return Task.FromResult(spec);
     }
 
     public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
-        string fmtKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
+        string fmtKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null, ClientAestheticProfile? aestheticProfile = null)
     {
         return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>([BuildSpec(fmtKey)]);
     }

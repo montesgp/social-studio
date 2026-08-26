@@ -447,11 +447,11 @@ file sealed class IsolationSimpleComposer : IVisualCompositionService
     private static readonly CompositionTypography Typo = new("Inter", 24, "Inter", 14);
     private static readonly CompositionDimensions Dim = new(1080, 1080, 96);
 
-    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct) =>
+    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, ClientAestheticProfile? aestheticProfile = null) =>
         Task.FromResult(BuildSpec());
 
     public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
-        string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null) =>
+        string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null, ClientAestheticProfile? aestheticProfile = null) =>
         Task.FromResult<IReadOnlyList<VisualCompositionSpec>>([BuildSpec()]);
 
     public IReadOnlyList<string> GetInferredFields() => [];

@@ -17,7 +17,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Com
 /// Legacy path (no plan / IMultiAssetVisualComposer dispatch): falls back to
 /// <c>BackgroundSelector.Select</c> per slide, preserving pre-WU-4 behavior exactly.
 /// </summary>
-internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAssetVisualComposer, IBackgroundPlanAwareComposer, IClientAestheticAwareComposer
+internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAssetVisualComposer, IBackgroundPlanAwareComposer, IClientAestheticAwareComposer, IPlanAndProfileAwareComposer
 {
     public string FormatKey => "carousel";
 
@@ -75,6 +75,25 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
         ClientAestheticProfile? profile)
     {
         return ComposeManyCore(generatedPayload, brand, inferred, plan: null, profile);
+    }
+
+    /// <summary>
+    /// GitHub issue #81 fix: the combined plan+profile path. Production's actual call site
+    /// (<c>ContentGenerationJobProcessor.ComposeManyAsync</c>) always supplies a
+    /// <see cref="CarouselBackgroundPlan"/> for carousel formats, so the plan-only
+    /// <see cref="IBackgroundPlanAwareComposer"/> dispatch previously ALWAYS won over the
+    /// profile-only <see cref="IClientAestheticAwareComposer"/> dispatch — the client's real
+    /// observed typography was never reachable from production. This overload lets both travel
+    /// together; <c>plan: null, profile: null</c> reduces to the identical legacy path.
+    /// </summary>
+    public IReadOnlyList<VisualCompositionSpec> ComposeMany(
+        object generatedPayload,
+        BrandSnapshot brand,
+        InferenceAccumulator inferred,
+        CarouselBackgroundPlan? plan,
+        ClientAestheticProfile? profile)
+    {
+        return ComposeManyCore(generatedPayload, brand, inferred, plan, profile);
     }
 
     private IReadOnlyList<VisualCompositionSpec> ComposeManyCore(

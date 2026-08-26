@@ -1,3 +1,4 @@
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Social.ContentGeneration;
 
 namespace Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
@@ -15,11 +16,18 @@ public interface IVisualCompositionService
     /// <param name="generatedPayload">The format-specific generated content (deserialized JSON object or anonymous).</param>
     /// <param name="brand">The frozen brand snapshot for this job.</param>
     /// <param name="ct">Cancellation token.</param>
+    /// <param name="aestheticProfile">
+    /// Optional resolved <see cref="ClientAestheticProfile"/> for the ClientAesthetic policy. Null
+    /// (default) = legacy behavior, unchanged for every non-ClientAesthetic client. Threaded into
+    /// composers that implement a profile-aware capability so the client's real observed typography
+    /// (family/weight) reaches the composed spec instead of the generic brand/default fallback.
+    /// </param>
     Task<VisualCompositionSpec> ComposeAsync(
         string formatKey,
         object generatedPayload,
         BrandSnapshot brand,
-        CancellationToken ct);
+        CancellationToken ct,
+        ClientAestheticProfile? aestheticProfile = null);
 
     /// <summary>
     /// Composes one or more visual specs for the given format.
@@ -32,12 +40,19 @@ public interface IVisualCompositionService
     /// background instead of calling <c>BackgroundSelector.Select</c> independently.
     /// Null = legacy fallback (backward-compatible; each composer decides its own selection).
     /// </param>
+    /// <param name="aestheticProfile">
+    /// Optional resolved <see cref="ClientAestheticProfile"/> for the ClientAesthetic policy. Null
+    /// (default) = legacy behavior, unchanged for every non-ClientAesthetic client. Threaded into
+    /// composers that implement a profile-aware capability (e.g. the carousel composer's real
+    /// observed typography resolution) — see design refs CAC-CG-02, exact-client-typography.
+    /// </param>
     Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
         string formatKey,
         object generatedPayload,
         BrandSnapshot brand,
         CancellationToken ct,
-        CarouselBackgroundPlan? plan = null);
+        CarouselBackgroundPlan? plan = null,
+        ClientAestheticProfile? aestheticProfile = null);
 
     /// <summary>
     /// Returns the brand fields that were inferred (not explicitly supplied) during the last <see cref="ComposeAsync"/> call.

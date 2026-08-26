@@ -535,7 +535,7 @@ file sealed class FakeCompositionService : IVisualCompositionService
     private static readonly CompositionTypography DefaultTypo = new("Arial", 24, "Arial", 14);
     private static readonly CompositionDimensions DefaultDim = new(1080, 1080, 96);
 
-    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct)
+    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, ClientAestheticProfile? aestheticProfile = null)
     {
         var spec = new VisualCompositionSpec(
             FormatKey: formatKey,
@@ -550,7 +550,7 @@ file sealed class FakeCompositionService : IVisualCompositionService
         return Task.FromResult(spec);
     }
 
-    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null)
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null, ClientAestheticProfile? aestheticProfile = null)
     {
         // For carousel with CarouselContent payload, fan out per slide.
         if (string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase)
