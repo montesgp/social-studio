@@ -2241,3 +2241,124 @@ absence) are unchanged regression guards and remain in force.
 None.
 
 *Merged from `openspec/changes/client-aesthetic-generation-hardening/specs/content-generation/spec-delta.md` — change applied 2026-08-25.*
+
+---
+
+<!-- Merged from openspec/changes/client-aesthetic-visual-sophistication/specs/content-generation/spec-delta.md — change applied 2026-08-26 (CAVS-CG-01..03 only; CAVS-CG-04/05 NOT shipped, see note below) -->
+
+## Added Requirements: Divider Rule and Composition Archetype Presets — client-aesthetic-visual-sophistication
+
+### Requirement: CAVS-CG-01 — Divider Rule Renders From the Client's Real Accent or Text Colour
+
+`BuildFlatCarouselSlots` MUST render a `data-slot="divider"` element when
+`DecorationMotifs.DividerRule` is non-null, coloured from the client's resolved `Accent` palette
+role, falling back to the slide's resolved text colour when no `Accent` role resolves. For
+`LineWithDiamond` and `LineWithDot`, an additional glyph element (rotated square / circle
+respectively) MUST render centred on the rule. A slide whose `DecorationMotifs` is null, or whose
+`DividerRule` is null, MUST render no divider element.
+
+#### Scenario: LineWithDiamond renders a divider using the client's accent colour (CAVS-CG-01-a)
+
+- GIVEN a profile signalling `DecorationMotifs.DividerRule = LineWithDiamond` and a resolved
+  `Accent` palette colour
+- WHEN a FlatColor slide is composed
+- THEN a `data-slot="divider"` rule element renders in the client's real accent colour
+- AND a rotated-square glyph element renders centred on the rule
+
+#### Scenario: No Accent role resolves — divider falls back to text colour (CAVS-CG-01-b)
+
+- GIVEN a profile signalling `DividerRule = Line` with no resolvable `Accent` palette role
+- WHEN a FlatColor slide is composed
+- THEN the `data-slot="divider"` element renders in the slide's resolved text colour
+
+#### Scenario: DividerRule is null — no divider element (CAVS-CG-01-c, regression)
+
+- GIVEN a profile with `DecorationMotifs.DividerRule = null` (or `DecorationMotifs = null`)
+- WHEN a FlatColor slide is composed
+- THEN no `data-slot="divider"` element is rendered
+
+### Requirement: CAVS-CG-02 — Composition Archetype Drives Geometry Presets Across Accent, Divider, Title, Subtitle, CTA
+
+The hardcoded `left:104px` / `left:108px` / `text-align:left` literals MUST become a preset resolved
+by token lookup from `DecorationMotifs.CompositionArchetype`, applied consistently across the
+accent, divider, title, subtitle, and cta elements. `"left-aligned"` MUST reproduce today's literal
+offsets exactly. A null, blank, or unrecognised archetype token MUST resolve to the
+`"left-aligned"` preset — the sole fallback path.
+
+#### Scenario: left-aligned reproduces today's literal geometry exactly (CAVS-CG-02-a, regression)
+
+- GIVEN a profile with `CompositionArchetype = "left-aligned"`
+- WHEN a FlatColor slide is composed
+- THEN the rendered title/subtitle/cta offsets equal the pre-change hardcoded literals
+  (`left:104px` / `left:108px`, `text-align:left`) exactly
+
+#### Scenario: Two archetypes produce measurably different geometry (CAVS-CG-02-b)
+
+- GIVEN two profiles identical except for `CompositionArchetype` (e.g. `"left-aligned"` vs.
+  `"centered"`)
+- WHEN each client's carousel is composed from the same input copy
+- THEN the rendered slot geometry for title, subtitle, and cta measurably differs between the two,
+  asserted on markup
+
+#### Scenario: Unrecognised archetype token falls back to left-aligned geometry (CAVS-CG-02-c)
+
+- GIVEN a profile with `CompositionArchetype` set to a deliberately-invented, unrecognised token
+  (e.g. `"diagonal-split"`)
+- WHEN a FlatColor slide is composed
+- THEN the rendered geometry equals the `"left-aligned"` preset exactly
+- AND no exception is thrown
+
+#### Scenario: Null archetype falls back to left-aligned geometry (CAVS-CG-02-d, regression)
+
+- GIVEN a profile with `DecorationMotifs = null` or `CompositionArchetype = null`
+- WHEN a FlatColor slide is composed
+- THEN the rendered geometry equals the `"left-aligned"` preset exactly
+
+### Requirement: CAVS-CG-03 — DecorationMotifs Null Renders Byte-Identical Markup to Pre-Change Output
+
+A profile with `DecorationMotifs = null` MUST render markup byte-identical to the pre-change
+`BuildFlatColorMarkup` / `BuildFlatCarouselSlots` output for the same `CompositionSpec`. This is a
+blocking regression guarantee: every pre-existing flat-path test MUST continue to pass unchanged,
+and the accent pill's rendered markup MUST be unchanged from pre-change output in every case.
+
+#### Scenario: Null DecorationMotifs produces byte-identical markup (CAVS-CG-03-a, regression, blocking)
+
+- GIVEN a `CompositionSpec` and client profile identical to one used in a pre-change flat-path test,
+  except `DecorationMotifs = null`
+- WHEN the flat slide markup is built
+- THEN the produced markup string is byte-identical to the markup produced by the pre-change
+  builder for the same input
+- AND no divider, archetype-preset offset change, or ornament element appears anywhere in the output
+
+#### Scenario: Accent pill is unaffected regardless of DecorationMotifs (CAVS-CG-03-b, regression)
+
+- GIVEN any profile, with or without `DecorationMotifs` populated
+- WHEN a FlatColor slide is composed
+- THEN the accent pill's rendered markup is identical to pre-change output in every case
+
+## Not Implemented in This Delivery: Ornament Crop Render (CAVS-CG-04) and Ornament Degrade Precedence (CAVS-CG-05)
+
+The proposal's `content-generation` spec delta also defined `CAVS-CG-04` (ornament crop renders as
+a stored `data-slot="ornament"` `<img>`) and `CAVS-CG-05` (ornament failure sets the
+`"ornament-unavailable"` degrade token with whole-slide-token precedence). Both were **gated** on
+`profile-analysis` `CAVS-PA-04-c`'s reliability measurement, which did **not pass** during
+`sdd-apply` (see `openspec/changes/client-aesthetic-visual-sophistication/wu6-reliability-gate.md`).
+Per the change's own stated fallback, WU-7 (crop port extension) and WU-8 (render + degrade + badge)
+were **cut** from this delivery. No `data-slot="ornament"` element, `SlideDegradeReason.OrnamentUnavailable`
+token, or ornament-related `ResolveDegradeReason` precedence logic exists in the codebase as of this
+merge. The full requirement text for `CAVS-CG-04`/`CAVS-CG-05` remains available, unmerged, in
+`openspec/changes/client-aesthetic-visual-sophistication/specs/content-generation/spec-delta.md` for
+reference if/when the reliability gate is re-attempted and passes (re-entry condition recorded in
+`wu6-reliability-gate.md`).
+
+## Modified Requirements (client-aesthetic-visual-sophistication)
+
+None. `CAVS-CG-01`..`03` are additive to the deterministic flat-carousel builder; the cold-start
+guarantee (`CAVS-CG-03`) constrains the addition rather than changing any existing requirement's
+stated behavior.
+
+## Removed Requirements (client-aesthetic-visual-sophistication)
+
+None.
+
+*Merged from `openspec/changes/client-aesthetic-visual-sophistication/specs/content-generation/spec-delta.md` — change applied 2026-08-26. CAVS-CG-01/02/03 shipped (WU-4/WU-5); CAVS-CG-04/05 NOT merged as shipped — gated on WU-6.4's reliability measurement, which did not pass; see `wu6-reliability-gate.md`.*

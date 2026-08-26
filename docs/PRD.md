@@ -110,6 +110,16 @@ The resolved selections map to these five catalog keys:
 > Amended by `client-aesthetic-generation-hardening` (2026-08-25) — brand-mark extraction now
 > derives and stores a durable asset from analysed reference imagery, not just categorical
 > analysis fields. ADR: [`docs/architecture/adr/0014-brand-mark-asset-port.md`](architecture/adr/0014-brand-mark-asset-port.md).
+> Amended by `client-aesthetic-visual-sophistication` (2026-08-26, **partial delivery**) —
+> extraction now also captures a recurring divider-rule style and an open composition-archetype
+> classification, and generated flat-color content renders both (a client-coloured divider glyph;
+> archetype-driven text/CTA geometry), falling back byte-identically to today's layout when no
+> signal is measured. A third signal, a recurring decorative ornament cropped and rendered from the
+> client's own posts, was **scoped but NOT delivered**: its detection schema shipped, but the
+> real-world reliability gate for locating it (bounding-box extraction) did not pass with available
+> production data, so no ornament ever renders and no owner-visible degrade badge for it exists yet.
+> ADR: [`docs/architecture/adr/0015-schema-fatigue-norm.md`](architecture/adr/0015-schema-fatigue-norm.md).
+> Gate record: `openspec/changes/client-aesthetic-visual-sophistication/wu6-reliability-gate.md`.
 
 ### User Story
 

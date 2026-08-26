@@ -29,6 +29,11 @@
 ///
 /// Refs: design §3.1; CAG-CG-05.
 /// No Infrastructure types — this is a pure Application value object.
+///
+/// <para>
+/// Adding a further top-level field to this record is governed by the schema-fatigue norm —
+/// see ADR 0015 (<c>docs/architecture/adr/0015-schema-fatigue-norm.md</c>).
+/// </para>
 /// </summary>
 public sealed record ClientAestheticProfile(
     IReadOnlyList<string> BackgroundDescriptors,

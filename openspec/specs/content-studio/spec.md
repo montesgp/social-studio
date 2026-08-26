@@ -79,3 +79,21 @@ themselves) is changed.
 None.
 
 *Added by change `client-aesthetic-fidelity-fixes` — applied 2026-08-24.*
+
+---
+
+## Not Implemented: Ornament Ref Resolution and Token-Aware Degrade Badge — client-aesthetic-visual-sophistication
+
+`client-aesthetic-visual-sophistication` proposed two `content-studio` changes: `CAVS-CS-01`
+(`StudioVisualMarkupResolver`/`PptxExportAdapter` resolve an ornament asset ref) and `CAVS-CS-02`
+(a token-aware `getDegradeLabel` map giving `"ornament-unavailable"` its own badge label, modifying
+`CAFF-CS-01` above). Both were gated on `profile-analysis` `CAVS-PA-04-c`'s ornament bounding-box
+reliability measurement, which did **not pass** during `sdd-apply` (see
+`openspec/changes/client-aesthetic-visual-sophistication/wu6-reliability-gate.md`). Because no
+ornament element or `"ornament-unavailable"` degrade token is ever produced by `content-generation`
+in this delivery, neither `CAVS-CS-01` nor `CAVS-CS-02` was implemented, and `CAFF-CS-01` above is
+**unmodified** — the badge still hardcodes the "Fallback design" label for every token, exactly as
+before this change. No requirement text is merged into this spec for `CAVS-CS-01`/`CAVS-CS-02`; the
+full text remains in
+`openspec/changes/client-aesthetic-visual-sophistication/specs/content-studio/spec-delta.md` for
+reference if/when the reliability gate is re-attempted and passes.

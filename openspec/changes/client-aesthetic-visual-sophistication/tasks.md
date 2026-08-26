@@ -1,5 +1,22 @@
 # Tasks: Client-Aesthetic Visual Sophistication
 
+## Status: PARTIAL — WU-7/WU-8 cut, gate did not pass
+
+WU-0 through WU-6 (`DecorationMotifs` schema, extraction, persistence, divider render, archetype
+geometry presets, ornament detection schema) shipped and are merged into the main specs. WU-7
+(ornament crop port) and WU-8 (ornament render + degrade + badge) are **deliberately cut**, not
+partially started: task 6.4's reliability gate for the vision model's bounding-box localisation
+found zero measurable real bounding-box data in production, per its own stated fallback clause.
+Full verdict: `openspec/changes/client-aesthetic-visual-sophistication/wu6-reliability-gate.md`.
+
+**Re-entry condition** (from `wu6-reliability-gate.md`): re-attempt WU-7/WU-8 once either (a) a
+real client with a genuinely recurring icon-type brand mark or ornament is analysed through a live
+`ai-aesthetic` route and a human reviewer visually confirms the returned bounding box actually
+bounds the element on the source image for at least 2 real client feeds, or (b) the org runs the
+aesthetic extractor online against archived reference images in a session where a human reviewer
+can compare crops to source images directly. Until then, `content-generation` `CAVS-CG-04`/`05`
+and `content-studio` `CAVS-CS-01`/`02` remain unmerged spec-delta text, not shipped requirements.
+
 ## Review Workload Forecast
 
 | Field | Value |
@@ -157,12 +174,12 @@ Spec: CAVS-CG-04 (render half), CAVS-CG-05, CAVS-CS-01, CAVS-CS-02, CAFF-CS-01 (
 
 ## Phase 9 (WU-9): Spec/Doc Sync + ADRs
 
-- [ ] 9.1 Merge `specs/profile-analysis/spec-delta.md`, `specs/content-generation/spec-delta.md`, `specs/content-studio/spec-delta.md` into `openspec/specs/{domain}/spec.md` per the ADDED/MODIFIED sections already drafted.
-- [ ] 9.2 Finalize and merge the ornament crop-port ADR (drafted in 7.3) *if the Phase 6.4 gate passed*; if the gate failed, record the WU-7/WU-8 cut decision instead and drop this ADR.
-- [ ] 9.3 Author and merge the schema-fatigue-norm ADR (`docs/architecture/adr/`) recording settled decision 7 (CAVS-PA-05), plus a one-line XML-doc pointer on `AestheticExtraction` and `ClientAestheticProfile` naming the ADR.
-- [ ] 9.4 Update `profile-analysis` spec's normative text to state the binding schema-fatigue norm.
-- [ ] 9.5 Owner review checkpoint: one real generation reviewed for each of two clients with materially different signalled archetypes, accept/reject recorded in writing (success criterion 7).
-- [ ] 9.6 Run `pwsh -File scripts/gates/Run-Gates.ps1`; confirm all MUST gates green, including the architecture gate (no provider/EF types crossing into Domain/Application).
+- [x] 9.1 Merge `specs/profile-analysis/spec-delta.md`, `specs/content-generation/spec-delta.md`, `specs/content-studio/spec-delta.md` into `openspec/specs/{domain}/spec.md` per the ADDED/MODIFIED sections already drafted. Merged ONLY what shipped: `profile-analysis` CAVS-PA-01..05 (schema/extraction, including the PA-04-c gate verdict recorded inline); `content-generation` CAVS-CG-01..03 (divider render, archetype presets, byte-identity guarantee), with CAVS-CG-04/05 explicitly marked "Not Implemented in This Delivery" rather than merged as shipped requirements; `content-studio` gets a "Not Implemented" note only — CAVS-CS-01/02 and the CAFF-CS-01 modification were never merged as requirement text, since nothing in that capability changed.
+- [x] 9.2 The Phase 6.4 gate did NOT pass — the ornament crop-port ADR (would have been drafted in 7.3, which never ran since WU-7 is cut) is **not created**. The WU-7/WU-8 cut decision is instead recorded in `wu6-reliability-gate.md` (already present from WU-6) and cross-referenced from the merged specs, `docs/PRD.md`'s §11 amendment, and this file's top-level Status marker.
+- [x] 9.3 Authored and merged `docs/architecture/adr/0015-schema-fatigue-norm.md` recording settled decision 7 (CAVS-PA-05), plus a one-line XML-doc `<remarks>` pointer on `AestheticExtraction` (`IClientAestheticStyleExtractor.cs`) and `ClientAestheticProfile` (`ClientAestheticProfile.cs`) naming the ADR.
+- [x] 9.4 Updated `profile-analysis` spec's normative text (`CAVS-PA-05`) to state the binding schema-fatigue norm, with a pointer to ADR 0015.
+- [ ] 9.5 Owner review checkpoint: one real generation reviewed for each of two clients with materially different signalled archetypes, accept/reject recorded in writing (success criterion 7). **NOT completed by `sdd-apply`** — this is an explicit human/owner action, not an implementation task; no agent session can author it on the owner's behalf. Remains open until the owner performs and records the review.
+- [x] 9.6 Ran `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release` directly (the authoritative signal for this session; `Run-Gates.ps1`'s `tests.backend` step has the known pre-existing Visual-Studio-DLL-lock environment issue documented since WU-5/WU-6, unrelated to this batch's code). See Work Unit Evidence below for the result.
 
 ## Key Learnings
 

@@ -36,6 +36,10 @@ public interface IClientAestheticStyleExtractor
 /// The multi-signal aesthetic produced by <see cref="IClientAestheticStyleExtractor"/>. Every signal
 /// is optional; <see cref="Palette"/> may be empty when the client has no marked colour identity.
 /// </summary>
+/// <remarks>
+/// Adding a further top-level field to this record is governed by the schema-fatigue norm —
+/// see ADR 0015 (<c>docs/architecture/adr/0015-schema-fatigue-norm.md</c>).
+/// </remarks>
 public sealed record AestheticExtraction(
     IReadOnlyList<AestheticPaletteEntry> Palette,
     IReadOnlyList<string> StyleDescriptors,
