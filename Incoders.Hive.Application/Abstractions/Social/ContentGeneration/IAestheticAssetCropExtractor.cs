@@ -4,10 +4,11 @@ using Incoders.Hive.Domain.Common;
 namespace Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 
 /// <summary>
-/// Application port for extracting an icon-type brand mark's crop from the archived source
-/// image and persisting it as a durable asset (WU-7b, D13). Crop-only: no matting, no vision
-/// API call, no logo regeneration — it decodes bytes the pipeline itself already archived and
-/// slices the region <see cref="BrandMarkDetection.BoundingBox"/> already validated.
+/// Application port for extracting an element's crop (icon-type brand mark, decorative
+/// ornament, or any future bounding-box-scoped element) from the archived source image and
+/// persisting it as a durable asset (WU-7b, D13; generalised in D3). Crop-only: no matting, no
+/// vision API call, no logo regeneration — it decodes bytes the pipeline itself already archived
+/// and slices the region a validated bounding box already describes.
 ///
 /// <para>
 /// Precedent: <see cref="IImageGuardrailValidator"/>'s concrete Infrastructure implementation
@@ -24,11 +25,12 @@ namespace Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 /// generation job itself is never failed by an extraction failure.
 /// </para>
 /// </summary>
-public interface IBrandMarkAssetExtractor
+public interface IAestheticAssetCropExtractor
 {
     /// <summary>
-    /// Crops the icon-type brand mark out of the archived <paramref name="sourceImagePath"/>
-    /// using <paramref name="box"/> (normalised 0..1, top-left origin) and persists the crop via
+    /// Crops an element (icon-type brand mark, decorative ornament, etc.) out of the archived
+    /// <paramref name="sourceImagePath"/> using <paramref name="box"/> (normalised 0..1,
+    /// top-left origin) and persists the crop via
     /// <see cref="IGeneratedAssetStorage"/> at <paramref name="targetKey"/>. Returns the stored
     /// asset reference on success; never throws.
     /// </summary>

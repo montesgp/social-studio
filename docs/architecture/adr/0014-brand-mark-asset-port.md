@@ -3,6 +3,18 @@
 ## Status
 Accepted
 
+## Update (WU-1b, `client-aesthetic-visual-sophistication`)
+
+Renamed for reuse: `IBrandMarkAssetExtractor` → `IAestheticAssetCropExtractor`, and
+`SkiaBrandMarkAssetExtractor` → `SkiaAestheticAssetCropExtractor`. The original signature
+(`StoredAssetKey`, `sourceImagePath`, `BrandMarkBoundingBox`, `ct`) was already element-agnostic —
+only the name and doc comments were brand-mark-specific. This is a pure rename, no behavior
+change; it lets the same port and adapter serve decorative-ornament cropping (WU-7 of that change)
+without a new sibling port. See that change's `design.md` decision D3 for the full option
+comparison. The remainder of this ADR keeps its original `IBrandMarkAssetExtractor`/
+`SkiaBrandMarkAssetExtractor` names in prose for historical accuracy; read every such reference as
+the current `IAestheticAssetCropExtractor`/`SkiaAestheticAssetCropExtractor` names.
+
 ## Context
 
 WU-6a/6b (`client-aesthetic-generation-hardening`) taught `BrandMarkDetection` to classify a

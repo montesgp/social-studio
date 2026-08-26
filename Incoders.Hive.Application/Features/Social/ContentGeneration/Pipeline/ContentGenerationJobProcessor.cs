@@ -83,7 +83,7 @@ public sealed class ContentGenerationJobProcessor
     private readonly IClientAestheticEnsureFreshService? _aestheticEnsureFreshService;
     private readonly IClientAestheticImageBackgroundService? _imageBackgroundService;
     private readonly ContentGenerationAestheticGatingOptions _aestheticGatingOptions;
-    private readonly IBrandMarkAssetExtractor? _brandMarkAssetExtractor;
+    private readonly IAestheticAssetCropExtractor? _brandMarkAssetExtractor;
 
     public ContentGenerationJobProcessor(
         IContentGenerationJobRepository jobs,
@@ -125,10 +125,11 @@ public sealed class ContentGenerationJobProcessor
         // Injected optionally so existing unit tests and DI registrations compile without change.
         // When null, falls back to the documented defaults (BlockOnFirstTime=true, MaxWaitSeconds=600).
         IOptions<ContentGenerationAestheticGatingOptions>? aestheticGatingOptions = null,
-        // WU-7b (D13): icon-mark crop extractor. NULLABLE — when null (adapter not registered, or
+        // WU-7b (D13; generalised in D3): icon-mark crop extractor over the element-agnostic
+        // IAestheticAssetCropExtractor port. NULLABLE — when null (adapter not registered, or
         // a pre-WU-7b test) the icon branch degrades to the PositionHint+ColorHex chip exactly as
         // it did before this port existed; the "unknown"/"text" mark-type paths are unaffected.
-        IBrandMarkAssetExtractor? brandMarkAssetExtractor = null)
+        IAestheticAssetCropExtractor? brandMarkAssetExtractor = null)
     {
         _jobs = jobs;
         _analyses = analyses;
@@ -2448,7 +2449,7 @@ public sealed class ContentGenerationJobProcessor
     /// chip — a signature is caption-scale.
     /// CAGH-CG-05 (WU-7c): when <see cref="BrandMarkDetection.MarkType"/> is <c>"icon"</c> and
     /// <paramref name="extractedIconAssetPath"/> is non-blank (the caller only supplies this after a
-    /// successful <c>IBrandMarkAssetExtractor.ExtractAsync</c> crop), an <c>&lt;img&gt;</c>
+    /// successful <c>IAestheticAssetCropExtractor.ExtractAsync</c> crop), an <c>&lt;img&gt;</c>
     /// referencing the stored crop asset is rendered instead of the coloured chip. Every other case
     /// (<c>"unknown"</c>, <c>null</c> <see cref="BrandMarkDetection.MarkType"/>, blank/whitespace
     /// <see cref="BrandMarkDetection.Text"/> on a text mark, or a null/blank

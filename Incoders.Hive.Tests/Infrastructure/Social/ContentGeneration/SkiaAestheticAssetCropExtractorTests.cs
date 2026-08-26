@@ -7,12 +7,13 @@ using SkiaSharp;
 namespace Incoders.Hive.Tests.Infrastructure.Social.ContentGeneration;
 
 /// <summary>
-/// WU-7b (D13): <see cref="SkiaBrandMarkAssetExtractor"/> crops an icon-type brand mark out of an
-/// archived source image and persists it via <see cref="IGeneratedAssetStorage"/>. Contract: NEVER
-/// throws — every failure mode (source open, decode, invalid box, sub-24x24 crop, storage) maps to
-/// <c>Result.Failure</c> so the caller degrades to the PositionHint+ColorHex chip.
+/// WU-7b (D13; generalised in D3): <see cref="SkiaAestheticAssetCropExtractor"/> crops an element
+/// (icon-type brand mark, decorative ornament, etc.) out of an archived source image and persists
+/// it via <see cref="IGeneratedAssetStorage"/>. Contract: NEVER throws — every failure mode
+/// (source open, decode, invalid box, sub-24x24 crop, storage) maps to <c>Result.Failure</c> so
+/// the caller degrades to the PositionHint+ColorHex chip.
 /// </summary>
-public sealed class SkiaBrandMarkAssetExtractorTests
+public sealed class SkiaAestheticAssetCropExtractorTests
 {
     private static readonly StoredAssetKey TargetKey = new(
         Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "brand-mark.png");
@@ -41,7 +42,7 @@ public sealed class SkiaBrandMarkAssetExtractorTests
             canvas.DrawRect(SKRect.Create(100, 0, 100, 100), paint);
         });
         var storage = new FakeGeneratedAssetStorage(("clients/ref.png", sourceBytes));
-        var extractor = new SkiaBrandMarkAssetExtractor(storage);
+        var extractor = new SkiaAestheticAssetCropExtractor(storage);
         var box = new BrandMarkBoundingBox(0.5, 0.0, 0.5, 1.0); // right half, normalised
 
         var result = await extractor.ExtractAsync(TargetKey, "clients/ref.png", box, CancellationToken.None);
@@ -61,7 +62,7 @@ public sealed class SkiaBrandMarkAssetExtractorTests
     public async Task ExtractAsync_SourceImageNotFound_ReturnsFailureNeverThrows()
     {
         var storage = new FakeGeneratedAssetStorage(); // no seeded source → OpenAsync fails
-        var extractor = new SkiaBrandMarkAssetExtractor(storage);
+        var extractor = new SkiaAestheticAssetCropExtractor(storage);
         var box = new BrandMarkBoundingBox(0.1, 0.1, 0.5, 0.5);
 
         var result = await extractor.ExtractAsync(TargetKey, "missing.png", box, CancellationToken.None);
@@ -74,7 +75,7 @@ public sealed class SkiaBrandMarkAssetExtractorTests
     public async Task ExtractAsync_UndecodableBytes_ReturnsFailureNeverThrows()
     {
         var storage = new FakeGeneratedAssetStorage(("clients/ref.png", [0x00, 0x01, 0x02, 0x03]));
-        var extractor = new SkiaBrandMarkAssetExtractor(storage);
+        var extractor = new SkiaAestheticAssetCropExtractor(storage);
         var box = new BrandMarkBoundingBox(0.1, 0.1, 0.5, 0.5);
 
         var result = await extractor.ExtractAsync(TargetKey, "clients/ref.png", box, CancellationToken.None);
@@ -89,7 +90,7 @@ public sealed class SkiaBrandMarkAssetExtractorTests
         // 100x100 source; a 10%x10% box scales to 10x10px — below the 24x24 minimum crop guard.
         var sourceBytes = Png(100, 100, SKColors.Green);
         var storage = new FakeGeneratedAssetStorage(("clients/ref.png", sourceBytes));
-        var extractor = new SkiaBrandMarkAssetExtractor(storage);
+        var extractor = new SkiaAestheticAssetCropExtractor(storage);
         var box = new BrandMarkBoundingBox(0.0, 0.0, 0.1, 0.1);
 
         var result = await extractor.ExtractAsync(TargetKey, "clients/ref.png", box, CancellationToken.None);
@@ -104,7 +105,7 @@ public sealed class SkiaBrandMarkAssetExtractorTests
         // 240x240 source; a 10%x10% box scales to exactly 24x24px — clears the minimum guard.
         var sourceBytes = Png(240, 240, SKColors.Green);
         var storage = new FakeGeneratedAssetStorage(("clients/ref.png", sourceBytes));
-        var extractor = new SkiaBrandMarkAssetExtractor(storage);
+        var extractor = new SkiaAestheticAssetCropExtractor(storage);
         var box = new BrandMarkBoundingBox(0.0, 0.0, 0.1, 0.1);
 
         var result = await extractor.ExtractAsync(TargetKey, "clients/ref.png", box, CancellationToken.None);
@@ -120,7 +121,7 @@ public sealed class SkiaBrandMarkAssetExtractorTests
     {
         var sourceBytes = Png(200, 200, SKColors.Green);
         var storage = new FakeGeneratedAssetStorage(("clients/ref.png", sourceBytes)) { ThrowOnPut = true };
-        var extractor = new SkiaBrandMarkAssetExtractor(storage);
+        var extractor = new SkiaAestheticAssetCropExtractor(storage);
         var box = new BrandMarkBoundingBox(0.0, 0.0, 0.5, 0.5);
 
         var result = await extractor.ExtractAsync(TargetKey, "clients/ref.png", box, CancellationToken.None);

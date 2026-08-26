@@ -6,16 +6,17 @@ using SkiaSharp;
 namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
 
 /// <summary>
-/// Production <see cref="IBrandMarkAssetExtractor"/>: crops an icon-type brand mark out of the
-/// archived source image via SkiaSharp and persists the crop through <see cref="IGeneratedAssetStorage"/>
-/// (WU-7b, D13). Crop-only — no matting, no vision API call, no logo regeneration.
+/// Production <see cref="IAestheticAssetCropExtractor"/>: crops an element (icon-type brand
+/// mark, decorative ornament, etc.) out of the archived source image via SkiaSharp and persists
+/// the crop through <see cref="IGeneratedAssetStorage"/> (WU-7b, D13; generalised in D3).
+/// Crop-only — no matting, no vision API call, no logo regeneration.
 ///
 /// <para>
 /// Same SkiaSharp-behind-a-port shape as <see cref="DegenerateImageGuardrailValidator"/> (F4):
 /// decode bytes the pipeline itself already archived, inspect/transform them, never throw.
 /// </para>
 /// </summary>
-public sealed class SkiaBrandMarkAssetExtractor : IBrandMarkAssetExtractor
+public sealed class SkiaAestheticAssetCropExtractor : IAestheticAssetCropExtractor
 {
     /// <summary>Minimum crop dimension, in pixels, after scaling the normalised box to the source image (design.md).</summary>
     public const int MinimumCropDimensionPx = 24;
@@ -37,7 +38,7 @@ public sealed class SkiaBrandMarkAssetExtractor : IBrandMarkAssetExtractor
 
     private readonly IGeneratedAssetStorage _storage;
 
-    public SkiaBrandMarkAssetExtractor(IGeneratedAssetStorage storage)
+    public SkiaAestheticAssetCropExtractor(IGeneratedAssetStorage storage)
     {
         ArgumentNullException.ThrowIfNull(storage);
         _storage = storage;

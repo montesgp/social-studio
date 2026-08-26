@@ -1613,7 +1613,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
 
     // -----------------------------------------------------------------------
     // WU-7b/WU-7c (CAGH-CG-05-a/06-a): icon-type marks with a valid source image + bounding box are
-    // crop-extracted via IBrandMarkAssetExtractor. WU-7b wired the call + the failure degrade; WU-7c
+    // crop-extracted via IAestheticAssetCropExtractor. WU-7b wired the call + the failure degrade; WU-7c
     // (this section) consumes a SUCCESSFUL extraction by rendering the crop as <img>, replacing the
     // empty coloured chip.
     // -----------------------------------------------------------------------
@@ -1946,9 +1946,9 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         // CompositionTypography with a distinct CaptionFamily.
         CompositionTypography? typography = null,
         // WU-7b (CAGH-CG-06-a): overridable so icon-mark wiring tests can inject a spy/failing
-        // IBrandMarkAssetExtractor; null (default) mirrors every pre-WU-7b test — the port is
+        // IAestheticAssetCropExtractor; null (default) mirrors every pre-WU-7b test — the port is
         // unregistered and the icon branch is a no-op.
-        IBrandMarkAssetExtractor? brandMarkAssetExtractor = null,
+        IAestheticAssetCropExtractor? brandMarkAssetExtractor = null,
         // WU-7c (D11): overridable so render-time-inlining tests can inject a fake
         // IGeneratedAssetStorage and assert the brand-mark crop path is inlined as a data URI for
         // the Chromium render pass; null (default) mirrors every pre-WU-7c test.
@@ -2099,7 +2099,7 @@ file sealed class FC_NeverCalledDesigner : IVisualDesigner
 }
 
 /// <summary>WU-7b spy: records invocation + last args, returns a fixed canned <see cref="Result{T}"/>.</summary>
-file sealed class FC_SpyBrandMarkAssetExtractor : IBrandMarkAssetExtractor
+file sealed class FC_SpyBrandMarkAssetExtractor : IAestheticAssetCropExtractor
 {
     private readonly Result<StoredAssetRef> _result;
 
