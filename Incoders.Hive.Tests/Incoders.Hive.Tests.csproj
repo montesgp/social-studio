@@ -37,6 +37,11 @@
     <None Update="Infrastructure\Social\Fixtures\**\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- CAVS WU-0: byte-identity golden for BuildFlatColorMarkup/BuildFlatCarouselSlots
+         (client-aesthetic-visual-sophistication, design decision 6). -->
+    <None Update="Application\Social\ContentGeneration\Pipeline\Goldens\**\*.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

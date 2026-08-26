@@ -56,8 +56,8 @@ largest unit and the only one worth watching if scope grows during implementatio
 
 ## Phase 0: Golden Capture (blocking prerequisite, before ANY render code change)
 
-- [ ] 0.1 Capture the CURRENT (pre-change) `BuildFlatColorMarkup`/`BuildFlatCarouselSlots` output for one representative `CompositionSpec` fixture and commit it verbatim as `Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/Goldens/flat-carousel-cold-start.html`. Run against `dev` HEAD, no code change. Satisfies the byte-identity prerequisite for CAVS-CG-03.
-- [ ] 0.2 Add `FlatCarouselMarkupGoldenTests.cs` with one RED-to-GREEN scaffolding test that reads the golden file and asserts `Assert.Equal(golden, BuildFlatColorMarkup(...))` against today's unmodified builder — GREEN now, becomes the regression guard once WU-4/WU-5 land. Commit before any render diff.
+- [x] 0.1 Capture the CURRENT (pre-change) `BuildFlatColorMarkup`/`BuildFlatCarouselSlots` output for one representative `CompositionSpec` fixture and commit it verbatim as `Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/Goldens/flat-carousel-cold-start.html`. Run against `dev` HEAD, no code change. Satisfies the byte-identity prerequisite for CAVS-CG-03.
+- [x] 0.2 Add `FlatCarouselMarkupGoldenTests.cs` with one RED-to-GREEN scaffolding test that reads the golden file and asserts `Assert.Equal(golden, BuildFlatColorMarkup(...))` against today's unmodified builder — GREEN now, becomes the regression guard once WU-4/WU-5 land. Commit before any render diff.
 
 ## Phase 1 (WU-1): `DecorationMotifs` Value Objects — design D1, D2 scaffolding
 
@@ -71,10 +71,10 @@ Spec: CAVS-PA-01, CAVS-PA-02, CAVS-PA-03. File: `Incoders.Hive.Application/Featu
 
 Touches already-shipped code from `client-aesthetic-generation-hardening`. Own commit, no new behavior. Must land before WU-7 calls the port under its new name.
 
-- [ ] 1b.1 Rename `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IBrandMarkAssetExtractor.cs` → `IAestheticAssetCropExtractor.cs`; rename the interface and update its doc comment to be element-agnostic (brand mark + ornament).
-- [ ] 1b.2 Rename `Infrastructure/.../SkiaBrandMarkAssetExtractor.cs` → `SkiaAestheticAssetCropExtractor.cs`; update the class name and DI registration in the composition root.
-- [ ] 1b.3 Update every existing call site: `ContentGenerationJobProcessor.cs` constructor parameter type, DI registration, and rename `SkiaBrandMarkAssetExtractorTests.cs` → `SkiaAestheticAssetCropExtractorTests.cs` (class + references only, no assertion changes).
-- [ ] 1b.4 Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release --filter SkiaAestheticAssetCropExtractorTests` and the full brand-mark render suite to confirm the rename introduced no behavior change.
+- [x] 1b.1 Rename `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IBrandMarkAssetExtractor.cs` → `IAestheticAssetCropExtractor.cs`; rename the interface and update its doc comment to be element-agnostic (brand mark + ornament).
+- [x] 1b.2 Rename `Infrastructure/.../SkiaBrandMarkAssetExtractor.cs` → `SkiaAestheticAssetCropExtractor.cs`; update the class name and DI registration in the composition root.
+- [x] 1b.3 Update every existing call site: `ContentGenerationJobProcessor.cs` constructor parameter type, DI registration, and rename `SkiaBrandMarkAssetExtractorTests.cs` → `SkiaAestheticAssetCropExtractorTests.cs` (class + references only, no assertion changes).
+- [x] 1b.4 Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release --filter SkiaAestheticAssetCropExtractorTests` and the full brand-mark render suite to confirm the rename introduced no behavior change.
 
 ## Phase 2 (WU-2): Extraction Half
 
