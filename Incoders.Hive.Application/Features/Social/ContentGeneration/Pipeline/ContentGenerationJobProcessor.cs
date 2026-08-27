@@ -12,6 +12,7 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fonts;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Layout;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentFormats;
 using Incoders.Hive.Domain.Social.ContentGeneration;
@@ -1034,6 +1035,35 @@ public sealed class ContentGenerationJobProcessor
                                     validatedMarkup = BuildTemplateBackedMarkup(spec, background: null, aestheticDesignContext);
                                 }
 
+                                // CLIF-CG-02 (D-B): the template-backed/enforced-background path never
+                                // ran through `_guardrails.Validate` at ~L957 — that call only ever
+                                // validated AI-designer markup. This is a SECOND, separate, NON-BLOCKING
+                                // check against the enforced-background path's actual final markup: it
+                                // parses the DECLARED slot boxes (pre-render — no measured Chromium
+                                // geometry exists yet at this point in the method) and runs
+                                // SlotOverlapDetector over them. A hit only proves a builder regression
+                                // (the declared literals were hand-tuned not to overlap); it can NEVER
+                                // catch a real growth-driven overlap — that is WU-4's job, using measured
+                                // geometry after render. On a hit this logs a structured diagnostic and
+                                // does NOT change markup selection, does NOT fail the slide, and is NOT
+                                // routed through any retry/fallback mechanism.
+                                if (enforcedBackground is not null)
+                                {
+                                    var declaredSlotBoxes = ExtractDeclaredSlotBoxes(validatedMarkup);
+                                    var crossSlotOverlaps = SlotOverlapDetector.Detect(declaredSlotBoxes);
+                                    if (crossSlotOverlaps.Count > 0)
+                                    {
+                                        _logger.LogWarning(
+                                            "ContentGeneration: cross-slot overlap detected in template-backed markup for format {FormatKey} spec {SpecIndex} (job {JobId}): {OverlapCount} pair(s), total intersection {TotalIntersectionAreaPx2}px2 (declared-box check — non-blocking, markup selection unchanged). Pairs: {OverlapPairs}",
+                                            formatKey,
+                                            specIndex,
+                                            job.Id,
+                                            crossSlotOverlaps.Count,
+                                            SlotOverlapDetector.TotalIntersectionArea(crossSlotOverlaps),
+                                            string.Join(", ", crossSlotOverlaps.Select(o => $"{o.UpperSlot}->{o.LowerSlot}")));
+                                    }
+                                }
+
                                 // Promote spec to Html kind with validated/enforced markup.
                                 spec = spec with
                                 {
@@ -1955,6 +1985,67 @@ public sealed class ContentGenerationJobProcessor
         // For ClientAesthetic: the AI designs freely within aesthetic guidance — return null
         // so the AI markup path is taken (or the gradient fallback if no AI markup).
         return null;
+    }
+
+    /// <summary>Matches an element carrying both <c>data-slot="..."</c> and <c>style="..."</c>,
+    /// in that attribute order — the exact order every <c>Build*TemplateSlots</c> helper emits
+    /// (see <c>Html(slotName)</c> usages below).</summary>
+    private static readonly Regex DeclaredSlotElementRegex = new(
+        @"<[a-zA-Z][a-zA-Z0-9]*\b[^>]*?\sdata-slot=""(?<slot>[^""]+)""[^>]*?\sstyle=""(?<style>[^""]*)""[^>]*>",
+        RegexOptions.Compiled);
+
+    private static readonly Regex DeclaredLeftPxRegex =
+        new(@"(?:^|;)\s*left\s*:\s*(-?\d+(?:\.\d+)?)px", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex DeclaredTopPxRegex =
+        new(@"(?:^|;)\s*top\s*:\s*(-?\d+(?:\.\d+)?)px", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex DeclaredWidthPxRegex =
+        new(@"(?:^|;)\s*width\s*:\s*(-?\d+(?:\.\d+)?)px", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex DeclaredMinHeightPxRegex =
+        new(@"(?:^|;)\s*min-height\s*:\s*(-?\d+(?:\.\d+)?)px", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// WU-3 (CLIF-CG-02, design.md D-A/D-B): parses the DECLARED <c>left/top/width/min-height</c>
+    /// box for every <c>[data-slot]</c> element in already-built markup — pre-render, no Chromium
+    /// measurement involved. A slot whose declared style is <c>bottom:</c>-anchored (cta, accent,
+    /// signature, brand-mark) is excluded by construction, mirroring the reflowable-slot-set rule
+    /// WU-4's <c>MeasuredLayoutReflow</c> will apply to measured geometry.
+    /// </summary>
+    /// <summary>Internal (not private) so <c>Incoders.Hive.Tests</c> can unit-test the parsing
+    /// contract directly via <c>InternalsVisibleTo</c> — mirrors this file's constraint that a
+    /// private static builder is otherwise unreachable from the test project.</summary>
+    internal static IReadOnlyList<SlotBox> ExtractDeclaredSlotBoxes(string markup)
+    {
+        var boxes = new List<SlotBox>();
+
+        foreach (Match match in DeclaredSlotElementRegex.Matches(markup))
+        {
+            var style = match.Groups["style"].Value;
+            if (style.Contains("bottom:", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var left = DeclaredLeftPxRegex.Match(style);
+            var top = DeclaredTopPxRegex.Match(style);
+            var width = DeclaredWidthPxRegex.Match(style);
+            var height = DeclaredMinHeightPxRegex.Match(style);
+            if (!left.Success || !top.Success || !width.Success || !height.Success)
+            {
+                continue;
+            }
+
+            boxes.Add(new SlotBox(
+                match.Groups["slot"].Value,
+                double.Parse(left.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
+                double.Parse(top.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
+                double.Parse(width.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
+                double.Parse(height.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)));
+        }
+
+        return boxes;
     }
 
     /// <summary>
