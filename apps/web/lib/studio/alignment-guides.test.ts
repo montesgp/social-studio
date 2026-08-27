@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeSnap, guideToOverlayStyle, SNAP_MAX_SIBLINGS, SNAP_TOLERANCE_PX } from "./alignment-guides.ts";
-import type { Rect } from "./alignment-guides.ts";
+import {
+  computeSnap,
+  guideToOverlayStyle,
+  offsetBoxesToRects,
+  SNAP_MAX_SIBLINGS,
+  SNAP_TOLERANCE_PX,
+} from "./alignment-guides.ts";
+import type { OffsetBox, Rect } from "./alignment-guides.ts";
 
 /**
  * Unit coverage for the pure snap-candidate engine (WU-8a, design.md D-E). WU-8b wires
@@ -145,4 +151,31 @@ test("guideToOverlayStyle maps a horizontal (y-axis) guide to a full-width 1px-t
 test(`SNAP_TOLERANCE_PX is 6 and SNAP_MAX_SIBLINGS is ${SNAP_MAX_SIBLINGS}`, () => {
   assert.equal(SNAP_TOLERANCE_PX, 6);
   assert.equal(SNAP_MAX_SIBLINGS, 24);
+});
+
+// ── offsetBoxesToRects: sibling-rect-snapshot mapping (WU-8b) ───────────────────
+
+test("offsetBoxesToRects maps offsetLeft/offsetTop/offsetWidth/offsetHeight to left/top/width/height, preserving order", () => {
+  const boxes: OffsetBox[] = [
+    { offsetLeft: 10, offsetTop: 20, offsetWidth: 30, offsetHeight: 40 },
+    { offsetLeft: 1, offsetTop: 2, offsetWidth: 3, offsetHeight: 4 },
+  ];
+
+  assert.deepEqual(offsetBoxesToRects(boxes), [
+    { left: 10, top: 20, width: 30, height: 40 },
+    { left: 1, top: 2, width: 3, height: 4 },
+  ]);
+});
+
+test("offsetBoxesToRects returns an empty array for an empty snapshot", () => {
+  assert.deepEqual(offsetBoxesToRects([]), []);
+});
+
+test("offsetBoxesToRects output feeds computeSnap directly (integration smoke)", () => {
+  const boxes: OffsetBox[] = [{ offsetLeft: 200, offsetTop: 500, offsetWidth: 120, offsetHeight: 60 }];
+  const siblings = offsetBoxesToRects(boxes);
+  const dragged = rect(204, 700, 80, 20); // 4px from sibling.left = 200, within tolerance
+  const result = computeSnap({ dragged, siblings, canvas: CANVAS });
+
+  assert.equal(result.left, 200);
 });

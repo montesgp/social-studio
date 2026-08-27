@@ -135,13 +135,13 @@ Spec: CLIF-CS-02, CLIF-CS-03, CLIF-CS-04, CLIF-CS-05. Design: D-E, `alignment-gu
 ## WU-8b: Guide Rendering + Pointer Integration (Track D, depends on WU-8a)
 Spec: CLIF-CS-02 through CLIF-CS-05 (integration-level), D-E (Alt bypass).
 
-- [ ] 8b.1 RED: extend `apps/web/lib/studio/alignment-guides.test.ts` (or a sibling test file) with the sibling-rect-snapshot mapping logic extracted into `lib/studio/` (pure), covering the `offsetLeft/offsetTop/offsetWidth/offsetHeight` canvas-coordinate convention — per design.md's stated testing strategy (no component-render harness in `apps/web`).
-- [ ] 8b.2 GREEN: edit `apps/web/components/social/content-studio-panel.tsx` `onPointerDown` (~L2843) — after `ensurePositioned(target)`, snapshot sibling rects once into `dragRef.current.siblings`.
-- [ ] 8b.3 GREEN: edit `onPointerMove` (~L2873, `move` mode only) — call `computeSnap` after the existing centre-clamp and before writing `style.left/top`; `setGuides(result.guides)`.
-- [ ] 8b.4 GREEN: add Alt-key bypass — holding Alt suppresses `computeSnap` application for the duration of the drag (D-E).
-- [ ] 8b.5 GREEN: render guide lines as absolutely-positioned 1px divs in the existing overlay container, reusing the `data-cs-handle` pattern (~L3238-3260, `className="pointer-events-none absolute z-20 bg-indigo-500/80"`); clear guides on `onPointerUp`.
-- [ ] 8b.6 Manual verification: owner drags/resizes elements on a real multi-slot canvas; confirm snap feel and Alt bypass (no automated component-render coverage exists in this repo).
-- [ ] 8b.7 Run `tsx --test "apps/web/lib/studio/**/*.test.ts"` — confirm all `lib/studio/` unit coverage green.
+- [x] 8b.1 RED: extend `apps/web/lib/studio/alignment-guides.test.ts` (or a sibling test file) with the sibling-rect-snapshot mapping logic extracted into `lib/studio/` (pure), covering the `offsetLeft/offsetTop/offsetWidth/offsetHeight` canvas-coordinate convention — per design.md's stated testing strategy (no component-render harness in `apps/web`). (`offsetBoxesToRects` added to `alignment-guides.ts`.)
+- [x] 8b.2 GREEN: edit `apps/web/components/social/content-studio-panel.tsx` `onPointerDown` (~L2843) — after `ensurePositioned(target)`, snapshot sibling rects once into `dragRef.current.siblings`.
+- [x] 8b.3 GREEN: edit `onPointerMove` (~L2873, `move` mode only) — call `computeSnap` after the existing centre-clamp and before writing `style.left/top`; `setGuides(result.guides)`.
+- [x] 8b.4 GREEN: add Alt-key bypass — holding Alt suppresses `computeSnap` application for the duration of the drag (D-E).
+- [x] 8b.5 GREEN: render guide lines as absolutely-positioned 1px divs in the existing overlay container, reusing the `data-cs-handle` pattern (~L3238-3260, `className="pointer-events-none absolute z-20 bg-indigo-500/80"`); clear guides on `onPointerUp`.
+- [ ] 8b.6 Manual verification: owner drags/resizes elements on a real multi-slot canvas; confirm snap feel and Alt bypass (no automated component-render coverage exists in this repo). **Owner action pending — not executable by the agent.**
+- [x] 8b.7 Run `tsx --test "apps/web/lib/studio/**/*.test.ts"` — confirm all `lib/studio/` unit coverage green. (103/103 passed.)
 
 ## WU-9: Spec/Doc Sync + PRD Amendment (last — depends on all prior units)
 Spec: none new; this is the sync unit itself.

@@ -114,6 +114,32 @@ export function computeSnap(input: {
   return { left, top, guides };
 }
 
+/**
+ * The subset of `HTMLElement`'s offset geometry the sibling-rect snapshot needs (WU-8b). Kept as a
+ * narrow structural interface — not `HTMLElement` itself — so this mapping stays pure/DOM-free and
+ * unit-testable with the project's `tsx --test` runner (no jsdom in this repo, per design.md's
+ * Testing Strategy). The caller passes real `HTMLElement`s at runtime; `offsetLeft/offsetTop/
+ * offsetWidth/offsetHeight` are already canvas-coordinate (matching the existing
+ * `d.left = target.offsetLeft` convention elsewhere in `content-studio-panel.tsx`), NOT
+ * `getBoundingClientRect`, which is scaled by the canvas's zoom transform.
+ */
+export interface OffsetBox {
+  offsetLeft: number;
+  offsetTop: number;
+  offsetWidth: number;
+  offsetHeight: number;
+}
+
+/** Maps a snapshot of sibling elements' offset geometry to `computeSnap`'s canvas-coordinate `Rect`s. */
+export function offsetBoxesToRects(boxes: readonly OffsetBox[]): Rect[] {
+  return boxes.map((b) => ({
+    left: b.offsetLeft,
+    top: b.offsetTop,
+    width: b.offsetWidth,
+    height: b.offsetHeight,
+  }));
+}
+
 /** Maps a `GuideLine` (canvas coordinates) to an absolutely-positioned 1px overlay div style. */
 export function guideToOverlayStyle(
   g: GuideLine,

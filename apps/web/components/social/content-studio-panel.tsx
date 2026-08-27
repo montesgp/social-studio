@@ -72,6 +72,8 @@ import { cn } from "@/lib/utils";
 import { hasVisibleBorder, pickRecolorProperty } from "@/lib/studio/decoration-edit";
 import { resolveToolbarDock } from "@/lib/studio/toolbar-dock";
 import { ensureFontsLoaded, fontStackFor } from "@/lib/studio/fonts";
+import { computeSnap, guideToOverlayStyle, offsetBoxesToRects } from "@/lib/studio/alignment-guides";
+import type { GuideLine, Rect } from "@/lib/studio/alignment-guides";
 import { useDismissOnOutsideClick } from "@/hooks/use-dismiss-on-outside-click";
 import {
   ensureDecorLayer,
@@ -2721,10 +2723,23 @@ const DesignCanvas = forwardRef<
   const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number } | null>(null);
   const [toolbarPinned, setToolbarPinned] = useState(false);
   const dragRef = useRef<
-    | { mode: "move"; el: HTMLElement; sx: number; sy: number; left: number; top: number; moved: boolean }
+    | {
+        mode: "move";
+        el: HTMLElement;
+        sx: number;
+        sy: number;
+        left: number;
+        top: number;
+        moved: boolean;
+        // Snapshotted once on pointerdown (design.md D-E) — never re-queried mid-drag, so every
+        // pointermove's snap computation is O(N) arithmetic only, no DOM reads.
+        siblings: Rect[];
+      }
     | { mode: "resize"; el: HTMLElement; sx: number; sy: number; w: number; h: number; fs: number; moved: boolean }
     | null
   >(null);
+  // Alignment guide lines rendered for the duration of an active snap (WU-8b, design.md D-E).
+  const [guides, setGuides] = useState<readonly GuideLine[]>([]);
 
   // `onDirty` is passed as an INLINE arrow by both call sites, so it is a brand-new function on every
   // parent render. Depending on it directly re-ran the effects below constantly — including the one
@@ -2859,6 +2874,13 @@ const DesignCanvas = forwardRef<
         return;
       }
       ensurePositioned(target);
+      // Sibling rects for alignment-guide snapping (WU-8b): every other [data-slot] element on the
+      // canvas EXCEPT the dragged element and the recolorable background layer (never a snap target —
+      // it has no meaningful edges/centre to align against). Snapshotted once here, not re-queried on
+      // every pointermove, per design.md D-E.
+      const siblingSlots = [...root.querySelectorAll<HTMLElement>("[data-slot]")].filter(
+        (el) => el !== target && !isBackgroundLayer(el),
+      );
       dragRef.current = {
         mode: "move",
         el: target,
@@ -2867,6 +2889,7 @@ const DesignCanvas = forwardRef<
         left: target.offsetLeft,
         top: target.offsetTop,
         moved: false,
+        siblings: offsetBoxesToRects(siblingSlots),
       };
       e.preventDefault();
     };
@@ -2882,6 +2905,21 @@ const DesignCanvas = forwardRef<
         // Clamp by the element's center so wide boxes still slide sideways freely.
         nl = Math.max(8 - halfW, Math.min(nl, width - halfW - 8));
         nt = Math.max(8 - halfH, Math.min(nt, height - halfH - 8));
+        // Alignment-guide snap (WU-8b, design.md D-E): holding Alt bypasses snapping entirely for
+        // this drag — checked live per pointermove, so releasing/re-holding Alt mid-drag takes effect
+        // immediately.
+        if (e.altKey) {
+          setGuides([]);
+        } else {
+          const snapped = computeSnap({
+            dragged: { left: nl, top: nt, width: d.el.offsetWidth, height: d.el.offsetHeight },
+            siblings: d.siblings,
+            canvas: { width, height },
+          });
+          nl = snapped.left;
+          nt = snapped.top;
+          setGuides(snapped.guides);
+        }
         d.el.style.left = `${Math.round(nl)}px`;
         d.el.style.top = `${Math.round(nt)}px`;
         d.el.style.right = "auto";
@@ -2905,6 +2943,7 @@ const DesignCanvas = forwardRef<
       const d = dragRef.current;
       if (d?.moved) onDirtyRef.current();
       dragRef.current = null;
+      setGuides([]);
     };
     const onDblClick = (e: MouseEvent) => {
       if (!canEdit) return;
@@ -3235,6 +3274,17 @@ const DesignCanvas = forwardRef<
           }}
         />
       ) : null}
+      {guides.map((g, i) => {
+        const style = guideToOverlayStyle(g, scale);
+        return (
+          <div
+            key={`${g.axis}-${g.position}-${i}`}
+            data-cs-guide
+            className="pointer-events-none absolute z-20 bg-indigo-500/80"
+            style={style}
+          />
+        );
+      })}
       {selRect && !selIsBackground ? (
         <div
           data-cs-handle
