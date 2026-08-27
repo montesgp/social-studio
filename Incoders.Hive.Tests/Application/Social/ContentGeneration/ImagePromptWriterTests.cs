@@ -54,7 +54,7 @@ public sealed class ImagePromptWriterTests
         Assert.True(result.IsSuccess);
         Assert.NotNull(capturedRequest);
         Assert.Equal("ai-generation", capturedRequest!.CapabilityKey);
-        Assert.Equal("image-prompt/v1", capturedRequest.PromptVersionKey);
+        Assert.Equal("image-prompt/v2", capturedRequest.PromptVersionKey);
     }
 
     // -----------------------------------------------------------------------

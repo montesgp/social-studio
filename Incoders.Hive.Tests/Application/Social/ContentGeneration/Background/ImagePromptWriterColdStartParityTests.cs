@@ -25,11 +25,16 @@ public sealed class ImagePromptWriterColdStartParityTests
     private static readonly Guid OrgId = Guid.NewGuid();
     private static readonly Guid ClientId = Guid.NewGuid();
 
-    // Pre-change baseline instruction — verbatim. Byte-identical comparison required.
-    // If this string changes, it is a BREAKING behavior change that MUST be intentional.
+    // Cold-start baseline instruction — verbatim, updated deliberately for the topical-fidelity
+    // instruction (CACD-IMG-02, content-layout-and-image-fidelity WU-1). Byte-identical comparison
+    // required. If this string changes again, it is a BREAKING behavior change that MUST be intentional.
     private const string PreChangeBaselineInstruction =
         "Write ONE concise text-to-image prompt for a single carousel slide BACKGROUND image in this " +
-        "client's established visual style. The background MUST be free of any text, letters, words, " +
+        "client's established visual style. " +
+        "The image MUST depict the subject matter of THIS slide's message as given in slideCopySummary — " +
+        "a literal or metaphorical scene of the message subjects — rendered in the client's established " +
+        "visual style. " +
+        "The background MUST be free of any text, letters, words, " +
         "numbers, logos, handles, or watermarks — copy is composited separately as an editable layer. " +
         "Emulate the client's real aesthetic (composition, palette, mood, motifs) so the result looks " +
         "authentically authored by this client, never generic. Keep it vivid but concise. " +
@@ -95,8 +100,66 @@ public sealed class ImagePromptWriterColdStartParityTests
     }
 
     // -----------------------------------------------------------------------
+    // 1.2 (CACD-IMG-02-b): aesthetic guidance (style descriptors, motifs, background descriptors,
+    //     voice tone, palette) is still present in the assembled JSON and not displaced by the new
+    //     topical-fidelity instruction sentence.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task BuildInput_ColdStartProfile_AestheticGuidanceStillPresent()
+    {
+        var coldStartProfile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["dark botanical", "hand-drawn textures"],
+            VoiceTone: "warm and approachable",
+            AverageSlidesPerCarousel: 5.0,
+            AnalyzedAtUtc: new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Utc),
+            StyleDescriptors: ["organic", "earthy", "natural light"],
+            Motifs: ["botanical leaves", "wooden textures"],
+            CaptionVoice: "educational yet friendly",
+            Palette:
+            [
+                new AestheticPaletteEntry("#3D2B1F", "primary", 0),
+                new AestheticPaletteEntry("#A8C5A0", "accent", 1),
+            ],
+            ConceptualMethod: null,
+            ImageTypeRatio: null);
+
+        var capturedJson = await CaptureFullJsonAsync(
+            new ImagePromptRequest(
+                OrgId, ClientId,
+                SlideIndex: 1,
+                SlideCopySummary: "Discover the power of natural ingredients",
+                Aesthetic: coldStartProfile));
+
+        Assert.Contains("organic", capturedJson, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("botanical leaves", capturedJson, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("dark botanical", capturedJson, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("warm and approachable", capturedJson, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("#3D2B1F", capturedJson, StringComparison.OrdinalIgnoreCase);
+
+        using var doc = JsonDocument.Parse(capturedJson);
+        var instruction = doc.RootElement.GetProperty("instruction").GetString();
+        Assert.Contains("slideCopySummary", instruction, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // -----------------------------------------------------------------------
     // Test infrastructure
     // -----------------------------------------------------------------------
+
+    private static async Task<string> CaptureFullJsonAsync(ImagePromptRequest request)
+    {
+        string? capturedJson = null;
+        var gateway = new JsonCaptureGateway(json => capturedJson = json);
+        var writer = new ImagePromptWriter(
+            gateway,
+            FakeParityResolver.Default(),
+            NullLogger<ImagePromptWriter>.Instance);
+
+        var result = await writer.WriteAsync(request, CancellationToken.None);
+        Assert.True(result.IsSuccess, $"WriteAsync must succeed; got: {(result.IsFailure ? result.Error.Code : "n/a")}");
+
+        return capturedJson!;
+    }
 
     private static async Task<string> CaptureInstructionAsync(ImagePromptRequest request)
     {

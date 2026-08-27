@@ -24,11 +24,16 @@ public sealed class ImagePromptWriterIdeationTests
     private static readonly Guid OrgId = Guid.NewGuid();
     private static readonly Guid ClientId = Guid.NewGuid();
 
-    // Baseline instruction — verbatim from the pre-change emulate-style branch.
+    // Baseline instruction — verbatim from the cold-start emulate-style branch, updated deliberately
+    // for the topical-fidelity instruction (CACD-IMG-02, content-layout-and-image-fidelity WU-1).
     // Any change here MUST be intentional and reflected in the implementation.
     internal const string BaselineInstruction =
         "Write ONE concise text-to-image prompt for a single carousel slide BACKGROUND image in this " +
-        "client's established visual style. The background MUST be free of any text, letters, words, " +
+        "client's established visual style. " +
+        "The image MUST depict the subject matter of THIS slide's message as given in slideCopySummary — " +
+        "a literal or metaphorical scene of the message subjects — rendered in the client's established " +
+        "visual style. " +
+        "The background MUST be free of any text, letters, words, " +
         "numbers, logos, handles, or watermarks — copy is composited separately as an editable layer. " +
         "Emulate the client's real aesthetic (composition, palette, mood, motifs) so the result looks " +
         "authentically authored by this client, never generic. Keep it vivid but concise. " +

@@ -12,7 +12,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Background
 /// <summary>
 /// Writes a per-slide image prompt from the client's aesthetic profile using the ORGANIZATION's
 /// configured TEXT route (OQ-6: reuses <see cref="IAiCompletionGateway"/>, capability "ai-generation",
-/// prompt-version "image-prompt/v1"). Claude (or whatever text model the org configured) is excellent at
+/// prompt-version "image-prompt/v2"). Claude (or whatever text model the org configured) is excellent at
 /// authoring the prompt; the IMAGE route renders the pixels separately.
 /// <para>
 /// The org's AI route is resolved via <see cref="IWorkflowConfigurationResolver"/> (same mechanism as the
@@ -26,7 +26,7 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Background
 public sealed class ImagePromptWriter : IImagePromptWriter
 {
     private const string CapabilityKey = "ai-generation";
-    private const string PromptVersionKey = "image-prompt/v1";
+    private const string PromptVersionKey = "image-prompt/v2";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -170,11 +170,15 @@ public sealed class ImagePromptWriter : IImagePromptWriter
         }
         else
         {
-            // CACD-PA-07-a / CACD-CG-03-a: cold-start parity — exact verbatim emulate-style instruction.
-            // This branch MUST remain byte-identical to the pre-change baseline when null/Unknown.
+            // CACD-IMG-02: cold-start branch, now instructed to depict the slide's topic. Aesthetic
+            // guidance is retained verbatim (additive change only); no ideation, no ratio cue.
             instruction =
                 "Write ONE concise text-to-image prompt for a single carousel slide BACKGROUND image in this " +
-                "client's established visual style. The background MUST be free of any text, letters, words, " +
+                "client's established visual style. " +
+                "The image MUST depict the subject matter of THIS slide's message as given in slideCopySummary — " +
+                "a literal or metaphorical scene of the message subjects — rendered in the client's established " +
+                "visual style. " +
+                "The background MUST be free of any text, letters, words, " +
                 "numbers, logos, handles, or watermarks — copy is composited separately as an editable layer. " +
                 "Emulate the client's real aesthetic (composition, palette, mood, motifs) so the result looks " +
                 "authentically authored by this client, never generic. Keep it vivid but concise. " +

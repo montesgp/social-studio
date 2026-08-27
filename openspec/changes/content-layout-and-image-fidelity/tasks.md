@@ -43,12 +43,12 @@ wiring).
 ## WU-1: Cold-Start Topical-Fidelity Instruction (Track A, independent)
 Spec: CACD-IMG-02 (modified), CLIF-IMG-01 (added, regression). Design: WU-1 instruction text (design.md `## Data Flow` prelude / "WU-1 cold-start instruction").
 
-- [ ] 1.1 RED: extend `Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/ImagePromptWriterColdStartParityTests.cs` — **update the byte-identity baseline** to the new instructed cold-start string (design.md's exact wording), replacing the old assertion (not adding a bypass). Satisfies CACD-IMG-02-a.
-- [ ] 1.2 RED: add `ImagePromptWriterTests.cs` cases asserting aesthetic guidance (style descriptors, motifs, background descriptors, voice tone, palette) is still present and not displaced. Satisfies CACD-IMG-02-b.
-- [ ] 1.3 RED: add a regression case asserting the method-gated branch (`CACD-IMG-01`) wording/structure is byte-identical to before. Satisfies CLIF-IMG-01-a.
-- [ ] 1.4 RED: add a regression case for the remaining pipeline (guardrail retry, CSS fallback, storage upload, reference-image conditioning) behaving identically for a cold-start client. Satisfies CACD-IMG-02-c.
-- [ ] 1.5 GREEN: edit `Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs` (~L172-181) — insert the topical-fidelity sentence into the cold-start `instruction` string, mirroring design.md's exact wording; bump the image-prompt version key.
-- [ ] 1.6 Run `dotnet test Incoders.Hive.Tests --filter FullyQualifiedName~ImagePromptWriter` — confirm all four scenarios green.
+- [x] 1.1 RED: extend `Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/ImagePromptWriterColdStartParityTests.cs` — **update the byte-identity baseline** to the new instructed cold-start string (design.md's exact wording), replacing the old assertion (not adding a bypass). Satisfies CACD-IMG-02-a.
+- [x] 1.2 RED: add `ImagePromptWriterTests.cs` cases asserting aesthetic guidance (style descriptors, motifs, background descriptors, voice tone, palette) is still present and not displaced. Satisfies CACD-IMG-02-b.
+- [x] 1.3 RED: add a regression case asserting the method-gated branch (`CACD-IMG-01`) wording/structure is byte-identical to before. Satisfies CLIF-IMG-01-a.
+- [x] 1.4 RED: add a regression case for the remaining pipeline (guardrail retry, CSS fallback, storage upload, reference-image conditioning) behaving identically for a cold-start client. Satisfies CACD-IMG-02-c.
+- [x] 1.5 GREEN: edit `Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs` (~L172-181) — insert the topical-fidelity sentence into the cold-start `instruction` string, mirroring design.md's exact wording; bump the image-prompt version key.
+- [x] 1.6 Run `dotnet test Incoders.Hive.Tests --filter FullyQualifiedName~ImagePromptWriter` — confirm all four scenarios green.
 
 ## WU-2: `SlotOverlapDetector` (Track B, independent of WU-3, pure new type)
 Spec: CLIF-CG-01 (added). Design: D-A, interfaces block (`SlotOverlapDetector.cs`).
