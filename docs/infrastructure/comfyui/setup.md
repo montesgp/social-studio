@@ -60,6 +60,22 @@ workflow JSON dynamically and submits it through the ComfyUI REST API.
 -   ComfyUI Manager
 -   ComfyUI_IPAdapter_plus
 
+## Optional: Detailer Preflight (face/hand repair)
+
+Hive probes every ComfyUI server for `FaceDetailer` and `UltralyticsDetectorProvider`
+before each generation (`docs/architecture/adr/0017-comfyui-detailer-preflight-probe.md`).
+When **both** node classes are registered, Hive automatically submits a
+detailer-augmented workflow that runs a face/hand repair pass after the primary sampler.
+When either is absent, missing, or the probe cannot determine support, Hive falls back to
+the plain workflow — silently and byte-identically to a server without these packs. No
+configuration is required to benefit from this once both packs are installed; a per-org
+`detailer_enabled=false` credential value force-disables it regardless of server support.
+
+-   Impact-Pack (provides `FaceDetailer`)
+-   Impact-Subpack (provides `UltralyticsDetectorProvider`)
+-   Detector model, e.g. `bbox/face_yolov8m.pt`, in `models/ultralytics` (or the pack's
+    expected folder)
+
 ------------------------------------------------------------------------
 
 # Directory Layout
@@ -169,6 +185,12 @@ The following nodes must exist:
 -   SaveImage
 -   IPAdapterUnifiedLoader
 -   IPAdapterAdvanced
+
+Optional (enables the detailer preflight, see above — Hive falls back to plain when
+absent, no error):
+
+-   FaceDetailer
+-   UltralyticsDetectorProvider
 
 The following API endpoints must respond:
 

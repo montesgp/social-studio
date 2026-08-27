@@ -71,14 +71,26 @@ Note: proposal's own budget is 800 lines/unit (not the skill's default 400); all
 
 ## Phase 6: Spec, ADR, Doc Sync
 
-- [ ] 6.1 Confirm `openspec/changes/comfyui-detailer-preflight/specs/comfyui-image-provider/spec-delta.md` (CUI-07/08/09 added, CUI-03 modified) is merge-ready against the landed implementation
-- [ ] 6.2 Write the required ADR under `docs/architecture/adr/` — "Backend-capability-gated workflow-template selection" per proposal's ADR determination: records the probe/cache/select pattern, the conservative-default asymmetric invariant, and the accepted residual risk that node-class registration does not imply usable weights (finding (b))
-- [ ] 6.3 Update `docs/` provider documentation if `comfyui-image-provider` capability docs reference the settings surface or workflow template selection (Documentation Sync, per project CLAUDE.md)
-- [ ] 6.4 Run `pwsh -File scripts/gates/Run-Gates.ps1`; confirm architecture gate green (no ComfyUI/HTTP type crossing into Domain/Application, `CUI-05`)
+- [x] 6.1 Confirmed `openspec/changes/comfyui-detailer-preflight/specs/comfyui-image-provider/spec-delta.md` (CUI-07/08/09 added, CUI-03 modified) against the landed implementation (Phases 1-5, commits `d173966`..`c0091a4`) and merged it, full and unconditional, into `openspec/specs/comfyui-image-provider/spec.md`
+- [x] 6.2 Wrote `docs/architecture/adr/0017-comfyui-detailer-preflight-probe.md` — "Backend-Capability-Gated Workflow-Template Selection": cites the all-or-nothing `/prompt` workflow-graph failure mode as the reason for the conservative-fallback design, the tri-state probe, the asymmetric cache invalidation, and the opt-out (not opt-in) default rationale; also records the accepted residual risk that node-class registration does not imply usable weights (finding (b))
+- [x] 6.3 Updated `docs/infrastructure/comfyui/setup.md` — added an "Optional: Detailer Preflight" section (Impact-Pack/Impact-Subpack/detector weights) and the two optional node classes in the Verification Checklist. Evaluated `docs/PRD.md`: no dedicated ComfyUI/image-generation user-facing section exists to amend (unlike §12's Content Bank Planner, which the layout-reflow/alignment-guides change amended); this preflight has no new user story, no new acceptance criterion, and defaults to fully automatic/transparent behavior (opt-out is an advanced per-org credential key, not a user-facing toggle) — no PRD amendment made, consistent with the project's established pattern of amending PRD only for operator/user-visible capability changes
+- [x] 6.4 Ran `pwsh -File scripts/gates/Run-Gates.ps1` — PASS, 17 pass / 1 skipped (no coverage report) / 1 warn (pre-existing frontend advisory, unrelated). `architecture.layering` and `architecture.imports` both green — no ComfyUI/HTTP type crosses into Domain/Application (`CUI-05`). `tests.backend` green: 3987 passed, 2 skipped (pre-existing), 0 failed. Full `dotnet test Incoders.Hive.Tests -c Release` run independently: identical result, confirming the gate result was not the previously-seen environment-only Debug-DLL lock false negative.
 
 ## Phase 7: OWNER-RUN MANUAL VERIFICATION (not automatable — pending human action)
 
-- [ ] 7.1 **MANUAL, OWNER-RUN.** Real generation against the local ComfyUI instance (Impact-Pack/Subpack/weights now installed). Confirm: (i) the probe answers `Supported` against the live `/object_info`; (ii) `POST /prompt` with the augmented graph is accepted — validating A6's splice point and the full `FaceDetailer` input contract, which no mock can verify; (iii) the output image shows visible anatomical repair versus the same seed on the plain template. Record accept/reject in writing per the proposal's `## Success Criteria` deferred block. This task stays open until the owner performs and records the run — same category as the prior change's alignment-guides manual verification.
+- [ ] 7.1 **Owner action pending — not executable by the agent.** Real generation against the local ComfyUI instance (Impact-Pack/Subpack/weights now installed). Confirm: (i) the probe answers `Supported` against the live `/object_info`; (ii) `POST /prompt` with the augmented graph is accepted — validating A6's splice point and the full `FaceDetailer` input contract, which no mock can verify; (iii) the output image shows visible anatomical repair versus the same seed on the plain template. Record accept/reject in writing per the proposal's `## Success Criteria` deferred block. This task stays open until the owner performs and records the run — same category as the prior change's alignment-guides manual verification (`content-layout-and-image-fidelity` task 8b.6).
+
+## Status
+
+**Phases 1-6 (all automatable work): CODE COMPLETE.** Probe, cache, augmented template,
+template selection, cache invalidation, opt-out flag, spec merge, ADR, and doc sync are
+all implemented, tested, and gate-verified on `dev` (commits `d173966`..`c0091a4` plus
+this batch's spec/ADR/doc commit).
+
+**Phase 7 (owner-run manual E2E): EXPLICITLY PENDING — awaiting manual confirmation.**
+This is not an implementation gap; no automated test can submit a real prompt to a live
+ComfyUI backend. GitHub issue #85 stays OPEN until the owner records the Phase 7 result.
+This change is NOT marked `COMPLETE` while that verification step remains open.
 
 ## Key Learnings
 

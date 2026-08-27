@@ -1,6 +1,7 @@
 # ComfyUI Image Provider Specification
 
 <!-- Merged from openspec/changes/comfyui-image-generation-provider/specs/comfyui-image-provider/spec-delta.md — change applied 2026-07-01. -->
+<!-- Merged from openspec/changes/comfyui-detailer-preflight/specs/comfyui-image-provider/spec-delta.md — change applied 2026-08-27 (CUI-07/08/09 added, CUI-03 modified). -->
 
 ## Purpose
 
@@ -17,10 +18,13 @@ architecture isolation, and testability contract.
 |---|---|
 | CUI-01 | §Scope — `ComfyUiImageModelClient`, `IImageModelClient`, `SupportsImageConditioning` |
 | CUI-02 | §Scope — resilience: degrade to CSS fallback; job NEVER fails |
-| CUI-03 | §Scope — `ComfyUiSettings` (base URL, checkpoint, workflow template, timeout) |
+| CUI-03 | §Scope — `ComfyUiSettings` (base URL, checkpoint, workflow template, timeout, detailer opt-out) |
 | CUI-04 | §Scope — `ComfyUiModelCatalogClient`, `/object_info` model sync |
 | CUI-05 | §Scope Boundaries — architecture isolation: no provider types in Domain/Application |
 | CUI-06 | §Scope Boundaries / Strict TDD — testability without a live ComfyUI server |
+| CUI-07 | `comfyui-detailer-preflight` — tri-state node-presence probe |
+| CUI-08 | `comfyui-detailer-preflight` — template selection, conservative-fallback invariant |
+| CUI-09 | `comfyui-detailer-preflight` — probe-result cache, TTL, asymmetric invalidation |
 
 ---
 
@@ -92,13 +96,16 @@ format job MUST complete normally regardless of how many slides fail image gener
 
 ---
 
-### Requirement: CUI-03 — ComfyUiSettings Carries Base URL, Checkpoint, Workflow Template, Timeout; Per-Org Configurable
+### Requirement: CUI-03 — ComfyUiSettings Carries Base URL, Checkpoint, Workflow Template, Timeout, Detailer Opt-Out; Per-Org Configurable
 
-`ComfyUiSettings` MUST expose at minimum: ComfyUI server base URL (default
-`http://127.0.0.1:8188`), default checkpoint identifier, workflow template reference,
-and polling timeout. Settings MUST be per-org configurable without a code change,
-following the same shape as `ClaudePromptCliSettings`. Changing the base URL in settings
-MUST redirect all ComfyUI HTTP calls to the configured endpoint with no code change.
+`ComfyUiSettings` MUST expose at minimum: base URL (default `http://127.0.0.1:8188`),
+checkpoint identifier, workflow template reference, polling timeout, and a detailer
+opt-out flag (default unset — probe governs). Settings MUST be per-org configurable
+without a code change, following the same shape as `ClaudePromptCliSettings`. Changing
+the base URL in settings MUST redirect all ComfyUI HTTP calls to the configured endpoint
+with no code change. The opt-out flag MUST only ever force the plain template; it MUST
+NOT force the augmented template on an unsupporting backend.
+(Previously: no detailer opt-out flag; only base URL/checkpoint/template/timeout.)
 
 #### Scenario: Custom base URL in settings — adapter uses configured endpoint (CUI-03-a)
 
@@ -111,6 +118,82 @@ MUST redirect all ComfyUI HTTP calls to the configured endpoint with no code cha
 - GIVEN `ComfyUiSettings.BaseUrl` is not set
 - WHEN the adapter makes HTTP calls
 - THEN all HTTP calls target `http://127.0.0.1:8188`
+
+---
+
+### Requirement: CUI-07 — Node-Presence Probe Returns a Tri-State Result; Unknown Is Never Coerced to Supported
+
+Before submitting a prompt, the adapter MUST determine detailer support via `GET
+{baseUrl}/object_info`, reusing `CUI-04`'s `class_type`-presence parsing. The probe MUST
+return exactly one of `Supported`, `NotSupported`, `Unknown`, and MUST NOT throw into the
+generation path. `Supported` MUST require both node classes present in a well-formed
+response; every other shape (neither/one present, non-2xx, timeout, transport exception,
+malformed body) MUST resolve to `NotSupported` or `Unknown`, never `Supported`.
+
+#### Scenario: Both classes present — Supported (CUI-07-a)
+- GIVEN a well-formed response listing `FaceDetailer` and `UltralyticsDetectorProvider`
+- WHEN the probe runs
+- THEN it returns `Supported`
+
+#### Scenario: Partial presence — NotSupported (CUI-07-b)
+- GIVEN a response listing only one of the two classes
+- WHEN the probe runs
+- THEN it returns `NotSupported`, not `Supported`
+
+#### Scenario: Transport failure or malformed body — Unknown, no exception (CUI-07-c)
+- GIVEN a non-2xx response, timeout, transport exception, or unparseable body
+- WHEN the probe runs
+- THEN it returns `Unknown` and no exception propagates
+
+---
+
+### Requirement: CUI-08 — Template Selection Requires an Affirmative Probe; Every Other Path Selects Plain
+
+The adapter MUST select the augmented template only when the probe (fresh or cached) is
+`Supported` AND the opt-out flag is unset. `NotSupported`, `Unknown`, and opt-out MUST all
+select plain. On any backend where the probe is never `Supported` — including local dev
+today — the submitted graph and generation outcome MUST match pre-change behaviour
+byte-for-byte, with no added latency beyond one cached probe call.
+
+#### Scenario: Positive probe selects the augmented template (CUI-08-a)
+- GIVEN a `Supported` probe result and the opt-out flag unset
+- WHEN a generation is submitted
+- THEN the graph contains `FaceDetailer` and `UltralyticsDetectorProvider`, wired between
+  the sampler and the output node
+
+#### Scenario: Negative, unknown, or opted-out probe selects plain (CUI-08-b, regression)
+- GIVEN a `NotSupported`/`Unknown` result, or a `Supported` result with the opt-out flag
+  set
+- WHEN a generation is submitted
+- THEN the plain template is submitted byte-identical to pre-change behaviour, and
+  opt-out makes no probe call
+
+---
+
+### Requirement: CUI-09 — Probe Result Cached Per Base URL, 10-Minute TTL, Asymmetric Invalidation
+
+The adapter MUST cache a resolved probe result (not the raw payload) keyed by normalized
+`baseUrl` for 10 minutes. `Unknown` results MUST NOT be cached. A cached `Supported`
+result MUST be invalidated immediately when a submission using the augmented template
+fails with a node-registration error attributable to the detailer subgraph, so the next
+job for that `baseUrl` submits plain. A cached `NotSupported` result MUST NOT be
+proactively invalidated and MUST simply expire at TTL.
+
+#### Scenario: Cache hit avoids re-probing within TTL (CUI-09-a)
+- GIVEN a cached result under 10 minutes old
+- WHEN a second generation targets the same `baseUrl`
+- THEN no second `/object_info` call is made
+
+#### Scenario: Positive invalidated by a detailer node_errors failure (CUI-09-b)
+- GIVEN a cached `Supported` result and a submission that fails with detailer-attributable
+  `node_errors` (accepted residual: node registration does not guarantee model weights)
+- WHEN the next generation targets the same `baseUrl`
+- THEN plain is submitted without waiting for TTL expiry
+
+#### Scenario: Negative result rides out the full TTL (CUI-09-c)
+- GIVEN a cached `NotSupported` result
+- WHEN any signal other than TTL expiry occurs
+- THEN the cached result is unchanged until 10 minutes elapse
 
 ---
 
@@ -264,3 +347,19 @@ changing any previously specified requirement (`CUI-01`..`CUI-06`).
 None.
 
 *Merged from `openspec/changes/client-aesthetic-generation-hardening/specs/comfyui-image-provider/spec-delta.md` — change applied 2026-08-25.*
+
+---
+
+## Modified Requirements (comfyui-detailer-preflight)
+
+`CUI-03` was amended in place (above, in `## Requirements`) to add the `DetailerEnabled`
+opt-out flag; the rest of the requirement is unchanged.
+
+## Removed Requirements (comfyui-detailer-preflight)
+
+None. `CUI-07`, `CUI-08`, `CUI-09` are additive.
+
+*Merged from `openspec/changes/comfyui-detailer-preflight/specs/comfyui-image-provider/spec-delta.md`
+— change applied 2026-08-27. Phase 1-6 (probe, cache, augmented template, selection, invalidation,
+opt-out flag) shipped as real code; Phase 7 (owner-run manual E2E confirming the live splice point
+and `FaceDetailer` input contract) is pending human action and does not block this merge.*
