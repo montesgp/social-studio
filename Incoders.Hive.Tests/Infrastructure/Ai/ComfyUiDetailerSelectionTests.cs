@@ -17,6 +17,7 @@ namespace Incoders.Hive.Tests.Infrastructure.Ai;
 /// other outcome — <c>NotSupported</c>, <c>Unknown</c>, or opt-out — selects the plain template, and
 /// opt-out skips the probe entirely (zero <c>/object_info</c> calls). Refs: A1, A6; CUI-08.
 /// </summary>
+[Collection("ComfyUiDetailerProbeCacheSerial")]
 public sealed class ComfyUiDetailerSelectionTests
 {
     private static readonly Guid OrgId = Guid.NewGuid();

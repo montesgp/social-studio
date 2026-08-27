@@ -9,6 +9,7 @@ namespace Incoders.Hive.Tests.Infrastructure.Ai;
 /// TTL cache, invalidation, and <c>node_errors</c> attribution.
 /// Refs: CUI-07, CUI-09; design §A1-A4.
 /// </summary>
+[Collection("ComfyUiDetailerProbeCacheSerial")]
 public sealed class ComfyUiDetailerProbeTests
 {
     private const string BaseUrl = "http://127.0.0.1:8188";

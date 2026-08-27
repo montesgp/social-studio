@@ -177,7 +177,7 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                 }
             }
 
-            var template = await SelectTemplateAsync(http, baseUrl, settings, effectiveCt);
+            var (template, isAugmentedTemplate) = await SelectTemplateAsync(http, baseUrl, settings, effectiveCt);
 
             // CAGH-CUI-01: mirrors OpenAiImageModelClient's BackgroundOnly handling — prepend the
             // shared directive (ImagePromptDirectives, D5/CAGH-CUI-01-c) to the positive prompt so
@@ -213,9 +213,19 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
             // generate.
             await TryReclaimVideoMemoryAsync(http, baseUrl, unloadModels: false, effectiveCt);
 
-            var promptIdResult = await QueuePromptAsync(http, baseUrl, graphResult.Value, effectiveCt);
+            var queueOutcome = await QueuePromptAsync(http, baseUrl, graphResult.Value, effectiveCt);
+            var promptIdResult = queueOutcome.Result;
             if (promptIdResult.IsFailure)
             {
+                // A5 (CUI-09-b): invalidate the cached `Supported` entry ONLY when the augmented
+                // graph was the one submitted AND the rejection is detailer-attributable. An
+                // unrelated ComfyUI failure (checkpoint missing, timeout, generic outage) must not
+                // thrash the cache and force every subsequent job to re-probe.
+                if (isAugmentedTemplate && ComfyUiDetailerProbe.IsDetailerAttributable(queueOutcome.RejectionPayload))
+                {
+                    ComfyUiDetailerProbe.Invalidate(baseUrl);
+                }
+
                 return Result.Failure<ImageGenerationResult>(promptIdResult.Error);
             }
 
@@ -397,7 +407,16 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     /// CUI-02-b: a non-2xx <c>/prompt</c> response or a queue rejection surfaced via
     /// <c>node_errors</c> both map to <see cref="IntegrationErrors.ExternalProviderUnavailable"/>.
     /// </summary>
-    private static async Task<Result<string>> QueuePromptAsync(
+    /// <summary>
+    /// A5: the rejection outcome of a <c>POST /prompt</c> call. <see cref="RejectionPayload"/> is
+    /// the raw response body on ANY failure path — non-2xx status, <c>node_errors</c>, or a missing
+    /// <c>prompt_id</c> — so the caller can feed it to
+    /// <see cref="ComfyUiDetailerProbe.IsDetailerAttributable"/> without re-parsing. <c>null</c> on
+    /// success.
+    /// </summary>
+    private readonly record struct QueuePromptOutcome(Result<string> Result, string? RejectionPayload);
+
+    private static async Task<QueuePromptOutcome> QueuePromptAsync(
         HttpClient http,
         string baseUrl,
         string graphJson,
@@ -417,7 +436,10 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
 
         if (!response.IsSuccessStatusCode)
         {
-            return Result.Failure<string>(IntegrationErrors.ExternalProviderUnavailable);
+            var errorBody = await response.Content.ReadAsStringAsync(ct);
+            return new QueuePromptOutcome(
+                Result.Failure<string>(IntegrationErrors.ExternalProviderUnavailable),
+                errorBody);
         }
 
         var json = await response.Content.ReadAsStringAsync(ct);
@@ -427,13 +449,15 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
             && nodeErrors.ValueKind == JsonValueKind.Object
             && nodeErrors.EnumerateObject().Any())
         {
-            return Result.Failure<string>(IntegrationErrors.ExternalProviderUnavailable);
+            return new QueuePromptOutcome(
+                Result.Failure<string>(IntegrationErrors.ExternalProviderUnavailable),
+                json);
         }
 
         var promptId = doc.RootElement.TryGetProperty("prompt_id", out var idProp) ? idProp.GetString() : null;
         return string.IsNullOrWhiteSpace(promptId)
-            ? Result.Failure<string>(IntegrationErrors.ExternalProviderUnavailable)
-            : Result.Success(promptId);
+            ? new QueuePromptOutcome(Result.Failure<string>(IntegrationErrors.ExternalProviderUnavailable), json)
+            : new QueuePromptOutcome(Result.Success(promptId), null);
     }
 
     /// <summary>
@@ -750,7 +774,7 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     /// plain. This is the fallback invariant: non-`Supported` always means plain.</item>
     /// </list>
     /// </summary>
-    private static async Task<string> SelectTemplateAsync(
+    private static async Task<(string TemplateJson, bool IsAugmented)> SelectTemplateAsync(
         HttpClient http,
         string baseUrl,
         ComfyUiSettings settings,
@@ -758,19 +782,19 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     {
         if (!string.IsNullOrWhiteSpace(settings.WorkflowTemplateJson))
         {
-            return settings.WorkflowTemplateJson;
+            return (settings.WorkflowTemplateJson, false);
         }
 
         if (!settings.DetailerEnabled)
         {
-            return LoadBundledDefaultTemplate();
+            return (LoadBundledDefaultTemplate(), false);
         }
 
         var support = await ComfyUiDetailerProbe.ProbeAsync(http, baseUrl, ct);
 
         return support == ComfyUiDetailerSupport.Supported
-            ? LoadBundledDetailerTemplate()
-            : LoadBundledDefaultTemplate();
+            ? (LoadBundledDetailerTemplate(), true)
+            : (LoadBundledDefaultTemplate(), false);
     }
 
     private static string LoadBundledDefaultTemplate() => LoadEmbeddedResource(EmbeddedTemplateResourceName);

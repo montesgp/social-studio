@@ -59,9 +59,9 @@ Note: proposal's own budget is 800 lines/unit (not the skill's default 400); all
 
 ## Phase 4: Cache Invalidation on Detailer-Attributable Failure (A5)
 
-- [ ] 4.1 RED: `Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiDetailerInvalidationTests.cs` — job 1 submits augmented template, `QueuePromptAsync` rejects with detailer-attributable `node_errors`; job 2 against the same base URL submits plain without waiting for TTL (CUI-09-b)
-- [ ] 4.2 RED: same file — a non-detailer `ExternalProviderUnavailable` failure does NOT invalidate the cached `Supported` entry (regression, A5)
-- [ ] 4.3 GREEN: modify `ComfyUiImageModelClient.cs` `QueuePromptAsync` (~L522) — on rejection, call `ComfyUiDetailerProbe.IsDetailerAttributable` against the rejection payload; if true and the augmented template was submitted, call `ComfyUiDetailerProbe.Invalidate(baseUrl)` (A5)
+- [x] 4.1 RED: `Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiDetailerInvalidationTests.cs` — job 1 submits augmented template, `QueuePromptAsync` rejects with detailer-attributable `node_errors`; job 2 against the same base URL submits plain without waiting for TTL (CUI-09-b)
+- [x] 4.2 RED: same file — a non-detailer `ExternalProviderUnavailable` failure does NOT invalidate the cached `Supported` entry (regression, A5)
+- [x] 4.3 GREEN: modify `ComfyUiImageModelClient.cs` `QueuePromptAsync` (~L522) — on rejection, call `ComfyUiDetailerProbe.IsDetailerAttributable` against the rejection payload; if true and the augmented template was submitted, call `ComfyUiDetailerProbe.Invalidate(baseUrl)` (A5)
 
 ## Phase 5: Opt-Out Flag (A7, D1 default)
 
