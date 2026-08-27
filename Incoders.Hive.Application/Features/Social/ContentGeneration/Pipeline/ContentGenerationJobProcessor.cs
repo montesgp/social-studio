@@ -772,6 +772,12 @@ public sealed class ContentGenerationJobProcessor
                     CompositionDimensions? capturedDimensions = null;
                     IReadOnlyList<SlotGeometryEntry> capturedGeometry = [];
                     string? capturedBackgroundDataUri = null;
+                    // WU-4 (CLIF-CG-03/04/05, design.md D-C/D-D): true only when validatedMarkup was
+                    // produced by BuildTemplateBackedMarkup (enforced-background OR the legacy
+                    // resilience backstop) — the two-pass reflow loop is scoped to the template-backed
+                    // carousel/story builders ONLY. AI-designer markup and the deterministic flat path
+                    // (RenderFaithfulFlat / BuildFlatColorMarkup) MUST NEVER be reflowed (CLIF-CG-06).
+                    var templateBackedForReflow = false;
                     // CAFF-CG-04 (D2): set only when trigger A or trigger B fired for THIS slide.
                     // Null for every other slide, including the pre-existing FlatColor short-circuit
                     // (that path is not a degrade — it is the proven, always-faithful treatment).
@@ -1023,6 +1029,7 @@ public sealed class ContentGenerationJobProcessor
                                     validatedMarkup = BuildTemplateBackedMarkup(
                                         spec, enforcedBackground, aestheticDesignContext, slideTransparency);
                                     renderInlineRefs.Add(enforcedBackground.Url);
+                                    templateBackedForReflow = true;
                                 }
                                 else if (aiMarkup is not null)
                                 {
@@ -1033,6 +1040,7 @@ public sealed class ContentGenerationJobProcessor
                                     // Legacy resilience backstop — reached only when trigger B did NOT fire
                                     // (non-ClientAesthetic, non-carousel, or cold-start job). UNCHANGED.
                                     validatedMarkup = BuildTemplateBackedMarkup(spec, background: null, aestheticDesignContext);
+                                    templateBackedForReflow = true;
                                 }
 
                                 // CLIF-CG-02 (D-B): the template-backed/enforced-background path never
@@ -1187,8 +1195,59 @@ public sealed class ContentGenerationJobProcessor
                     if (spec.OutputKind == CompositionOutputKind.Html
                         && _renderer is IContentRendererWithGeometry geometryRenderer)
                     {
-                        var renderedWithGeo = await geometryRenderer.RenderWithGeometryAsync(
-                            renderSpec, new RenderOptions(), ct);
+                        Result<RenderedAssetWithGeometry> renderedWithGeo;
+
+                        // WU-4 (CLIF-CG-03/04/05, design.md D-C/D-D): the bounded two-pass reflow
+                        // loop applies ONLY to the template-backed carousel/story builders — never
+                        // to AI-designer markup and never to the deterministic flat path
+                        // (RenderFaithfulFlat / BuildFlatColorMarkup never sets this flag; CLIF-CG-06).
+                        if (templateBackedForReflow && renderSpec.DesignerMarkup is not null)
+                        {
+                            var isCarouselFormat = string.Equals(
+                                spec.FormatKey, "carousel", StringComparison.OrdinalIgnoreCase);
+                            var reflowSlotOrder = isCarouselFormat
+                                ? ReflowSlotOrderCarousel
+                                : ReflowSlotOrderStory;
+
+                            var reflowResult = await RenderWithReflowAsync(
+                                geometryRenderer,
+                                renderSpec,
+                                capturedMarkup ?? renderSpec.DesignerMarkup,
+                                reflowSlotOrder,
+                                formatKey,
+                                specIndex,
+                                job.Id,
+                                ct);
+
+                            if (reflowResult.IsSuccess)
+                            {
+                                renderedWithGeo = Result<RenderedAssetWithGeometry>.Success(
+                                    new RenderedAssetWithGeometry(
+                                        reflowResult.Value.Asset,
+                                        reflowResult.Value.SlotGeometry,
+                                        reflowResult.Value.BackgroundImageDataUri));
+
+                                // Rewritten tops apply identically to the render markup AND the
+                                // persisted markup (design.md D-C) — Content Studio, PptxExportAdapter
+                                // and geometry capture all see the shipped (reflowed) layout.
+                                if (!string.Equals(
+                                        reflowResult.Value.PersistedMarkup, spec.DesignerMarkup, StringComparison.Ordinal))
+                                {
+                                    spec = spec with { DesignerMarkup = reflowResult.Value.PersistedMarkup };
+                                    capturedMarkup = reflowResult.Value.PersistedMarkup;
+                                }
+                            }
+                            else
+                            {
+                                renderedWithGeo = Result<RenderedAssetWithGeometry>.Failure(reflowResult.Error);
+                            }
+                        }
+                        else
+                        {
+                            renderedWithGeo = await geometryRenderer.RenderWithGeometryAsync(
+                                renderSpec, new RenderOptions(), ct);
+                        }
+
                         if (!renderedWithGeo.IsSuccess)
                         {
                             var detail = $"{renderedWithGeo.Error.Code}: {renderedWithGeo.Error.MessageKey}";
@@ -1987,66 +2046,220 @@ public sealed class ContentGenerationJobProcessor
         return null;
     }
 
-    /// <summary>Matches an element carrying both <c>data-slot="..."</c> and <c>style="..."</c>,
-    /// in that attribute order — the exact order every <c>Build*TemplateSlots</c> helper emits
-    /// (see <c>Html(slotName)</c> usages below).</summary>
-    private static readonly Regex DeclaredSlotElementRegex = new(
-        @"<[a-zA-Z][a-zA-Z0-9]*\b[^>]*?\sdata-slot=""(?<slot>[^""]+)""[^>]*?\sstyle=""(?<style>[^""]*)""[^>]*>",
-        RegexOptions.Compiled);
+    /// <summary>WU-4 (design.md): the reflowable, stacked, top-anchored slot sets — bottom-anchored
+    /// and decorative slots are excluded by construction (a slot's declared style using
+    /// <c>bottom:</c> never participates).</summary>
+    private static readonly IReadOnlyList<string> ReflowSlotOrderCarousel = ["title", "subtitle"];
 
-    private static readonly Regex DeclaredLeftPxRegex =
-        new(@"(?:^|;)\s*left\s*:\s*(-?\d+(?:\.\d+)?)px", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly IReadOnlyList<string> ReflowSlotOrderStory = ["headline", "subtitle", "body"];
 
-    private static readonly Regex DeclaredTopPxRegex =
-        new(@"(?:^|;)\s*top\s*:\s*(-?\d+(?:\.\d+)?)px", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    /// <summary>
+    /// WU-4 (CLIF-CG-03/04/05, design.md D-C/D-D): outcome of <see cref="RenderWithReflowAsync"/> —
+    /// the selected pass's asset/geometry/background plus the (possibly rewritten) render and
+    /// persisted markup, and the total number of renders actually performed.
+    /// </summary>
+    internal sealed record ReflowRenderResult(
+        RenderedAsset Asset,
+        IReadOnlyList<SlotGeometryEntry> SlotGeometry,
+        string? BackgroundImageDataUri,
+        string RenderMarkup,
+        string PersistedMarkup,
+        int RenderPasses);
 
-    private static readonly Regex DeclaredWidthPxRegex =
-        new(@"(?:^|;)\s*width\s*:\s*(-?\d+(?:\.\d+)?)px", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    /// <summary>
+    /// WU-4 (CLIF-CG-03/04/05, design.md D-C/D-D): thin wrapper around
+    /// <see cref="IContentRendererWithGeometry.RenderWithGeometryAsync"/> implementing the bounded
+    /// measure-then-render loop for the template-backed carousel/story builders ONLY.
+    ///
+    /// <para>Fast path (CLIF-CG-03): if Pass 1's measurement shows no overlap among
+    /// <paramref name="reflowSlotOrder"/> AND no recomputed top differs from the rendered top by
+    /// more than <see cref="MeasuredLayoutReflow.EpsilonPx"/>, rendering stops after exactly one
+    /// render.</para>
+    ///
+    /// <para>On overlap (CLIF-CG-04): recomputes tops via <see cref="MeasuredLayoutReflow"/>,
+    /// rewrites <c>top:</c> in both the render markup and the persisted markup via
+    /// <see cref="SlotTopRewriter"/>, re-renders, and re-measures — up to
+    /// <see cref="MeasuredLayoutReflow.MaxRenderPasses"/> (3) total renders. The loop is
+    /// structurally incapable of a 4th render: the <c>for</c> bound is the constant itself.</para>
+    ///
+    /// <para>Non-convergence (CLIF-CG-05): at the cap, selects the pass with the smallest total
+    /// intersection area as best-effort, emits one structured <c>ContentGeneration.LayoutReflow</c>
+    /// diagnostic, and ships that layout. This NEVER routes through <c>CAC-IMG-03</c> or any other
+    /// retry — the two budgets are disjoint (design.md D-D).</para>
+    /// </summary>
+    /// <remarks>Internal (not private) so <c>Incoders.Hive.Tests</c> can drive the loop directly
+    /// against a stub <see cref="IContentRendererWithGeometry"/> — no Chromium process boundary is
+    /// involved in this method itself.</remarks>
+    internal async Task<Result<ReflowRenderResult>> RenderWithReflowAsync(
+        IContentRendererWithGeometry geometryRenderer,
+        VisualCompositionSpec renderSpec,
+        string persistedMarkup,
+        IReadOnlyList<string> reflowSlotOrder,
+        string formatKey,
+        int specIndex,
+        Guid jobId,
+        CancellationToken ct)
+    {
+        var canvasHeight = renderSpec.Dimensions.Height;
+        var currentRenderMarkup = renderSpec.DesignerMarkup ?? string.Empty;
+        var currentPersistedMarkup = persistedMarkup;
 
-    private static readonly Regex DeclaredMinHeightPxRegex =
-        new(@"(?:^|;)\s*min-height\s*:\s*(-?\d+(?:\.\d+)?)px", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        var passes = new List<ReflowPass>();
+
+        for (var pass = 1; pass <= MeasuredLayoutReflow.MaxRenderPasses; pass++)
+        {
+            var passSpec = renderSpec with { DesignerMarkup = currentRenderMarkup };
+            var rendered = await geometryRenderer.RenderWithGeometryAsync(passSpec, new RenderOptions(), ct);
+            if (!rendered.IsSuccess)
+            {
+                return Result<ReflowRenderResult>.Failure(rendered.Error);
+            }
+
+            var declaredAll = MarkupSlotBoxParser.ParseDeclaredSlotBoxes(currentRenderMarkup);
+            var declared = OrderedReflowBoxes(declaredAll, reflowSlotOrder);
+
+            var measuredAll = rendered.Value.SlotGeometry
+                .Select(g => new SlotBox(g.Slot, g.X, g.Y, g.Width, g.Height))
+                .ToList();
+            var measured = OrderedReflowBoxes(measuredAll, reflowSlotOrder);
+
+            var overlaps = SlotOverlapDetector.Detect(measured);
+            var totalArea = SlotOverlapDetector.TotalIntersectionArea(overlaps);
+
+            var recomputedTops = declared.Count > 0
+                ? MeasuredLayoutReflow.RecomputeTops(declared, measured, canvasHeight)
+                : new Dictionary<string, int>(StringComparer.Ordinal);
+
+            passes.Add(new ReflowPass(
+                rendered.Value.Asset,
+                rendered.Value.SlotGeometry,
+                rendered.Value.BackgroundImageDataUri,
+                currentRenderMarkup,
+                currentPersistedMarkup,
+                declared,
+                measured,
+                overlaps,
+                totalArea));
+
+            if (declared.Count == 0)
+            {
+                // No reflowable slots matched this markup — nothing to recompute.
+                break;
+            }
+
+            var materialDelta = declared.Any(box =>
+                recomputedTops.TryGetValue(box.Slot, out var newTop)
+                && Math.Abs(newTop - box.Top) > MeasuredLayoutReflow.EpsilonPx);
+
+            if (overlaps.Count == 0 && !materialDelta)
+            {
+                // Fast path (CLIF-CG-03): converged, stop here — exactly one render for the
+                // common (already-fitting) case.
+                break;
+            }
+
+            if (pass == MeasuredLayoutReflow.MaxRenderPasses)
+            {
+                // Hard cap reached (CLIF-CG-05) — structurally no further iteration is possible;
+                // best-effort selection happens below.
+                break;
+            }
+
+            currentRenderMarkup = SlotTopRewriter.Apply(currentRenderMarkup, recomputedTops);
+            currentPersistedMarkup = SlotTopRewriter.Apply(currentPersistedMarkup, recomputedTops);
+        }
+
+        var bestIndex = 0;
+        for (var i = 1; i < passes.Count; i++)
+        {
+            if (passes[i].TotalIntersectionAreaPx2 < passes[bestIndex].TotalIntersectionAreaPx2)
+            {
+                bestIndex = i;
+            }
+        }
+
+        var best = passes[bestIndex];
+
+        if (best.Overlaps.Count > 0)
+        {
+            var clampLimit = canvasHeight - MeasuredLayoutReflow.BottomSafePx;
+            var clampedAtCanvasBottom = best.Measured.Any(
+                b => b.Bottom >= clampLimit - MeasuredLayoutReflow.EpsilonPx);
+            var selectedTops = string.Join(
+                ", ", best.Declared.Select(b => $"{b.Slot}:{(int)Math.Round(b.Top)}px"));
+
+            _logger.LogWarning(
+                "ContentGeneration.LayoutReflow: non-convergent reflow for format {FormatKey} spec {SpecIndex} " +
+                "(job {JobId}): {RenderPasses} render pass(es), selected pass {SelectedPassIndex}, " +
+                "{ResidualOverlapCount} residual overlap pair(s), residual intersection " +
+                "{ResidualIntersectionAreaPx2}px2, clamped at canvas bottom: {ClampedAtCanvasBottom}. " +
+                "Selected tops: {SelectedTops}. Pairs: {OverlapPairs}",
+                formatKey,
+                specIndex,
+                jobId,
+                passes.Count,
+                bestIndex + 1,
+                best.Overlaps.Count,
+                best.TotalIntersectionAreaPx2,
+                clampedAtCanvasBottom,
+                selectedTops,
+                string.Join(", ", best.Overlaps.Select(o => $"{o.UpperSlot}->{o.LowerSlot}")));
+        }
+
+        return Result<ReflowRenderResult>.Success(new ReflowRenderResult(
+            best.Asset,
+            best.SlotGeometry,
+            best.BackgroundImageDataUri,
+            best.RenderMarkup,
+            best.PersistedMarkup,
+            passes.Count));
+    }
+
+    private static List<SlotBox> OrderedReflowBoxes(IReadOnlyList<SlotBox> boxes, IReadOnlyList<string> order)
+    {
+        var bySlot = new Dictionary<string, SlotBox>(StringComparer.Ordinal);
+        foreach (var box in boxes)
+        {
+            bySlot[box.Slot] = box;
+        }
+
+        var result = new List<SlotBox>();
+        foreach (var slot in order)
+        {
+            if (bySlot.TryGetValue(slot, out var box))
+            {
+                result.Add(box);
+            }
+        }
+
+        return result;
+    }
+
+    private readonly record struct ReflowPass(
+        RenderedAsset Asset,
+        IReadOnlyList<SlotGeometryEntry> SlotGeometry,
+        string? BackgroundImageDataUri,
+        string RenderMarkup,
+        string PersistedMarkup,
+        IReadOnlyList<SlotBox> Declared,
+        IReadOnlyList<SlotBox> Measured,
+        IReadOnlyList<SlotOverlap> Overlaps,
+        double TotalIntersectionAreaPx2);
 
     /// <summary>
     /// WU-3 (CLIF-CG-02, design.md D-A/D-B): parses the DECLARED <c>left/top/width/min-height</c>
     /// box for every <c>[data-slot]</c> element in already-built markup — pre-render, no Chromium
     /// measurement involved. A slot whose declared style is <c>bottom:</c>-anchored (cta, accent,
     /// signature, brand-mark) is excluded by construction, mirroring the reflowable-slot-set rule
-    /// WU-4's <c>MeasuredLayoutReflow</c> will apply to measured geometry.
+    /// WU-4's <c>MeasuredLayoutReflow</c> applies to measured geometry.
     /// </summary>
-    /// <summary>Internal (not private) so <c>Incoders.Hive.Tests</c> can unit-test the parsing
+    /// <remarks>Internal (not private) so <c>Incoders.Hive.Tests</c> can unit-test the parsing
     /// contract directly via <c>InternalsVisibleTo</c> — mirrors this file's constraint that a
-    /// private static builder is otherwise unreachable from the test project.</summary>
-    internal static IReadOnlyList<SlotBox> ExtractDeclaredSlotBoxes(string markup)
-    {
-        var boxes = new List<SlotBox>();
-
-        foreach (Match match in DeclaredSlotElementRegex.Matches(markup))
-        {
-            var style = match.Groups["style"].Value;
-            if (style.Contains("bottom:", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var left = DeclaredLeftPxRegex.Match(style);
-            var top = DeclaredTopPxRegex.Match(style);
-            var width = DeclaredWidthPxRegex.Match(style);
-            var height = DeclaredMinHeightPxRegex.Match(style);
-            if (!left.Success || !top.Success || !width.Success || !height.Success)
-            {
-                continue;
-            }
-
-            boxes.Add(new SlotBox(
-                match.Groups["slot"].Value,
-                double.Parse(left.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
-                double.Parse(top.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
-                double.Parse(width.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
-                double.Parse(height.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)));
-        }
-
-        return boxes;
-    }
+    /// private static builder is otherwise unreachable from the test project. WU-4 extracted the
+    /// actual parsing into the reusable, independently-testable <see cref="MarkupSlotBoxParser"/>;
+    /// this method now delegates rather than duplicating the regex-based logic.</remarks>
+    internal static IReadOnlyList<SlotBox> ExtractDeclaredSlotBoxes(string markup) =>
+        MarkupSlotBoxParser.ParseDeclaredSlotBoxes(markup);
 
     /// <summary>
     /// Resolves a hard-enforced background image reference to a form the HTML renderer can load.
