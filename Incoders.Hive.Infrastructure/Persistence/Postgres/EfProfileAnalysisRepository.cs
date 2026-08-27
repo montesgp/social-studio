@@ -182,7 +182,16 @@ public sealed class EfProfileAnalysisRepository : IProfileAnalysisRepository
         Guid clientId,
         CancellationToken cancellationToken = default)
     {
-        // Look at the single most-recent Analyzed analysis and report whether it has an aesthetic payload.
+        // Look at the single most-recent Analyzed analysis and report whether it carries a
+        // MATERIALLY USABLE aesthetic payload — not just a non-empty JSON blob (issue #84). An
+        // old/near-empty analysis (e.g. only PromptVersion + ReferenceImages populated, no
+        // ColorPairings/BackgroundPattern) used to satisfy the old `!IsNullOrWhiteSpace(row)`
+        // check trivially, routing ClientAestheticEnsureFreshService.LatestUsableAestheticPresentAsync
+        // (and ContentGenerationJobProcessor's pre-loop branch) onto the fast fire-and-forget
+        // EnsureFreshAsync path instead of the blocking EnsureAvailableBlockingAsync wait — even
+        // while a richer reanalysis was already running in the background. "Usable" now requires
+        // real color/background signal (ColorPairings and/or BackgroundPattern), mirroring the
+        // richness pillars AestheticFreshness.Evaluate already treats as material.
         var row = await _dbContext.ProfileAnalyses
             .AsNoTracking()
             .Where(x => x.OrganizationId == orgId && x.ClientId == clientId && x.Status == "Analyzed")
@@ -190,7 +199,13 @@ public sealed class EfProfileAnalysisRepository : IProfileAnalysisRepository
             .Select(x => x.AestheticProfileJson)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return !string.IsNullOrWhiteSpace(row);
+        if (string.IsNullOrWhiteSpace(row))
+        {
+            return false;
+        }
+
+        var read = AestheticProfilePersistence.Read(row);
+        return read.ColorPairings is { Count: > 0 } || read.BackgroundPattern is { Count: > 0 };
     }
 
     /// <inheritdoc />

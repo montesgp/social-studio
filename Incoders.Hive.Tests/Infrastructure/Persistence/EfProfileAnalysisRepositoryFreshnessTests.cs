@@ -121,6 +121,66 @@ public sealed class EfProfileAnalysisRepositoryFreshnessTests
     }
 
     // -----------------------------------------------------------------------
+    // LatestAnalyzedHasAestheticAsync — issue #84: "usable" requires real aesthetic content
+    // (ColorPairings and/or BackgroundPattern), not just a non-empty JSON blob.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task LatestAnalyzedHasAestheticAsync_StaleEmptyAestheticProfile_ReturnsFalse()
+    {
+        // Non-empty JSON, but no ColorPairings and no BackgroundPattern — the stale/empty shape
+        // that used to trivially satisfy the old IsNullOrWhiteSpace check.
+        const string json =
+            """{"palette":[],"styleDescriptors":["editorial"],"motifs":[],"captionVoice":"playful","referenceImages":[],"promptVersion":"aesthetic-extractor/v2"}""";
+        await using var db = CreateDb();
+        SeedWithAesthetic(db, _orgId, _clientId, "Analyzed", DateTime.UtcNow, json);
+        await db.SaveChangesAsync();
+
+        var repo = new EfProfileAnalysisRepository(db);
+        var result = await repo.LatestAnalyzedHasAestheticAsync(_orgId, _clientId, CancellationToken.None);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task LatestAnalyzedHasAestheticAsync_RichAestheticProfile_ReturnsTrue()
+    {
+        const string json =
+            """
+            {"palette":[],"styleDescriptors":[],"motifs":[],"captionVoice":null,
+             "referenceImages":[{"sourcePostId":"p1","assetIndex":0,"storagePath":"org/c/p1.jpg","contentHash":"h1"}],
+             "backgroundPattern":["Photo","FlatColor"],
+             "colorPairings":[{"backgroundHex":"#111","textHex":"#FFF","rank":1}],
+             "promptVersion":"aesthetic-extractor/v3"}
+            """;
+        await using var db = CreateDb();
+        SeedWithAesthetic(db, _orgId, _clientId, "Analyzed", DateTime.UtcNow, json);
+        await db.SaveChangesAsync();
+
+        var repo = new EfProfileAnalysisRepository(db);
+        var result = await repo.LatestAnalyzedHasAestheticAsync(_orgId, _clientId, CancellationToken.None);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task LatestAnalyzedHasAestheticAsync_OnlyPromptVersionAndReferenceImagesShape_ReturnsFalse()
+    {
+        // Exact real-world shape observed on job 6b51cbd5-ab01-459d-9c4f-fbb10a8d7eb6 (issue #84):
+        // only promptVersion + referenceImages populated, everything else null/absent.
+        const string json =
+            """{"referenceImages":[{"sourcePostId":"p1","assetIndex":0,"storagePath":"org/c/p1.jpg","contentHash":"h1"}],"promptVersion":"aesthetic-extractor/v2"}""";
+        await using var db = CreateDb();
+        SeedWithAesthetic(db, _orgId, _clientId, "Analyzed", DateTime.UtcNow, json);
+        await db.SaveChangesAsync();
+
+        var repo = new EfProfileAnalysisRepository(db);
+        var result = await repo.LatestAnalyzedHasAestheticAsync(_orgId, _clientId, CancellationToken.None);
+
+        Assert.False(result);
+    }
+
+    // -----------------------------------------------------------------------
     // GetLatestAestheticFreshnessAsync — parses the latest Analyzed row's aesthetic JSON
     // (aesthetic-freshness-versioning)
     // -----------------------------------------------------------------------
@@ -242,7 +302,9 @@ public sealed class EfProfileAnalysisRepositoryFreshnessTests
             .SingleAsync(x => x.Id == analysis.Id);
         Assert.Equal("Analyzed", row.Status);
         Assert.Equal(aestheticJson, row.AestheticProfileJson);
-        Assert.True(await repo.LatestAnalyzedHasAestheticAsync(_orgId, _clientId, CancellationToken.None));
+        // Issue #84: this blob has no ColorPairings/BackgroundPattern (pre-v3 shape) — no longer
+        // "usable" under the corrected richness check, even though the JSON itself is non-empty.
+        Assert.False(await repo.LatestAnalyzedHasAestheticAsync(_orgId, _clientId, CancellationToken.None));
     }
 
     // -----------------------------------------------------------------------

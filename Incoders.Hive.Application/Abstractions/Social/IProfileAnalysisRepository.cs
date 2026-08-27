@@ -65,9 +65,14 @@ public interface IProfileAnalysisRepository
 
     /// <summary>
     /// Returns <c>true</c> when the most-recent <c>Analyzed</c> analysis for the client carries a
-    /// captured aesthetic payload (<c>aesthetic_profile_json</c> not null). Used so ClientAesthetic
-    /// freshness requires real aesthetic data, not just a recent timestamp (CAG2). Default <c>true</c>
-    /// keeps existing fakes/behavior unchanged; the EF adapter returns the real value.
+    /// MATERIALLY USABLE aesthetic payload — non-empty <c>aesthetic_profile_json</c> AND real
+    /// aesthetic content (ColorPairings and/or BackgroundPattern), not merely a non-null/non-empty
+    /// column value (issue #84). A stale/near-empty analysis (e.g. only PromptVersion +
+    /// ReferenceImages populated) returns <c>false</c>, forcing the caller onto the blocking
+    /// <c>EnsureAvailableBlockingAsync</c> wait instead of the fast fire-and-forget refresh path.
+    /// Used so ClientAesthetic freshness requires real aesthetic data, not just a recent timestamp
+    /// or a technically-present JSON blob (CAG2). Default <c>true</c> keeps existing fakes/behavior
+    /// unchanged; the EF adapter returns the real, richness-checked value.
     /// </summary>
     Task<bool> LatestAnalyzedHasAestheticAsync(
         Guid orgId,
