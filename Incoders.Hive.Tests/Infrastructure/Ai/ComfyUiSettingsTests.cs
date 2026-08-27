@@ -131,6 +131,51 @@ public sealed class ComfyUiSettingsTests
         Assert.Equal("9", result.Value.OutputNodeId);
     }
 
+    [Fact]
+    public void FromCredential_MissingDetailerEnabled_DefaultsToTrue()
+    {
+        var result = ComfyUiSettings.FromCredential(BuildCredential(new Dictionary<string, string>()));
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.DetailerEnabled);
+    }
+
+    [Fact]
+    public void FromCredential_DetailerEnabledExplicitFalse_ParsesFalse()
+    {
+        var result = ComfyUiSettings.FromCredential(BuildCredential(new Dictionary<string, string>
+        {
+            ["detailer_enabled"] = "false",
+        }));
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.Value.DetailerEnabled);
+    }
+
+    [Fact]
+    public void FromCredential_DetailerEnabledExplicitTrue_ParsesTrue()
+    {
+        var result = ComfyUiSettings.FromCredential(BuildCredential(new Dictionary<string, string>
+        {
+            ["detailer_enabled"] = "true",
+        }));
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.DetailerEnabled);
+    }
+
+    [Fact]
+    public void FromCredential_InvalidDetailerEnabled_ReturnsProviderCredentialUnavailable()
+    {
+        var result = ComfyUiSettings.FromCredential(BuildCredential(new Dictionary<string, string>
+        {
+            ["detailer_enabled"] = "not-a-bool",
+        }));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(IntegrationErrors.ProviderCredentialUnavailable.Code, result.Error.Code);
+    }
+
     private static ResolvedProviderCredential BuildCredential(IReadOnlyDictionary<string, string> values) =>
         new(Guid.Empty, "comfyui", IntegrationConnectionMode.SystemDefault, values, SelectedModel: null);
 }

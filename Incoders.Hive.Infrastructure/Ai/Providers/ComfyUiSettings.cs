@@ -41,7 +41,14 @@ public sealed record ComfyUiSettings(
     /// KSampler classifier-free guidance scale. Same local/dev-only tuning caveat as
     /// <see cref="Steps"/> — see the field doc above.
     /// </summary>
-    double Cfg)
+    double Cfg,
+    /// <summary>
+    /// Config-only kill switch for the detailer preflight (A7, D1). Default <c>true</c> — the
+    /// backend-capability probe still governs actual selection; <c>false</c> only ever forces the
+    /// plain template and skips the probe entirely, it can never force the augmented template on
+    /// an unsupporting backend. Refs: CUI-03.
+    /// </summary>
+    bool DetailerEnabled)
 {
     public const string ProviderKey = "comfyui";
     public const string DefaultBaseUrl = "http://127.0.0.1:8188";
@@ -56,6 +63,9 @@ public sealed record ComfyUiSettings(
 
     /// <summary>Sane upper bound for the CFG scale credential override; ComfyUI's own KSampler slider tops out here.</summary>
     public const double MaxCfg = 30.0;
+
+    /// <summary>Default detailer opt-out flag value — enabled, gated by the probe (A7, D1).</summary>
+    public const bool DefaultDetailerEnabled = true;
 
     // Overall generation budget. Sized for SDXL on non-CUDA hardware (e.g. DirectML/DML),
     // where a single image can take ~6 min (~15 s/iteration x 20 steps plus model/VAE load).
@@ -112,6 +122,12 @@ public sealed record ComfyUiSettings(
             return Result.Failure<ComfyUiSettings>(cfgResult.Error);
         }
 
+        var detailerEnabledResult = ParseBool(Read(credential, "detailer_enabled"), DefaultDetailerEnabled);
+        if (detailerEnabledResult.IsFailure)
+        {
+            return Result.Failure<ComfyUiSettings>(detailerEnabledResult.Error);
+        }
+
         var workflowTemplateJson = Read(credential, "workflow_template_json");
 
         return Result.Success(new ComfyUiSettings(
@@ -125,7 +141,8 @@ public sealed record ComfyUiSettings(
             TimeSpan.FromMilliseconds(pollIntervalMsResult.Value),
             CuratedDefaultCheckpoints,
             stepsResult.Value,
-            cfgResult.Value));
+            cfgResult.Value,
+            detailerEnabledResult.Value));
     }
 
     private static Result<string> ParseBaseUrl(string? value)
@@ -169,6 +186,18 @@ public sealed record ComfyUiSettings(
             && parsed <= MaxCfg
                 ? Result.Success(parsed)
                 : Result.Failure<double>(IntegrationErrors.ProviderCredentialUnavailable);
+    }
+
+    private static Result<bool> ParseBool(string? value, bool defaultValue)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Result.Success(defaultValue);
+        }
+
+        return bool.TryParse(value, out var parsed)
+            ? Result.Success(parsed)
+            : Result.Failure<bool>(IntegrationErrors.ProviderCredentialUnavailable);
     }
 
     private static string? Read(ResolvedProviderCredential credential, string key) =>
