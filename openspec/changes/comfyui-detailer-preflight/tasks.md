@@ -50,12 +50,12 @@ Note: proposal's own budget is 800 lines/unit (not the skill's default 400); all
 
 ## Phase 3: Template Selection + Fallback Invariant (A1, A6)
 
-- [ ] 3.1 RED: `Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiDetailerSelectionTests.cs` — one assertion per selection-table row: `Supported`+opt-in → augmented; `NotSupported`/`Unknown` → plain; `Supported`+opt-out → plain with zero `/object_info` calls (CUI-08-a, CUI-08-b)
-- [ ] 3.2 RED: same file — with probe forced `Supported` (mocked), submitted graph contains `FaceDetailer`/`UltralyticsDetectorProvider` wired between sampler and output (CUI-08-a)
-- [ ] 3.3 RED: same file — on `NotSupported`/`Unknown`, submitted graph is byte-identical to the pre-change plain-template graph (CUI-08-b, regression)
-- [ ] 3.4 RED: confirm all pre-existing `comfyui-image-provider` tests still pass unmodified, including `CAGH-CUI-01` (`BackgroundOnly`) and `CAGH-CUI-02` (anatomy negative prompt)
-- [ ] 3.5 GREEN: modify `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs` `GenerateAsync` (~L156/L742) — consult `ComfyUiDetailerProbe.ProbeAsync` before `BuildWorkflowGraph`; select augmented resource name only on `Supported` and `DetailerEnabled != false`; select plain otherwise (A1, A6)
-- [ ] 3.6 REFACTOR: verify every non-`Supported` branch — including any unwritten/default branch — resolves to plain, per the proposal's asymmetric-default invariant
+- [x] 3.1 RED: `Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiDetailerSelectionTests.cs` — one assertion per selection-table row: `Supported`+opt-in → augmented; `NotSupported`/`Unknown` → plain; `Supported`+opt-out → plain with zero `/object_info` calls (CUI-08-a, CUI-08-b)
+- [x] 3.2 RED: same file — with probe forced `Supported` (mocked), submitted graph contains `FaceDetailer`/`UltralyticsDetectorProvider` wired between sampler and output (CUI-08-a)
+- [x] 3.3 RED: same file — on `NotSupported`/`Unknown`, submitted graph is byte-identical to the pre-change plain-template graph (CUI-08-b, regression)
+- [x] 3.4 RED: confirm all pre-existing `comfyui-image-provider` tests still pass unmodified, including `CAGH-CUI-01` (`BackgroundOnly`) and `CAGH-CUI-02` (anatomy negative prompt)
+- [x] 3.5 GREEN: modify `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs` `GenerateAsync` (~L156/L742) — consult `ComfyUiDetailerProbe.ProbeAsync` before `BuildWorkflowGraph`; select augmented resource name only on `Supported` and `DetailerEnabled != false`; select plain otherwise (A1, A6)
+- [x] 3.6 REFACTOR: verify every non-`Supported` branch — including any unwritten/default branch — resolves to plain, per the proposal's asymmetric-default invariant
 
 ## Phase 4: Cache Invalidation on Detailer-Attributable Failure (A5)
 
@@ -67,7 +67,7 @@ Note: proposal's own budget is 800 lines/unit (not the skill's default 400); all
 
 - [x] 5.1 RED: `Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiSettingsTests.cs` — `DetailerEnabled` defaults to `true` when `detailer_enabled` credential key is absent; parses `false` explicitly; `false` short-circuits selection with zero `/object_info` calls (CUI-03)
 - [x] 5.2 GREEN: modify `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiSettings.cs` — add `bool DetailerEnabled` record member, `Read(credential, "detailer_enabled")` parse, default `true`
-- [ ] 5.3 GREEN: wire `DetailerEnabled == false` short-circuit in `GenerateAsync` ahead of the probe call (Phase 3 selection logic)
+- [x] 5.3 GREEN: wire `DetailerEnabled == false` short-circuit in `GenerateAsync` ahead of the probe call (Phase 3 selection logic)
 
 ## Phase 6: Spec, ADR, Doc Sync
 

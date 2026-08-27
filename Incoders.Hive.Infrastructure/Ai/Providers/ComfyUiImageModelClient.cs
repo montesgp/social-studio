@@ -37,6 +37,8 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     private const string DefaultImageMime = "image/png";
     private const string EmbeddedTemplateResourceName =
         "Incoders.Hive.Infrastructure.Ai.Providers.DefaultComfyUiWorkflowTemplate.json";
+    private const string EmbeddedDetailerTemplateResourceName =
+        "Incoders.Hive.Infrastructure.Ai.Providers.DefaultComfyUiWorkflowTemplateWithDetailer.json";
 
     /// <summary>
     /// Default negative prompt. The generated image is used ONLY as a background raster; any text it
@@ -175,9 +177,7 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                 }
             }
 
-            var template = string.IsNullOrWhiteSpace(settings.WorkflowTemplateJson)
-                ? LoadBundledDefaultTemplate()
-                : settings.WorkflowTemplateJson;
+            var template = await SelectTemplateAsync(http, baseUrl, settings, effectiveCt);
 
             // CAGH-CUI-01: mirrors OpenAiImageModelClient's BackgroundOnly handling — prepend the
             // shared directive (ImagePromptDirectives, D5/CAGH-CUI-01-c) to the positive prompt so
@@ -737,12 +737,52 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
     // OQ-1: template loading + substitution + JSON validation
     // -----------------------------------------------------------------------
 
-    private static string LoadBundledDefaultTemplate()
+    /// <summary>
+    /// A3/A6/A7 (CUI-08): resolves the workflow template used for this generation.
+    /// <list type="bullet">
+    /// <item>A per-org custom <see cref="ComfyUiSettings.WorkflowTemplateJson"/> override always wins
+    /// — the probe never runs and never influences a user-supplied graph.</item>
+    /// <item><see cref="ComfyUiSettings.DetailerEnabled"/> <c>== false</c> short-circuits straight to
+    /// the plain bundled template WITHOUT even probing (task 5.3).</item>
+    /// <item>Otherwise the probe decides: <see cref="ComfyUiDetailerSupport.Supported"/> selects the
+    /// augmented template; every other outcome — <see cref="ComfyUiDetailerSupport.NotSupported"/>,
+    /// <see cref="ComfyUiDetailerSupport.Unknown"/>, or any future unhandled branch — resolves to
+    /// plain. This is the fallback invariant: non-`Supported` always means plain.</item>
+    /// </list>
+    /// </summary>
+    private static async Task<string> SelectTemplateAsync(
+        HttpClient http,
+        string baseUrl,
+        ComfyUiSettings settings,
+        CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(settings.WorkflowTemplateJson))
+        {
+            return settings.WorkflowTemplateJson;
+        }
+
+        if (!settings.DetailerEnabled)
+        {
+            return LoadBundledDefaultTemplate();
+        }
+
+        var support = await ComfyUiDetailerProbe.ProbeAsync(http, baseUrl, ct);
+
+        return support == ComfyUiDetailerSupport.Supported
+            ? LoadBundledDetailerTemplate()
+            : LoadBundledDefaultTemplate();
+    }
+
+    private static string LoadBundledDefaultTemplate() => LoadEmbeddedResource(EmbeddedTemplateResourceName);
+
+    private static string LoadBundledDetailerTemplate() => LoadEmbeddedResource(EmbeddedDetailerTemplateResourceName);
+
+    private static string LoadEmbeddedResource(string resourceName)
     {
         var assembly = typeof(ComfyUiImageModelClient).Assembly;
-        using var stream = assembly.GetManifestResourceStream(EmbeddedTemplateResourceName)
+        using var stream = assembly.GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException(
-                $"Embedded resource '{EmbeddedTemplateResourceName}' not found in {assembly.FullName}.");
+                $"Embedded resource '{resourceName}' not found in {assembly.FullName}.");
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
