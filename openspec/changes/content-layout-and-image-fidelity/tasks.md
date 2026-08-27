@@ -125,14 +125,14 @@ Spec: none (no runtime behavior; D2 explicitly out of scope for production code)
 ## WU-8a: Snap-Candidate Engine (Track D, pure TS, before WU-8b)
 Spec: CLIF-CS-02, CLIF-CS-03, CLIF-CS-04, CLIF-CS-05. Design: D-E, `alignment-guides.ts` contract.
 
-- [ ] 8a.1 RED: create `apps/web/lib/studio/alignment-guides.test.ts` — canvas-centre-x/y snap within tolerance renders the corresponding guide axis. Satisfies CLIF-CS-02-a/b.
-- [ ] 8a.2 RED: same file — per-sibling six-axis snap (left/centre-x/right, top/centre-y/bottom) cases, including left-edge and centre-y snap. Satisfies CLIF-CS-03-a/b.
-- [ ] 8a.3 RED: same file — deterministic tie-break: canvas before sibling, then smaller candidate position, then edge order left<centre<right; two siblings offering candidates on different axes resolve to exactly one winner per axis. Satisfies CLIF-CS-03-c.
-- [ ] 8a.4 RED: same file — tolerance boundary at exactly `SNAP_TOLERANCE_PX = 6`; no candidate within tolerance returns unchanged position with `guides: []`. Satisfies CLIF-CS-04-a.
-- [ ] 8a.5 RED: same file — performance assertion: `computeSnap` completes in `< 1 ms` at `SNAP_MAX_SIBLINGS = 24`. Satisfies CLIF-CS-05-a.
-- [ ] 8a.6 RED: same file — `guideToOverlayStyle` mapping unit cases (position/scale → overlay div coordinates).
-- [ ] 8a.7 GREEN: create `apps/web/lib/studio/alignment-guides.ts` — `Rect`, `GuideLine`, `SnapResult`, `computeSnap`, `guideToOverlayStyle`, `SNAP_TOLERANCE_PX = 6`, `SNAP_MAX_SIBLINGS = 24`, per design.md's exact contract.
-- [ ] 8a.8 Run `tsx --test "apps/web/lib/studio/alignment-guides.test.ts"` — confirm green.
+- [x] 8a.1 RED: create `apps/web/lib/studio/alignment-guides.test.ts` — canvas-centre-x/y snap within tolerance renders the corresponding guide axis. Satisfies CLIF-CS-02-a/b.
+- [x] 8a.2 RED: same file — per-sibling six-axis snap (left/centre-x/right, top/centre-y/bottom) cases, including left-edge and centre-y snap. Satisfies CLIF-CS-03-a/b.
+- [x] 8a.3 RED: same file — deterministic tie-break: canvas before sibling, then smaller candidate position, then edge order left<centre<right; two siblings offering candidates on different axes resolve to exactly one winner per axis. Satisfies CLIF-CS-03-c.
+- [x] 8a.4 RED: same file — tolerance boundary at exactly `SNAP_TOLERANCE_PX = 6`; no candidate within tolerance returns unchanged position with `guides: []`. Satisfies CLIF-CS-04-a.
+- [x] 8a.5 RED: same file — performance assertion: `computeSnap` completes in `< 1 ms` at `SNAP_MAX_SIBLINGS = 24`. Satisfies CLIF-CS-05-a.
+- [x] 8a.6 RED: same file — `guideToOverlayStyle` mapping unit cases (position/scale → overlay div coordinates).
+- [x] 8a.7 GREEN: create `apps/web/lib/studio/alignment-guides.ts` — `Rect`, `GuideLine`, `SnapResult`, `computeSnap`, `guideToOverlayStyle`, `SNAP_TOLERANCE_PX = 6`, `SNAP_MAX_SIBLINGS = 24`, per design.md's exact contract.
+- [x] 8a.8 Run `tsx --test "apps/web/lib/studio/alignment-guides.test.ts"` — confirm green.
 
 ## WU-8b: Guide Rendering + Pointer Integration (Track D, depends on WU-8a)
 Spec: CLIF-CS-02 through CLIF-CS-05 (integration-level), D-E (Alt bypass).
