@@ -74,7 +74,9 @@ internal static class CompositionDefaults
             return StandardDimensions;
         }
 
-        if (definition.Layout == Layout.Carousel)
+        // Fully qualified: the sibling `Visual.Layout` namespace (WU-2, SlotOverlapDetector)
+        // would otherwise shadow the Domain `Layout` enum for unqualified lookups here.
+        if (definition.Layout == Incoders.Hive.Domain.Social.ContentFormats.Layout.Carousel)
         {
             return definition.Surface == Surface.Story ? StoryDimensions : CarouselDimensions;
         }

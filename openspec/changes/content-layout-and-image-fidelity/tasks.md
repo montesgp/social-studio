@@ -53,11 +53,11 @@ Spec: CACD-IMG-02 (modified), CLIF-IMG-01 (added, regression). Design: WU-1 inst
 ## WU-2: `SlotOverlapDetector` (Track B, independent of WU-3, pure new type)
 Spec: CLIF-CG-01 (added). Design: D-A, interfaces block (`SlotOverlapDetector.cs`).
 
-- [ ] 2.1 RED: create `Incoders.Hive.Tests/Application/Features/Social/ContentGeneration/Visual/SlotOverlapDetectorTests.cs` — case reproducing the real defect: headline `top:255px` measured `h:447px` (149px font, 2-3 line wrap) vs subtitle `top:575px` → violation reported. Satisfies CLIF-CG-01-a.
-- [ ] 2.2 RED: same file — side-by-side (horizontally offset) slots with overlapping vertical bands but non-overlapping horizontal bands must NOT flag (both-axis intersection rule). Satisfies CLIF-CG-01-b.
-- [ ] 2.3 RED: same file — determinism case: pairs ordered by `(Top, Slot)`, emitted once per pair; `TotalIntersectionArea` sums correctly.
-- [ ] 2.4 GREEN: create `Incoders.Hive.Application/Features/Social/ContentGeneration/Visual/Layout/SlotOverlapDetector.cs` — `SlotBox` record struct, `SlotOverlap` record, `Detect`/`TotalIntersectionArea` per design.md's exact contract (`TolerancePx = 1.0`).
-- [ ] 2.5 Run `dotnet test Incoders.Hive.Tests --filter FullyQualifiedName~SlotOverlapDetector` — confirm green.
+- [x] 2.1 RED: create `Incoders.Hive.Tests/Application/Social/ContentGeneration/Visual/Layout/SlotOverlapDetectorTests.cs` — case reproducing the real defect: headline `top:255px` measured `h:447px` (149px font, 2-3 line wrap) vs subtitle `top:575px` → violation reported. Satisfies CLIF-CG-01-a. (Path corrected from tasks.md's stated `Features/Social/...` to match this repo's actual test-tree convention, mirroring production `Visual/Layout/` — see Deviations.)
+- [x] 2.2 RED: same file — side-by-side (horizontally offset) slots with overlapping vertical bands but non-overlapping horizontal bands must NOT flag (both-axis intersection rule). Satisfies CLIF-CG-01-b.
+- [x] 2.3 RED: same file — determinism case: pairs ordered by `(Top, Slot)`, emitted once per pair; `TotalIntersectionArea` sums correctly. Also added a tolerance-boundary case (touching by exactly `TolerancePx` must not flag).
+- [x] 2.4 GREEN: create `Incoders.Hive.Application/Features/Social/ContentGeneration/Visual/Layout/SlotOverlapDetector.cs` — `SlotBox` record struct, `SlotOverlap` record, `Detect`/`TotalIntersectionArea` per design.md's exact contract (`TolerancePx = 1.0`).
+- [x] 2.5 Run `dotnet test Incoders.Hive.Tests --filter FullyQualifiedName~SlotOverlapDetector` — confirm green. (4/4 passed.)
 
 ## WU-3: Guardrail Wiring on the Template-Backed Path (Track B, depends on WU-2)
 Spec: CLIF-CG-02 (added). Design: D-B (non-blocking, post-priority-resolution call site).
