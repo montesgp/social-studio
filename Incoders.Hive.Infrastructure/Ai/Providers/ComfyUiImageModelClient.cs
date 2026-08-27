@@ -231,9 +231,23 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
 
             queuedPromptId = promptIdResult.Value;
 
-            var outputImageResult = await PollHistoryAsync(http, baseUrl, promptIdResult.Value, settings, _logger, effectiveCt);
+            var pollOutcome = await PollHistoryAsync(http, baseUrl, promptIdResult.Value, settings, _logger, effectiveCt);
+            var outputImageResult = pollOutcome.Result;
             if (outputImageResult.IsFailure)
             {
+                // A real-generation gap found on a 1024 MB-VRAM local backend: a queued prompt with
+                // the detailer subgraph is ACCEPTED (the node classes and detection weights are
+                // genuinely present) but FaceDetailer's second KSampler pass runs out of memory
+                // mid-execution — a failure that only ever surfaces here, via /history's
+                // status_str == "error", never through QueuePromptAsync's rejection path above.
+                // Mirror the same A5/CUI-09-b invalidation so a confirmed-fatal augmented template
+                // does not keep getting re-selected (and re-OOMing) for the rest of this carousel or
+                // the cache's remaining TTL.
+                if (isAugmentedTemplate && ComfyUiDetailerProbe.IsDetailerAttributable(pollOutcome.ExecutionErrorDetail))
+                {
+                    ComfyUiDetailerProbe.Invalidate(baseUrl);
+                }
+
                 // The dominant execution failure on a memory-constrained backend is an allocation
                 // failure, and the resident checkpoint is exactly what leaves no headroom. Evict it
                 // so the caller's retry (IntegrationExecutionPolicy, MaxAttempts) starts clean
@@ -676,7 +690,17 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                 : "(unknown)";
     }
 
-    private static async Task<Result<JsonElement>> PollHistoryAsync(
+    /// <summary>
+    /// A5 (execution-time counterpart to <see cref="QueuePromptOutcome"/>): <see cref="ExecutionErrorDetail"/>
+    /// is <see cref="DescribeExecutionError"/>'s formatted text on an <c>/history</c> <c>status_str
+    /// == "error"</c> outcome, so the caller can feed it to
+    /// <see cref="ComfyUiDetailerProbe.IsDetailerAttributable"/> the same way it feeds a queue-time
+    /// rejection payload. <c>null</c> on success or on a non-execution failure (unreachable
+    /// <c>/history</c> endpoint).
+    /// </summary>
+    private readonly record struct PollHistoryOutcome(Result<JsonElement> Result, string? ExecutionErrorDetail);
+
+    private static async Task<PollHistoryOutcome> PollHistoryAsync(
         HttpClient http,
         string baseUrl,
         string promptId,
@@ -691,7 +715,9 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
             var response = await http.GetAsync($"{baseUrl}/history/{promptId}", ct);
             if (!response.IsSuccessStatusCode)
             {
-                return Result.Failure<JsonElement>(IntegrationErrors.ExternalProviderUnavailable);
+                return new PollHistoryOutcome(
+                    Result.Failure<JsonElement>(IntegrationErrors.ExternalProviderUnavailable),
+                    ExecutionErrorDetail: null);
             }
 
             var json = await response.Content.ReadAsStringAsync(ct);
@@ -708,12 +734,15 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                     // level. Log ComfyUI's own diagnosis first — without it, an out-of-memory
                     // KSampler is indistinguishable in the logs from a server that is simply down,
                     // which is exactly how a resolution regression once read as an outage.
+                    var detail = DescribeExecutionError(status);
                     logger.LogError(
                         "ComfyUI workflow execution failed for prompt {PromptId}: {Detail}",
                         promptId,
-                        DescribeExecutionError(status));
+                        detail);
 
-                    return Result.Failure<JsonElement>(IntegrationErrors.ExternalProviderUnavailable);
+                    return new PollHistoryOutcome(
+                        Result.Failure<JsonElement>(IntegrationErrors.ExternalProviderUnavailable),
+                        ExecutionErrorDetail: detail);
                 }
 
                 if (entry.TryGetProperty("outputs", out var outputs)
@@ -722,7 +751,7 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
                     && images.ValueKind == JsonValueKind.Array
                     && images.GetArrayLength() > 0)
                 {
-                    return Result.Success(images[0].Clone());
+                    return new PollHistoryOutcome(Result.Success(images[0].Clone()), ExecutionErrorDetail: null);
                 }
             }
 

@@ -89,20 +89,23 @@ The cache is deliberately **asymmetric**:
 - A cached `NotSupported` rides out the full TTL untouched by any signal other than
   expiry — a backend that lacks the custom-node pack does not suddenly gain it
   mid-generation-run, and re-probing on every job would defeat the point of caching.
-- A cached `Supported` result is invalidated **immediately**, without waiting for TTL,
-  the moment a submission using the augmented template is rejected with a `node_errors`
-  payload attributable to the detailer subgraph (`ComfyUiDetailerProbe.IsDetailerAttributable`
+- A cached `Supported` result is invalidated **immediately**, without waiting for TTL, the
+  moment a submission using the augmented template is rejected — either at queue time with
+  a `node_errors` payload, or at execution time via `/history`'s `status_str == "error"` —
+  attributable to the detailer subgraph (`ComfyUiDetailerProbe.IsDetailerAttributable`
   matches node ids `"10"`/`"11"` or the `FaceDetailer`/`UltralyticsDetectorProvider` class
-  names in the rejection). This is the accepted-residual-risk safety net: node **class**
-  registration (what `/object_info` reports) does not guarantee the underlying **model
-  weights** (`bbox/face_yolov8m.pt` etc.) are actually installed and loadable — that
-  failure mode is invisible to a capability probe and can only surface at submission time.
-  Rather than pin the whole `dev`/prod job stream to the CSS-fallback degrade for 10
-  minutes after one job's `/prompt` rejection, the very next job for that base URL
-  self-heals to plain immediately. Invalidation is deliberately scoped to
-  detailer-attributable rejections only — an unrelated `ExternalProviderUnavailable`
-  outage (server down, VRAM exhaustion on the primary sampler, etc.) must not thrash a
-  perfectly valid `Supported` cache entry.
+  names in the rejection payload or `DescribeExecutionError`'s formatted text). This is the
+  accepted-residual-risk safety net: node **class** registration (what `/object_info`
+  reports) does not guarantee the underlying **model weights** (`bbox/face_yolov8m.pt`
+  etc.) are actually installed and loadable, nor that the backend has enough VRAM headroom
+  to run the detailer's second sampling pass — both failure modes are invisible to a
+  capability probe and can only surface at submission/execution time (see Accepted
+  Residual Risk below for the VRAM case, found on real hardware post-ship). Rather than pin
+  the whole `dev`/prod job stream to the CSS-fallback degrade for 10 minutes after one
+  job's failure, the very next job for that base URL self-heals to plain immediately.
+  Invalidation is deliberately scoped to detailer-attributable failures only — an unrelated
+  `ExternalProviderUnavailable` outage (server down, checkpoint missing, network blip)
+  must not thrash a perfectly valid `Supported` cache entry.
 
 ### Opt-out is opt-out, not opt-in: default `true`, config-only kill switch, plain-only
 
@@ -135,6 +138,10 @@ every other backend.
                                              │ yes & augmented & detailer-attributable
                                              ▼
                                     ComfyUiDetailerProbe.Invalidate(baseUrl)
+                                             │ no (queued) ──► PollHistoryAsync ──► execution error?
+                                                                    │ yes & augmented & detailer-attributable
+                                                                    ▼
+                                                           ComfyUiDetailerProbe.Invalidate(baseUrl)
 
 ## Rejected Alternatives
 
@@ -178,6 +185,27 @@ rather than eliminating the risk outright. `ComfyUiSettings.DetailerEnabled = fa
 remains available as a manual, config-only kill switch if an operator observes repeated
 rejections on a specific backend.
 
+**Confirmed on real hardware, 2026-08-27** (owner's local ComfyUI, Impact-Pack/Subpack and
+detection weights genuinely installed — the probe correctly reports `Supported`): a third
+failure mode this ADR did not originally anticipate. `FaceDetailer`'s second KSampler pass
+ran out of GPU memory mid-execution (`Could not allocate tensor with ~3.85 GB bytes` against
+a 1024 MB-VRAM backend) — classes registered, weights present, but insufficient VRAM
+headroom for the detail-repair pass. Unlike the weights-missing case, this surfaces only
+via `/history`'s `status_str == "error"`, never via `/prompt`'s `node_errors`, and the
+original A5 invalidation was wired to `QueuePromptAsync`'s rejection payload only — an
+execution-time OOM never invalidated the cache, so every retry and every subsequent slide
+kept re-selecting the augmented template against a still-`Supported` cache entry, repeating
+the same fatal allocation until the 10-minute TTL happened to expire. Fixed the same day by
+extending the identical attributable-failure check to `PollHistoryAsync`'s failure path
+(`PollHistoryOutcome.ExecutionErrorDetail` carries `DescribeExecutionError`'s text into
+`IsDetailerAttributable`, mirroring `QueuePromptOutcome.RejectionPayload`). This closes the
+cache-thrash gap but does **not** make VRAM-insufficient hardware capable of running the
+detailer: node-class-and-weights presence is a necessary, not sufficient, precondition, and
+no probe can measure available VRAM headroom for a specific model+pass combination ahead of
+attempting it. On a backend this constrained, `ComfyUiSettings.DetailerEnabled = false` is
+the correct operational choice, not a probe/invalidation refinement — the feature was
+scoped for production hardware from the start (see proposal.md).
+
 ## Consequences
 
 - Adding the detailer preflight is entirely additive and probe-gated: a backend that has
@@ -185,11 +213,14 @@ rejections on a specific backend.
   this change) sees byte-identical graphs and behavior to pre-change
   `ComfyUiImageModelClient`, with the sole overhead of one cached `/object_info` probe
   call per 10-minute window.
-- `BuildWorkflowGraph`, `SubstituteTemplate`, `PollHistoryAsync`, and the `CAC-IMG-03`
-  retry contract are all untouched — the augmented template reuses the exact same
-  placeholder-token set as the plain template (`CHECKPOINT_NAME`, `POSITIVE_PROMPT`,
-  `NEGATIVE_PROMPT`, `REFERENCE_IMAGE`, `WIDTH`, `HEIGHT`, `SEED`, `STEPS`, `CFG`), so no
-  substitution or graph-building logic required a change.
+- `BuildWorkflowGraph`, `SubstituteTemplate`, and the `CAC-IMG-03` retry contract are all
+  untouched — the augmented template reuses the exact same placeholder-token set as the
+  plain template (`CHECKPOINT_NAME`, `POSITIVE_PROMPT`, `NEGATIVE_PROMPT`,
+  `REFERENCE_IMAGE`, `WIDTH`, `HEIGHT`, `SEED`, `STEPS`, `CFG`), so no substitution or
+  graph-building logic required a change. `PollHistoryAsync` gained an
+  `ExecutionErrorDetail` field on its return outcome (2026-08-27, see Accepted Residual
+  Risk) so execution-time detailer failures can invalidate the cache the same way
+  queue-time rejections already did — its polling loop and success path are unchanged.
 - A future third workflow variant (or a second detector/repair node pair) can reuse the
   same probe/cache/select pattern with a new tri-state check and a new template resource;
   no change to `GenerateAsync`'s control flow shape is required.
