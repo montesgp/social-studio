@@ -216,6 +216,65 @@ public sealed class GeometryCaptureTests
     }
 
     /// <summary>
+    /// content-layout-and-image-fidelity WU-6 (CLIF-CS-01-a). The captured <c>[data-slot]</c> box is
+    /// <c>getBoundingClientRect()</c> on the styled element itself, which carries a fixed
+    /// <c>min-height</c> literal (the real production headline slot uses 260px). WU-4's reflow
+    /// (<c>SlotTopRewriter</c>) only ever rewrites a slot's <c>top:</c>, never its <c>min-height:</c>
+    /// — confirmed by inspection of <c>SlotTopRewriter.Apply</c> — so a SHORT headline (content
+    /// height well under the declared min-height) still reports the full padded min-height box,
+    /// not the actual glyph ink. This asserts the tightened capture is measurably smaller than the
+    /// pre-change min-height-driven box while still fully containing the rendered text.
+    /// </summary>
+    [Fact]
+    public async Task RenderWithGeometryAsync_ShortTextInMinHeightSlot_CapturedBoxIsTighterThanTheDeclaredMinHeight()
+    {
+        if (!ChromiumAvailabilityCheck.IsInstalled())
+        {
+            return; // Graceful skip when Chromium not installed
+        }
+
+        var options = new RenderingOptions { Engine = RenderingEngine.Chromium, DeviceScaleFactor = 2 };
+        await using var pool = new ChromiumBrowserPool(options);
+        await pool.InitializeAsync(CancellationToken.None);
+
+        var renderer = new HtmlChromiumContentRenderer(pool, new SpyFallbackRenderer(), options);
+
+        // Mirrors the real production headline slot's declared style (ContentGenerationJobProcessor
+        // ~L2538): min-height:260px, single short word at a realistic heading size/line-height.
+        const string markup = """
+            <div style="position:relative;width:1080px;height:1920px;background:#111;">
+              <h1 data-slot="headline"
+                  style="position:absolute;left:96px;top:255px;width:888px;min-height:260px;
+                         font-family:Inter,sans-serif;font-size:88px;line-height:0.98;
+                         font-weight:900;color:#FFFFFF;text-align:left;">
+                Hi
+              </h1>
+            </div>
+            """;
+        var spec = BuildHtmlSpecWithSlots(markup);
+
+        var result = await renderer.RenderWithGeometryAsync(spec, new RenderOptions(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess, $"Render failed: {(result.IsFailure ? result.Error.MessageKey : "n/a")}");
+
+        var headline = Assert.Single(result.Value.SlotGeometry, g => g.Slot == "headline");
+
+        // Pre-change behaviour reported exactly the declared min-height (260 CSS px * scale factor 2
+        // device-scale = 520 device px, since getBoundingClientRect runs in CSS px but the renderer's
+        // DeviceScaleFactor:2 is applied at screenshot time, not to the JS-evaluated rect — so this
+        // asserts against the CSS min-height directly).
+        Assert.True(
+            headline.Height < 260,
+            $"Expected the tightened capture to be smaller than the declared 260px min-height box; got {headline.Height}px.");
+
+        // Still fully contains the rendered glyph ink: a single line at 88px/0.98 line-height is
+        // roughly 86px tall — the tightened box must not have collapsed past that.
+        Assert.True(
+            headline.Height >= 60,
+            $"Tightened capture must still fully contain the rendered text; got {headline.Height}px, expected >= ~60px for one 88px line.");
+    }
+
+    /// <summary>
     /// INTEGRATION (browser-gated): RenderAsync (base interface) must still work correctly
     /// after the renderer implements IContentRendererWithGeometry. Backward-compat regression guard.
     /// </summary>

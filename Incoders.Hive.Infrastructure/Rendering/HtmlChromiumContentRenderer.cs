@@ -56,12 +56,31 @@ file static class SlotGeometryScript
             const fsPx = parseFloat(s.fontSize) || 0;
             const lhPx = parseFloat(s.lineHeight);    // 'normal' -> NaN
             const lsPx = parseFloat(s.letterSpacing); // 'normal' -> NaN
+
+            // content-layout-and-image-fidelity WU-6 (CLIF-CS-01): el's own box carries a
+            // CSS min-height literal, which reports a padded box (not the glyph ink) whenever the
+            // rendered text is shorter than that min-height. A Range over the element's contents
+            // measures the actual rendered line box(es) instead. When the content already exceeds
+            // min-height (a long, wrapping headline), the element's own box already equals the
+            // content height, so this is a no-op there — only the short-text/padded case tightens.
+            let box = r;
+            try {
+                const range = document.createRange();
+                range.selectNodeContents(el);
+                const textRect = range.getBoundingClientRect();
+                if (textRect.width > 0 && textRect.height > 0) {
+                    box = textRect;
+                }
+            } catch (e) {
+                // Range measurement unavailable (e.g. empty/replaced content) — keep the CSS box.
+            }
+
             return {
                 slot: el.getAttribute('data-slot') || '',
-                x: r.x,
-                y: r.y,
-                width: r.width,
-                height: r.height,
+                x: box.x,
+                y: box.y,
+                width: box.width,
+                height: box.height,
                 fontFamily: ff || null,
                 fontSizePx: fsPx,
                 color: s.color || null,

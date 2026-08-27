@@ -158,6 +158,59 @@ internal static class CompositionDefaults
     private const double MaxSizeRatio = 0.30;
 
     /// <summary>
+    /// content-layout-and-image-fidelity WU-5 (CLIF-CG-07): copy-length-aware typography auto-fit.
+    ///
+    /// <para>
+    /// This is a SEPARATE concern from WU-4's <c>MeasuredLayoutReflow</c>: reflow repositions
+    /// SUBSEQUENT slots from a preceding slot's measured extent, but it cannot shrink a headline
+    /// slot's OWN size when nothing sits below it to push, nor when the reflow clamp against the
+    /// canvas bottom is reached (<c>MeasuredLayoutReflow</c>'s own clamp note: "that case is WU-5's
+    /// auto-fit"). Below this length, a copy string is assumed typical and the resolved size is
+    /// returned unchanged — this keeps every existing caller (which never passes copy) and every
+    /// short-copy caller byte-identical (CLIF-CG-08).
+    /// </para>
+    /// </summary>
+    private const int AutoFitCopyLengthFloor = 40;
+
+    /// <summary>
+    /// Copy length at which the maximum auto-fit reduction (down to <see cref="AutoFitMinRatio"/>)
+    /// is reached. Reduction interpolates linearly between <see cref="AutoFitCopyLengthFloor"/> and
+    /// this value.
+    /// </summary>
+    private const int AutoFitCopyLengthCeiling = 120;
+
+    /// <summary>
+    /// Auto-fit's stated floor: the resolved size is never reduced below this fraction of the
+    /// unfit (rigid <see cref="SizeRatio"/>-derived) size, so a very long headline never becomes
+    /// illegible.
+    /// </summary>
+    private const double AutoFitMinRatio = 0.70;
+
+    /// <summary>
+    /// Floor-bounded, reduction-only auto-fit. <paramref name="resolvedSize"/> is the rigid
+    /// <c>SizeRatio</c>-derived size (never touched by this method for short copy);
+    /// <paramref name="copyLength"/> is the headline's character count. Never increases the size
+    /// (CLIF-CG-07-b); never reduces below <see cref="AutoFitMinRatio"/> of the unfit size
+    /// (CLIF-CG-07-a).
+    /// </summary>
+    private static int ApplyCopyLengthAutoFit(int resolvedSize, int copyLength)
+    {
+        if (copyLength <= AutoFitCopyLengthFloor)
+        {
+            return resolvedSize;
+        }
+
+        var clampedLength = Math.Min(copyLength, AutoFitCopyLengthCeiling);
+        var span = AutoFitCopyLengthCeiling - AutoFitCopyLengthFloor;
+        var reductionFraction = (double)(clampedLength - AutoFitCopyLengthFloor) / span;
+        var ratio = 1.0 - reductionFraction * (1.0 - AutoFitMinRatio);
+
+        var fitted = (int)Math.Round(resolvedSize * ratio, MidpointRounding.AwayFromZero);
+        var floor = (int)Math.Round(resolvedSize * AutoFitMinRatio, MidpointRounding.AwayFromZero);
+        return Math.Max(floor, fitted);
+    }
+
+    /// <summary>
     /// Resolves typography from the client's OBSERVED per-role typography when the aesthetic profile
     /// carries it, falling back to the brand manual and then to defaults.
     ///
@@ -172,7 +225,8 @@ internal static class CompositionDefaults
         BrandSnapshot brand,
         ClientAestheticProfile? profile,
         int canvasHeight,
-        InferenceAccumulator inferred)
+        InferenceAccumulator inferred,
+        string? headlineCopy = null)
     {
         var observed = profile?.Typography;
         if (observed is not { Count: > 0 })
@@ -204,9 +258,18 @@ internal static class CompositionDefaults
             ?? FindRole(observed, TypographyRoles.Accent);
         var captionResolved = caption is null ? default : FontFamilyResolution.Resolve(caption.FontFamily);
 
+        // WU-5 (CLIF-CG-07): floor-bounded, reduction-only auto-fit for unusually long copy. A null
+        // or short headlineCopy is a no-op, so every pre-WU-5 caller (which never passes it) and
+        // every short-copy caller stays byte-identical (CLIF-CG-08).
+        var headingSize = SizeFor(heading, canvasHeight, fallback.HeadingSize);
+        if (headlineCopy is not null)
+        {
+            headingSize = ApplyCopyLengthAutoFit(headingSize, headlineCopy.Length);
+        }
+
         return new CompositionTypography(
             HeadingFamily: heading is null ? fallback.HeadingFamily : headingResolved.Renderable,
-            HeadingSize: SizeFor(heading, canvasHeight, fallback.HeadingSize),
+            HeadingSize: headingSize,
             BodyFamily: body is null ? fallback.BodyFamily : bodyResolved.Renderable,
             BodySize: SizeFor(body, canvasHeight, fallback.BodySize))
         {
