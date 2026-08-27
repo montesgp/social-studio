@@ -3,6 +3,35 @@
 ## Status
 Accepted
 
+## Update (WU-5/WU-6, `content-layout-and-image-fidelity`)
+
+Two refinements shipped after this ADR's original decision, both consistent with the framing
+above and not requiring any change to the reflow loop itself:
+
+- **WU-5 — copy-length-aware typography auto-fit** (`CompositionDefaults.ApplyCopyLengthAutoFit`,
+  `CLIF-CG-07`) was the forward-looking Consequences bullet made concrete: it is a separate,
+  opt-in, floor-bounded, reduction-only size adjustment on `CompositionDefaults.ResolveTypography`
+  (new optional `headlineCopy` parameter, `null` by default — every pre-existing call site stays
+  byte-identical). It does **not** live inside the reflow loop and does not consume a render pass;
+  it addresses a case the loop structurally cannot: a headline slot's own size, when nothing sits
+  below it to push, or when the loop's own clamp-at-canvas-bottom is reached. The two mechanisms
+  are independently testable and independently revertible.
+- **WU-6 — Range-based geometry measurement** tightened `SlotGeometryScript.ExtractExpression`
+  (`HtmlChromiumContentRenderer.cs`) to measure `document.createRange().selectNodeContents(el)`
+  content-box extent (the glyph-ink line box) in place of `el.getBoundingClientRect()`'s full
+  padded CSS box, falling back to the CSS box when the range yields zero width/height. This is
+  safe by construction for the reflow loop: when a slot's content already exceeds its declared
+  `min-height` (the wrapping-headline case this ADR's formula depends on), the element's own box
+  already equals the content height, so the Range measurement and the CSS box coincide — only the
+  short-text/padded case (which the reflow loop never repositions, since a slot that already fits
+  needs no push) is actually tightened. `SlotBox`/`SlotOverlapDetector`/`MeasuredLayoutReflow`
+  consume whichever geometry `RenderWithGeometryAsync` returns without needing to know which
+  measurement strategy produced it — the reflow loop's contract with `SlotGeometryEntry` was
+  already measurement-strategy-agnostic, so this refinement required no change to any `Visual/Layout/`
+  type or to `RenderWithReflowAsync`. Confirmed via the full WU-4 test suite (`MeasuredLayoutReflow`/
+  `SlotTopRewriter`/`MarkupSlotBoxParser`/`RenderWithReflow`, 36/36) re-run unchanged after the WU-6
+  script edit.
+
 ## Context
 
 `content-layout-and-image-fidelity` WU-2/WU-3 made cross-slot vertical overlap **observable**

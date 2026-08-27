@@ -154,6 +154,14 @@ As a community manager, I want to analyse an Instagram account (my client's own 
 ## 12. Content Bank Planner (v1 — Instagram-only publish-now)
 
 > Added by `content-bank-planner` (2026-07-21). ADR: [`docs/architecture/adr/0005-publication-axis-and-two-level-credentials.md`](architecture/adr/0005-publication-axis-and-two-level-credentials.md). Builds on Content Studio (ADR 0004).
+> Amended by `content-layout-and-image-fidelity` (2026-08-27) — Content Studio's editing canvas
+> (the editorial axis this section builds on) gained two operator-facing capabilities: generated
+> carousel/story text slots no longer visibly overlap when copy legitimately grows (a bounded
+> measure-then-render layout reflow, plus a floor-bounded typography auto-fit for unusually long
+> copy), and the drag/resize canvas now renders alignment guides (canvas-centre and per-sibling
+> six-axis snapping, Alt-key bypass) while an operator repositions an element. Both are additive to
+> the existing editorial review loop; no editorial state machine, autosave contract, or publication
+> axis (this section) changed. ADR: [`docs/architecture/adr/0016-two-pass-measure-then-render.md`](architecture/adr/0016-two-pass-measure-then-render.md).
 
 ### User Story
 

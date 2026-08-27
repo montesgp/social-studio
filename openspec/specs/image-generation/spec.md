@@ -411,25 +411,76 @@ different for the same slide topic.
 
 ---
 
-### Requirement: CACD-IMG-02 — Cold-Start: Null `ConceptualMethod` → Existing Descriptor Prompt; Full Pipeline Unchanged
+### Requirement: CACD-IMG-02 — Cold-Start: Null `ConceptualMethod` → Descriptor Prompt Now Instructed to Depict the Slide's Topic; Full Pipeline Otherwise Unchanged
 
-When `ConceptualMethod` is null on `ClientAestheticProfile`, the image generation
-prompt MUST be the same descriptor-based prompt produced before this change. No
-concept ideation section and no ratio cue MUST be added. The full image-generation
-pipeline (IMG-01 through IMG-08, CAC-IMG-01 through CAC-IMG-03) MUST behave
-identically to its pre-change state for a cold-start client.
+When `ConceptualMethod` is null on `ClientAestheticProfile`, the image generation prompt MUST
+remain the descriptor-based prompt (style descriptors, motifs, background descriptors, voice
+tone, palette) produced before the `content-layout-and-image-fidelity` change, AND MUST
+additionally include an explicit topical-fidelity instruction directing the writer-model to
+depict the slide's subject matter, referencing `SlideCopySummary`. The topical instruction MUST
+be additive: it MUST NOT displace, shorten, or reduce the priority of the existing aesthetic
+guidance. No concept-ideation section and no ratio cue are added (unchanged from before). The
+remaining image-generation pipeline (IMG-01 through IMG-08, CAC-IMG-01 through CAC-IMG-03) MUST
+behave identically to its pre-change state for a cold-start client.
 
-#### Scenario: `ConceptualMethod` null → descriptor prompt; pipeline identical to pre-change (CACD-IMG-02-a)
+(Previously: the cold-start branch carried only style/mood guidance; `SlideCopySummary` was an
+unread data field never referenced by instruction text.)
 
-- GIVEN a `ClientAesthetic` client with `ConceptualMethod = null`
-  and `ImageTypeRatio = null`
+#### Scenario: Cold-start prompt now instructs the model to depict the slide's topic (CACD-IMG-02-a)
+
+- GIVEN a `ClientAesthetic` client with `ConceptualMethod = null` and a slide whose
+  `SlideCopySummary` is about snoring ("ronquidos")
+- WHEN the image generation prompt is assembled for that slide
+- THEN the assembled prompt contains an explicit instruction to depict the slide's subject
+  matter, referencing `SlideCopySummary`
+- AND the prompt is no longer style/mood-only
+
+#### Scenario: Aesthetic guidance is retained, not displaced (CACD-IMG-02-b)
+
+- GIVEN the same cold-start prompt from CACD-IMG-02-a
+- WHEN the assembled prompt is inspected
+- THEN the client's style descriptors, motifs, background descriptors, voice tone, and palette
+  guidance are all still present
+- AND no ratio cue and no concept-ideation section are added
+
+#### Scenario: Remaining pipeline behaves identically to pre-change (CACD-IMG-02-c, regression)
+
+- GIVEN a cold-start client with `ImageTypeRatio = null`
 - WHEN the image generation pipeline runs for a creative slide
-- THEN the prompt sent to the image model is the existing descriptor-based prompt
-  (no ideation section, no ratio section)
-- AND the remaining pipeline (guardrail retry, CSS fallback, storage upload,
-  reference-image conditioning, background-only contract) executes identically
-  to its pre-change behavior
+- THEN guardrail retry, CSS fallback, storage upload, reference-image conditioning, and the
+  background-only contract execute identically to pre-change behavior
 - AND the job completes normally
+
+---
+
+### Requirement: CLIF-IMG-01 — Method-Gated Branch Regression: Already-Topical Prompt Unaffected
+
+The method-gated branch (`CACD-IMG-01`, fires when `ConceptualMethod` is non-null and not
+`Unknown`) already instructs the model to depict the slide message. This branch MUST NOT be
+modified by the topical-fidelity change; its digested, concept-decided, ratio-aware, text-free
+prompt contract MUST remain exactly as specified by `CACD-IMG-01`.
+
+#### Scenario: Method-gated branch produces the same prompt shape as before (CLIF-IMG-01-a, regression)
+
+- GIVEN a `ClientAesthetic` client with a non-null, non-`Unknown` `ConceptualMethod`
+- WHEN the image generation prompt is assembled for a creative slide
+- THEN the prompt is the pre-existing concept-decided, ratio-aware, text-free instruction
+  described by `CACD-IMG-01`
+- AND no change introduced by this delta alters that branch's wording or structure
+
+## Modified Requirements (content-layout-and-image-fidelity)
+
+`CACD-IMG-02` (above) is modified in place: the cold-start branch now also instructs the
+writer-model to depict the slide's subject matter via `SlideCopySummary`. `CACD-IMG-01`,
+`IMG-01` through `IMG-08`, and `CAC-IMG-01` through `CAC-IMG-03` are unchanged.
+
+*Merged from `openspec/changes/content-layout-and-image-fidelity/specs/image-generation/spec-delta.md`
+— change applied 2026-08-27. Verified against `ImagePromptWriter.cs` (~L178): the cold-start
+`instruction` string now includes "The image MUST depict the subject matter of THIS slide's
+message as given in slideCopySummary — a literal or metaphorical scene of the message subjects
+— rendered in the client's established visual style." immediately after the existing opening
+sentence, with the image-prompt version key bumped and
+`ImagePromptWriterColdStartParityTests` updated to the new baseline.*
 
 ---
 

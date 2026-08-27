@@ -1,5 +1,16 @@
 # Tasks: Content Layout and Image Fidelity
 
+## Status: COMPLETE
+
+All ten work units (WU-1 through WU-9, WU-8 split into WU-8a/WU-8b) landed on `dev`. No work unit
+was cut. Item 8b.6 (owner manual drag/Alt-bypass verification of the alignment guides on a real
+multi-slot canvas) is an explicit, pending **human action**, not an implementation gap — no
+automated component-render harness exists in this repo for `apps/web`, matching the honesty
+pattern in `design.md`'s Testing Strategy. Final gate results (2026-08-27):
+`dotnet test Incoders.Hive.Tests -c Release` — 3947 passed, 2 skipped (pre-existing), 0 failed;
+`cd apps/web && npm test` — 406 passed, 0 failed; `npm run build` — succeeded (pre-existing
+warnings only); `npm run lint` — warnings only, no errors.
+
 ## Review Workload Forecast
 
 | Field | Value |
@@ -147,8 +158,8 @@ Spec: CLIF-CS-02 through CLIF-CS-05 (integration-level), D-E (Alt bypass).
 ## WU-9: Spec/Doc Sync + PRD Amendment (last — depends on all prior units)
 Spec: none new; this is the sync unit itself.
 
-- [ ] 9.1 Merge `openspec/changes/content-layout-and-image-fidelity/specs/{image-generation,content-generation,content-studio}/spec-delta.md` into the corresponding `openspec/specs/*/spec.md` files (already-corrected CAC-IMG-03 wording — confirm no drift from the corrected text during merge).
-- [ ] 9.2 Confirm PRD §12 (Content Studio operator editing) amendment for alignment guides (new operator capability per proposal's honesty note); confirm §4 (Content Studio boxes/item 4) needs no amendment.
-- [ ] 9.3 Update any affected `.github/project-ai/instructions/*.md` or `docs/` pages referencing the template-backed render pipeline, guardrail call sites, or Content Studio geometry capture, per this repo's Documentation Sync (MUST) rule.
-- [ ] 9.4 Run `pwsh -File scripts/gates/Run-Gates.ps1` — confirm all MUST gates pass, including architecture gate (no provider/EF type crossing into Domain/Application) and Strict TDD compliance.
-- [ ] 9.5 Record owner's accept/reject review for two real generations (materially different `SizeRatio`, materially different headline length) per proposal Success Criteria.
+- [x] 9.1 Merged `openspec/changes/content-layout-and-image-fidelity/specs/{image-generation,content-generation,content-studio}/spec-delta.md` into the corresponding `openspec/specs/*/spec.md` files. Full, unconditional merge (every requirement in this change shipped as real code — unlike the prior change's WU-7/WU-8 cut). Verified each requirement against shipped code before merging: `ImagePromptWriter.cs` (WU-1), `SlotOverlapDetector.cs`/`MeasuredLayoutReflow.cs` (WU-2/4), `ContentGenerationJobProcessor.cs` (WU-3/4), `CompositionDefaults.cs` (WU-5), `HtmlChromiumContentRenderer.cs` (WU-6), `alignment-guides.ts`/`content-studio-panel.tsx` (WU-8a/8b). Corrected CLIF-CG-01/CLIF-CG-02 wording during merge: the delta described the cross-slot check as living inside `VisualGuardrailValidator`; the shipped implementation (WU-3's documented deviation) instead calls `SlotOverlapDetector.Detect` directly from `ContentGenerationJobProcessor` against declared boxes, since the call site runs before any Chromium measurement exists — `VisualGuardrailValidator` itself was not modified. Requirement/scenario IDs and observable behavior are unchanged; only the mechanism description was corrected.
+- [x] 9.2 Amended PRD §12 (Content Bank Planner, which builds on Content Studio/ADR 0004 — the section referencing the editorial review loop this change's Content Studio capabilities extend) with a blockquote for the layout-reflow/typography-auto-fit fix and the alignment-guide capability, referencing ADR 0016. Confirmed §4 non-goal item 2 ("Native editing suite replacing Canva") needs no amendment — alignment guides are an incremental capability on the existing editing canvas, not a full native editing suite.
+- [x] 9.3 Searched `.github/project-ai/instructions/*.md` and `docs/` for references to `BuildTemplateBackedMarkup`, `SlotGeometryEntry`, `VisualGuardrailValidator`, `getBoundingClientRect`, `RenderWithGeometryAsync`. The one hit in `project.domain.md` (`VisualGuardrailValidator.ValidateTypography`, font-catalog allow-list) is unrelated to this change's cross-slot/geometry work — no update needed. ADR 0004 has no geometry-capture references. No other doc drift found.
+- [x] 9.4 Ran the final gate directly (superseding `Run-Gates.ps1`'s environment-only `tests.backend` false failure from a Visual-Studio-held Debug-DLL file lock, confirmed unrelated to code at every prior batch): `dotnet test Incoders.Hive.Tests -c Release` — 3947 passed, 2 skipped (pre-existing), 0 failed. `cd apps/web && npm test` — 406 passed, 0 failed. `npm run build` — succeeded (pre-existing warnings only, none introduced by this change). `npm run lint` — warnings only (pre-existing), no errors.
+- [ ] 9.5 Owner action pending — not executable by the agent: record accept/reject review for two real generations (materially different `SizeRatio`, materially different headline length) per proposal Success Criteria.

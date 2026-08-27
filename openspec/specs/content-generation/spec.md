@@ -2361,4 +2361,215 @@ stated behavior.
 
 None.
 
+---
+
+## Cross-Slot Overlap Detection, Guardrail Coverage on the Template-Backed Path, Two-Pass Reflow, and Auto-Fit Typography — Change: content-layout-and-image-fidelity
+
+Every stacked text slot's `top` offset in `BuildTemplateBackedMarkup` (and its
+`BuildCarouselTemplateSlots`/`BuildStoryTemplateSlots` dispatch targets) was a fixed pixel
+literal; no slot's position was ever computed from another slot's measured extent, and no
+overlap check ever ran on this path's output. This section adds cross-slot overlap detection, a
+non-blocking declared-box check on the template-backed path, and a bounded two-pass
+measure-then-render reflow (ADR 0016) so a legitimately large headline pushes the subtitle down
+instead of colliding with it, plus a floor-bounded typography auto-fit for unusually long copy.
+Absolute positioning is preserved throughout; the markup contract does not change. Reflow is
+scoped to the template-backed builders only — the deterministic flat path
+(`BuildFlatColorMarkup`/`BuildFlatCarouselSlots`) and its byte-identity golden are an explicit
+non-goal.
+
+### Requirement: CLIF-CG-01 — Cross-Slot Vertical-Overlap Detection
+
+The pipeline MUST gain a pure cross-slot geometry check (`SlotOverlapDetector`) able to detect
+when two text slots' vertical extents intersect on both axes. This check is independent of, and
+additional to, the existing single-slot `data-max-lines` char-count heuristic
+(`VisualGuardrailValidator.ValidateOverflow`), which this change does not modify.
+
+#### Scenario: Real defect fixture is flagged as a violation (CLIF-CG-01-a)
+
+- GIVEN a headline slot rendered at `font-size:149px`, `top:255px`, wrapping to 2–3 lines
+- AND a subtitle slot at `top:575px`
+- WHEN the cross-slot overlap check runs
+- THEN the headline's rendered bottom edge is found to exceed the subtitle's top edge
+- AND a cross-slot vertical-overlap violation is reported
+
+#### Scenario: Non-overlapping slots pass (CLIF-CG-01-b)
+
+- GIVEN a headline and a subtitle slot whose rendered vertical extents do not intersect
+- WHEN the cross-slot overlap check runs
+- THEN no violation is reported for that slide
+
+### Requirement: CLIF-CG-02 — A Non-Blocking Cross-Slot Overlap Check Runs on the Template-Backed Path's Final Markup
+
+Whenever the enforced-background priority resolution selects `BuildTemplateBackedMarkup`'s (or
+the legacy backstop's) output as the slide's final markup, the pipeline MUST run
+`SlotOverlapDetector` against that markup's declared slot boxes (parsed pre-render — no measured
+Chromium geometry exists at this point in the method) and log a structured, non-blocking
+diagnostic on a hit. This declared-box check can only ever catch a builder regression, since the
+literals were hand-tuned not to overlap; it is deliberately separate from `VisualGuardrailValidator`
+(whose signature and existing four steps are unmodified) and from CLIF-CG-03 through CLIF-CG-05's
+measured-geometry reflow, which is the only mechanism that can catch a real growth-driven overlap.
+
+#### Scenario: Template-backed markup is actually checked (CLIF-CG-02-a, regression)
+
+- GIVEN a `ClientAesthetic` job whose enforced-background priority resolution selects
+  `BuildTemplateBackedMarkup`'s output over the AI designer's markup
+- WHEN the slide's final markup is produced
+- THEN `SlotOverlapDetector.Detect` is invoked against that final template-backed markup's
+  declared slot boxes
+- AND this is asserted directly (not inferred), guarding against the previously-existing gap —
+  where no overlap check ever ran once the enforced-background priority resolution picked
+  template markup over AI-designer markup — being silently reintroduced by a future refactor
+
+#### Scenario: A violation detected on the template-backed path is recorded, not retried (CLIF-CG-02-b)
+
+- GIVEN the declared-box check reports a cross-slot violation on `BuildTemplateBackedMarkup`'s
+  output
+- WHEN the pipeline handles the violation
+- THEN the violation is logged as a non-blocking diagnostic — it does not gate markup selection
+  and is a separate budget from `CAC-IMG-03`, which governs image-generation retries and has
+  already completed by this point
+- AND the job is not marked failed
+
+### Requirement: CLIF-CG-03 — Two-Pass Reflow: Fast Path Renders Once When No Overlap Is Measured
+
+If the first render's measurement (via the existing `SlotGeometryScript`/`RenderWithGeometryAsync`
+mechanism) shows no two slots intersect and no recomputed `top` differs from the rendered `top` by
+more than a stated epsilon, the pipeline MUST stop at one render. The fast path applies to the
+template-backed carousel and story builders only.
+
+#### Scenario: Short-copy slide renders exactly once (CLIF-CG-03-a)
+
+- GIVEN a template-backed slide whose first (Pass 1) render shows no cross-slot intersection and
+  no material `top` delta
+- WHEN the reflow mechanism runs
+- THEN rendering stops after exactly one render (no Pass 2, no re-measurement)
+- AND this is asserted directly against a render-count assertion
+
+### Requirement: CLIF-CG-04 — Two-Pass Reflow: Overlap Triggers Recompute and Re-Render, Verified by Re-Measurement
+
+If Pass 1's measurement detects an intersection, the pipeline MUST recompute subsequent slots'
+`top` offsets from the preceding slot's measured extent, re-render, and re-measure to verify the
+overlap is resolved. If the recompute changes a slot's own wrapping and overlap survives, the
+pipeline MUST recompute and re-render once more (Pass 3), subject to the hard cap in CLIF-CG-05.
+
+#### Scenario: Long headline at the real measured SizeRatio converges without intersection (CLIF-CG-04-a)
+
+- GIVEN a headline whose `top` is derived from the client's real measured `SizeRatio` and wraps
+  to 2–3 lines, initially overlapping the subtitle
+- WHEN the reflow mechanism runs on the carousel or the story template builder
+- THEN the subtitle's `top` is recomputed from the headline's measured extent
+- AND the re-rendered, re-measured layout shows no intersection between the two slots
+
+#### Scenario: Markup remains absolutely positioned after reflow (CLIF-CG-04-b, regression)
+
+- GIVEN a slide that converges via CLIF-CG-04-a
+- WHEN the final markup is inspected
+- THEN every text slot remains absolutely positioned (no document-flow/flex conversion)
+- AND `PptxExportAdapter` output and `StudioVisualMarkupResolver` behavior are unaffected
+
+### Requirement: CLIF-CG-05 — Hard Cap of 3 Renders; Non-Convergence Produces a Best-Effort Layout and a Structured Diagnostic
+
+The reflow loop (`MeasuredLayoutReflow.MaxRenderPasses = 3`) MUST NEVER exceed 3 renders per
+slide (1 initial + at most 2 re-renders), and MUST be structurally incapable of iterating further.
+If overlap still survives at the cap, the pipeline MUST accept the best-effort pass (the measured
+layout with the smallest total intersection area, ties broken by lowest pass index), emit a
+structured non-convergence diagnostic (`ContentGeneration.LayoutReflow`: job id, format key, spec
+index, render passes, selected pass index, residual overlap count/area, overlap pairs, selected
+tops, clamped-at-canvas-bottom flag), and ship that best-effort layout rather than failing the
+slide. This budget is deliberately disjoint from `CAC-IMG-03` (`ClientAestheticImageBackgroundService`'s
+image-generation retry budget, exhausted earlier in the pipeline before markup exists) — the two
+never compose, and non-convergence at the render stage MUST NOT re-trigger image generation or
+any other retry.
+
+#### Scenario: Render loop never exceeds 3 renders (CLIF-CG-05-a)
+
+- GIVEN a deliberately non-converging fixture (recompute changes wrapping in a way that
+  re-introduces overlap each pass)
+- WHEN the reflow mechanism runs
+- THEN no more than 3 renders occur for that slide
+- AND this is asserted directly against a render-count assertion, not inferred
+
+#### Scenario: Non-convergence yields a best-effort layout and a diagnostic, never a retry (CLIF-CG-05-b)
+
+- GIVEN the same non-converging fixture reaches the 3-render cap without resolving overlap
+- WHEN the cap is reached
+- THEN the pipeline selects the pass with the smallest total intersection area as the
+  best-effort layout
+- AND a structured non-convergence diagnostic is emitted (`ContentGeneration.LayoutReflow`)
+- AND that best-effort layout ships as the slide's final markup — no `CAC-IMG-03` route, no
+  image-regeneration retry, no additional render pass
+- AND the job is not marked failed and does not hang
+
+### Requirement: CLIF-CG-06 — Scope Boundary Regression: The Deterministic Flat Path Is Untouched
+
+The reflow mechanism (CLIF-CG-03 through CLIF-CG-05) MUST apply only to the template-backed path.
+`BuildFlatColorMarkup`/`BuildFlatCarouselSlots` MUST NOT be reflowed, measured, or re-rendered by
+this change.
+
+#### Scenario: Flat-path byte-identity golden renders unchanged (CLIF-CG-06-a, regression)
+
+- GIVEN a flat-color carousel/story job that previously produced a byte-identical golden output
+- WHEN the same job runs after this change
+- THEN `BuildFlatColorMarkup`/`BuildFlatCarouselSlots` output remains byte-identical to the
+  pre-change golden
+- AND no measurement pass, re-render, or overlap check runs against this path
+
+### Requirement: CLIF-CG-07 — Copy-Length-Aware Typography Auto-Fit Is Floor-Bounded and Reduction-Only
+
+`CompositionDefaults.ResolveTypography` MUST gain a bounded, opt-in auto-fit (an optional
+`headlineCopy` parameter defaulting to `null`, preserving every pre-existing call site
+byte-identically): when a legitimate `SizeRatio` applied to an unusually long copy string would
+produce a heading size beyond the auto-fit's stated limits, the resolved size MUST be reduced
+within those stated limits. Auto-fit MUST NEVER increase a resolved size, and MUST NEVER reduce a
+size below the auto-fit's stated floor. `MaxSizeRatio` continues to guard against a bad
+measurement; auto-fit separately guards against a long copy string at an otherwise legitimate
+ratio.
+
+#### Scenario: Legitimately large SizeRatio with unusually long copy is reduced within stated limits (CLIF-CG-07-a)
+
+- GIVEN a client's real measured `SizeRatio` and a copy string materially longer than typical
+- WHEN typography is resolved for that headline
+- THEN the resolved size is reduced from the rigid `SizeRatio`-derived value
+- AND the reduced size does not fall below the auto-fit's stated floor
+
+#### Scenario: Auto-fit never increases a resolved size (CLIF-CG-07-b)
+
+- GIVEN any copy string and `SizeRatio` combination
+- WHEN typography auto-fit runs
+- THEN the resolved size after auto-fit is never greater than the size before auto-fit
+
+### Requirement: CLIF-CG-08 — Cold-Start / No-Op Regression: A Profile and Copy That Already Fit Render Byte-Identically
+
+A profile and copy string that already fit today (no long headline, no cross-slot overlap) MUST
+render byte-identically to the pre-change output. Neither the reflow mechanism nor the typography
+auto-fit MUST alter output for a slide unaffected by either fix.
+
+#### Scenario: Unaffected client/job renders identically to before (CLIF-CG-08-a, regression)
+
+- GIVEN a client and copy string that produce no long headline and no cross-slot overlap under
+  today's fixed-literal layout
+- WHEN the same job runs after this change
+- THEN the rendered markup, typography sizes, and slot positions are byte-identical to the
+  pre-change output
+- AND the reflow mechanism takes the fast path (CLIF-CG-03) with exactly one render
+
+## Modified Requirements (content-layout-and-image-fidelity)
+
+None. `CLIF-CG-01`..`08` are additive to the template-backed rendering pipeline; the existing
+`VisualGuardrailValidator` signature and its four existing steps are unmodified, and `ValidateOverflow`
+is untouched.
+
+## Removed Requirements (content-layout-and-image-fidelity)
+
+None.
+
+*Merged from `openspec/changes/content-layout-and-image-fidelity/specs/content-generation/spec-delta.md`
+— change applied 2026-08-27. Corrected during merge: the delta's original CLIF-CG-01/CLIF-CG-02
+wording described the cross-slot check as living inside `VisualGuardrailValidator`; the shipped
+implementation (WU-3, tasks.md deviation) instead calls `SlotOverlapDetector.Detect` directly from
+`ContentGenerationJobProcessor` against declared slot boxes, since the call site runs before any
+Chromium measurement exists. `VisualGuardrailValidator` itself was not modified. Requirement IDs,
+scenario IDs, and observable behavior are unchanged from the delta; only the mechanism description
+was corrected to match shipped code.*
+
 *Merged from `openspec/changes/client-aesthetic-visual-sophistication/specs/content-generation/spec-delta.md` — change applied 2026-08-26. CAVS-CG-01/02/03 shipped (WU-4/WU-5); CAVS-CG-04/05 NOT merged as shipped — gated on WU-6.4's reliability measurement, which did not pass; see `wu6-reliability-gate.md`.*
