@@ -1335,6 +1335,64 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     // signals render NONE (tasks 2.13-2.15).
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Real-generation fix (2026-08-27): the extracted PositionHint ("top-center" etc.) was ALWAYS
+    // forced to bottom-anchor regardless of what the vision extractor actually observed — a client
+    // who really signs top-center (like Dra. Balestrini) got her signature rendered at the bottom
+    // instead. Honor the extracted vertical signal, keeping the SAME 56px conservative margin
+    // already proven safe for bottom (reserved clear of every deterministic builder's headline,
+    // which never starts above ~200px) — now mirrored at the top. Absent/ambiguous vertical signal
+    // still defaults to bottom (FFS-CG-02/03 regression parity — every hint below is unaffected).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task FlatColorPath_TopPositionHint_AnchorsBrandMarkToTop_NotBottom()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(Present: true, PositionHint: "top-center", ColorHex: "#445566"));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
+        Assert.Contains("top:56px", brandMarkSlot, StringComparison.Ordinal);
+        Assert.DoesNotContain("bottom:56px", brandMarkSlot, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FlatColorPath_BottomPositionHint_StillAnchorsToBottom_RegressionParity()
+    {
+        var rendererSpy = new FC_CapturingRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
+            brandMark: new BrandMarkDetection(Present: true, PositionHint: "bottom-right", ColorHex: "#445566"));
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
+        Assert.Contains("bottom:56px", brandMarkSlot, StringComparison.Ordinal);
+        Assert.DoesNotContain("top:56px", brandMarkSlot, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task FlatColorPath_BrandMarkPresent_EmitsEditableBrandMarkSlot()
     {

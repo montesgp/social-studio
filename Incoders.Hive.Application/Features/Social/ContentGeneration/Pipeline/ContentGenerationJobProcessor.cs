@@ -2761,9 +2761,15 @@ public sealed class ContentGenerationJobProcessor
 
     /// <summary>
     /// FFS-CG-02: builds the editable content-layer <c>data-slot="brand-mark"</c> element for a
-    /// detected recurring brand mark. Always bottom-anchored (conservative — never competes with
-    /// title/subtitle content near the top); horizontal placement is read from
-    /// <see cref="BrandMarkDetection.PositionHint"/>. Returns <c>null</c> — meaning "render nothing"
+    /// detected recurring brand mark. Vertical placement (top/bottom) is read from
+    /// <see cref="BrandMarkDetection.PositionHint"/> too (real-generation fix, 2026-08-27) — a
+    /// client observed signing top-center must render top-center, not the old always-bottom
+    /// default. Both anchors use the SAME 56px margin, which every deterministic markup builder
+    /// (<c>BuildFlatColorMarkup</c>, <c>BuildTemplateBackedMarkup</c>) keeps clear of — headline
+    /// content never starts above ~200px from the top, mirroring the safety already relied on for
+    /// the bottom anchor. Absent/ambiguous vertical signal still defaults to bottom (regression
+    /// parity — the conservative choice when the extractor said nothing). Horizontal placement is
+    /// read from <see cref="BrandMarkDetection.PositionHint"/>. Returns <c>null</c> — meaning "render nothing"
     /// — when the mark is not present, or when the position hint / color hex is
     /// unrecognised/malformed (FFS-CG-02-b/c: ambiguous signals are treated as absent, never a
     /// best-guess fallback).
@@ -2803,13 +2809,15 @@ public sealed class ContentGenerationJobProcessor
             return null;
         }
 
+        var verticalCss = TryResolveBrandMarkVerticalCss(brandMark.PositionHint);
+
         if (brandMark.MarkType == "text" && !string.IsNullOrWhiteSpace(brandMark.Text))
         {
             return Slot(
                 "p",
                 "brand-mark",
                 brandMark.Text,
-                $"position:absolute;{horizontalCss}bottom:56px;" +
+                $"position:absolute;{horizontalCss}{verticalCss}" +
                 $"font-family:{captionFont},system-ui,sans-serif;font-size:{captionSize ?? 28}px;" +
                 $"font-weight:{captionWeight};color:{defaultColorHex};",
                 1);
@@ -2823,7 +2831,7 @@ public sealed class ContentGenerationJobProcessor
             // non-matching crop aspect ratio still fills the slot without distortion.
             return
                 $"<img class=\"slot\" data-slot=\"brand-mark\" data-max-lines=\"1\" src=\"{Html(extractedIconAssetPath)}\" " +
-                $"style=\"position:absolute;{horizontalCss}bottom:56px;width:112px;height:36px;" +
+                $"style=\"position:absolute;{horizontalCss}{verticalCss}width:112px;height:36px;" +
                 "object-fit:cover;border-radius:8px;\" />";
         }
 
@@ -2847,9 +2855,26 @@ public sealed class ContentGenerationJobProcessor
             "div",
             "brand-mark",
             string.Empty,
-            $"position:absolute;{horizontalCss}bottom:56px;width:112px;height:36px;" +
+            $"position:absolute;{horizontalCss}{verticalCss}width:112px;height:36px;" +
             $"border-radius:8px;background:{colorHex};opacity:0.92;",
             1);
+    }
+
+    /// <summary>
+    /// Vertical counterpart to <see cref="TryResolveBrandMarkHorizontalCss"/>. Unlike the
+    /// horizontal resolver, an unrecognised/absent vertical signal is never treated as "mark
+    /// absent" — it just keeps the pre-existing, conservative bottom default (FFS-CG-02/03
+    /// regression parity). Only an explicit "top" token moves the anchor.
+    /// </summary>
+    private static string TryResolveBrandMarkVerticalCss(string? positionHint)
+    {
+        if (positionHint is not null
+            && positionHint.Trim().Contains("top", StringComparison.OrdinalIgnoreCase))
+        {
+            return "top:56px;";
+        }
+
+        return "bottom:56px;";
     }
 
     /// <summary>

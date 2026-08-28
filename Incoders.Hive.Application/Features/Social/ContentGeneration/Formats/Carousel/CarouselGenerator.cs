@@ -71,7 +71,12 @@ public sealed class CarouselGenerator : FormatContentGeneratorBase<CarouselConte
                           GenerationPromptContext.BrandConstraint + " " +
                           AttributionPolicy.PromptConstraint + " " +
                           "Respect the primary derived idea and adapt it to the client context. " +
-                          "Image prompt hints must reference the client's explicit palette, typography, logos, and visual notes when available. " +
+                          "imagePromptHint must describe ONLY the photographic/visual scene — subject, palette, " +
+                          "lighting, mood, decorative motifs — for an AI image model to paint as a background. " +
+                          "It may reference the client's palette and decorative visual notes for mood, but must " +
+                          "never describe literal text, typography, wording, captions, logos, or lettering as " +
+                          "something that appears IN the image: the image model cannot render legible text, and " +
+                          "all real copy is rendered separately as an editable layer on top. " +
                           GenerationPromptContext.ConcisionConstraint + " " +
                           $"Carousel scope: one concept across {slideScopeHint}; no exhaustive lists. " +
                           "CTA RULE: do NOT add a call-to-action by default. Set ctaText ONLY when the user's request/" +

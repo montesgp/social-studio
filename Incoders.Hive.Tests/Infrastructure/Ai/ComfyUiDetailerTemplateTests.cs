@@ -76,10 +76,46 @@ public sealed class ComfyUiDetailerTemplateTests
         Assert.Equal(7.0, faceDetailerInputs.GetProperty("cfg").GetDouble());
     }
 
+    private static string SubstituteDummyTokens(string template) => template
+        .Replace("{{CHECKPOINT_NAME}}", "checkpoint.safetensors", StringComparison.Ordinal)
+        .Replace("{{POSITIVE_PROMPT}}", "prompt", StringComparison.Ordinal)
+        .Replace("{{NEGATIVE_PROMPT}}", "", StringComparison.Ordinal)
+        .Replace("{{REFERENCE_IMAGE}}", "ref.png", StringComparison.Ordinal)
+        .Replace("{{WIDTH}}", "512", StringComparison.Ordinal)
+        .Replace("{{HEIGHT}}", "512", StringComparison.Ordinal)
+        .Replace("{{SEED}}", "1", StringComparison.Ordinal)
+        .Replace("{{STEPS}}", "20", StringComparison.Ordinal)
+        .Replace("{{CFG}}", "7.0", StringComparison.Ordinal);
+
     private static HashSet<string> ExtractTokens(string template)
     {
         var matches = System.Text.RegularExpressions.Regex.Matches(template, @"\{\{(\w+)\}\}");
         return matches.Select(m => m.Groups[1].Value).ToHashSet();
+    }
+
+    // -----------------------------------------------------------------------
+    // Real-generation fix (2026-08-27): a slide whose imagePromptHint asked for NO person at all
+    // still came out with a duplicated/mutated face. The IPAdapter reference-image conditioning
+    // (node "6", shared by both templates) was the only mechanism injecting facial identity into
+    // that composition. weight=0.4 across the first half of the denoise trajectory (end_at=0.5) is
+    // a documented IPAdapter cause of duplicate-identity artifacts when the base generation
+    // independently produces its own subject. Lowering both is a zero-extra-VRAM lever (no new
+    // node, no extra pass) — reduces conditioning strength/window without removing IPAdapter
+    // entirely, at the cost of weaker resemblance to the reference photo.
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("DefaultComfyUiWorkflowTemplate.json")]
+    [InlineData("DefaultComfyUiWorkflowTemplateWithDetailer.json")]
+    public void IpAdapterAdvanced_WeightAndWindow_AreConservative(string fileName)
+    {
+        var substituted = SubstituteDummyTokens(LoadEmbeddedResource(fileName));
+        using var doc = JsonDocument.Parse(substituted);
+        var inputs = doc.RootElement.GetProperty("6").GetProperty("inputs");
+
+        Assert.Equal(0.3, inputs.GetProperty("weight").GetDouble());
+        Assert.Equal(0.0, inputs.GetProperty("start_at").GetDouble());
+        Assert.Equal(0.35, inputs.GetProperty("end_at").GetDouble());
     }
 
     private static string LoadEmbeddedResource(string fileName)

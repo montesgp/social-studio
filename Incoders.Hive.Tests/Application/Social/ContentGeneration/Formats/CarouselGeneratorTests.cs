@@ -255,6 +255,49 @@ public sealed class CarouselGeneratorTests
     }
 
     // -------------------------------------------------------------------
+    // Real-generation fix (2026-08-27): the imagePromptHint instruction told the copywriter to
+    // "reference the client's explicit palette, typography, logos, and visual notes" — which the
+    // model reasonably read as "describe literal text/typography AS the image's visual content."
+    // Confirmed root cause of a real generation where the image model baked unreadable, unremovable
+    // text into a slide's background pixels (fighting the negative prompt's own "no text" terms).
+    // The instruction must still let the copywriter reference the client's visual mood (palette,
+    // decorative motifs, photographic style) without ever asking for literal on-image text/typography
+    // content — that layer is rendered separately, deterministically, and is the only editable one.
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task BuildPromptJson_Instruction_NeverAsksImagePromptHintToDescribeOnImageText()
+    {
+        var carousel = BuildValidCarousel();
+        var gateway = new SucceedingGateway<CarouselContent>(carousel);
+        var ctx = BuildContext();
+        var providerCallContext = BeginContext(OrgId, ClientId, CorrelationId);
+
+        var generator = new CarouselGenerator(gateway, providerCallContext);
+        await generator.GenerateAsync(ctx, CancellationToken.None);
+
+        var instruction = ExtractInstruction(gateway.LastRequest!.InputJson);
+
+        // The old wording literally told the copywriter to "reference... typography" — which reads
+        // as "put text in the picture." It must be gone.
+        Assert.DoesNotContain(
+            "Image prompt hints must reference the client's explicit palette, typography, logos",
+            instruction,
+            StringComparison.Ordinal);
+
+        // The replacement must explicitly forbid describing on-image text/typography as content —
+        // not just omit the old phrase by accident.
+        Assert.Contains("imagePromptHint", instruction, StringComparison.Ordinal);
+        Assert.Contains("never describe literal text", instruction, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ExtractInstruction(string inputJson)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(inputJson);
+        return doc.RootElement.GetProperty("instruction").GetString()!;
+    }
+
+    // -------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------
 
