@@ -141,16 +141,19 @@ public sealed class ProcessorClientAlignedCarouselTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task ColdStart_AllNullProfile_JobCompletes_NoCssFallbackException()
+    public async Task ColdStart_AllNullProfile_FailsClosed_NoGenerationAttempted()
     {
-        // All optional fields null — no BackgroundPattern, no ColorPairings, no TypicalSlideCount, etc.
+        // Real-generation fix (2026-08-28): superseded. A genuinely empty profile (no
+        // BackgroundPattern, no ColorPairings, no descriptors) used to fall through to the CSS
+        // designer path — this is exactly the "job ran 30 minutes and produced nothing usable"
+        // failure mode the owner asked to close. ClientAesthetic with nothing usable must now
+        // refuse to generate at all, not silently degrade to a generic CSS fallback.
         var coldStartProfile = new ClientAestheticProfile(
             BackgroundDescriptors: [],
             VoiceTone: null,
             AverageSlidesPerCarousel: null,
             AnalyzedAtUtc: DateTime.UtcNow);
 
-        // Image service returns empty map (all slides CSS fallback)
         var imageService = new CAC12FixedResultService(new Dictionary<int, BackgroundSelection.ForcedDefault>());
         var renderer = new CAC12TrackingRenderer();
 
@@ -162,11 +165,10 @@ public sealed class ProcessorClientAlignedCarouselTests
 
         var ex = await Record.ExceptionAsync(() => processor.ProcessAsync(JobId, CancellationToken.None));
 
-        // THEN: no exception propagates — cold-start is just CSS path, same as pre-WU-1 baseline
+        // Fails closed, not with an unhandled exception — the job's own Failed status carries the
+        // reason (aesthetic-profile-unusable); the caller never sees a thrown exception.
         Assert.Null(ex);
-        // Renderer called → slides were processed (CSS path)
-        Assert.True(renderer.RenderCallCount > 0,
-            "Renderer must be called — cold-start must render via CSS designer path.");
+        Assert.Equal(0, renderer.RenderCallCount);
     }
 
     // -----------------------------------------------------------------------

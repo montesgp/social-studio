@@ -31,6 +31,17 @@ public sealed class ProcessorEnsureFreshIsolationTests
     private static readonly Guid AnalysisId = Guid.Parse("33333333-3333-3333-3333-333333333333");
     private static readonly Guid JobId = Guid.Parse("44444444-4444-4444-4444-444444444444");
 
+    // Real-generation fix (2026-08-28): ClientAesthetic now fails closed on a genuinely unusable
+    // profile (no ColorPairings/BackgroundPattern/BackgroundDescriptors) — a defense-in-depth check
+    // unrelated to what THIS file tests (EnsureFreshAsync exception isolation, blocking-branch
+    // status-transition ordering). Tests that only care about that isolation/ordering use this
+    // minimally-usable profile so the new richness check never confounds them.
+    private static readonly ClientAestheticProfile UsableProfile = new(
+        BackgroundDescriptors: ["studio lighting"],
+        VoiceTone: "professional",
+        AverageSlidesPerCarousel: 5.0,
+        AnalyzedAtUtc: DateTime.UtcNow);
+
     // ── EnsureFreshAsync throws → generation continues, job does NOT fail ──────
 
     [Fact]
@@ -54,7 +65,7 @@ public sealed class ProcessorEnsureFreshIsolationTests
     public async Task ProcessAsync_EnsureFreshThrows_JobStatusIsNotFailed()
     {
         var throwingFreshService = new ThrowingEnsureFreshService();
-        var profileReader = new IsolationStubProfileReader(null);
+        var profileReader = new IsolationStubProfileReader(UsableProfile);
         // Use a special tracking job repo inline
         var statusTracker = new StatusTracker();
         var processor = BuildProcessorWithStatusTracker(
@@ -90,7 +101,7 @@ public sealed class ProcessorEnsureFreshIsolationTests
     public async Task ProcessAsync_NoUsableAesthetic_Ready_TransitionsThroughAnalyzingProfileThenCompletes()
     {
         var blockingService = new BlockingEnsureFreshService(EnsureAvailableOutcome.Ready);
-        var profileReader = new IsolationStubProfileReader(null);
+        var profileReader = new IsolationStubProfileReader(UsableProfile);
         var statusTracker = new StatusTracker();
         var processor = BuildProcessorWithStatusTracker(
             statusTracker: statusTracker,

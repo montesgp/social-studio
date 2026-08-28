@@ -112,6 +112,37 @@ public sealed class ProcessorAestheticWiringTests
         Assert.Equal(["dark studio", "minimalist"], capturingStrategy.LastRequest!.ClientAestheticDescriptors);
     }
 
+    // ── Real-generation fix (2026-08-28): defense-in-depth hard stop ───────────
+    // The blocking pre-loop guard (EnsureAvailableBlockingAsync) is best-effort and can, in
+    // principle, be satisfied ("usable present") while the actual profile read still comes back
+    // null/unusable — a race, a stale cache, any edge the guard didn't anticipate. The owner's
+    // explicit instruction: for ClientAesthetic, no usable profile means the job must NOT generate
+    // anything at all — no orchestrator call, no image generation, fail closed immediately.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task ProcessAsync_ClientAestheticPolicy_ProfileNullAfterGuard_FailsClosed_NeverCallsOrchestrator()
+    {
+        var freshService = new CountingEnsureFreshService(EnsureFreshOutcome.Fresh);
+        var profileReader = new StubAestheticProfileReader(profile: null);
+        var capturingOrchestrator = new CapturingOrchestrator("carousel", BuildCarouselPayload(), BuildBrand(BackgroundSourcingPolicy.ClientAesthetic));
+        var capturingJobs = new AwCapturingJobRepository(BuildFakeJob());
+
+        var processor = BuildProcessorWithOrchestratorAndJobs(
+            policy: BackgroundSourcingPolicy.ClientAesthetic,
+            ensureFreshService: freshService,
+            profileReader: profileReader,
+            orchestrator: capturingOrchestrator,
+            jobs: capturingJobs);
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.Null(capturingOrchestrator.LastRequest);
+        Assert.Contains(capturingJobs.StatusUpdates, u => u.Status == "Failed");
+        var failure = capturingJobs.StatusUpdates.Last(u => u.Status == "Failed");
+        Assert.Equal("aesthetic-profile-unusable", failure.Code);
+    }
+
     // ── Non-CaseC: neither ensure-fresh nor profile-read is called ─────────────
 
     [Fact]
@@ -189,28 +220,67 @@ public sealed class ProcessorAestheticWiringTests
         IClientAestheticEnsureFreshService? ensureFreshService = null,
         IClientAestheticProfileReader? profileReader = null,
         IContentGenerationOrchestrator? orchestrator = null,
+        IBackgroundStrategyResolver? backgroundStrategyResolver = null) =>
+        BuildProcessorWithOrchestratorAndJobs(
+            policy,
+            new AwWiringStubJobRepository(BuildFakeJob()),
+            ensureFreshService,
+            profileReader,
+            orchestrator,
+            backgroundStrategyResolver);
+
+    private static ContentGenerationJob BuildFakeJob() => new(
+        Id: JobId,
+        OrganizationId: OrgId,
+        ClientId: ClientId,
+        AnalysisId: AnalysisId,
+        RequestedFormats: ["carousel"],
+        Status: "Queued",
+        StatusReason: null,
+        ErrorCode: null,
+        BrandSnapshotJson: "{}",
+        ManifestJson: null,
+        CorrelationId: Guid.NewGuid(),
+        CreatedAt: DateTime.UtcNow,
+        UpdatedAt: DateTime.UtcNow,
+        StartedAt: null,
+        CompletedAt: null);
+
+    private ContentGenerationJobProcessor BuildProcessorWithOrchestratorAndJobs(
+        BackgroundSourcingPolicy? policy,
+        IContentGenerationJobRepository jobs,
+        IClientAestheticEnsureFreshService? ensureFreshService = null,
+        IClientAestheticProfileReader? profileReader = null,
+        IContentGenerationOrchestrator? orchestrator = null,
         IBackgroundStrategyResolver? backgroundStrategyResolver = null)
     {
         var brand = BuildBrand(policy);
         var payload = BuildCarouselPayload();
+        var analysisRecord = BuildFakeAnalysisRecord();
 
-        var fakeJob = new ContentGenerationJob(
-            Id: JobId,
-            OrganizationId: OrgId,
-            ClientId: ClientId,
-            AnalysisId: AnalysisId,
-            RequestedFormats: ["carousel"],
-            Status: "Queued",
-            StatusReason: null,
-            ErrorCode: null,
-            BrandSnapshotJson: "{}",
-            ManifestJson: null,
-            CorrelationId: Guid.NewGuid(),
-            CreatedAt: DateTime.UtcNow,
-            UpdatedAt: DateTime.UtcNow,
-            StartedAt: null,
-            CompletedAt: null);
+        return new ContentGenerationJobProcessor(
+            jobs: jobs,
+            analyses: new AwWiringStubAnalysisRepository(analysisRecord),
+            orchestrator: orchestrator ?? new AwWiringStubOrchestrator("carousel", payload, brand),
+            formatResults: new AwWiringStubFormatResultRepository(),
+            brandLoader: new AwWiringStaticBrandLoader(brand),
+            composer: new AwWiringSimpleComposer(),
+            renderer: new AwWiringSimpleRenderer(),
+            packageBuilder: new AwWiringStubPackageBuilder(),
+            packageStorage: new AwWiringStubPackageStorage(),
+            packages: new AwWiringStubPackageRepository(),
+            assetStorage: null,
+            assetRepository: null,
+            designer: null,
+            guardrails: null,
+            logger: NullLogger<ContentGenerationJobProcessor>.Instance,
+            backgroundStrategyResolver: backgroundStrategyResolver,
+            aestheticEnsureFreshService: ensureFreshService,
+            aestheticProfileReader: profileReader);
+    }
 
+    private static SingleContentAnalysisRecord BuildFakeAnalysisRecord()
+    {
         var analysis = new SingleAnalyzerAnalysis(
             Summary: "Test",
             DetectedHooks: ["hook1"],
@@ -242,25 +312,7 @@ public sealed class ProcessorAestheticWiringTests
             UpdatedAtUtc: DateTime.UtcNow,
             CompletedAtUtc: DateTime.UtcNow);
 
-        return new ContentGenerationJobProcessor(
-            jobs: new AwWiringStubJobRepository(fakeJob),
-            analyses: new AwWiringStubAnalysisRepository(analysisRecord),
-            orchestrator: orchestrator ?? new AwWiringStubOrchestrator("carousel", payload, brand),
-            formatResults: new AwWiringStubFormatResultRepository(),
-            brandLoader: new AwWiringStaticBrandLoader(brand),
-            composer: new AwWiringSimpleComposer(),
-            renderer: new AwWiringSimpleRenderer(),
-            packageBuilder: new AwWiringStubPackageBuilder(),
-            packageStorage: new AwWiringStubPackageStorage(),
-            packages: new AwWiringStubPackageRepository(),
-            assetStorage: null,
-            assetRepository: null,
-            designer: null,
-            guardrails: null,
-            logger: NullLogger<ContentGenerationJobProcessor>.Instance,
-            backgroundStrategyResolver: backgroundStrategyResolver,
-            aestheticEnsureFreshService: ensureFreshService,
-            aestheticProfileReader: profileReader);
+        return analysisRecord;
     }
 }
 
@@ -340,6 +392,22 @@ file sealed class CapturingOrchestrator(string formatKey, object payload, BrandS
 }
 
 // ── Infrastructure stubs ─────────────────────────────────────────────────────
+
+file sealed class AwCapturingJobRepository(ContentGenerationJob job) : IContentGenerationJobRepository
+{
+    public List<(string Status, string? Reason, string? Code)> StatusUpdates { get; } = [];
+    public Task InsertAsync(ContentGenerationJob j, CancellationToken ct) => Task.CompletedTask;
+    public Task<ContentGenerationJob?> GetByIdAsync(Guid id, Guid orgId, CancellationToken ct) => Task.FromResult<ContentGenerationJob?>(job);
+    public Task<ContentGenerationJob?> GetByIdInternalAsync(Guid id, CancellationToken ct) => Task.FromResult<ContentGenerationJob?>(job);
+    public Task UpdateStatusAsync(Guid id, string status, string? reason, string? code, CancellationToken ct)
+    {
+        StatusUpdates.Add((status, reason, code));
+        return Task.CompletedTask;
+    }
+    public Task UpdateManifestAsync(Guid id, string json, DateTime completedAt, CancellationToken ct) => Task.CompletedTask;
+    public Task<IReadOnlyList<ContentGenerationJob>> ListPendingOrRunningAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<ContentGenerationJob>>([]);
+    public Task<ContentGenerationJob?> GetLatestByAnalysisAndClientAsync(Guid analysisId, Guid organizationId, Guid clientId, CancellationToken ct) => Task.FromResult<ContentGenerationJob?>(null);
+}
 
 file sealed class AwWiringStubJobRepository(ContentGenerationJob job) : IContentGenerationJobRepository
 {

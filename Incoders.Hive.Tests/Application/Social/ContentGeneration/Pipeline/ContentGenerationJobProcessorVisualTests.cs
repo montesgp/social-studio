@@ -1216,12 +1216,15 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     }
 
     // -----------------------------------------------------------------------
-    // FFS-CG-03-a: cold-start parity — no BackgroundPattern/ColorPairings → designer
-    // path is byte-identical to pre-change behavior (AI markup used, guardrails run).
+    // Real-generation fix (2026-08-28): superseded FFS-CG-03-a. A ClientAesthetic profile with no
+    // BackgroundPattern/ColorPairings/BackgroundDescriptors used to fall through to the AI
+    // designer's own cold-start handling — this is exactly the "generated 30 minutes of garbage
+    // because the profile was never usable" failure mode the owner asked to close. ClientAesthetic
+    // with nothing usable must now refuse to generate at all: no designer call, no render.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task ColdStart_NoPatternNoColorPairings_DesignerPathUnchanged()
+    public async Task ColdStart_NoPatternNoColorPairings_FailsClosed_DesignerNeverCalled()
     {
         var rendererSpy = new FC_CapturingRenderer();
         var designerSpy = new FC_SucceedingDesigner();
@@ -1236,10 +1239,9 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
 
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
-        Assert.True(designerSpy.WasCalled,
-            "Cold-start (no BackgroundPattern/ColorPairings) MUST fall through unchanged to the AI designer.");
-        Assert.NotNull(rendererSpy.ReceivedMarkup);
-        Assert.Contains("layer-background", rendererSpy.ReceivedMarkup);
+        Assert.False(designerSpy.WasCalled,
+            "ClientAesthetic with no usable profile signal must fail closed, never reach the designer.");
+        Assert.Null(rendererSpy.ReceivedMarkup);
     }
 
     [Fact]
@@ -1417,11 +1419,13 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     }
 
     [Fact]
-    public async Task PhotoOrAiPath_BrandMarkPresent_EmitsEditableBrandMarkSlot()
+    public async Task PhotoOrAiPath_BrandMarkOnlyProfile_FailsClosed_DesignerNeverCalled()
     {
-        // Designer/AI path (cold-start on FlatColor short-circuit — no ColorPairings) still gets
-        // the brand-mark slot injected into the guardrail-validated markup (FFS-CG-02 — same
-        // injection for both paths).
+        // Real-generation fix (2026-08-28): a detected brand mark alone (no ColorPairings, no
+        // BackgroundPattern, no descriptors) says nothing about the client's actual visual
+        // style/colors — the exact thin-profile shape that produced unrelated, off-brand images in
+        // a real generation. ClientAesthetic must fail closed here too, not treat "we found a
+        // signature" as "we know how to draw like this client."
         var rendererSpy = new FC_CapturingRenderer();
         var designerSpy = new FC_SucceedingDesigner();
 
@@ -1438,10 +1442,8 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
 
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
-        Assert.True(designerSpy.WasCalled);
-        Assert.NotNull(rendererSpy.ReceivedMarkup);
-        Assert.Contains("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
-        Assert.Contains("#778899", rendererSpy.ReceivedMarkup);
+        Assert.False(designerSpy.WasCalled);
+        Assert.Null(rendererSpy.ReceivedMarkup);
     }
 
     [Fact]

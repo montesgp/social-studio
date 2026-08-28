@@ -463,6 +463,25 @@ public sealed class ContentGenerationJobProcessor
                     effectiveClientId.Value,
                     ct);
             }
+
+            // Real-generation fix (2026-08-28): defense-in-depth hard stop. Everything above
+            // (EnsureAvailableBlockingAsync / LatestUsableAestheticPresentAsync) is a best-effort
+            // guard against generating on a stale/absent profile — it is not the only way to reach
+            // this line with nothing usable (a null-registered reader on this deployment, a race the
+            // guard did not anticipate, a profile row that read back with every visual signal
+            // empty). Owner's explicit instruction: ClientAesthetic with no usable profile must
+            // never generate — not degrade, not proceed with defaults. Fail closed here,
+            // unconditionally, before a single format/image generation attempt starts.
+            if (!IsAestheticProfileUsable(aestheticProfile))
+            {
+                await _jobs.UpdateStatusAsync(
+                    job.Id,
+                    "Failed",
+                    "aesthetic-profile-unusable: This client uses the Client Aesthetic modality but no usable aesthetic profile could be read. Generation was not started.",
+                    "aesthetic-profile-unusable",
+                    CancellationToken.None);
+                return;
+            }
         }
 
         // WU-9 (CAG2-CG-01): for a ClientAesthetic job with an aesthetic profile, build the
@@ -1994,6 +2013,22 @@ public sealed class ContentGenerationJobProcessor
             .Select(s => s!.Trim());
         return string.Join(". ", parts);
     }
+
+    /// <summary>
+    /// Real-generation fix (2026-08-28): the SAME richness bar
+    /// <c>EfProfileAnalysisRepository.LatestAnalyzedHasAestheticAsync</c> already applies at the
+    /// database layer (issue #84) — <see cref="ClientAestheticProfile.ColorPairings"/> and
+    /// <see cref="ClientAestheticProfile.BackgroundPattern"/> are the fields the deterministic
+    /// FlatColor/template-backed renderers actually consume, so those are what "usable" means here
+    /// too. Palette/ReferenceImages/StyleDescriptors are real signals but are all documented as
+    /// legitimately optional even on a rich profile (see their own doc comments above) — they must
+    /// NOT be required, or a perfectly usable profile without a marked palette would fail closed.
+    /// </summary>
+    private static bool IsAestheticProfileUsable(ClientAestheticProfile? profile) =>
+        profile is not null
+        && (profile.ColorPairings is { Count: > 0 }
+            || profile.BackgroundPattern is { Count: > 0 }
+            || profile.BackgroundDescriptors.Count > 0);
 
     private static string? GetJsonString(JsonElement element, string propertyName) =>
         element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
