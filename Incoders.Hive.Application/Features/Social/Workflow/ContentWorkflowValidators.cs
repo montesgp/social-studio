@@ -28,6 +28,10 @@ public sealed class StartContentWorkflowValidator : AbstractValidator<StartConte
             .NotEmpty().WithMessage("social.workflow.errors.network_sources_required")
             .Must(values => values is not null && values.All(ContentWorkflowCatalog.IsValidNetworkSource))
             .WithMessage("social.workflow.errors.network_source_invalid");
+
+        RuleFor(x => x.MaxResults!.Value)
+            .InclusiveBetween(1, 100).WithMessage("social.workflow.errors.max_results_invalid")
+            .When(x => x.MaxResults.HasValue);
     }
 }
 

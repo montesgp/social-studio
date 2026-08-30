@@ -97,6 +97,11 @@ public sealed class EfContentWorkflowService : IContentWorkflowService
             return Result.Failure<ContentWorkflowSessionResponse>(ContentWorkflowErrors.NetworkSourcesRequired);
         }
 
+        // Operator's cap on the discovery/idea-draw pool size (validated 1-100 upstream). Absent/invalid
+        // falls back to the pre-existing fixed pool size so every caller that never sends it keeps today's
+        // behaviour unchanged.
+        var maxResults = input.MaxResults is > 0 ? input.MaxResults.Value : DefaultResultCount;
+
         var nowUtc = _clock.UtcNow;
         var sessionId = Guid.NewGuid();
         var clientName = input.ClientName.Trim();
@@ -124,8 +129,8 @@ public sealed class EfContentWorkflowService : IContentWorkflowService
         // not fit inside one HTTP request. The background task builds its OWN scope so it survives the
         // request's scoped DbContext being disposed.
         _ = originMode == AiIdeasOriginMode
-            ? Task.Run(() => RunIdeaDrawAsync(sessionId, organizationId, input.ClientId, config), CancellationToken.None)
-            : Task.Run(() => RunDiscoveryAsync(sessionId, organizationId, input.ClientId, config), CancellationToken.None);
+            ? Task.Run(() => RunIdeaDrawAsync(sessionId, organizationId, input.ClientId, config, maxResults), CancellationToken.None)
+            : Task.Run(() => RunDiscoveryAsync(sessionId, organizationId, input.ClientId, config, maxResults), CancellationToken.None);
 
         var snapshot = ComputeProgressSnapshot(config.Phase, nowUtc, nowUtc, config.NetworkSources, 0);
 
@@ -145,7 +150,7 @@ public sealed class EfContentWorkflowService : IContentWorkflowService
             nowUtc));
     }
 
-    private async Task RunDiscoveryAsync(Guid sessionId, Guid organizationId, Guid clientId, SessionConfig config)
+    private async Task RunDiscoveryAsync(Guid sessionId, Guid organizationId, Guid clientId, SessionConfig config, int maxResults)
     {
         var ct = _applicationLifetime.ApplicationStopping;
 
@@ -161,7 +166,7 @@ public sealed class EfContentWorkflowService : IContentWorkflowService
                     organizationId,
                     clientId,
                     config.NetworkSources,
-                    DefaultResultCount,
+                    maxResults,
                     config.SearchCriterion,
                     config.ForceRefresh),
                 ct);
@@ -191,7 +196,7 @@ public sealed class EfContentWorkflowService : IContentWorkflowService
         }
     }
 
-    private async Task RunIdeaDrawAsync(Guid sessionId, Guid organizationId, Guid clientId, SessionConfig config)
+    private async Task RunIdeaDrawAsync(Guid sessionId, Guid organizationId, Guid clientId, SessionConfig config, int maxResults)
     {
         var ct = _applicationLifetime.ApplicationStopping;
 
@@ -206,7 +211,7 @@ public sealed class EfContentWorkflowService : IContentWorkflowService
                 new ContentIdeaRequest(
                     organizationId,
                     clientId,
-                    DefaultResultCount,
+                    maxResults,
                     OriginFilter: IdeaOrigin.Invented,
                     VariationSeed: sessionId.ToString("N")),
                 ct);

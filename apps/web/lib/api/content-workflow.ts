@@ -41,6 +41,11 @@ export interface StartContentWorkflowPayload {
    * identical either way.
    */
   originMode?: "discovery" | "ai-ideas";
+  /**
+   * Caps how many candidates a single discovery/idea-draw run collects (operator's "Max results" input).
+   * Omitted falls back to the backend's default pool size — unchanged behaviour for older callers.
+   */
+  maxResults?: number;
 }
 
 export async function listWorkflowClients(organizationId: string, token?: string) {

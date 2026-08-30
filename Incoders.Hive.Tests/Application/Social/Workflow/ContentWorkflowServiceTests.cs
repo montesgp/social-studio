@@ -340,6 +340,39 @@ public sealed class ContentWorkflowServiceTests
     }
 
     [Fact]
+    public async Task Start_WithExplicitMaxResults_CapsTheDiscoveryRequest()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var spy = new SpyDiscovery(Discovered(3));
+        var service = CreateService(clock, ScopeFactoryWith(spy));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], MaxResults: 25));
+
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        Assert.Equal(25, spy.LastRequest?.MaxResults);
+    }
+
+    [Fact]
+    public async Task Start_WithoutMaxResults_FallsBackToTheDefaultResultCount()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var spy = new SpyDiscovery(Discovered(3));
+        var service = CreateService(clock, ScopeFactoryWith(spy));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        Assert.Equal(72, spy.LastRequest?.MaxResults);
+    }
+
+    [Fact]
     public async Task Status_ReportsWhereTheCandidatesCameFromAndHowOldTheStoredOnesAre()
     {
         var clock = new TestClock(DateTime.UtcNow);

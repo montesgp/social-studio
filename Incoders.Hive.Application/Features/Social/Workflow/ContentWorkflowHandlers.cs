@@ -28,7 +28,8 @@ public sealed class StartContentWorkflowHandler
                 request.StrategyMode,
                 request.NetworkSources,
                 request.ForceRefresh,
-                request.OriginMode),
+                request.OriginMode,
+                request.MaxResults),
             cancellationToken);
     }
 }

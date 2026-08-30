@@ -34,6 +34,7 @@ import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
 import { useCandidateComposition } from "./hooks/use-candidate-composition";
+import { useFormatCatalog } from "./hooks/use-format-catalog";
 import { useWorkflowEnqueue } from "./hooks/use-workflow-enqueue";
 import { ConfigurationPanel } from "./panels/configuration-panel";
 import { GenerationProgressPanel } from "./panels/generation-progress-panel";
@@ -93,6 +94,7 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
 
   const composition = useCandidateComposition();
   const enqueueState = useWorkflowEnqueue();
+  const formatOptions = useFormatCatalog(token);
 
   const results = useMemo(() => resultsPage?.items ?? [], [resultsPage]);
 
@@ -471,7 +473,12 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
               <CardTitle className="text-base">Compose formats</CardTitle>
             </CardHeader>
             <CardContent className="p-4">
-              <FormatCompositionEditor result={activeResult} getCount={composition.getCount} onChangeCount={composition.setCount} />
+              <FormatCompositionEditor
+                result={activeResult}
+                formatOptions={formatOptions}
+                getCount={composition.getCount}
+                onChangeCount={composition.setCount}
+              />
             </CardContent>
           </Card>
 

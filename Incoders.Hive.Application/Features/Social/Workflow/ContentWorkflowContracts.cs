@@ -12,6 +12,11 @@ namespace Incoders.Hive.Application.Features.Social.Workflow;
 /// later, at generation, and is unaffected by this choice. <see cref="NetworkSources"/> and
 /// <see cref="ForceRefresh"/> are meaningless under <c>ai-ideas</c> and are ignored.
 /// </param>
+/// <param name="MaxResults">
+/// The operator's cap on how many candidates a single discovery/idea-draw run collects. Null or absent
+/// falls back to the service's default pool size (today's unchanged behaviour) — this stays an operator
+/// opt-in, never a silent narrowing of existing callers.
+/// </param>
 public sealed record ContentWorkflowStartInput(
     Guid ClientId,
     string ClientName,
@@ -19,7 +24,8 @@ public sealed record ContentWorkflowStartInput(
     string StrategyMode,
     IReadOnlyList<string> NetworkSources,
     bool ForceRefresh = false,
-    string? OriginMode = null);
+    string? OriginMode = null,
+    int? MaxResults = null);
 
 public sealed record ContentWorkflowSessionResponse(
     Guid WorkflowId,
