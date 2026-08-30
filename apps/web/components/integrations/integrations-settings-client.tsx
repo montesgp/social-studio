@@ -598,8 +598,7 @@ export function IntegrationsSettingsClient({ isPlatformAdmin }: IntegrationsSett
 
     return showBlockingLoader(SETTINGS_INTEGRATIONS_BLOCKING_LOADER_ID, {
       title: "Loading tool",
-      description: "Fetching data required to render this view...",
-      mode: "spinner"
+      stages: [{ key: "load", label: "Fetching data required to render this view..." }],
     });
   }, [isBlockingInitialPageResources]);
 

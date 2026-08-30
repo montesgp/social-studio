@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProfileSourcePicker } from "@/components/social/profile-analyzer/ProfileSourcePicker";
-import { AnalysisOverlay } from "@/components/social/analysis-overlay";
+import { StageOverlay } from "@/components/ui/stage-overlay";
 import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
 import { ProfileDashboard } from "@/components/social/profile-analyzer/dashboard/ProfileDashboard";
 import { useAccessToken } from "@/components/auth/use-access-token";
@@ -46,30 +46,16 @@ const PROFILE_STEPS = [
   { key: "analyzing", label: "AI analysis" },
 ];
 
-function profileStatusToPercent(status: ProfileAnalysisStatus | null): number {
-  switch (status) {
-    case "Requested": return 8;
-    case "ScrapingProfile": return 30;
-    case "ProfileScraped":
-    case "ProfileScrapedPartial": return 60;
-    case "Analyzing": return 82;
-    case "Analyzed": return 100;
-    case "Failed": return 100;
-    default: return 0;
-  }
-}
-
-function profileStatusToStepIndex(status: ProfileAnalysisStatus | null): number {
-  if (!status) return 0;
-  if (status === "Analyzed" || status === "Failed") return PROFILE_STEPS.length;
-  const map: Record<string, number> = {
-    Requested: 0,
-    ScrapingProfile: 1,
-    ProfileScraped: 2,
-    ProfileScrapedPartial: 2,
-    Analyzing: 3,
+/** Real backend status → the PROFILE_STEPS key it belongs to (null while nothing has started yet). */
+function profileStatusToStageKey(status: ProfileAnalysisStatus | null): string | null {
+  const map: Partial<Record<ProfileAnalysisStatus, string>> = {
+    Requested: "queued",
+    ScrapingProfile: "scraping",
+    ProfileScraped: "scraped",
+    ProfileScrapedPartial: "scraped",
+    Analyzing: "analyzing",
   };
-  return map[status] ?? 0;
+  return status ? map[status] ?? null : null;
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -413,13 +399,11 @@ export function ProfileAnalyzerModule() {
       )}
 
       {/* Progress overlay — full-screen blocking, same as content analyzer (#3) */}
-      <AnalysisOverlay
+      <StageOverlay
         visible={flow.stage === "polling"}
-        steps={PROFILE_STEPS}
-        currentStep={profileStatusToStepIndex(pollStatus)}
-        percent={profileStatusToPercent(pollStatus)}
-        isDone={pollStatus === "Analyzed"}
-        isFailed={pollStatus === "Failed" || pollTimedOut}
+        stages={PROFILE_STEPS}
+        activeKey={profileStatusToStageKey(pollStatus)}
+        outcome={pollStatus === "Analyzed" ? "done" : pollStatus === "Failed" || pollTimedOut ? "failed" : "running"}
         isPartial={pollIsPartial}
         runningTitle="Analyzing profile…"
         doneTitle="Analysis complete"

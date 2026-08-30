@@ -2,13 +2,68 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  canStartAnalyzeRequest,
   generationHistoryLabels,
   shouldAutoSwitchToPackage,
   shouldRefreshTerminalHistory,
   packageProgressState,
   pollAttemptDelayMs,
+  resolveInitialLoadStageKey,
   PACKAGE_STEP_COUNT,
 } from "./single-analyzer-ui-state.ts";
+
+const READY_INITIAL_LOAD_FLAGS = {
+  hasResolvedToken: true,
+  organizationSelectionReady: true,
+  clientsReady: true,
+  networksLoading: false,
+  historyLoaded: true,
+};
+
+test("resolveInitialLoadStageKey reports the earliest real blocker, in declared order", () => {
+  assert.equal(
+    resolveInitialLoadStageKey({ ...READY_INITIAL_LOAD_FLAGS, hasResolvedToken: false }),
+    "session"
+  );
+  assert.equal(
+    resolveInitialLoadStageKey({ ...READY_INITIAL_LOAD_FLAGS, organizationSelectionReady: false }),
+    "organization"
+  );
+  assert.equal(
+    resolveInitialLoadStageKey({ ...READY_INITIAL_LOAD_FLAGS, clientsReady: false }),
+    "clients"
+  );
+  assert.equal(
+    resolveInitialLoadStageKey({ ...READY_INITIAL_LOAD_FLAGS, networksLoading: true }),
+    "networks"
+  );
+  assert.equal(
+    resolveInitialLoadStageKey({ ...READY_INITIAL_LOAD_FLAGS, historyLoaded: false }),
+    "history"
+  );
+});
+
+test("resolveInitialLoadStageKey returns null once every stage is ready", () => {
+  assert.equal(resolveInitialLoadStageKey(READY_INITIAL_LOAD_FLAGS), null);
+});
+
+test("resolveInitialLoadStageKey never reports a later stage while an earlier one is still blocking", () => {
+  assert.equal(
+    resolveInitialLoadStageKey({
+      hasResolvedToken: false,
+      organizationSelectionReady: false,
+      clientsReady: false,
+      networksLoading: true,
+      historyLoaded: false,
+    }),
+    "session"
+  );
+});
+
+test("blocks starting a new analyze request while one is already in flight", () => {
+  assert.equal(canStartAnalyzeRequest(false), true);
+  assert.equal(canStartAnalyzeRequest(true), false);
+});
 
 test("preserves Generated and describes the current regeneration attempt", () => {
   assert.deepEqual(generationHistoryLabels(true, "Pending"), ["Generated", "Regeneration queued"]);

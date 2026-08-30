@@ -4,6 +4,7 @@ import { useDateFormatter } from "@/lib/format/use-date-formatter";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, SyntheticEvent } from "react";
 import { useRouter } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Database,
   ScanSearch,
@@ -29,7 +30,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
-import { BlockingLoader } from "@/components/ui/blocking-loader";
+import { StageOverlay } from "@/components/ui/stage-overlay";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
@@ -98,13 +99,15 @@ import { SupportError } from "@/components/support/support-error";
 import { openWhatsAppSupport } from "@/lib/support/support";
 import { resolveGenerationFailureError } from "@/lib/support/user-facing-errors";
 import {
+  canStartAnalyzeRequest,
   generationHistoryLabels,
   shouldAutoSwitchToPackage,
   shouldRefreshTerminalHistory,
   packageProgressState,
   pollAttemptDelayMs,
+  resolveInitialLoadStageKey,
+  INITIAL_LOAD_STAGES,
 } from "@/lib/single-analyzer-ui-state";
-import { AnalysisOverlay } from "@/components/social/analysis-overlay";
 import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
 import { BatchGenerationPanel } from "@/components/social/generator/batch-generation-panel";
 import { exportElementToPdf } from "@/lib/export/pdf-export";
@@ -166,24 +169,11 @@ const ANALYSIS_STEPS: Array<{
   { key: "ai", label: "AI analysis", statuses: ["Analyzing"] },
 ];
 
-function statusToPercent(status: SingleContentAnalysisStatus | null): number {
-  switch (status) {
-    case "Requested": return 8;
-    case "ResolvingContent": return 35;
-    case "ContentResolved":
-    case "ContentResolvedPartial": return 62;
-    case "Analyzing": return 85;
-    case "Analyzed": return 100;
-    case "Failed": return 100;
-    default: return 0;
-  }
-}
-
-function statusToStepIndex(status: SingleContentAnalysisStatus | null): number {
-  if (!status) return 0;
-  if (status === "Analyzed" || status === "Failed") return ANALYSIS_STEPS.length;
-  const idx = ANALYSIS_STEPS.findIndex((s) => s.statuses.includes(status));
-  return idx === -1 ? 0 : idx;
+/** Real backend status → the ANALYSIS_STEPS key it belongs to (null while nothing has started yet). */
+function statusToStageKey(status: SingleContentAnalysisStatus | null): string | null {
+  if (!status) return null;
+  const stage = ANALYSIS_STEPS.find((s) => s.statuses.includes(status));
+  return stage?.key ?? null;
 }
 
 const PACKAGE_STEPS = [
@@ -356,83 +346,18 @@ function PackageGenerationOverlay({
   perFormatStatus: Partial<Record<ContentFormatKey, string>>;
   totalFormats: number;
 }) {
-  if (!visible) return null;
-
   const state = packageProgressState(status, perFormatStatus, totalFormats);
+  const activeKey = PACKAGE_STEPS[Math.min(state.currentStep, PACKAGE_STEPS.length - 1)]?.key ?? null;
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Generating content package"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm"
-    >
-      <div className="w-full max-w-md rounded-2xl border border-border/50 bg-card p-6 shadow-2xl space-y-5">
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-primary/10 p-2">
-            <Package className="h-5 w-5 text-primary animate-pulse" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">Generating content package</h3>
-            <p className="text-xs text-muted-foreground">
-              Keep this screen open while all formats are processed.
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">{state.label}</span>
-            <span className="font-medium text-foreground tabular-nums">{state.percent}%</span>
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-primary transition-all duration-500 ease-out"
-              style={{ width: `${Math.min(100, Math.max(0, state.percent))}%` }}
-            />
-          </div>
-          <p className="text-[11px] text-muted-foreground/80">
-            Rendered formats: {state.completedFormats}/{Math.max(totalFormats, 1)}
-          </p>
-        </div>
-
-        <ol className="space-y-2">
-          {PACKAGE_STEPS.map((step, i) => {
-            const markerState =
-              i < state.currentStep ? "done" : i === state.currentStep ? "active" : "pending";
-
-            return (
-              <li key={step.key} className="flex items-center gap-2.5 text-xs">
-                <span
-                  className={cn(
-                    "flex h-5 w-5 items-center justify-center rounded-full border",
-                    markerState === "done" && "border-green-500/50 bg-green-500/15 text-green-500",
-                    markerState === "active" && "border-primary/50 bg-primary/15 text-primary",
-                    markerState === "pending" &&
-                      "border-border/50 bg-muted/40 text-muted-foreground/50"
-                  )}
-                >
-                  {markerState === "done" ? (
-                    <CheckCircle2 className="h-3 w-3" />
-                  ) : markerState === "active" ? (
-                    <RefreshCw className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" />
-                  )}
-                </span>
-                <span
-                  className={cn(
-                    markerState === "pending" ? "text-muted-foreground/50" : "text-foreground/90"
-                  )}
-                >
-                  {step.label}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
-      </div>
-    </div>
+    <StageOverlay
+      visible={visible}
+      stages={PACKAGE_STEPS}
+      activeKey={activeKey}
+      runningTitle="Generating content package"
+      description={state.label}
+      ariaLabel="Generating content package"
+    />
   );
 }
 
@@ -741,9 +666,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   // outcome, so a provider failure can never render as "No candidates found yet".
   const [discoveryOutcome, setDiscoveryOutcome] = useState<DiscoveryRunOutcome | null>(null);
   // Live progress mirrored from the status endpoint and rendered through the SAME screen-blocking
-  // overlay the analysis flow uses (AnalysisOverlay), not a second progress mechanism.
+  // overlay the analysis flow uses (StageOverlay), not a second progress mechanism.
   const [discoverySteps, setDiscoverySteps] = useState<ContentWorkflowStep[]>([]);
-  const [discoveryPercent, setDiscoveryPercent] = useState(0);
   const [discoveryMessage, setDiscoveryMessage] = useState("");
   // The raw backend status the overlay renders. Kept alongside the resolved outcome because the
   // overlay needs it while the session is still running, before an outcome exists.
@@ -813,6 +737,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   const [analysisStatus, setAnalysisStatus] = useState<SingleContentAnalysisStatus | null>(null);
   const pollCancelRef = useRef(false);
   const lastHistoryRefreshKeyRef = useRef<string | null>(null);
+  // Reentrancy guard for loadVideoByUrl: Enter keydown + the Analyze button click can both fire
+  // within the same tick, before React repaints `disabled`. A ref (not useState) makes the check
+  // synchronous so a second concurrent invocation bails out immediately instead of racing the
+  // first one's setAnalysisStatus/setIsLoading calls (see canStartAnalyzeRequest).
+  const loadVideoInFlightRef = useRef(false);
 
   // Formats that were physically deleted in this session (INC-5).
   // Tracked locally so the Convert button reverts to "Generate" without a page refresh.
@@ -941,14 +870,14 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     : activeOrgInitialized && (activeOrgId === null || selectedOrganizationId === activeOrgId);
   const clientsReady =
     selectedOrganizationId.length === 0 || clientsLoadedOrganizationId === selectedOrganizationId;
-  const initialToolLoading =
-    !hasResolvedToken ||
-    !organizationSelectionReady ||
-    networksLoading ||
-    !historyLoaded ||
-    historyLoading ||
-    clientsLoading ||
-    !clientsReady;
+  const initialLoadStageKey = resolveInitialLoadStageKey({
+    hasResolvedToken,
+    organizationSelectionReady,
+    clientsReady,
+    networksLoading,
+    historyLoaded,
+  });
+  const initialToolLoading = initialLoadStageKey !== null;
 
   // Load the server-driven format catalog once (best-effort; falls back to static union).
   useEffect(() => {
@@ -972,18 +901,21 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     }
   }, [mutationSurface, mutationLayout]);
 
+  // Shares the app-shell overlay via the store, in case another surface (e.g. route navigation)
+  // is also holding it up; still rendered locally too (see the render guard below) so the tool
+  // works standalone when the shell overlay isn't mounted around it.
   useEffect(() => {
-    if (!initialToolLoading) {
+    if (!initialLoadStageKey) {
       hideBlockingLoader(SINGLE_ANALYZER_BLOCKING_LOADER_ID);
       return;
     }
 
     return showBlockingLoader(SINGLE_ANALYZER_BLOCKING_LOADER_ID, {
       title: "Loading tool",
-      description: "Loading organizations, clients, networks and saved analyses...",
-      mode: "progress",
+      stages: INITIAL_LOAD_STAGES,
+      activeKey: initialLoadStageKey,
     });
-  }, [initialToolLoading]);
+  }, [initialLoadStageKey]);
 
   const currentPackageJobMatchesSelectedClient =
     selectedClientId.length > 0 && packageJobClientId === selectedClientId;
@@ -1555,7 +1487,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setDiscoveryError(null);
     setDiscoveryOutcome(null);
     setDiscoverySteps([]);
-    setDiscoveryPercent(0);
     setDiscoveryMessage("");
     setDiscoveryStatusValue("in_progress");
     setCandidateSource(null);
@@ -1623,100 +1554,109 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
   }
 
   async function loadVideoByUrl(opts?: { force?: boolean }) {
-    const trimmedUrl = urlInput.trim();
-    if (!trimmedUrl) return;
-    const platform = detectPlatformFromUrl(trimmedUrl);
-    if (!platform || platform === "unknown") {
-      setDuplicateAnalysisPrompt(null);
-      setError({
-        code: "social.single_analyzer.invalid_url_input",
-        message:
-          `We can only analyze valid social URLs from ${urlSupportedPlatformsLabel}.`,
-      });
-      return;
-    }
-
-    // The overlay must appear the instant the user clicks Analyze, not after the duplicate-lookup
-    // round-trip resolves. setIsLoading/setAnalysisStatus run synchronously here, before any await,
-    // so <AnalysisOverlay visible={analysisStatus !== null}> renders on this same tick. If the
-    // lookup below finds a duplicate we revert both flags before showing the duplicate prompt
-    // instead of the overlay.
-    setDuplicateAnalysisPrompt(null);
-    setIsLoading(true);
-    setAnalysisStatus("Requested");
-
-    if (!opts?.force && effectiveToken) {
-      setIsCheckingDuplicate(true);
-      setError(null);
-      try {
-        const duplicate = await findSingleContentAnalysisByUrl(trimmedUrl, effectiveToken);
-        if (duplicate.item) {
-          setDuplicateAnalysisPrompt(duplicate.item);
-          setIsLoading(false);
-          setAnalysisStatus(null);
-          return;
-        }
-      } catch {
-        // Do not block the user's explicit analysis request on a lookup-only failure.
-      } finally {
-        setIsCheckingDuplicate(false);
-      }
-    }
-
-    resetVideoState();
-    setIsSavedAnalysisView(false);
-    pollCancelRef.current = false;
+    // Reentrancy guard: Enter keydown + button click (or two rapid triggers before React
+    // repaints `disabled`) can both call this function within the same tick. Bail out
+    // immediately without touching any state if a request is already in flight.
+    if (!canStartAnalyzeRequest(loadVideoInFlightRef.current)) return;
+    loadVideoInFlightRef.current = true;
     try {
-      // ASYNC/POLL: POST queues the work and returns immediately with the analysis id/status.
-      // We then poll until Analyzed or Failed. The browser never contacts Apify directly
-      // (CAP5-MUST-01/03) and the long extraction + AI run is decoupled from this request,
-      // so a slow client connection never cancels the backend work.
-      const started = await analyzeSingleContent(
-        {
-          url: trimmedUrl,
-          clientId: selectedClientId || undefined,
-        },
-        effectiveToken
-      );
-      setAnalysisStatus(started.status);
-
-      const final = await pollUntilTerminal(started.id);
-      if (!final) return; // cancelled (component unmounted)
-
-      if (final.status === "Failed") {
-        // Partial success path: if the extraction stage completed (snapshot present), hydrate the
-        // video card with that metadata even though the AI stage failed. The workflow nodes are
-        // isolated — losing AI analysis must NOT discard real data we already obtained from Apify.
-        // The error banner explains what failed; the right panel stays in empty-state because
-        // there's no analysis to drive the generation tabs.
-        if (final.snapshot) {
-          const partial = mapBackendResponseToResult(final, selectedOrganizationId);
-          setVideoResult(partial);
-        }
+      const trimmedUrl = urlInput.trim();
+      if (!trimmedUrl) return;
+      const platform = detectPlatformFromUrl(trimmedUrl);
+      if (!platform || platform === "unknown") {
+        setDuplicateAnalysisPrompt(null);
         setError({
-          code: final.failureCode ?? "social.single_analyzer.analysis_failed",
-          message: final.failureMessageKey ?? "Analysis failed. Please try again.",
+          code: "social.single_analyzer.invalid_url_input",
+          message:
+            `We can only analyze valid social URLs from ${urlSupportedPlatformsLabel}.`,
         });
         return;
       }
 
-      const result = mapBackendResponseToResult(final, selectedOrganizationId);
-      setVideoResult(result);
-      setSelectedClientId(final.clientId ?? "");
-      setIsAnalyzed(true);
-      void loadHistory({ silent: true });
-    } catch (e) {
-      const err = e as { message?: string; problem?: Record<string, unknown> };
-      const code = typeof err.problem?.code === "string" ? err.problem.code : undefined;
-      setError({
-        code,
-        message:
-          err?.message ||
-          "Analysis failed. The URL may be unsupported or the backend took too long. Try again.",
-      });
+      // The overlay must appear the instant the user clicks Analyze, not after the duplicate-lookup
+      // round-trip resolves. setIsLoading/setAnalysisStatus run synchronously here, before any await,
+      // so <StageOverlay visible={analysisStatus !== null}> renders on this same tick. If the
+      // lookup below finds a duplicate we revert both flags before showing the duplicate prompt
+      // instead of the overlay.
+      setDuplicateAnalysisPrompt(null);
+      setIsLoading(true);
+      setAnalysisStatus("Requested");
+
+      if (!opts?.force && effectiveToken) {
+        setIsCheckingDuplicate(true);
+        setError(null);
+        try {
+          const duplicate = await findSingleContentAnalysisByUrl(trimmedUrl, effectiveToken);
+          if (duplicate.item) {
+            setDuplicateAnalysisPrompt(duplicate.item);
+            setIsLoading(false);
+            setAnalysisStatus(null);
+            return;
+          }
+        } catch {
+          // Do not block the user's explicit analysis request on a lookup-only failure.
+        } finally {
+          setIsCheckingDuplicate(false);
+        }
+      }
+
+      resetVideoState();
+      setIsSavedAnalysisView(false);
+      pollCancelRef.current = false;
+      try {
+        // ASYNC/POLL: POST queues the work and returns immediately with the analysis id/status.
+        // We then poll until Analyzed or Failed. The browser never contacts Apify directly
+        // (CAP5-MUST-01/03) and the long extraction + AI run is decoupled from this request,
+        // so a slow client connection never cancels the backend work.
+        const started = await analyzeSingleContent(
+          {
+            url: trimmedUrl,
+            clientId: selectedClientId || undefined,
+          },
+          effectiveToken
+        );
+        setAnalysisStatus(started.status);
+
+        const final = await pollUntilTerminal(started.id);
+        if (!final) return; // cancelled (component unmounted)
+
+        if (final.status === "Failed") {
+          // Partial success path: if the extraction stage completed (snapshot present), hydrate the
+          // video card with that metadata even though the AI stage failed. The workflow nodes are
+          // isolated — losing AI analysis must NOT discard real data we already obtained from Apify.
+          // The error banner explains what failed; the right panel stays in empty-state because
+          // there's no analysis to drive the generation tabs.
+          if (final.snapshot) {
+            const partial = mapBackendResponseToResult(final, selectedOrganizationId);
+            setVideoResult(partial);
+          }
+          setError({
+            code: final.failureCode ?? "social.single_analyzer.analysis_failed",
+            message: final.failureMessageKey ?? "Analysis failed. Please try again.",
+          });
+          return;
+        }
+
+        const result = mapBackendResponseToResult(final, selectedOrganizationId);
+        setVideoResult(result);
+        setSelectedClientId(final.clientId ?? "");
+        setIsAnalyzed(true);
+        void loadHistory({ silent: true });
+      } catch (e) {
+        const err = e as { message?: string; problem?: Record<string, unknown> };
+        const code = typeof err.problem?.code === "string" ? err.problem.code : undefined;
+        setError({
+          code,
+          message:
+            err?.message ||
+            "Analysis failed. The URL may be unsupported or the backend took too long. Try again.",
+        });
+      } finally {
+        setIsLoading(false);
+        setAnalysisStatus(null);
+      }
     } finally {
-      setIsLoading(false);
-      setAnalysisStatus(null);
+      loadVideoInFlightRef.current = false;
     }
   }
 
@@ -1819,7 +1759,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
     setDiscoveryCandidates([]);
     setDiscoveryOutcome(null);
     setDiscoverySteps([]);
-    setDiscoveryPercent(0);
     setDiscoveryMessage("");
     setDiscoveryStatusValue("in_progress");
     setCandidateSource(null);
@@ -1861,7 +1800,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         effectiveToken
       );
 
-      setDiscoveryPercent(session.progressPercentage);
       setDiscoveryMessage(session.progressMessage);
 
       const deadline = Date.now() + DISCOVERY_POLL_TIMEOUT_MS;
@@ -1875,7 +1813,6 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
           effectiveToken
         );
         setDiscoverySteps(latest.steps);
-        setDiscoveryPercent(latest.progressPercentage);
         setDiscoveryMessage(latest.progressMessage);
         setDiscoveryStatusValue(latest.status);
 
@@ -2675,11 +2612,32 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  if (initialToolLoading) {
-    return null;
-  }
+  const discoveryActiveIndex = discoveryStepIndex(discoverySteps, discoveryStatusValue);
+  const discoveryActiveKey =
+    discoverySteps[Math.min(discoveryActiveIndex, discoverySteps.length - 1)]?.key ?? null;
 
   return (
+    <>
+      {/* Full-screen initial-load stage overlay: real stages, no return-null screen cut. The tool
+          tree below fades in once it mounts instead of popping in abruptly (issue: blocking-loader
+          overlays unification). */}
+      <StageOverlay
+        visible={initialToolLoading}
+        stages={INITIAL_LOAD_STAGES}
+        activeKey={initialLoadStageKey}
+        runningTitle="Loading tool"
+        description="Loading organizations, clients, networks and saved analyses..."
+        ariaLabel="Loading tool"
+      />
+      <AnimatePresence>
+        {!initialToolLoading ? (
+          <motion.div
+            key="single-analyzer-content"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
     <div ref={contentExportRef} className="flex flex-col gap-6 p-6 max-w-screen-xl mx-auto">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2730,19 +2688,17 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       </div>
 
       {/* Action-level blocker for reading a saved analysis after the tool itself is already bootstrapped. */}
-      <BlockingLoader
+      <StageOverlay
         visible={isHydratingHistory}
-        title="Loading saved analysis"
+        stages={[{ key: "hydrate", label: "Loading saved analysis" }]}
+        runningTitle="Loading saved analysis"
         description="Recovering snapshot and analysis from history..."
-        mode="progress"
       />
-      <AnalysisOverlay
+      <StageOverlay
         visible={analysisStatus !== null}
-        steps={ANALYSIS_STEPS}
-        currentStep={statusToStepIndex(analysisStatus)}
-        percent={statusToPercent(analysisStatus)}
-        isDone={analysisStatus === "Analyzed"}
-        isFailed={analysisStatus === "Failed"}
+        stages={ANALYSIS_STEPS}
+        activeKey={statusToStageKey(analysisStatus)}
+        outcome={analysisStatus === "Analyzed" ? "done" : analysisStatus === "Failed" ? "failed" : "running"}
         runningTitle="Analyzing content"
         doneTitle="Analysis complete"
         failedTitle="Analysis failed"
@@ -2750,15 +2706,19 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         ariaLabel="Analyzing content"
       />
       {/* Discovery runs in the background on the server and is polled here, so the operator gets the
-          SAME screen-blocking progress overlay as an analysis — the step rows come straight from the
+          SAME screen-blocking stage overlay as an analysis — the stage rows come straight from the
           session's own status response rather than from a second, invented progress model. */}
-      <AnalysisOverlay
+      <StageOverlay
         visible={isDiscovering}
-        steps={discoverySteps.map((step) => ({ key: step.key, label: step.label }))}
-        currentStep={discoveryStepIndex(discoverySteps, discoveryStatusValue)}
-        percent={discoveryPercent}
-        isDone={discoveryStatusValue === "completed"}
-        isFailed={discoveryStatusValue === "failed" || discoveryStatusValue === "unconfigured"}
+        stages={discoverySteps.map((step) => ({ key: step.key, label: step.label }))}
+        activeKey={discoveryActiveKey}
+        outcome={
+          discoveryStatusValue === "completed"
+            ? "done"
+            : discoveryStatusValue === "failed" || discoveryStatusValue === "unconfigured"
+              ? "failed"
+              : "running"
+        }
         runningTitle="Discovering content"
         doneTitle="Discovery complete"
         failedTitle="Discovery failed"
@@ -2806,7 +2766,9 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
                         value={urlInput}
                         onChange={(e) => setUrlInput(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") void loadVideoByUrl();
+                          if (e.key === "Enter" && !(isLoading || isCheckingDuplicate || !canAnalyzeByUrl)) {
+                            void loadVideoByUrl();
+                          }
                         }}
                         className="h-8 min-w-0 text-xs"
                       />
@@ -3968,6 +3930,10 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         onConfirm={confirmAbandonNavigation}
       />
     </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </>
   );
 }
 

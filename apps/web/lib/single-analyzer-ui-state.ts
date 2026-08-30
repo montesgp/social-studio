@@ -185,6 +185,16 @@ export function shouldAutoSwitchToPackage(input: {
   );
 }
 
+/**
+ * Reentrancy guard for starting a new analyze request (issue: double-invocation of
+ * loadVideoByUrl via Enter keydown + button click racing before React repaints `disabled`).
+ * `inFlight` must be tracked via a ref (not useState) by the caller so the check is
+ * synchronous within the same event tick.
+ */
+export function canStartAnalyzeRequest(inFlight: boolean): boolean {
+  return !inFlight;
+}
+
 export function shouldRefreshTerminalHistory(input: {
   activeJobId: string | null;
   observedJobId: string | null;
@@ -200,4 +210,38 @@ export function shouldRefreshTerminalHistory(input: {
   ) return false;
 
   return input.lastRefreshKey !== `${input.activeJobId}:${input.status}`;
+}
+
+// ── Initial tool load (stage overlay) ───────────────────────────────────────────
+// Replaces the previous single `initialToolLoading` boolean with a real, ordered stage the
+// operator is actually waiting on — one entry per independent data source the screen needs
+// before it can render (issue: blocking-loader overlays unification).
+
+export const INITIAL_LOAD_STAGES: Array<{ key: string; label: string }> = [
+  { key: "session", label: "Resolving session" },
+  { key: "organization", label: "Selecting organization" },
+  { key: "clients", label: "Loading clients" },
+  { key: "networks", label: "Loading social networks" },
+  { key: "history", label: "Loading history" },
+];
+
+/**
+ * Resolves which INITIAL_LOAD_STAGES entry the screen is currently blocked on, given the
+ * individual readiness flags. Returns null once every stage is ready (overlay should hide).
+ * Stages are checked in the declared order so the operator always sees the earliest real
+ * blocker, not a later one that happens to still be pending too.
+ */
+export function resolveInitialLoadStageKey(input: {
+  hasResolvedToken: boolean;
+  organizationSelectionReady: boolean;
+  clientsReady: boolean;
+  networksLoading: boolean;
+  historyLoaded: boolean;
+}): string | null {
+  if (!input.hasResolvedToken) return "session";
+  if (!input.organizationSelectionReady) return "organization";
+  if (!input.clientsReady) return "clients";
+  if (input.networksLoading) return "networks";
+  if (!input.historyLoaded) return "history";
+  return null;
 }

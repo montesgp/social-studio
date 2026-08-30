@@ -141,8 +141,9 @@ export function NicheDiscoveryClient({ initialRunId }: NicheDiscoveryClientProps
 
     return showBlockingLoader(RUN_LOADER_ID, {
       title: progress.title,
-      description: progress.description,
-      mode: "progress",
+      // No granular sub-stages are available from the run status yet — a single stage whose
+      // label tracks the real, live progress description (not a fabricated percentage).
+      stages: [{ key: "run", label: progress.description || progress.title }],
     });
   }, [runId, run?.status, run?.providerUnitsSpent, elapsedMs]);
 

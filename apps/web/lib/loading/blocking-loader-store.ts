@@ -1,23 +1,45 @@
-export type BlockingLoaderMode = "spinner" | "progress";
+// Shared pub/sub store backing the app-wide full-screen stage overlay (StageOverlay).
+// Any tool can declare its own ordered list of REAL stages, move the active one forward as work
+// progresses, and mark a terminal success/failure — without ever inventing a completion percentage.
+//
+// Multiple callers may request the overlay concurrently (e.g. a background run started from one
+// screen while the shell is still resolving initial data); like the previous title/description
+// store, the most recently registered request wins the visible snapshot.
+
+export interface BlockingLoaderStage {
+  key: string;
+  label: string;
+}
+
+export type BlockingLoaderOutcome = "running" | "done" | "failed";
 
 export interface BlockingLoaderOptions {
   title: string;
-  description?: string;
-  mode?: BlockingLoaderMode;
+  /** Ordered, real stages. A tool with nothing granular to report may pass a single stage. */
+  stages: readonly BlockingLoaderStage[];
+  /** Key of the currently active stage. Defaults to the first stage when omitted. */
+  activeKey?: string | null;
+  outcome?: BlockingLoaderOutcome;
+  /** Error detail shown when outcome is "failed". */
+  failureDetail?: string | null;
 }
 
 export interface BlockingLoaderSnapshot {
   isVisible: boolean;
   title: string;
-  description?: string;
-  mode: BlockingLoaderMode;
+  stages: readonly BlockingLoaderStage[];
+  activeKey: string | null;
+  outcome: BlockingLoaderOutcome;
+  failureDetail: string | null;
 }
 
 const HIDDEN_SNAPSHOT: BlockingLoaderSnapshot = {
   isVisible: false,
   title: "",
-  description: undefined,
-  mode: "spinner",
+  stages: [],
+  activeKey: null,
+  outcome: "running",
+  failureDetail: null,
 };
 
 const requests = new Map<string, BlockingLoaderOptions>();
@@ -43,8 +65,10 @@ function resolveSnapshot(): BlockingLoaderSnapshot {
   return {
     isVisible: true,
     title: current.title,
-    description: current.description,
-    mode: current.mode ?? "spinner",
+    stages: current.stages,
+    activeKey: current.activeKey ?? current.stages[0]?.key ?? null,
+    outcome: current.outcome ?? "running",
+    failureDetail: current.failureDetail ?? null,
   };
 }
 
@@ -53,8 +77,10 @@ function publish(): void {
   if (
     snapshot.isVisible === next.isVisible &&
     snapshot.title === next.title &&
-    snapshot.description === next.description &&
-    snapshot.mode === next.mode
+    snapshot.stages === next.stages &&
+    snapshot.activeKey === next.activeKey &&
+    snapshot.outcome === next.outcome &&
+    snapshot.failureDetail === next.failureDetail
   ) {
     return;
   }
@@ -63,11 +89,30 @@ function publish(): void {
   notify();
 }
 
+/** Registers/replaces a full request (stages included) for `id` and shows the overlay. */
 export function show(id: string, options: BlockingLoaderOptions): () => void {
   requests.set(id, options);
   publish();
 
   return () => hide(id);
+}
+
+/** Moves `id`'s active stage forward without rebuilding its stage list. */
+export function setActiveStage(id: string, activeKey: string): void {
+  const current = requests.get(id);
+  if (!current) return;
+
+  requests.set(id, { ...current, activeKey, outcome: "running" });
+  publish();
+}
+
+/** Marks `id`'s request as terminally succeeded or failed. */
+export function setOutcome(id: string, outcome: BlockingLoaderOutcome, failureDetail?: string | null): void {
+  const current = requests.get(id);
+  if (!current) return;
+
+  requests.set(id, { ...current, outcome, failureDetail: failureDetail ?? null });
+  publish();
 }
 
 export function hide(id: string): void {

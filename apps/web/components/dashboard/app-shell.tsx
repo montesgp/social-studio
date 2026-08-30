@@ -26,7 +26,7 @@ import { DateFormat, ThemeKey } from "@/lib/api/types";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Button } from "@/components/ui/button";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
-import { BlockingLoader } from "@/components/ui/blocking-loader";
+import { StageOverlay } from "@/components/ui/stage-overlay";
 import { subscribe as subscribeHttpLoading, getSnapshot as getHttpLoadingSnapshot } from "@/lib/loading/http-loading-store";
 import {
   subscribe as subscribeBlockingLoader,
@@ -326,38 +326,32 @@ export function AppShell({
     }
   }
 
+  const shellOverlayTitle = isSigningOut
+    ? "Cerrando sesión…"
+    : waitingForInitialShellData
+    ? "Preparing workspace"
+    : blockingLoader.isVisible
+    ? blockingLoader.title
+    : "Loading tool";
+  const shellOverlayStages = isSigningOut
+    ? [{ key: "sign-out", label: "Cerrando sesión…" }]
+    : waitingForInitialShellData
+    ? [{ key: "shell", label: "Loading modules, permissions and menu context..." }]
+    : blockingLoader.isVisible
+    ? blockingLoader.stages
+    : [{ key: "route", label: "Fetching data required to render this view..." }];
+
   return (
     <ThemeProvider initialThemeKey={initialThemeKey} initialDateFormat={initialDateFormat}>
       <ProgressBar />
-      <BlockingLoader
+      <StageOverlay
         visible={waitingForInitialShellData || routeLoading || blockingLoader.isVisible}
-        title={
-          isSigningOut
-            ? "Cerrando sesión…"
-            : waitingForInitialShellData
-            ? "Preparing workspace"
-            : blockingLoader.isVisible
-            ? blockingLoader.title
-            : "Loading tool"
-        }
-        description={
-          isSigningOut
-            ? undefined
-            : waitingForInitialShellData
-            ? "Loading modules, permissions and menu context..."
-            : blockingLoader.isVisible
-            ? blockingLoader.description
-            : "Fetching data required to render this view..."
-        }
-        mode={
-          isSigningOut
-            ? "spinner"
-            : waitingForInitialShellData
-            ? "progress"
-            : blockingLoader.isVisible
-            ? blockingLoader.mode
-            : "spinner"
-        }
+        stages={shellOverlayStages}
+        activeKey={blockingLoader.isVisible ? blockingLoader.activeKey : shellOverlayStages[0]?.key ?? null}
+        outcome={blockingLoader.isVisible ? blockingLoader.outcome : "running"}
+        failureDetail={blockingLoader.isVisible ? blockingLoader.failureDetail : null}
+        runningTitle={shellOverlayTitle}
+        ariaLabel={shellOverlayTitle}
       />
       <div className="min-h-screen bg-background">
         <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[220px_1fr]">
