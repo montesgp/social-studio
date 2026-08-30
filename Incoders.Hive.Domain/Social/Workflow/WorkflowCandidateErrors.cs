@@ -17,7 +17,10 @@ public static class WorkflowCandidateErrors
         "social.workflow.candidate.errors.invalid_transition");
 
     /// <summary>No usable source URL — e.g. an <c>ai-ideas</c>-origin candidate with nothing to
-    /// analyze. Rejected at enqueue rather than silently skipped.</summary>
+    /// analyze, or a candidate whose discovery payload never carried a URL. Rejected at enqueue time
+    /// (see <c>EnqueueContentWorkflowCandidatesCommandHandler</c>, keyed off <c>ExternalResultId</c>)
+    /// and again at sequencing time (see <c>ContentWorkflowEnqueueSequencer</c>, keyed off
+    /// <see cref="WorkflowCandidate.SourceUrl"/>) rather than silently skipped either time.</summary>
     public static readonly Error NotAnalyzable = Error.Validation(
         "social.workflow.candidate.not_analyzable",
         "social.workflow.candidate.errors.not_analyzable");

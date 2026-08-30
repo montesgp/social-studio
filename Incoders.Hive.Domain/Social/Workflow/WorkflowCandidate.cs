@@ -10,10 +10,11 @@ public sealed class WorkflowCandidate
 {
     private readonly List<(string FormatKey, int Count)> _composition = [];
 
-    private WorkflowCandidate(Guid id, string externalResultId)
+    private WorkflowCandidate(Guid id, string externalResultId, string? sourceUrl)
     {
         Id = id;
         ExternalResultId = externalResultId;
+        SourceUrl = sourceUrl;
         Status = WorkflowCandidateStatus.Discovered;
     }
 
@@ -21,11 +22,19 @@ public sealed class WorkflowCandidate
 
     public string ExternalResultId { get; }
 
+    /// <summary>The real, resolvable content URL this candidate was discovered from (e.g. the TikTok/
+    /// Instagram/YouTube permalink) — what <c>AnalyzeSingleContentCommand</c> actually scrapes.
+    /// Distinct from <see cref="ExternalResultId"/>, which is only a discovery-time identity token and
+    /// is NOT guaranteed to be a URL. <c>null</c>/empty means discovery persisted no usable URL for this
+    /// candidate (e.g. malformed payload) — callers must fail cleanly rather than analyze an empty URL.</summary>
+    public string? SourceUrl { get; }
+
     public WorkflowCandidateStatus Status { get; private set; }
 
     public IReadOnlyList<(string FormatKey, int Count)> Composition => _composition;
 
-    public static WorkflowCandidate Create(Guid id, string externalResultId) => new(id, externalResultId);
+    public static WorkflowCandidate Create(Guid id, string externalResultId, string? sourceUrl = null) =>
+        new(id, externalResultId, sourceUrl);
 
     /// <summary>
     /// Reconstructs a candidate from an already-persisted row. Skips the invariants <see cref="Create"/>
@@ -39,10 +48,11 @@ public sealed class WorkflowCandidate
     public static WorkflowCandidate Hydrate(
         Guid id,
         string externalResultId,
+        string? sourceUrl,
         WorkflowCandidateStatus status,
         IReadOnlyList<(string FormatKey, int Count)> composition)
     {
-        var candidate = new WorkflowCandidate(id, externalResultId) { Status = status };
+        var candidate = new WorkflowCandidate(id, externalResultId, sourceUrl) { Status = status };
         if (composition.Count > 0)
         {
             candidate._composition.AddRange(composition);

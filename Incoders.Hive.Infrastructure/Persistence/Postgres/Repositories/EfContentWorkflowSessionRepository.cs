@@ -2,6 +2,7 @@ using Incoders.Hive.Application.Abstractions.Social;
 using Incoders.Hive.Domain.Social.Workflow;
 using Incoders.Hive.Infrastructure.Identity;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
+using Incoders.Hive.Infrastructure.Social.Workflow;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -307,9 +308,13 @@ public sealed class EfContentWorkflowSessionRepository : IContentWorkflowSession
 
         foreach (var candidateData in data.Candidates)
         {
+            var payload = ContentWorkflowCandidatePayload.Parse(candidateData.PayloadJson);
+            var sourceUrl = string.IsNullOrWhiteSpace(payload.VideoUrl) ? null : payload.VideoUrl;
+
             var candidate = WorkflowCandidate.Hydrate(
                 candidateData.Id,
                 candidateData.ExternalResultId,
+                sourceUrl,
                 Enum.Parse<WorkflowCandidateStatus>(candidateData.Status),
                 DeserializeComposition(candidateData.CompositionJson));
 

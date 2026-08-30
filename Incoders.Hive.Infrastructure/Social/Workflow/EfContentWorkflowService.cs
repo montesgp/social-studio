@@ -248,7 +248,7 @@ public sealed class EfContentWorkflowService : IContentWorkflowService
             .Select(idea =>
             {
                 var id = Guid.NewGuid();
-                var payload = new CandidatePayload(
+                var payload = new ContentWorkflowCandidatePayload(
                     idea.Title,
                     idea.SourceKey,
                     searchCriterion,
@@ -290,7 +290,7 @@ public sealed class EfContentWorkflowService : IContentWorkflowService
             .Select(item =>
             {
                 var id = Guid.NewGuid();
-                var payload = new CandidatePayload(
+                var payload = new ContentWorkflowCandidatePayload(
                     item.Title,
                     item.NetworkSource,
                     searchCriterion,
@@ -444,6 +444,38 @@ public sealed class EfContentWorkflowService : IContentWorkflowService
         return Result.Success<IReadOnlyList<ContentWorkflowHistoryItemResponse>>(items);
     }
 
+    public async Task<Result<ContentWorkflowCandidateStatusResponse>> RecoverCandidateAsync(
+        Guid organizationId,
+        Guid workflowId,
+        Guid candidateId,
+        CancellationToken cancellationToken = default)
+    {
+        var detailResult = await GetOwnedDetailAsync(organizationId, workflowId, cancellationToken);
+        if (detailResult.IsFailure)
+        {
+            return Result.Failure<ContentWorkflowCandidateStatusResponse>(detailResult.Error);
+        }
+
+        var candidate = detailResult.Value.Candidates.FirstOrDefault(c => c.Id == candidateId);
+        if (candidate is null)
+        {
+            return Result.Failure<ContentWorkflowCandidateStatusResponse>(WorkflowCandidateErrors.NotFoundInSession);
+        }
+
+        if (!Enum.TryParse<WorkflowCandidateStatus>(candidate.Status, out var currentStatus) ||
+            !WorkflowCandidateTransition.CanMoveTo(currentStatus, WorkflowCandidateStatus.Recovered))
+        {
+            return Result.Failure<ContentWorkflowCandidateStatusResponse>(WorkflowCandidateErrors.InvalidTransition);
+        }
+
+        await _repository.UpdateCandidateStatusAsync(
+            candidateId, WorkflowCandidateStatus.Recovered, null, null, null, cancellationToken);
+
+        var payload = DeserializePayload(candidate.PayloadJson);
+        return Result.Success(new ContentWorkflowCandidateStatusResponse(
+            candidateId, payload.Title, WorkflowCandidateStatus.Recovered.ToString(), null));
+    }
+
     private async Task<Result<WorkflowSessionDetail>> GetOwnedDetailAsync(
         Guid organizationId, Guid workflowId, CancellationToken cancellationToken)
     {
@@ -473,7 +505,8 @@ public sealed class EfContentWorkflowService : IContentWorkflowService
             payload.Views,
             payload.Likes,
             payload.Comments,
-            candidate.IsSelected);
+            candidate.IsSelected,
+            candidate.Status);
     }
 
     private static ContentWorkflowCandidateStatusResponse ToCandidateStatus(WorkflowCandidateDetail candidate)
@@ -632,22 +665,8 @@ public sealed class EfContentWorkflowService : IContentWorkflowService
         }
     }
 
-    private static CandidatePayload DeserializePayload(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return CandidatePayload.Empty;
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<CandidatePayload>(json) ?? CandidatePayload.Empty;
-        }
-        catch (JsonException)
-        {
-            return CandidatePayload.Empty;
-        }
-    }
+    private static ContentWorkflowCandidatePayload DeserializePayload(string? json) =>
+        ContentWorkflowCandidatePayload.Parse(json);
 
     private enum DiscoveryPhase
     {
@@ -671,24 +690,6 @@ public sealed class EfContentWorkflowService : IContentWorkflowService
     {
         public static SessionConfig Empty { get; } =
             new(string.Empty, string.Empty, [], false, string.Empty, DiscoveryPhase.InProgress, string.Empty, null);
-    }
-
-    /// <summary>One candidate's discovery payload, serialized into
-    /// <c>content_workflow_candidates.payload_json</c>.</summary>
-    private sealed record CandidatePayload(
-        string Title,
-        string NetworkSource,
-        string SearchCriterion,
-        string StrategyMode,
-        string VideoUrl,
-        string ThumbnailUrl,
-        string Summary,
-        int Views,
-        int Likes,
-        int Comments)
-    {
-        public static CandidatePayload Empty { get; } =
-            new(string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, 0, 0, 0);
     }
 
     private sealed record ProgressPhase(string Key, string Label, string Message);

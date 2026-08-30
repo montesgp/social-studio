@@ -57,6 +57,65 @@ public sealed class ContentWorkflowEnqueueSequencerTests
     }
 
     [Fact]
+    public async Task RunAsync_UsesCandidateSourceUrl_NotExternalResultId_ForAnalysis()
+    {
+        // BUG 1 regression: `ExternalResultId` is a discovery-time identity token (in production, the
+        // candidate's own internal GUID reformatted — never a real URL). `AnalyzeSingleContentCommand`
+        // must be called with the real persisted `SourceUrl`, not `ExternalResultId`.
+        var candidateId = Guid.NewGuid();
+        var analysisId = Guid.NewGuid();
+        var batchId = Guid.NewGuid();
+        const string externalResultId = "9f8b7c6d5e4f4a3b2c1d0e9f8a7b6c5d"; // GUID-shaped, NOT a URL
+        const string sourceUrl = "https://tiktok.com/@a/video/1";
+
+        var session = WorkflowSession.Create(SessionId);
+        var candidate = WorkflowCandidate.Create(candidateId, externalResultId, sourceUrl);
+        candidate.SetComposition([("reel-script", 1)]);
+        session.AddCandidate(candidate);
+
+        var repo = new FakeSessionRepository(session);
+        var analyses = new FakeAnalysisRepository(analysisId, SingleContentAnalysisStatus.Analyzed);
+        var sender = new FakeSender(analysisId, batchId);
+        var clock = new TestClock(new DateTime(2026, 8, 30, 0, 0, 0, DateTimeKind.Utc));
+        var delay = new FakeDelay(clock);
+
+        var sequencer = Build(repo, analyses, sender, clock, delay);
+
+        await sequencer.RunAsync(Item(candidateId), CancellationToken.None);
+
+        Assert.Equal(sourceUrl, sender.LastAnalyzeUrl);
+        Assert.NotEqual(externalResultId, sender.LastAnalyzeUrl);
+        Assert.Equal(WorkflowCandidateStatus.BatchStarted, repo.StatusHistory.Last().Status);
+    }
+
+    [Fact]
+    public async Task RunAsync_CandidateHasNoSourceUrl_FailsAnalysisWithoutCallingAnalyzer()
+    {
+        // Edge case: discovery persisted no usable URL (e.g. malformed payload). Must fail cleanly with
+        // a specific failure code rather than sending an empty/invalid URL into the analyzer.
+        var candidateId = Guid.NewGuid();
+
+        var session = WorkflowSession.Create(SessionId);
+        var candidate = WorkflowCandidate.Create(candidateId, Guid.NewGuid().ToString("N"), sourceUrl: null);
+        candidate.SetComposition([("reel-script", 1)]);
+        session.AddCandidate(candidate);
+
+        var repo = new FakeSessionRepository(session);
+        var analyses = new FakeAnalysisRepository(Guid.NewGuid(), SingleContentAnalysisStatus.Analyzed);
+        var sender = new FakeSender(Guid.NewGuid(), Guid.NewGuid());
+        var clock = new TestClock(new DateTime(2026, 8, 30, 0, 0, 0, DateTimeKind.Utc));
+        var delay = new FakeDelay(clock);
+
+        var sequencer = Build(repo, analyses, sender, clock, delay);
+
+        await sequencer.RunAsync(Item(candidateId), CancellationToken.None);
+
+        Assert.Empty(sender.SentTypes);
+        Assert.Equal(WorkflowCandidateStatus.AnalysisFailed, repo.StatusHistory.Last().Status);
+        Assert.Equal(WorkflowCandidateErrors.NotAnalyzable.Code, repo.StatusHistory.Last().FailureCode);
+    }
+
+    [Fact]
     public async Task RunAsync_AnalysisCommandFails_ReachesAnalysisFailed_AndNeverSendsBatchCommand()
     {
         var candidateId = Guid.NewGuid();
@@ -139,10 +198,10 @@ public sealed class ContentWorkflowEnqueueSequencerTests
     private static ContentWorkflowEnqueueItem Item(Guid candidateId, Guid? sessionId = null) =>
         new(sessionId ?? SessionId, candidateId, OrgId, ClientId, UserId);
 
-    private static WorkflowSession SessionWith(Guid candidateId, string externalResultId, (string FormatKey, int Count) composition)
+    private static WorkflowSession SessionWith(Guid candidateId, string sourceUrl, (string FormatKey, int Count) composition)
     {
         var session = WorkflowSession.Create(SessionId);
-        var candidate = WorkflowCandidate.Create(candidateId, externalResultId);
+        var candidate = WorkflowCandidate.Create(candidateId, Guid.NewGuid().ToString("N"), sourceUrl);
         candidate.SetComposition([composition]);
         session.AddCandidate(candidate);
         return session;
@@ -234,6 +293,8 @@ public sealed class ContentWorkflowEnqueueSequencerTests
 
         public List<Type> SentTypes { get; } = [];
 
+        public string? LastAnalyzeUrl { get; private set; }
+
         public Task<object?> Send(object request, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task Send<TRequest>(TRequest request, CancellationToken ct = default) where TRequest : IRequest =>
@@ -243,8 +304,9 @@ public sealed class ContentWorkflowEnqueueSequencerTests
         {
             SentTypes.Add(request.GetType());
 
-            if (request is AnalyzeSingleContentCommand)
+            if (request is AnalyzeSingleContentCommand analyzeCommand)
             {
+                LastAnalyzeUrl = analyzeCommand.Url;
                 object response = FailAnalyze
                     ? Result.Failure<SingleAnalyzerStatusResponse>(SingleAnalyzerErrors.AnalysisFailed)
                     : Result.Success(new SingleAnalyzerStatusResponse(

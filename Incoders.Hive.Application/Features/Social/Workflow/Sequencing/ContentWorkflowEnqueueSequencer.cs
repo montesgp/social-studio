@@ -75,12 +75,22 @@ public sealed class ContentWorkflowEnqueueSequencer
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(candidate.SourceUrl))
+        {
+            _logger.LogWarning(
+                "ContentWorkflow sequencer: candidate {CandidateId} in session {SessionId} has no source URL " +
+                "to analyze (discovery payload carried none) — failing without calling the analyzer.",
+                item.CandidateId, item.SessionId);
+            await FailAnalysisAsync(item, WorkflowCandidateErrors.NotAnalyzable.Code, cancellationToken);
+            return;
+        }
+
         await _sessions.UpdateCandidateStatusAsync(
             item.CandidateId, WorkflowCandidateStatus.Analyzing, null, null, null, cancellationToken);
 
         var analyzeResult = await _sender.Send(
             new AnalyzeSingleContentCommand(
-                item.OrganizationId, item.UserId, candidate.ExternalResultId, item.ClientId, null),
+                item.OrganizationId, item.UserId, candidate.SourceUrl, item.ClientId, null),
             cancellationToken);
 
         if (analyzeResult.IsFailure)
