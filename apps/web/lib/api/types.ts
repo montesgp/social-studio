@@ -82,6 +82,12 @@ export interface ContentWorkflowStatus {
   bankObservedAtUtc?: string | null;
 }
 
+/**
+ * `status` mirrors `WorkflowCandidateStatus` (Domain/Social/Workflow) — `Discovered` until the operator
+ * composes and enqueues this candidate, `BatchStarted` once at least one content piece has genuinely
+ * been launched for it (the "processed" signal the candidate grid uses to move it into its Processed
+ * tab), `Recovered` after the operator explicitly brings it back into the active pool.
+ */
 export interface ContentWorkflowResult {
   id: string;
   title: string;
@@ -95,6 +101,7 @@ export interface ContentWorkflowResult {
   likes: number;
   comments: number;
   isSelected: boolean;
+  status: string;
 }
 
 export interface ContentWorkflowPreview {

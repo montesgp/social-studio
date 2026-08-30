@@ -1,5 +1,6 @@
 import { apiRequest } from "@/lib/api/client";
 import {
+  ContentWorkflowCandidateStatus,
   ContentWorkflowHistory,
   ContentWorkflowHistoryItem,
   ContentWorkflowResult,
@@ -145,6 +146,27 @@ export async function getContentWorkflowHistory(organizationId: string, workflow
   return apiRequest<ContentWorkflowHistory>(
     `/api/social/workflows/${workflowId}/history`,
     {
+      headers: organizationHeaders(organizationId)
+    },
+    token
+  );
+}
+
+/**
+ * Operator's explicit "bring it back" action on a candidate the candidate grid moved into its Processed
+ * section (see `ContentWorkflowResult.status`). Only legal from `BatchStarted` — the backend rejects any
+ * other source status with a conflict.
+ */
+export async function recoverContentWorkflowCandidate(
+  organizationId: string,
+  workflowId: string,
+  candidateId: string,
+  token?: string
+) {
+  return apiRequest<ContentWorkflowCandidateStatus>(
+    `/api/social/workflows/${workflowId}/candidates/${candidateId}/recover`,
+    {
+      method: "POST",
       headers: organizationHeaders(organizationId)
     },
     token

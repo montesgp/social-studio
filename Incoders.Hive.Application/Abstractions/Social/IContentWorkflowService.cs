@@ -39,4 +39,12 @@ public interface IContentWorkflowService
         int limit,
         Guid? clientId = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Moves a processed candidate (<c>BatchStarted</c>) back to <c>Recovered</c> so it
+    /// reappears in the operator's active candidate pool. See <see cref="ContentWorkflowResultResponse.Status"/>.</summary>
+    Task<Result<ContentWorkflowCandidateStatusResponse>> RecoverCandidateAsync(
+        Guid organizationId,
+        Guid workflowId,
+        Guid candidateId,
+        CancellationToken cancellationToken = default);
 }

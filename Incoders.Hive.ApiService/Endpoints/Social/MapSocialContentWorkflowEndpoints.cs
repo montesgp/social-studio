@@ -70,6 +70,14 @@ public static class SocialContentWorkflowEndpointsExtensions
             .Produces<IReadOnlyList<ContentWorkflowHistoryItemResponse>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest);
 
+        group.MapPost("/{workflowId:guid}/candidates/{candidateId:guid}/recover", RecoverCandidateAsync)
+            .WithName("RecoverSocialContentWorkflowCandidate")
+            .WithSummary("Bring a processed candidate back into the active candidate pool")
+            .Produces<ContentWorkflowCandidateStatusResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
+
         return app;
     }
 
@@ -219,6 +227,25 @@ public static class SocialContentWorkflowEndpointsExtensions
 
         var result = await sender.Send(
             new ListContentWorkflowHistoryQuery(organizationId.Value, limit, clientId),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    private static async Task<IResult> RecoverCandidateAsync(
+        Guid workflowId,
+        Guid candidateId,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } organizationId)
+        {
+            return ContentWorkflowErrors.OrganizationRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new RecoverContentWorkflowCandidateCommand(organizationId.Value, workflowId, candidateId),
             cancellationToken);
 
         return result.Match(response => (IResult)TypedResults.Ok(response));

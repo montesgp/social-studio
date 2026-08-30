@@ -80,6 +80,12 @@ public sealed record ContentWorkflowStatusResponse(
     string ResultOrigin = "",
     DateTimeOffset? BankObservedAtUtc = null);
 
+/// <param name="Status">
+/// The candidate's <see cref="Incoders.Hive.Domain.Social.Workflow.WorkflowCandidateStatus"/>. <c>Discovered</c>
+/// until the operator composes and enqueues it; <c>BatchStarted</c> once at least one content piece has
+/// genuinely been launched for it (the Generator screen's "Processed" signal); <c>Recovered</c> after the
+/// operator explicitly brings a processed candidate back into the active pool.
+/// </param>
 public sealed record ContentWorkflowResultResponse(
     Guid Id,
     string Title,
@@ -92,7 +98,8 @@ public sealed record ContentWorkflowResultResponse(
     int Views,
     int Likes,
     int Comments,
-    bool IsSelected);
+    bool IsSelected,
+    string Status);
 
 public sealed record ContentWorkflowSelectionResponse(
     Guid WorkflowId,

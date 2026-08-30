@@ -675,6 +675,71 @@ public sealed class ContentWorkflowServiceTests
         Assert.Equal(ContentWorkflowErrors.OriginModeInvalid, started.Error);
     }
 
+    [Fact]
+    public async Task GetResults_ExposesDiscoveredStatus_UntilComposedAndEnqueued()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+
+        Assert.True(results.IsSuccess);
+        Assert.All(results.Value.Items, item => Assert.Equal(WorkflowCandidateStatus.Discovered.ToString(), item.Status));
+    }
+
+    [Fact]
+    public async Task RecoverCandidate_FromBatchStarted_MovesToRecovered_AndIsReflectedInResults()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var (service, repository) = CreateServiceWithRepository(clock, ScopeFactoryWith(Discovered(1)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+        var candidateId = results.Value.Items[0].Id;
+
+        // Simulate the sequencer having already driven this candidate to the "processed" terminal state.
+        await repository.UpdateCandidateStatusAsync(candidateId, WorkflowCandidateStatus.BatchStarted, null, null, null);
+
+        var recovered = await service.RecoverCandidateAsync(organizationId, started.Value.WorkflowId, candidateId);
+        var refreshed = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+
+        Assert.True(recovered.IsSuccess);
+        Assert.Equal(WorkflowCandidateStatus.Recovered.ToString(), recovered.Value.Status);
+        Assert.Equal(WorkflowCandidateStatus.Recovered.ToString(), refreshed.Value.Items[0].Status);
+    }
+
+    [Fact]
+    public async Task RecoverCandidate_WhenNotBatchStarted_IsRejected()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var service = CreateService(clock, ScopeFactoryWith(Discovered(1)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+        var candidateId = results.Value.Items[0].Id;
+
+        var recovered = await service.RecoverCandidateAsync(organizationId, started.Value.WorkflowId, candidateId);
+
+        Assert.True(recovered.IsFailure);
+        Assert.Equal(WorkflowCandidateErrors.InvalidTransition, recovered.Error);
+    }
+
     // ── harness ──────────────────────────────────────────────────────────────
 
     private static EfContentWorkflowService CreateService(

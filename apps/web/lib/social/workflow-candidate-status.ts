@@ -19,7 +19,8 @@ const STATUS_PRESENTATION: Record<string, WorkflowCandidateStatusPresentation> =
   AnalysisFailed: { label: "Analysis failed", tone: "failed", isTerminal: true },
   BatchQueued: { label: "Batch queued", tone: "pending", isTerminal: false },
   BatchFailed: { label: "Batch failed", tone: "failed", isTerminal: true },
-  BatchStarted: { label: "Batch started", tone: "success", isTerminal: true }
+  BatchStarted: { label: "Batch started", tone: "success", isTerminal: true },
+  Recovered: { label: "Recovered", tone: "success", isTerminal: true }
 };
 
 /** An unknown status renders as-is with a neutral tone rather than throwing — the backend enum can

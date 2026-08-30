@@ -122,3 +122,19 @@ public sealed class ListContentWorkflowHistoryHandler
         CancellationToken cancellationToken) =>
         _service.ListHistoryAsync(request.OrganizationId, request.Limit, request.ClientId, cancellationToken);
 }
+
+public sealed class RecoverContentWorkflowCandidateHandler
+    : IRequestHandler<RecoverContentWorkflowCandidateCommand, Result<ContentWorkflowCandidateStatusResponse>>
+{
+    private readonly IContentWorkflowService _service;
+
+    public RecoverContentWorkflowCandidateHandler(IContentWorkflowService service)
+    {
+        _service = service;
+    }
+
+    public Task<Result<ContentWorkflowCandidateStatusResponse>> Handle(
+        RecoverContentWorkflowCandidateCommand request,
+        CancellationToken cancellationToken) =>
+        _service.RecoverCandidateAsync(request.OrganizationId, request.WorkflowId, request.CandidateId, cancellationToken);
+}

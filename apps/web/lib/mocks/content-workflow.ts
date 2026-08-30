@@ -445,7 +445,8 @@ function buildMockResults(
         views,
         likes,
         comments,
-        isSelected: false
+        isSelected: false,
+        status: "Discovered"
       });
     }
   }

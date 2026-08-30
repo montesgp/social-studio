@@ -11,6 +11,7 @@ public sealed class WorkflowCandidateStatusTests
     [InlineData(WorkflowCandidateStatus.Analyzing, WorkflowCandidateStatus.BatchQueued)]
     [InlineData(WorkflowCandidateStatus.BatchQueued, WorkflowCandidateStatus.BatchFailed)]
     [InlineData(WorkflowCandidateStatus.BatchQueued, WorkflowCandidateStatus.BatchStarted)]
+    [InlineData(WorkflowCandidateStatus.BatchStarted, WorkflowCandidateStatus.Recovered)]
     public void CanMoveTo_ReturnsTrue_ForLegalTransitions(
         WorkflowCandidateStatus from,
         WorkflowCandidateStatus to)
@@ -27,6 +28,9 @@ public sealed class WorkflowCandidateStatusTests
     [InlineData(WorkflowCandidateStatus.BatchFailed, WorkflowCandidateStatus.BatchQueued)]
     [InlineData(WorkflowCandidateStatus.BatchStarted, WorkflowCandidateStatus.Analyzing)]
     [InlineData(WorkflowCandidateStatus.BatchStarted, WorkflowCandidateStatus.BatchQueued)]
+    [InlineData(WorkflowCandidateStatus.Recovered, WorkflowCandidateStatus.Queued)]
+    [InlineData(WorkflowCandidateStatus.Recovered, WorkflowCandidateStatus.Recovered)]
+    [InlineData(WorkflowCandidateStatus.Discovered, WorkflowCandidateStatus.Recovered)]
     public void CanMoveTo_ReturnsFalse_ForIllegalTransitions(
         WorkflowCandidateStatus from,
         WorkflowCandidateStatus to)
@@ -40,6 +44,7 @@ public sealed class WorkflowCandidateStatusTests
         Assert.True(WorkflowCandidateTransition.IsTerminal(WorkflowCandidateStatus.AnalysisFailed));
         Assert.True(WorkflowCandidateTransition.IsTerminal(WorkflowCandidateStatus.BatchFailed));
         Assert.True(WorkflowCandidateTransition.IsTerminal(WorkflowCandidateStatus.BatchStarted));
+        Assert.True(WorkflowCandidateTransition.IsTerminal(WorkflowCandidateStatus.Recovered));
         Assert.False(WorkflowCandidateTransition.IsTerminal(WorkflowCandidateStatus.Discovered));
         Assert.False(WorkflowCandidateTransition.IsTerminal(WorkflowCandidateStatus.Queued));
         Assert.False(WorkflowCandidateTransition.IsTerminal(WorkflowCandidateStatus.Analyzing));

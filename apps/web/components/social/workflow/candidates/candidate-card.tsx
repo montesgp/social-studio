@@ -1,6 +1,8 @@
 "use client";
 
+import { RotateCcw } from "lucide-react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { getSocialNetworkIcon } from "@/lib/social-network-icons";
 import { cn } from "@/lib/utils";
 import type { ContentWorkflowResult, SocialNetwork } from "@/lib/api/types";
@@ -36,6 +38,10 @@ export interface CandidateCardProps {
   availableNetworks: SocialNetwork[];
   onToggleSelected: (resultId: string) => void;
   onOpen: (resultId: string) => void;
+  /** Present only in the Processed tab — recovering brings the candidate back into the active pool
+   * without undoing whatever content was already generated for it. */
+  onRecover?: (resultId: string) => void;
+  recovering?: boolean;
 }
 
 /**
@@ -51,7 +57,9 @@ export function CandidateCard({
   isComposed,
   availableNetworks,
   onToggleSelected,
-  onOpen
+  onOpen,
+  onRecover,
+  recovering
 }: CandidateCardProps) {
   return (
     <article
@@ -68,14 +76,28 @@ export function CandidateCard({
         )}
         <div className={cn(viewMode === "video" && "min-w-0 flex-1")}>
           <div className="flex flex-wrap items-start justify-between gap-2">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input type="checkbox" checked={isSelected} onChange={() => onToggleSelected(result.id)} />
-              Select
-            </label>
+            {onRecover ? (
+              <span className="text-xs text-muted-foreground">Processed for generation</span>
+            ) : (
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input type="checkbox" checked={isSelected} onChange={() => onToggleSelected(result.id)} />
+                Select
+              </label>
+            )}
             <div className="flex flex-wrap items-center gap-1.5">
               {isComposed && (
                 <Badge variant="success" className="text-[10px]">
                   Composed
+                </Badge>
+              )}
+              {result.status === "BatchStarted" && (
+                <Badge variant="info" className="text-[10px]">
+                  Processed
+                </Badge>
+              )}
+              {result.status === "Recovered" && (
+                <Badge variant="muted" className="text-[10px]">
+                  Recovered
                 </Badge>
               )}
               <Badge variant={strategyBadgeVariant(result.strategyMode)} className="text-[10px] uppercase tracking-widest">
@@ -104,6 +126,18 @@ export function CandidateCard({
             <Fact label="Likes" value={result.likes.toLocaleString()} />
             <Fact label="Comments" value={result.comments.toLocaleString()} />
           </div>
+
+          {onRecover && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-3 w-full"
+              disabled={recovering}
+              onClick={() => onRecover(result.id)}
+            >
+              <RotateCcw className="h-4 w-4" /> Recover to active pool
+            </Button>
+          )}
         </div>
       </div>
     </article>

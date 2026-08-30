@@ -14,6 +14,7 @@ public static class WorkflowCandidateTransition
         (WorkflowCandidateStatus.Analyzing, WorkflowCandidateStatus.BatchQueued),
         (WorkflowCandidateStatus.BatchQueued, WorkflowCandidateStatus.BatchFailed),
         (WorkflowCandidateStatus.BatchQueued, WorkflowCandidateStatus.BatchStarted),
+        (WorkflowCandidateStatus.BatchStarted, WorkflowCandidateStatus.Recovered),
     ];
 
     /// <summary>Returns <c>true</c> when transitioning from <paramref name="from"/> to
@@ -22,9 +23,11 @@ public static class WorkflowCandidateTransition
         AllowedTransitions.Contains((from, to));
 
     /// <summary>Returns <c>true</c> for terminal statuses (<see cref="WorkflowCandidateStatus.AnalysisFailed"/>,
-    /// <see cref="WorkflowCandidateStatus.BatchFailed"/> and <see cref="WorkflowCandidateStatus.BatchStarted"/>).</summary>
+    /// <see cref="WorkflowCandidateStatus.BatchFailed"/>, <see cref="WorkflowCandidateStatus.BatchStarted"/> and
+    /// <see cref="WorkflowCandidateStatus.Recovered"/>).</summary>
     public static bool IsTerminal(WorkflowCandidateStatus status) =>
         status is WorkflowCandidateStatus.AnalysisFailed
             or WorkflowCandidateStatus.BatchFailed
-            or WorkflowCandidateStatus.BatchStarted;
+            or WorkflowCandidateStatus.BatchStarted
+            or WorkflowCandidateStatus.Recovered;
 }

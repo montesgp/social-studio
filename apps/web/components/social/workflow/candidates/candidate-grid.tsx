@@ -1,10 +1,12 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { CheckCircle2, ChevronLeft, ChevronRight, LayoutList, Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { ContentWorkflowResult, PageResult, SocialNetwork } from "@/lib/api/types";
+import { splitCandidatesByProcessedState } from "@/lib/social/workflow-candidate-grouping";
 import { CandidateCard } from "./candidate-card";
 
 export interface CandidateGridProps {
@@ -24,6 +26,9 @@ export interface CandidateGridProps {
   onSaveSelection: () => void;
   onPreviousPage: () => void;
   onNextPage: () => void;
+  /** Recover action for the Processed tab (see `splitCandidatesByProcessedState`). */
+  onRecoverCandidate: (resultId: string) => void;
+  recoveringCandidateId?: string | null;
 }
 
 /** Discovery results only — no bulk generation actions (removed per spec: `transcribe_and_build_script` /
@@ -44,9 +49,14 @@ export function CandidateGrid({
   onDeselectAll,
   onSaveSelection,
   onPreviousPage,
-  onNextPage
+  onNextPage,
+  onRecoverCandidate,
+  recoveringCandidateId
 }: CandidateGridProps) {
-  const results = resultsPage?.items ?? [];
+  const [tab, setTab] = useState<"active" | "processed">("active");
+  const results = useMemo(() => resultsPage?.items ?? [], [resultsPage]);
+  const grouping = useMemo(() => splitCandidatesByProcessedState(results), [results]);
+  const visibleResults = tab === "active" ? grouping.active : grouping.processed;
 
   return (
     <Card className="overflow-hidden">
@@ -80,24 +90,49 @@ export function CandidateGrid({
       </CardHeader>
       <CardContent className="space-y-4 p-4">
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={onSelectAll}>
-            Select all
+          <Button
+            size="sm"
+            variant={tab === "active" ? "default" : "outline"}
+            onClick={() => setTab("active")}
+          >
+            Active ({grouping.active.length})
           </Button>
-          <Button variant="outline" size="sm" disabled={selectedResultIds.length === 0} onClick={onDeselectAll}>
-            Deselect all
-          </Button>
-          <Button variant="secondary" size="sm" disabled={selectedResultIds.length === 0 || busy} onClick={onSaveSelection}>
-            <CheckCircle2 className="h-4 w-4" /> Save selection ({selectedResultIds.length})
+          <Button
+            size="sm"
+            variant={tab === "processed" ? "default" : "outline"}
+            onClick={() => setTab("processed")}
+          >
+            Processed ({grouping.processed.length})
           </Button>
         </div>
+
+        {tab === "active" && (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={onSelectAll}>
+              Select all
+            </Button>
+            <Button variant="outline" size="sm" disabled={selectedResultIds.length === 0} onClick={onDeselectAll}>
+              Deselect all
+            </Button>
+            <Button variant="secondary" size="sm" disabled={selectedResultIds.length === 0 || busy} onClick={onSaveSelection}>
+              <CheckCircle2 className="h-4 w-4" /> Save selection ({selectedResultIds.length})
+            </Button>
+          </div>
+        )}
 
         {results.length === 0 ? (
           <div className="rounded-xl border border-border bg-background/30 p-6 text-sm text-muted-foreground">
             Discover candidates to load paginated content candidates.
           </div>
+        ) : visibleResults.length === 0 ? (
+          <div className="rounded-xl border border-border bg-background/30 p-6 text-sm text-muted-foreground">
+            {tab === "active"
+              ? "No active candidates on this page — check the Processed tab."
+              : "No processed candidates on this page yet."}
+          </div>
         ) : (
           <div className={cn("gap-3", viewMode === "grid" ? "grid md:grid-cols-2" : "grid grid-cols-1")}>
-            {results.map((result) => (
+            {visibleResults.map((result) => (
               <CandidateCard
                 key={result.id}
                 result={result}
@@ -108,6 +143,8 @@ export function CandidateGrid({
                 availableNetworks={availableNetworks}
                 onToggleSelected={onToggleSelected}
                 onOpen={onOpenResult}
+                onRecover={tab === "processed" ? onRecoverCandidate : undefined}
+                recovering={recoveringCandidateId === result.id}
               />
             ))}
           </div>

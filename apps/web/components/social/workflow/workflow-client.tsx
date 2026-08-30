@@ -2,7 +2,8 @@
 
 import { useDateFormatter } from "@/lib/format/use-date-formatter";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { ListChecks, Loader2, Sparkles } from "lucide-react";
 import { listOrganizations } from "@/lib/api/organizations";
 import { listSocialNetworks } from "@/lib/api/social-networks";
 import {
@@ -11,6 +12,7 @@ import {
   listContentWorkflowHistory,
   listContentWorkflowResults,
   listWorkflowClients,
+  recoverContentWorkflowCandidate,
   selectContentWorkflowResults,
   startContentWorkflow
 } from "@/lib/api/content-workflow";
@@ -28,11 +30,13 @@ import {
   SocialNetwork
 } from "@/lib/api/types";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
 import { useActiveOrg } from "@/lib/auth/active-org-context";
+import { splitCandidatesByProcessedState } from "@/lib/social/workflow-candidate-grouping";
 import { useCandidateComposition } from "./hooks/use-candidate-composition";
 import { useFormatCatalog } from "./hooks/use-format-catalog";
 import { useWorkflowEnqueue } from "./hooks/use-workflow-enqueue";
@@ -82,6 +86,7 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recoveringCandidateId, setRecoveringCandidateId] = useState<string | null>(null);
 
   // Collapsible panels — default open for a fresh run, default collapsed when opening a historical
   // record's summary (spec: "Collapsible progress and configuration panels").
@@ -97,6 +102,10 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
   const formatOptions = useFormatCatalog(token);
 
   const results = useMemo(() => resultsPage?.items ?? [], [resultsPage]);
+
+  // "Select all" must only pick up candidates still in the active pool — a Processed candidate is hidden
+  // from the composition flow until the operator explicitly recovers it.
+  const activeResults = useMemo(() => splitCandidatesByProcessedState(results).active, [results]);
 
   const activeResult = useMemo(
     () => results.find((item) => item.id === activeResultId) ?? null,
@@ -373,6 +382,21 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
     }
   }
 
+  async function handleRecoverCandidate(candidateId: string) {
+    if (!selectedOrganizationId || !activeWorkflowId || !token) return;
+
+    setRecoveringCandidateId(candidateId);
+    try {
+      await recoverContentWorkflowCandidate(selectedOrganizationId, activeWorkflowId, candidateId, token);
+      toast.success("Candidate recovered", "It is back in the active candidate pool.");
+      await loadWorkflowResults(activeWorkflowId, selectedOrganizationId, pageNumber, token);
+    } catch (err) {
+      toast.error("Could not recover candidate", (err as ApiError).message);
+    } finally {
+      setRecoveringCandidateId(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[16rem] items-center justify-center">
@@ -398,22 +422,29 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
               </p>
             </div>
           </div>
-          {isPlatformAdmin && organizations.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Organization</span>
-              <Select
-                className="min-w-[220px]"
-                value={selectedOrganizationId}
-                onChange={(event) => setSelectedOrganizationId(event.target.value)}
-              >
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
+          <div className="flex flex-wrap items-end gap-3">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/workflow/progress">
+                <ListChecks className="h-4 w-4" /> View enqueued work
+              </Link>
+            </Button>
+            {isPlatformAdmin && organizations.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Organization</span>
+                <Select
+                  className="min-w-[220px]"
+                  value={selectedOrganizationId}
+                  onChange={(event) => setSelectedOrganizationId(event.target.value)}
+                >
+                  {organizations.map((organization) => (
+                    <option key={organization.id} value={organization.id}>
+                      {organization.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -460,11 +491,13 @@ export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
           availableNetworks={availableNetworks}
           onToggleSelected={toggleSelection}
           onOpenResult={setActiveResultId}
-          onSelectAll={() => setSelectedResultIds(results.map((r) => r.id))}
+          onSelectAll={() => setSelectedResultIds(activeResults.map((r) => r.id))}
           onDeselectAll={() => setSelectedResultIds([])}
           onSaveSelection={() => void saveSelection()}
           onPreviousPage={() => setPageNumber((current) => Math.max(1, current - 1))}
           onNextPage={() => setPageNumber((current) => current + 1)}
+          onRecoverCandidate={(id) => void handleRecoverCandidate(id)}
+          recoveringCandidateId={recoveringCandidateId}
         />
 
         <div className="space-y-4">

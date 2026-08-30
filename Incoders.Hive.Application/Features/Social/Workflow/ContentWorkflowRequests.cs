@@ -38,3 +38,15 @@ public sealed record ListContentWorkflowHistoryQuery(
     Guid OrganizationId,
     int Limit,
     Guid? ClientId = null) : IRequest<Result<IReadOnlyList<ContentWorkflowHistoryItemResponse>>>;
+
+/// <summary>
+/// The operator's explicit "bring it back" action on a candidate the Generator screen's candidate grid
+/// moved into its "Processed" section (see <see cref="ContentWorkflowResultResponse.Status"/>). Only
+/// legal from <c>BatchStarted</c> (see <see cref="Incoders.Hive.Domain.Social.Workflow.WorkflowCandidateTransition"/>);
+/// does not undo whatever content generation already happened and does not block re-enqueueing the same
+/// candidate afterwards.
+/// </summary>
+public sealed record RecoverContentWorkflowCandidateCommand(
+    Guid OrganizationId,
+    Guid WorkflowId,
+    Guid CandidateId) : IRequest<Result<ContentWorkflowCandidateStatusResponse>>;
