@@ -61,7 +61,7 @@ export function CandidateCard({
       )}
     >
       <div className={cn(viewMode === "video" && "flex items-start gap-3")}>
-        {viewMode === "video" && (
+        {viewMode === "video" && result.thumbnailUrl && (
           <a href={result.videoUrl} target="_blank" rel="noreferrer" className="flex-shrink-0">
             <img src={result.thumbnailUrl} alt={result.title} className="h-12 w-[72px] rounded-md object-cover" />
           </a>
