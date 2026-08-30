@@ -8,6 +8,7 @@ using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Create;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Deactivate;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.GetById;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.GetByClient;
+using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Sync;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Update;
 using Incoders.Hive.Domain.Social.ClientReferentAccounts;
 using Incoders.Hive.Domain.Social.Clients;
@@ -288,7 +289,7 @@ public sealed class ClientReferentAccountLifecycleTests
     }
 
     [Fact]
-    public async Task ListHandler_OrderedByCreatedAtUtcDesc()
+    public async Task ListHandler_OrderedBySortOrderThenCreatedAtUtc()
     {
         var harness = new Harness(Now);
         var (clientId, orgId, networkId) = await harness.SeedActiveClientAndNetwork();
@@ -313,9 +314,8 @@ public sealed class ClientReferentAccountLifecycleTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(2, result.Value.Items.Count);
-        // brand2 (Later) should come first (DESC)
-        Assert.Equal("https://www.instagram.com/brand2", result.Value.Items[0].ProfileUrl);
-        Assert.Equal("https://www.instagram.com/brand1", result.Value.Items[1].ProfileUrl);
+        Assert.Equal("https://www.instagram.com/brand1", result.Value.Items[0].ProfileUrl);
+        Assert.Equal("https://www.instagram.com/brand2", result.Value.Items[1].ProfileUrl);
     }
 
     // --- Update ---
@@ -334,6 +334,7 @@ public sealed class ClientReferentAccountLifecycleTests
         var result = await harness.Update.Handle(
             new UpdateClientReferentAccountCommand(
                 orgId, clientId, created.Value.Id,
+                null,
                 "https://www.instagram.com/brand2", "@brand2", "Label", null),
             CancellationToken.None);
 
@@ -357,6 +358,7 @@ public sealed class ClientReferentAccountLifecycleTests
         var result = await harness.Update.Handle(
             new UpdateClientReferentAccountCommand(
                 orgId, clientId, created.Value.Id,
+                null,
                 "https://www.instagram.com/brand-new", null, null, null),
             CancellationToken.None);
 
@@ -384,11 +386,51 @@ public sealed class ClientReferentAccountLifecycleTests
         var result = await harness.Update.Handle(
             new UpdateClientReferentAccountCommand(
                 orgId, clientId, r2.Value.Id,
+                null,
                 "https://www.instagram.com/brand1", null, null, null),
             CancellationToken.None);
 
         Assert.True(result.IsFailure);
         Assert.Equal("social.client_referent_accounts.profile_url_already_exists", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task UpdateHandler_SocialNetworkChanges_ReturnsUpdatedNetworkFields()
+    {
+        var harness = new Harness(Now);
+        var (clientId, orgId, networkId) = await harness.SeedActiveClientAndNetwork();
+        var secondNetworkId = SocialNetworkId.New();
+        harness.NetworkRepository.AddNetwork(SocialNetwork.Restore(
+            secondNetworkId,
+            "tiktok",
+            "TikTok",
+            "tiktok",
+            true,
+            Now,
+            Now));
+
+        var created = await harness.Create.Handle(
+            new CreateClientReferentAccountCommand(
+                orgId, clientId, networkId,
+                "https://www.instagram.com/brand", null, null, null),
+            CancellationToken.None);
+
+        var result = await harness.Update.Handle(
+            new UpdateClientReferentAccountCommand(
+                orgId,
+                clientId,
+                created.Value.Id,
+                secondNetworkId.Value,
+                "https://www.tiktok.com/@brand",
+                "@brand",
+                "Main TikTok",
+                null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(secondNetworkId.Value, result.Value.SocialNetworkId);
+        Assert.Equal("TikTok", result.Value.SocialNetworkDisplayName);
+        Assert.Equal("https://www.tiktok.com/@brand", result.Value.ProfileUrl);
     }
 
     [Fact]
@@ -400,6 +442,7 @@ public sealed class ClientReferentAccountLifecycleTests
         var result = await harness.Update.Handle(
             new UpdateClientReferentAccountCommand(
                 orgId, clientId, Guid.NewGuid(),
+                null,
                 "https://www.instagram.com/brand", null, null, null),
             CancellationToken.None);
 
@@ -421,11 +464,97 @@ public sealed class ClientReferentAccountLifecycleTests
         var result = await harness.Update.Handle(
             new UpdateClientReferentAccountCommand(
                 Guid.NewGuid(), clientId, created.Value.Id,
+                null,
                 "https://www.instagram.com/brand", null, null, null),
             CancellationToken.None);
 
         Assert.True(result.IsFailure);
         Assert.Equal("social.client_referent_accounts.not_found", result.Error.Code);
+    }
+
+    // --- Sync ---
+
+    [Fact]
+    public async Task SyncHandler_ValidDraft_CreatesUpdatesAndDeactivatesOmittedAccounts()
+    {
+        var harness = new Harness(Now);
+        var (clientId, orgId, networkId) = await harness.SeedActiveClientAndNetwork();
+
+        var first = await harness.Create.Handle(
+            new CreateClientReferentAccountCommand(
+                orgId, clientId, networkId,
+                "https://www.instagram.com/first", "@first", null, null),
+            CancellationToken.None);
+
+        var omitted = await harness.Create.Handle(
+            new CreateClientReferentAccountCommand(
+                orgId, clientId, networkId,
+                "https://www.instagram.com/omitted", "@omitted", null, null),
+            CancellationToken.None);
+
+        var result = await harness.Sync.Handle(
+            new SyncClientReferentAccountsCommand(
+                orgId,
+                clientId,
+                [
+                    new SyncClientReferentAccountItem(
+                        first.Value.Id,
+                        networkId,
+                        "https://www.instagram.com/first-renamed",
+                        "@first_new",
+                        "Primary",
+                        null,
+                        true),
+                    new SyncClientReferentAccountItem(
+                        null,
+                        networkId,
+                        "https://www.instagram.com/new",
+                        "@new",
+                        "New",
+                        null,
+                        true),
+                ]),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3, result.Value.Count);
+        Assert.Contains(result.Value, x => x.Id == first.Value.Id && x.Handle == "@first_new");
+        Assert.Contains(result.Value, x => x.ProfileUrl == "https://www.instagram.com/new" && x.IsActive);
+        Assert.Contains(result.Value, x => x.Id == omitted.Value.Id && !x.IsActive);
+    }
+
+    [Fact]
+    public async Task SyncHandler_DuplicateIncomingProfileUrl_ReturnsConflict()
+    {
+        var harness = new Harness(Now);
+        var (clientId, orgId, networkId) = await harness.SeedActiveClientAndNetwork();
+
+        var result = await harness.Sync.Handle(
+            new SyncClientReferentAccountsCommand(
+                orgId,
+                clientId,
+                [
+                    new SyncClientReferentAccountItem(
+                        null,
+                        networkId,
+                        "https://www.instagram.com/brand",
+                        null,
+                        null,
+                        null,
+                        true),
+                    new SyncClientReferentAccountItem(
+                        null,
+                        networkId,
+                        "https://www.instagram.com/brand",
+                        "@brand2",
+                        null,
+                        null,
+                        true),
+                ]),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("social.client_referent_accounts.profile_url_already_exists", result.Error.Code);
     }
 
     // --- Deactivate ---
@@ -557,6 +686,7 @@ public sealed class ClientReferentAccountLifecycleTests
             GetById = new GetClientReferentAccountByIdHandler(accountRepository, NetworkRepository);
             List = new ListClientReferentAccountsByClientHandler(accountRepository, ClientRepository, NetworkRepository);
             Update = new UpdateClientReferentAccountHandler(accountRepository, NetworkRepository, Clock);
+            Sync = new SyncClientReferentAccountsHandler(accountRepository, ClientRepository, NetworkRepository, Clock);
             Deactivate = new DeactivateClientReferentAccountHandler(accountRepository, NetworkRepository, Clock);
             Activate = new ActivateClientReferentAccountHandler(accountRepository, NetworkRepository, Clock);
         }
@@ -569,6 +699,7 @@ public sealed class ClientReferentAccountLifecycleTests
         public GetClientReferentAccountByIdHandler GetById { get; }
         public ListClientReferentAccountsByClientHandler List { get; }
         public UpdateClientReferentAccountHandler Update { get; }
+        public SyncClientReferentAccountsHandler Sync { get; }
         public DeactivateClientReferentAccountHandler Deactivate { get; }
         public ActivateClientReferentAccountHandler Activate { get; }
 
@@ -628,7 +759,10 @@ public sealed class ClientReferentAccountLifecycleTests
                 source = source.Where(a => a.IsActive);
             }
 
-            var ordered = source.OrderByDescending(a => a.CreatedAtUtc).ToList();
+            var ordered = source
+                .OrderBy(a => a.SortOrder)
+                .ThenBy(a => a.CreatedAtUtc)
+                .ToList();
             var items = ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();
             return Task.FromResult<(IReadOnlyList<ClientReferentAccount>, int)>((items, ordered.Count));
         }
@@ -662,18 +796,48 @@ public sealed class ClientReferentAccountLifecycleTests
 
         public void Update(ClientReferentAccount referentAccount)
         {
-            // Remove old unique index entry
-            foreach (var entry in _uniqueIndex.Where(k => k.ClientId == referentAccount.ClientId.Value && k.NetworkId == referentAccount.SocialNetworkId.Value).ToList())
-            {
-                _uniqueIndex.Remove(entry);
-            }
             _store[referentAccount.Id] = referentAccount;
-            _uniqueIndex.Add((referentAccount.ClientId.Value, referentAccount.SocialNetworkId.Value, referentAccount.ProfileUrl));
+            RebuildUniqueIndex();
+        }
+
+        public Task<IReadOnlyList<ClientReferentAccount>> GetAllByClientAsync(
+            ClientId clientId,
+            Guid organizationId,
+            CancellationToken ct)
+        {
+            IReadOnlyList<ClientReferentAccount> items = _store.Values
+                .Where(a => a.ClientId == clientId && a.OrganizationId == organizationId)
+                .OrderBy(a => a.SortOrder).ThenBy(a => a.CreatedAtUtc)
+                .ToList();
+            return Task.FromResult(items);
+        }
+
+        public Task ReorderAsync(
+            ClientId clientId,
+            Guid organizationId,
+            IReadOnlyList<Guid> orderedIds,
+            CancellationToken ct)
+        {
+            var accounts = _store.Values
+                .Where(a => a.ClientId == clientId && a.OrganizationId == organizationId)
+                .ToList();
+
+            ClientReferentAccount.Reorder(accounts, orderedIds, DateTime.UtcNow);
+            return Task.CompletedTask;
         }
 
         public Task SaveChangesAsync(CancellationToken ct)
         {
             return Task.CompletedTask;
+        }
+
+        private void RebuildUniqueIndex()
+        {
+            _uniqueIndex.Clear();
+            foreach (var account in _store.Values)
+            {
+                _uniqueIndex.Add((account.ClientId.Value, account.SocialNetworkId.Value, account.ProfileUrl));
+            }
         }
     }
 

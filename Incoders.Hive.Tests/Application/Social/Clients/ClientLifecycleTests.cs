@@ -56,6 +56,41 @@ public sealed class ClientLifecycleTests
     }
 
     [Fact]
+    public async Task GetById_WithoutOrganization_ResolvesAcrossOrganizations_ForPlatformAdmin()
+    {
+        // The platform-admin clients list spans every organization, including ones the admin is
+        // not a member of. A null organization is how the endpoint expresses that lookup; scoping
+        // it to the admin's own tenant used to 404 exactly the rows the list had just returned.
+        var harness = new SocialClientHarness(Now);
+        var ownerOrganizationId = Guid.NewGuid();
+
+        var created = await harness.Create.Handle(
+            new CreateSocialClientCommand(ownerOrganizationId, "Acme Social", null),
+            CancellationToken.None);
+
+        var fetched = await harness.GetById.Handle(
+            new GetSocialClientByIdQuery(created.Value.Id, null),
+            CancellationToken.None);
+
+        Assert.True(fetched.IsSuccess);
+        Assert.Equal("Acme Social", fetched.Value.Name);
+        Assert.Equal(ownerOrganizationId, fetched.Value.OrganizationId);
+    }
+
+    [Fact]
+    public async Task GetById_WithoutOrganization_StillFailsForUnknownClient()
+    {
+        var harness = new SocialClientHarness(Now);
+
+        var fetched = await harness.GetById.Handle(
+            new GetSocialClientByIdQuery(Guid.NewGuid(), null),
+            CancellationToken.None);
+
+        Assert.True(fetched.IsFailure);
+        Assert.Equal("social.clients.not_found", fetched.Error.Code);
+    }
+
+    [Fact]
     public async Task List_ReturnsOnlyOrganizationClients()
     {
         var harness = new SocialClientHarness(Now);
@@ -71,6 +106,22 @@ public sealed class ClientLifecycleTests
         Assert.True(result.IsSuccess);
         Assert.Single(result.Value.Items);
         Assert.Equal("Acme", result.Value.Items[0].Name);
+    }
+
+    [Fact]
+    public async Task List_ReturnsAllOrganizationClients_WhenOrganizationFilterIsNull()
+    {
+        var harness = new SocialClientHarness(Now);
+
+        await harness.Create.Handle(new CreateSocialClientCommand(Guid.NewGuid(), "Acme", null), CancellationToken.None);
+        await harness.Create.Handle(new CreateSocialClientCommand(Guid.NewGuid(), "Other", null), CancellationToken.None);
+
+        var result = await harness.List.Handle(
+            new GetSocialClientsQuery(null, null, false, 1, 20),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, result.Value.Items.Count);
     }
 
     // --- Update ---
@@ -283,6 +334,61 @@ public sealed class ClientLifecycleTests
         Assert.Equal("social.clients.already_active", result.Error.Code);
     }
 
+    // --- Issue #70: SignsOwnSlides opt-in (plain boolean, client-field-only) ---
+
+    [Fact]
+    public async Task Create_WithSignsOwnSlidesTrue_PersistsFlag()
+    {
+        var harness = new SocialClientHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        var created = await harness.Create.Handle(
+            new CreateSocialClientCommand(organizationId, "Acme Social", null, SignsOwnSlides: true),
+            CancellationToken.None);
+
+        Assert.True(created.IsSuccess);
+        Assert.True(created.Value.SignsOwnSlides);
+
+        var fetched = await harness.GetById.Handle(
+            new GetSocialClientByIdQuery(created.Value.Id, organizationId),
+            CancellationToken.None);
+
+        Assert.True(fetched.Value.SignsOwnSlides);
+    }
+
+    [Fact]
+    public async Task Create_WithoutSignsOwnSlides_DefaultsToFalse()
+    {
+        var harness = new SocialClientHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        var created = await harness.Create.Handle(
+            new CreateSocialClientCommand(organizationId, "Acme Social", null),
+            CancellationToken.None);
+
+        Assert.False(created.Value.SignsOwnSlides);
+    }
+
+    [Fact]
+    public async Task Update_CanToggleSignsOwnSlides_TrueThenFalse()
+    {
+        var harness = new SocialClientHarness(Now);
+        var organizationId = Guid.NewGuid();
+        var created = await harness.Create.Handle(
+            new CreateSocialClientCommand(organizationId, "Acme Social", null),
+            CancellationToken.None);
+
+        var enabled = await harness.Update.Handle(
+            new UpdateSocialClientCommand(created.Value.Id, organizationId, "Acme Social", null, SignsOwnSlides: true),
+            CancellationToken.None);
+        Assert.True(enabled.Value.SignsOwnSlides);
+
+        var disabled = await harness.Update.Handle(
+            new UpdateSocialClientCommand(created.Value.Id, organizationId, "Acme Social", null, SignsOwnSlides: false),
+            CancellationToken.None);
+        Assert.False(disabled.Value.SignsOwnSlides);
+    }
+
     // --- List after lifecycle ---
 
     [Fact]
@@ -335,7 +441,7 @@ public sealed class ClientLifecycleTests
             var clock = new TestClock(nowUtc);
 
             Create = new CreateSocialClientHandler(repository, unitOfWork, clock);
-            GetById = new GetSocialClientByIdHandler(repository);
+            GetById = new GetSocialClientByIdHandler(repository, repository);
             List = new GetSocialClientsHandler(repository);
             Update = new UpdateSocialClientHandler(repository, unitOfWork, clock);
             Deactivate = new DeactivateSocialClientHandler(repository, unitOfWork, clock);
@@ -355,7 +461,7 @@ public sealed class ClientLifecycleTests
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
     }
 
-    private sealed class InMemorySocialClientRepository : ISocialClientRepository
+    private sealed class InMemorySocialClientRepository : ISocialClientRepository, ISocialClientDirectoryRepository
     {
         private readonly Dictionary<ClientId, Client> _clients = new();
 
@@ -368,12 +474,24 @@ public sealed class ClientLifecycleTests
             return Task.FromResult(client?.OrganizationId == organizationId ? client : null);
         }
 
+        public Task<Client?> GetByIdAcrossOrganizationsAsync(
+            ClientId id,
+            CancellationToken cancellationToken = default)
+        {
+            _clients.TryGetValue(id, out var client);
+            return Task.FromResult(client);
+        }
+
         public Task<(IReadOnlyList<Client> Items, int TotalCount)> ListAsync(
             SocialClientQuery query,
             CancellationToken cancellationToken = default)
         {
-            IEnumerable<Client> source = _clients.Values
-                .Where(x => x.OrganizationId == query.OrganizationId);
+            IEnumerable<Client> source = _clients.Values;
+
+            if (query.OrganizationId.HasValue)
+            {
+                source = source.Where(x => x.OrganizationId == query.OrganizationId.Value);
+            }
 
             if (!query.IncludeInactive)
             {

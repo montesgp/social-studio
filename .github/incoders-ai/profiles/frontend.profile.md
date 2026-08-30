@@ -30,6 +30,7 @@ Pure backend or infrastructure repositories.
 - `skills/shared/reuse-before-create.skill.md`
 - `skills/shared/git-commit-workflow.skill.md`
 - `skills/frontend/forms-and-validation.skill.md`
+- `skills/frontend/ux-focus-management.skill.md`
 - `skills/frontend/loading-and-progress.skill.md`
 - `skills/frontend/notifications-and-feedback.skill.md`
 - `skills/frontend/list-and-card-views.skill.md`

@@ -3,11 +3,7 @@ using Incoders.Hive.Application.Features.UserPreferences;
 using Incoders.Hive.Application.Features.UserPreferences.GetCurrent;
 using Incoders.Hive.Application.Features.UserPreferences.Update;
 using MediatR;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Routing;
 
 namespace Incoders.Hive.ApiService.Endpoints.UserPreferences;
 
@@ -50,11 +46,11 @@ public static class UserPreferencesEndpointsExtensions
         CancellationToken cancellationToken)
     {
         var result = await sender.Send(
-            new UpdateCurrentUserPreferenceCommand(body.ThemeKey, body.AccentTheme),
+            new UpdateCurrentUserPreferenceCommand(body.ThemeKey, body.AccentTheme, body.DateFormat),
             cancellationToken);
 
         return result.Match(preferences => (IResult)TypedResults.Ok(preferences));
     }
 }
 
-public sealed record UpdateCurrentUserPreferenceRequest(string ThemeKey, string? AccentTheme);
+public sealed record UpdateCurrentUserPreferenceRequest(string ThemeKey, string? AccentTheme, string DateFormat);

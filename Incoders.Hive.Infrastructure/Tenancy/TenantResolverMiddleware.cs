@@ -33,7 +33,7 @@ public sealed class TenantResolverMiddleware
                 mutable.Set(resolvedTenantId);
             }
 
-            if (currentUser.IsAuthenticated && currentUser.UserId is { } userId)
+            if (currentUser.IsAuthenticated && !currentUser.IsPlatformAdmin && currentUser.UserId is { } userId)
             {
                 var isMember = await memberships.IsMemberAsync(resolvedTenantId, userId, context.RequestAborted);
                 if (!isMember)

@@ -1,0 +1,33 @@
+{
+  "_comment": "Actor: GdWCkxBtKWOsKjdch | URL: https://www.tiktok.com/@brand/video/123 | Verified fields from apps/web/app/api/single-analyzer/scrape/route.ts | 2026-05-23",
+  "id": "7374506424977694000",
+  "text": "Stop scrolling if your content is not converting.",
+  "createTimeISO": "2024-05-01T12:00:00.000Z",
+  "authorMeta": {
+    "id": "6784563104",
+    "name": "Brand Official",
+    "nickName": "brand",
+    "verified": false,
+    "signature": "Content that converts.",
+    "avatar": "https://p16-sign.tiktokcdn-us.com/tos-useast5-avt-0068-tx/avatar.jpg"
+  },
+  "videoMeta": {
+    "height": 1024,
+    "width": 576,
+    "duration": 38,
+    "coverUrl": "https://p16-sign.tiktokcdn-us.com/tos-useast5-avt-0068-tx/cover.jpg",
+    "originalCoverUrl": "https://p16-sign.tiktokcdn-us.com/tos-useast5-avt-0068-tx/original-cover.jpg"
+  },
+  "hashtags": [
+    { "id": "1", "name": "contentstrategy", "title": "contentstrategy" },
+    { "id": "2", "name": "socialmedia", "title": "socialmedia" }
+  ],
+  "playCount": 120000,
+  "diggCount": 8500,
+  "commentCount": 342,
+  "shareCount": 1200,
+  "collectCount": 950,
+  "webVideoUrl": "https://www.tiktok.com/@brand/video/7374506424977694000",
+  "submittedVideoUrl": "https://www.tiktok.com/@brand/video/123",
+  "isSlideshow": false
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useDateFormatter } from "@/lib/format/use-date-formatter";
 import { motion } from "framer-motion";
 import {
   Archive,
@@ -13,6 +14,8 @@ import {
   Edit3,
   Eye,
   KeyRound,
+  LayoutGrid,
+  List,
   Loader2,
   Plus,
   RefreshCcw,
@@ -28,10 +31,15 @@ import {
   activateOrganization,
   createOrganization,
   deactivateOrganization,
+  deleteOrganization,
   getOrganization,
   listOrganizations,
   updateOrganization
 } from "@/lib/api/organizations";
+import {
+  getOrganizationModules,
+  updateOrganizationModules
+} from "@/lib/api/organization-modules";
 import { ApiError, Organization, PageResult } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -40,16 +48,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
+import { Select } from "@/components/ui/select";
+import { Column, SortableChildTable } from "@/components/ui/sortable-child-table";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
 
 type Mode = "create" | "edit";
 type StatusFilter = "active" | "archived" | "all";
+type OrganizationViewMode = "grid" | "table";
 
 const tokenStorageKey = "incoders.hive.apiToken";
 
 export function OrganizationsClient() {
+  const { formatDate } = useDateFormatter();
   const sessionToken = useAccessToken();
   const toast = useToast();
   const lastErrorToastRef = useRef<{ message: string; at: number } | null>(null);
@@ -60,6 +73,7 @@ export function OrganizationsClient() {
   const [success, setSuccess] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("active");
+  const [viewMode, setViewMode] = useState<OrganizationViewMode>("grid");
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize] = useState(12);
   const [manualToken, setManualToken] = useState("");
@@ -71,8 +85,9 @@ export function OrganizationsClient() {
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Organization | null>(null);
 
-  const items = page?.items ?? [];
+  const items = useMemo(() => page?.items ?? [], [page?.items]);
   const effectiveToken = manualToken || (sessionToken ?? "");
   const stats = useMemo(() => {
     const active = items.filter((item) => item.isActive).length;
@@ -229,6 +244,23 @@ export function OrganizationsClient() {
     });
   }
 
+  function onRequestDelete(item: Organization) {
+    setPendingDelete(item);
+  }
+
+  async function onConfirmDelete(item: Organization) {
+    await runAction(item.id, async () => {
+      const deleted = await deleteOrganization(item.id, effectiveToken || undefined);
+      setSuccess("Organization deleted permanently.");
+      toast.success(
+        "Organization deleted permanently",
+        `${deleted.name} • ${deleted.deletedClientCount} clients • ${deleted.deletedUserCount} users`
+      );
+      setDetails((current) => (current?.id === item.id ? null : current));
+    });
+    setPendingDelete(null);
+  }
+
   async function runAction(id: string, action: () => Promise<void>) {
     setActingId(id);
     setError(null);
@@ -338,23 +370,51 @@ export function OrganizationsClient() {
       <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
         <Card className="overflow-hidden">
           <CardHeader className="border-b border-border">
-            <CardTitle className="flex items-center justify-between text-base">
-              <span>Organization grid</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                Page {page?.page ?? pageNumber} of {Math.max(page?.totalPages ?? 1, 1)}
-              </span>
+            <CardTitle className="flex flex-wrap items-center justify-between gap-3 text-base">
+              <span>{viewMode === "grid" ? "Organization grid" : "Organization table"}</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={viewMode === "grid" ? "default" : "outline"}
+                  className="h-7 px-2"
+                  title="Grid view"
+                  onClick={() => setViewMode("grid")}
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant={viewMode === "table" ? "default" : "outline"}
+                  className="h-7 px-2"
+                  title="Table view"
+                  onClick={() => setViewMode("table")}
+                >
+                  <List className="h-4 w-4" />
+                </Button>
+                <span className="text-xs font-normal text-muted-foreground">
+                  Page {page?.page ?? pageNumber} of {Math.max(page?.totalPages ?? 1, 1)}
+                </span>
+              </div>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {loading ? (
-              <div className="grid gap-3 p-4 md:grid-cols-2">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <div key={index} className="h-36 animate-pulse rounded-2xl border border-border bg-muted/40" />
-                ))}
-              </div>
+              viewMode === "grid" ? (
+                <div className="grid gap-3 p-4 md:grid-cols-2">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div key={index} className="h-36 animate-pulse rounded-2xl border border-border bg-muted/40" />
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={index} className="mb-3 h-12 animate-pulse rounded-md border border-border bg-muted/40" />
+                  ))}
+                </div>
+              )
             ) : items.length === 0 ? (
               <EmptyState onCreate={openCreate} />
-            ) : (
+            ) : viewMode === "grid" ? (
               <div className="grid gap-3 p-4 md:grid-cols-2">
                 {items.map((item, index) => (
                   <motion.article
@@ -393,7 +453,7 @@ export function OrganizationsClient() {
                       </Button>
                       {item.isActive ? (
                         <Button
-                          variant="destructive"
+                          variant="warning"
                           size="sm"
                           disabled={actingId === item.id}
                           onClick={() => void onArchive(item)}
@@ -410,10 +470,81 @@ export function OrganizationsClient() {
                           <RotateCcw className="h-4 w-4" /> Reactivate
                         </Button>
                       )}
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={actingId === item.id}
+                        onClick={() => onRequestDelete(item)}
+                      >
+                        <Trash2 className="h-4 w-4" /> Delete
+                      </Button>
                     </div>
                   </motion.article>
                 ))}
               </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Owner</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item) => (
+                    <TableRow key={item.id} className={details?.id === item.id ? "bg-primary/10" : undefined}>
+                      <TableCell className="font-medium">{item.name}</TableCell>
+                      <TableCell>
+                        <Badge variant={item.isActive ? "success" : "muted"}>
+                          {item.isActive ? "Active" : "Archived"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{shortId(item.ownerUserId)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{formatDate(item.createdAtUtc)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="inline-flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => void openDetails(item)}>
+                            <Eye className="h-4 w-4" /> Details
+                          </Button>
+                          <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
+                            <Edit3 className="h-4 w-4" /> Edit
+                          </Button>
+                          {item.isActive ? (
+                            <Button
+                              variant="warning"
+                              size="sm"
+                              disabled={actingId === item.id}
+                              onClick={() => void onArchive(item)}
+                            >
+                              Archive
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={actingId === item.id}
+                              onClick={() => void onReactivate(item)}
+                            >
+                              Reactivate
+                            </Button>
+                          )}
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={actingId === item.id}
+                            onClick={() => onRequestDelete(item)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
 
             <div className="flex items-center justify-between border-t border-border p-4">
@@ -440,53 +571,14 @@ export function OrganizationsClient() {
 
         <OrganizationDetailsPanel
           organization={details}
+          token={effectiveToken || undefined}
           onEdit={(item) => openEdit(item)}
           onArchive={(item) => void onArchive(item)}
           onReactivate={(item) => void onReactivate(item)}
+          onDelete={onRequestDelete}
           acting={actingId === details?.id}
         />
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Data table</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Owner</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">{item.name}</TableCell>
-                  <TableCell>
-                    <Badge variant={item.isActive ? "success" : "muted"}>{item.isActive ? "Active" : "Archived"}</Badge>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{shortId(item.ownerUserId)}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{formatDate(item.createdAtUtc)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => void openDetails(item)}>
-                        Details
-                      </Button>
-                      <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
-                        Edit
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent>
@@ -524,6 +616,31 @@ export function OrganizationsClient() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ConfirmationDialog
+        open={pendingDelete !== null}
+        title="Delete organization permanently?"
+        description={
+          pendingDelete
+            ? `This will permanently delete "${pendingDelete.name}" and all organization-scoped data, including users, clients, accounts, brand manuals, plans, analyses, integrations, generated packages, and stored assets. This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete permanently"
+        cancelLabel="Cancel"
+        confirmVariant="destructive"
+        icon={<Trash2 className="h-5 w-5" />}
+        disableDismiss={pendingDelete !== null && actingId === pendingDelete.id}
+        onConfirm={() => {
+          if (pendingDelete) {
+            void onConfirmDelete(pendingDelete);
+          }
+        }}
+        onCancel={() => {
+          if (!actingId) {
+            setPendingDelete(null);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -593,6 +710,13 @@ interface OrgConnector {
   status: "connected" | "disconnected" | "error";
 }
 
+interface OrganizationModuleOption {
+  key: string;
+  label: string;
+  description: string;
+  shortLabel: string;
+}
+
 const claudeModelOptions = [
   { value: "claude-opus-4-7", label: "Claude Opus 4.7" },
   { value: "claude-opus-4-5", label: "Claude Opus 4.5" },
@@ -616,18 +740,23 @@ function getDefaultConnectors(): OrgConnector[] {
 
 function OrganizationDetailsPanel({
   organization,
+  token,
   onEdit,
   onArchive,
   onReactivate,
+  onDelete,
   acting
 }: {
   organization: Organization | null;
+  token?: string;
   onEdit: (organization: Organization) => void;
   onArchive: (organization: Organization) => void;
   onReactivate: (organization: Organization) => void;
+  onDelete: (organization: Organization) => void;
   acting: boolean;
 }) {
-  const [detailTab, setDetailTab] = useState<"overview" | "connectors">("overview");
+  const { formatDateTime } = useDateFormatter();
+  const [detailTab, setDetailTab] = useState<"overview" | "connectors" | "modules">("overview");
   const [connectors, setConnectors] = useState<OrgConnector[]>([]);
   const [addingConnector, setAddingConnector] = useState(false);
   const [newProvider, setNewProvider] = useState("claude");
@@ -635,13 +764,123 @@ function OrganizationDetailsPanel({
   const [newApiKey, setNewApiKey] = useState("");
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, "ok" | "fail">>({});
+  const [modulesLoading, setModulesLoading] = useState(false);
+  const [modulesSaving, setModulesSaving] = useState(false);
+  const [moduleError, setModuleError] = useState<string | null>(null);
+  const [availableModules, setAvailableModules] = useState<OrganizationModuleOption[]>([]);
+  const [assignedModuleKeys, setAssignedModuleKeys] = useState<string[]>([]);
+
+  const assignedModuleItems = useMemo(() => {
+    const byKey = new Map(availableModules.map((module) => [module.key, module]));
+    return assignedModuleKeys
+      .map((key) => byKey.get(key))
+      .filter((module): module is OrganizationModuleOption => module !== undefined);
+  }, [availableModules, assignedModuleKeys]);
+
+  const moduleColumns: Column<OrganizationModuleOption>[] = [
+    {
+      key: "module",
+      label: "Module",
+      render: (module) => <span className="font-medium">{module.label}</span>,
+    },
+    {
+      key: "description",
+      label: "Description",
+      render: (module) => <span className="text-xs text-muted-foreground">{module.description}</span>,
+    },
+  ];
 
   useEffect(() => {
+    if (!organization) {
+      setAvailableModules([]);
+      setAssignedModuleKeys([]);
+      setModuleError(null);
+      return;
+    }
+
     if (organization) {
       setConnectors(getDefaultConnectors());
       setDetailTab("overview");
     }
-  }, [organization?.id]);
+
+    if (!token) {
+      setAvailableModules([]);
+      setAssignedModuleKeys([]);
+      setModuleError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setModulesLoading(true);
+    setModuleError(null);
+
+    void (async () => {
+      try {
+        const response = await getOrganizationModules(organization.id, token);
+        if (cancelled) return;
+
+        const nextAvailableModules = response.availableModules.map((module) => ({
+          key: module.moduleKey,
+          label: module.displayName,
+          description: module.description,
+          shortLabel: module.shortLabel,
+        }));
+        const nextAssignedKeys = response.assignedModules
+          .sort((left, right) => left.sortOrder - right.sortOrder)
+          .map((module) => module.moduleKey);
+
+        setAvailableModules(nextAvailableModules);
+        setAssignedModuleKeys(nextAssignedKeys);
+      } catch (err) {
+        if (cancelled) return;
+        setModuleError((err as ApiError).message ?? "Could not load organization modules.");
+        setAvailableModules([]);
+        setAssignedModuleKeys([]);
+      } finally {
+        if (!cancelled) {
+          setModulesLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [organization, token]);
+
+  function toggleAssignedModule(moduleKey: string) {
+    setAssignedModuleKeys((current) =>
+      current.includes(moduleKey)
+        ? current.filter((key) => key !== moduleKey)
+        : [...current, moduleKey]
+    );
+  }
+
+  async function handleSaveModules() {
+    if (!organization || !token) return;
+
+    setModulesSaving(true);
+    setModuleError(null);
+    try {
+      const response = await updateOrganizationModules(organization.id, assignedModuleKeys, token);
+      const nextAvailableModules = response.availableModules.map((module) => ({
+        key: module.moduleKey,
+        label: module.displayName,
+        description: module.description,
+        shortLabel: module.shortLabel,
+      }));
+      const nextAssignedKeys = response.assignedModules
+        .sort((left, right) => left.sortOrder - right.sortOrder)
+        .map((module) => module.moduleKey);
+
+      setAvailableModules(nextAvailableModules);
+      setAssignedModuleKeys(nextAssignedKeys);
+    } catch (err) {
+      setModuleError((err as ApiError).message ?? "Could not save organization modules.");
+    } finally {
+      setModulesSaving(false);
+    }
+  }
 
   async function handleTestConnection(connector: OrgConnector) {
     setTestingId(connector.id);
@@ -704,7 +943,7 @@ function OrganizationDetailsPanel({
           </Badge>
         </div>
         <div className="mt-3 inline-flex rounded-md border border-border bg-background p-1">
-          {(["overview", "connectors"] as const).map((tab) => (
+          {(["overview", "connectors", "modules"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
@@ -714,7 +953,11 @@ function OrganizationDetailsPanel({
                 detailTab === tab ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
               )}
             >
-              {tab === "connectors" ? `Connectors (${connectors.length})` : "Overview"}
+              {tab === "connectors"
+                ? `Connectors (${connectors.length})`
+                : tab === "modules"
+                  ? `Modules (${assignedModuleKeys.length})`
+                  : "Overview"}
             </button>
           ))}
         </div>
@@ -742,7 +985,7 @@ function OrganizationDetailsPanel({
                 <Edit3 className="h-4 w-4" /> Edit
               </Button>
               {organization.isActive ? (
-                <Button variant="destructive" disabled={acting} onClick={() => onArchive(organization)}>
+                <Button variant="warning" disabled={acting} onClick={() => onArchive(organization)}>
                   <Archive className="h-4 w-4" /> Archive
                 </Button>
               ) : (
@@ -750,6 +993,9 @@ function OrganizationDetailsPanel({
                   <RotateCcw className="h-4 w-4" /> Reactivate
                 </Button>
               )}
+              <Button variant="destructive" disabled={acting} onClick={() => onDelete(organization)}>
+                <Trash2 className="h-4 w-4" /> Delete
+              </Button>
             </div>
           </>
         )}
@@ -768,28 +1014,30 @@ function OrganizationDetailsPanel({
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">New connector</p>
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground">Provider</label>
-                  <select
-                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                  <Select
+                    size="sm"
+                    className="w-full"
                     value={newProvider}
                     onChange={(e) => setNewProvider(e.target.value)}
                   >
                     <option value="claude">Anthropic Claude</option>
                     <option value="openai">OpenAI</option>
                     <option value="gemini">Google Gemini</option>
-                  </select>
+                  </Select>
                 </div>
                 {newProvider === "claude" && (
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">Model</label>
-                    <select
-                      className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                    <Select
+                      size="sm"
+                      className="w-full"
                       value={newModel}
                       onChange={(e) => setNewModel(e.target.value)}
                     >
                       {claudeModelOptions.map((m) => (
                         <option key={m.value} value={m.value}>{m.label}</option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
                 )}
                 <div className="space-y-1">
@@ -880,6 +1128,73 @@ function OrganizationDetailsPanel({
             )}
           </div>
         )}
+
+        {detailTab === "modules" && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Assign system modules to this organization and define selector order. Changes are persisted only when you click save.
+            </p>
+
+            {moduleError ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {moduleError}
+              </div>
+            ) : null}
+
+            {modulesLoading ? (
+              <p className="text-xs text-muted-foreground">Loading organization modules...</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-3">
+                  {availableModules.map((module) => (
+                    <label key={module.key} className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={assignedModuleKeys.includes(module.key)}
+                        onChange={() => toggleAssignedModule(module.key)}
+                        className="h-4 w-4 rounded border-border"
+                      />
+                      {module.label}
+                    </label>
+                  ))}
+                </div>
+
+                <SortableChildTable<OrganizationModuleOption>
+                  items={assignedModuleItems}
+                  getId={(item) => item.key}
+                  columns={moduleColumns}
+                  onReorder={(orderedIds) => setAssignedModuleKeys(orderedIds)}
+                  primaryLabel="Primary"
+                  emptyState="No modules assigned to this organization."
+                />
+
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={modulesLoading || modulesSaving}
+                    onClick={() => setAssignedModuleKeys([])}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={modulesLoading || modulesSaving || !token}
+                    onClick={() => void handleSaveModules()}
+                  >
+                    {modulesSaving ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" /> Saving...
+                      </>
+                    ) : (
+                      "Save modules"
+                    )}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -925,20 +1240,6 @@ function Fact({ label, value }: { label: string; value: string }) {
       <p className="mt-1 break-all text-sm">{value}</p>
     </div>
   );
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(value));
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value));
 }
 
 function shortId(value: string) {

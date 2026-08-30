@@ -1,7 +1,8 @@
 import { apiRequest } from "@/lib/api/client";
-import { PageResult, SocialClient } from "@/lib/api/types";
+import { BackgroundSourcingPolicy, PageResult, SocialClient } from "@/lib/api/types";
 
 export interface SocialClientsQuery {
+  organizationId?: string;
   name?: string;
   includeInactive?: boolean;
   page?: number;
@@ -11,10 +12,25 @@ export interface SocialClientsQuery {
 export interface SocialClientPayload {
   name: string;
   description?: string | null;
+  sectorOrNiche?: string | null;
+  backgroundSourcingPolicy?: BackgroundSourcingPolicy;
+  /** Per-client aesthetic refresh staleness threshold in days. Null/undefined = system default (30 days). */
+  aestheticRefreshThresholdDays?: number | null;
+  /** Cap on how many pieces one generation job builds. Null/undefined = no cap. */
+  maxPiecesPerGeneration?: number | null;
+  /** Issue #70: whether this client signs their own slides with an @handle attribution. Plain boolean, default false (not signed). */
+  signsOwnSlides?: boolean;
+}
+
+export interface DeletedSocialClient {
+  id: string;
+  organizationId: string;
+  name: string;
 }
 
 export async function listSocialClients(query: SocialClientsQuery, token?: string) {
   const params = new URLSearchParams();
+  if (query.organizationId) params.set("organizationId", query.organizationId);
   if (query.name) params.set("name", query.name);
   if (query.includeInactive) params.set("includeInactive", "true");
   params.set("page", String(query.page ?? 1));
@@ -48,4 +64,8 @@ export async function deactivateSocialClient(id: string, token?: string) {
 
 export async function activateSocialClient(id: string, token?: string) {
   return apiRequest<SocialClient>(`/api/social/clients/${id}/activate`, { method: "POST" }, token);
+}
+
+export async function deleteSocialClient(id: string, token?: string) {
+  return apiRequest<DeletedSocialClient>(`/api/social/clients/${id}`, { method: "DELETE" }, token);
 }

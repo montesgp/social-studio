@@ -57,8 +57,8 @@
 - Protect against OWASP Top 10 classes:
   - injection, broken auth, sensitive data exposure, SSRF, insecure deserialization, etc.
 - Validate and encode untrusted input/output contexts (API, HTML, SQL, URLs).
-- External persistence providers (managed databases, BaaS, schema-changing APIs) MUST require explicit user authorization for every write/DDL/secret/deploy operation. Read operations may run freely.
-- Before any authorized write to an external provider: show the exact SQL/command that will execute and request authorization. Do not run writes as side effects of "cleanup" steps.
+- External persistence providers (managed databases, BaaS, schema-changing APIs): schema/data changes are authorized by **PR approval** — the PR review IS the verification. Migrations and provider writes that ship in an approved PR may run as part of that PR's merge/deploy with NO separate per-query confirmation. (Note: this repo applies EF migrations on app startup via `Database.Migrate()`, so an approved+merged change auto-applies its pending migrations on the next deploy.) Read operations may run freely.
+- Destructive AD-HOC operations OUTSIDE a reviewed PR (manual `DROP`/`DELETE`/`TRUNCATE` against a shared DB, secret rotation, one-off data scripts) still require explicit user authorization. Never run writes as side effects of "cleanup" steps.
 - Never instantiate ad-hoc HTTP clients in code paths that talk to external providers; use a centralized client factory with timeouts, retries, and resilience policies.
 
 ## 8) Secure Development Lifecycle (SHOULD)
@@ -75,6 +75,8 @@
   - selective end-to-end for critical user journeys
 - Tests MUST be deterministic, isolated, and stable in CI.
 - Regressions MUST include a reproducing test.
+- Entity end-to-end slices MUST include deterministic tests for the full supported lifecycle, not only the happy-path create/read case. When an entity exposes lifecycle operations, tests MUST cover create, get by id, list one/many, filtering/search, update, deactivate/archive, reactivate, delete only when delete is a real product operation, tenant/ownership boundaries, authorization rules, validation failures, and relevant business invariants.
+- If an entity intentionally omits a lifecycle operation (for example, archive instead of hard delete), tests MUST assert the real contract and the omission MUST be clear in the spec or review notes.
 
 ## 10) Coverage Policy (MUST)
 - 100% global coverage is not a blanket requirement.
@@ -111,8 +113,8 @@
 - Use checklists for security/testing/rollback readiness on impactful changes.
 - Apply boy-scout rule: leave touched code cleaner than found.
 - Before staging anything, list every file that will be included with a one-line description of what changed in each.
-- Propose a commit message and show the full staged diff summary before asking permission. Never commit silently.
-- Never push silently. Never use `--no-verify`, `--force`, or `--force-with-lease` without explicit user instruction.
+- Propose a commit message and show the staged diff summary before committing. Never commit silently — commits to work branches are announced, not gated on per-commit approval.
+- Never push silently, and never push to or merge into `dev`/`main` (those go through an agent-opened PR that the user approves and merges). Never use `--no-verify`, `--force`, or `--force-with-lease` without explicit user instruction.
 - One logical change per commit. If multiple unrelated changes are staged, ask whether to split them.
 - Commit messages in imperative present tense, focused on "why" rather than "what".
 - If a pre-commit hook fails, report the failure and ask how to proceed. Never bypass the hook.

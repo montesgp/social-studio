@@ -1,5 +1,6 @@
 "use client";
 
+import { useDateFormatter } from "@/lib/format/use-date-formatter";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bookmark,
@@ -31,9 +32,12 @@ import {
   Trash2,
   Video,
   WandSparkles,
+  X,
   Youtube
 } from "lucide-react";
 import { listOrganizations } from "@/lib/api/organizations";
+import { listSocialNetworks } from "@/lib/api/social-networks";
+import { getSocialNetworkIcon } from "@/lib/social-network-icons";
 import {
   generateContentWorkflowPackage,
   getContentWorkflowHistory,
@@ -49,7 +53,6 @@ import {
 } from "@/lib/api/content-workflow";
 import {
   generateMockWorkflowPackage,
-  getDefaultMockWorkflowId,
   getMockClients,
   getMockOrganizations,
   getMockWorkflowHistory,
@@ -75,14 +78,17 @@ import {
   ContentWorkflowStrategyMode,
   Organization,
   PageResult,
-  SocialClient
+  SocialClient,
+  SocialNetwork
 } from "@/lib/api/types";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { useActiveOrg } from "@/lib/auth/active-org-context";
 
 interface PackageCartItem {
   resultId: string;
@@ -100,7 +106,8 @@ const searchOptions: Array<{ value: ContentWorkflowSearchCriterion; label: strin
   { value: "niche", label: "Niche" },
   { value: "references", label: "References" },
   { value: "viral", label: "Viral" },
-  { value: "competitors", label: "Competitors" }
+  { value: "competitors", label: "Competitors" },
+  { value: "own", label: "Own best performers" }
 ];
 
 const strategyOptions: Array<{ value: ContentWorkflowStrategyMode; label: string }> = [
@@ -139,36 +146,60 @@ const bulkActionOptions: Array<{ value: ContentWorkflowActionType; label: string
   { value: "build_carousel", label: "Build carousel", icon: WandSparkles }
 ];
 
-const strategyColors: Record<string, string> = {
-  educational: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-  informative: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
-  entertainment: "bg-amber-500/15 text-amber-300 border-amber-500/30"
-};
-
-const USE_MOCK_WORKFLOW_DATA = true;
+/**
+ * The Generator now talks to the real backend: discovery scrapes the client's reference accounts
+ * through Apify and returns real posts with real metrics.
+ *
+ * Kept as a switch (rather than deleted along with every branch below) so the screen can be put back
+ * on canned data in one edit while the remaining phases are wired. It must stay false: with it on,
+ * the screen silently ignores the backend and shows invented numbers that look entirely real.
+ */
+const USE_MOCK_WORKFLOW_DATA = false;
 
 type PreviewNetworkTab = "instagram" | "tiktok" | "youtube";
 type CandidateViewMode = "grid" | "video";
 type RightPanelTab = "conversion" | "preview" | "package";
 
+function strategyBadgeVariant(strategy: string): BadgeVariant {
+  switch (strategy) {
+    case "educational":
+      return "info";
+    case "informative":
+      return "accent";
+    case "entertainment":
+      return "warning";
+    default:
+      return "muted";
+  }
+}
+
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
-export function WorkflowClient() {
+interface WorkflowClientProps {
+  isPlatformAdmin: boolean;
+}
+
+export function WorkflowClient({ isPlatformAdmin }: WorkflowClientProps) {
+  const { formatDateTime: formatDate } = useDateFormatter();
   const token = useAccessToken();
   const toast = useToast();
+  const { orgId: activeOrgId, isInitialized: orgInitialized } = useActiveOrg();
 
   // Organization + Client
   const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState<string>(() =>
+    activeOrgId ?? ""
+  );
   const [clients, setClients] = useState<SocialClient[]>([]);
   const [selectedClientId, setSelectedClientId] = useState("");
 
   // Workflow config
   const [searchCriterion, setSearchCriterion] = useState<ContentWorkflowSearchCriterion>("niche");
   const [strategyMode, setStrategyMode] = useState<ContentWorkflowStrategyMode>("mixed");
-  const [networkSources, setNetworkSources] = useState<string[]>(["tiktok", "instagram"]);
+  const [availableNetworks, setAvailableNetworks] = useState<SocialNetwork[]>([]);
+  const [networkSources, setNetworkSources] = useState<string[]>([]);
   const [maxResults, setMaxResults] = useState(12);
 
   // Workflow state
@@ -193,8 +224,8 @@ export function WorkflowClient() {
   // Conversion generation state
   const [generatedScripts, setGeneratedScripts] = useState<Record<string, string>>({});
   const [generatedCarousels, setGeneratedCarousels] = useState<Record<string, string[]>>({});
-  const [generatedFlyers, setGeneratedFlyers] = useState<Record<string, string>>({});
-  const [generatingConversion, setGeneratingConversion] = useState<Record<string, "script" | "carousel" | "flyer">>({});
+  const [generatedStories, setGeneratedStories] = useState<Record<string, string>>({});
+  const [generatingConversion, setGeneratingConversion] = useState<Record<string, "script" | "carousel" | "story">>({});
   const [cardPipelineRunning, setCardPipelineRunning] = useState<Record<string, boolean>>({});
 
   // Preview panel tabs + mutation
@@ -246,6 +277,7 @@ export function WorkflowClient() {
   );
 
   useEffect(() => {
+    if (!orgInitialized) return;
     if (!USE_MOCK_WORKFLOW_DATA && !token) {
       setLoading(false);
       return;
@@ -253,7 +285,13 @@ export function WorkflowClient() {
 
     void bootstrap(token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, orgInitialized]);
+
+  useEffect(() => {
+    if (!isPlatformAdmin && activeOrgId) {
+      setSelectedOrganizationId(activeOrgId);
+    }
+  }, [isPlatformAdmin, activeOrgId]);
 
   useEffect(() => {
     if (!selectedOrganizationId || (!USE_MOCK_WORKFLOW_DATA && !token)) {
@@ -299,12 +337,26 @@ export function WorkflowClient() {
     setError(null);
 
     try {
-      const nextOrganizations = USE_MOCK_WORKFLOW_DATA
-        ? getMockOrganizations()
-        : (await listOrganizations({ page: 1, pageSize: 100, includeInactive: false }, accessToken!)).items;
-      setOrganizations(nextOrganizations);
-      const nextOrganizationId = nextOrganizations[0]?.id ?? "";
-      setSelectedOrganizationId(nextOrganizationId);
+      // Always load real networks from the catalog
+      const networksResult = await listSocialNetworks({ includeInactive: false, pageSize: 100 }, accessToken).catch(() => null);
+      if (networksResult) {
+        setAvailableNetworks(networksResult.items);
+        setNetworkSources(networksResult.items.slice(0, 2).map((n) => n.code));
+      }
+
+      if (USE_MOCK_WORKFLOW_DATA) {
+        const nextOrganizations = getMockOrganizations();
+        setOrganizations(nextOrganizations);
+        const nextOrganizationId = nextOrganizations[0]?.id ?? "";
+        setSelectedOrganizationId(nextOrganizationId);
+      } else if (isPlatformAdmin) {
+        const nextOrganizations = (await listOrganizations({ page: 1, pageSize: 100, includeInactive: false }, accessToken!)).items;
+        setOrganizations(nextOrganizations);
+        const nextOrganizationId = nextOrganizations[0]?.id ?? "";
+        setSelectedOrganizationId(nextOrganizationId);
+      } else {
+        setSelectedOrganizationId(activeOrgId ?? "");
+      }
     } catch (err) {
       setError((err as ApiError).message);
     } finally {
@@ -317,32 +369,18 @@ export function WorkflowClient() {
     setError(null);
 
     try {
-      let nextClients: SocialClient[] = [];
-      let nextHistory: ContentWorkflowHistoryItem[] = [];
+      // Always load real clients regardless of mock flag
+      const nextClients = accessToken
+        ? await listWorkflowClients(organizationId, accessToken).then((response) => response.items)
+        : getMockClients(organizationId);
 
-      if (USE_MOCK_WORKFLOW_DATA) {
-        nextClients = getMockClients(organizationId);
-        nextHistory = listMockWorkflowHistory(organizationId, 12);
-      } else {
-        [nextClients, nextHistory] = await Promise.all([
-          listWorkflowClients(organizationId, accessToken!).then((response) => response.items),
-          listContentWorkflowHistory(organizationId, 12, accessToken!)
-        ]);
-      }
+      const nextHistory: ContentWorkflowHistoryItem[] = USE_MOCK_WORKFLOW_DATA
+        ? listMockWorkflowHistory(organizationId, 12)
+        : await listContentWorkflowHistory(organizationId, 12, accessToken!);
 
       setClients(nextClients);
       setSelectedClientId((current) => current || nextClients[0]?.id || "");
       setHistoryItems(nextHistory);
-
-      if (USE_MOCK_WORKFLOW_DATA && !activeWorkflowId) {
-        const defaultId = getDefaultMockWorkflowId();
-        setActiveWorkflowId(defaultId);
-        setPageNumber(1);
-        await Promise.all([
-          loadWorkflowStatus(defaultId, organizationId, accessToken),
-          loadWorkflowResults(defaultId, organizationId, 1, accessToken)
-        ]);
-      }
     } catch (err) {
       setError((err as ApiError).message);
     } finally {
@@ -762,10 +800,10 @@ export function WorkflowClient() {
     });
   }
 
-  async function generateFlyer(resultId: string) {
-    setGeneratingConversion((prev) => ({ ...prev, [resultId]: "flyer" }));
+  async function generateStory(resultId: string) {
+    setGeneratingConversion((prev) => ({ ...prev, [resultId]: "story" }));
     await sleep(1000);
-    setGeneratedFlyers((prev) => ({
+    setGeneratedStories((prev) => ({
       ...prev,
       [resultId]: `Headline: [Bold statement]\nSubtext: [Supporting detail]\nVisual: High-contrast image with brand colors\nCTA: [Action verb] + link in bio`
     }));
@@ -776,7 +814,7 @@ export function WorkflowClient() {
     });
   }
 
-  async function runCardPipeline(resultId: string, type: "script" | "carousel" | "flyer") {
+  async function runCardPipeline(resultId: string, type: "script" | "carousel" | "story") {
     if (cardPipelineRef.current.has(resultId)) return;
     cardPipelineRef.current.add(resultId);
     setCardPipelineRunning((prev) => ({ ...prev, [resultId]: true }));
@@ -787,7 +825,7 @@ export function WorkflowClient() {
       }
       if (type === "script") await generateScript(resultId);
       else if (type === "carousel") await generateCarousel(resultId);
-      else await generateFlyer(resultId);
+      else await generateStory(resultId);
     } finally {
       cardPipelineRef.current.delete(resultId);
       setCardPipelineRunning((prev) => {
@@ -823,20 +861,22 @@ export function WorkflowClient() {
             </div>
           </div>
           <div className="flex flex-wrap items-end gap-3">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Organization</span>
-              <select
-                className="h-9 min-w-[220px] rounded-md border border-border bg-background px-3 text-sm"
-                value={selectedOrganizationId}
-                onChange={(event) => setSelectedOrganizationId(event.target.value)}
-              >
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {isPlatformAdmin && organizations.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Organization</span>
+                <Select
+                  className="min-w-[220px]"
+                  value={selectedOrganizationId}
+                  onChange={(event) => setSelectedOrganizationId(event.target.value)}
+                >
+                  {organizations.map((organization) => (
+                    <option key={organization.id} value={organization.id}>
+                      {organization.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
             <Button
               variant="outline"
               onClick={() => {
@@ -860,11 +900,11 @@ export function WorkflowClient() {
         <CardHeader>
           <CardTitle className="text-base">Configuration</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 lg:grid-cols-2 xl:grid-cols-5">
+        <CardContent className="grid gap-4 lg:grid-cols-2 xl:grid-cols-6">
           <div className="space-y-2">
             <label className="text-sm font-medium">Client</label>
-            <select
-              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+            <Select
+              className="w-full"
               value={selectedClientId}
               onChange={(event) => setSelectedClientId(event.target.value)}
             >
@@ -876,12 +916,12 @@ export function WorkflowClient() {
                   {client.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">Search criterion</label>
-            <select
-              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+            <Select
+              className="w-full"
               value={searchCriterion}
               onChange={(event) => setSearchCriterion(event.target.value as ContentWorkflowSearchCriterion)}
             >
@@ -890,12 +930,12 @@ export function WorkflowClient() {
                   {option.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">Content strategy</label>
-            <select
-              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+            <Select
+              className="w-full"
               value={strategyMode}
               onChange={(event) => setStrategyMode(event.target.value as ContentWorkflowStrategyMode)}
             >
@@ -904,7 +944,7 @@ export function WorkflowClient() {
                   {option.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">Max results</label>
@@ -918,29 +958,58 @@ export function WorkflowClient() {
             />
             <p className="text-xs text-muted-foreground">Limit candidates to save AI analysis tokens.</p>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2 xl:col-span-2">
             <label className="text-sm font-medium">Source networks</label>
-            <div className="grid grid-cols-1 gap-2">
-              {networkOptions.map((network) => {
-                const Icon = network.icon;
-                return (
-                  <label
-                    key={network.value}
-                    className="flex items-center gap-2 rounded-lg border border-border/80 bg-background/60 px-2 py-1.5 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={networkSources.includes(network.value)}
-                      onChange={() => toggleNetwork(network.value)}
-                    />
-                    <Icon className="h-4 w-4 text-primary" />
-                    {network.label}
-                  </label>
-                );
-              })}
-            </div>
+            {availableNetworks.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Loading networks…</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {/* Selected — highlighted chips with remove (×) */}
+                {networkSources.map((code) => {
+                  const network = availableNetworks.find((n) => n.code === code);
+                  if (!network) return null;
+                  const Icon = getSocialNetworkIcon(code);
+                  return (
+                    <span
+                      key={code}
+                      className="flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/15 px-3 py-1 text-xs font-medium text-primary"
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      {network.displayName}
+                      <button
+                        type="button"
+                        onClick={() => toggleNetwork(code)}
+                        className="ml-0.5 text-primary/60 hover:text-primary transition-colors"
+                        aria-label={`Remove ${network.displayName}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  );
+                })}
+                {/* Available but not selected — muted chips with add (+) */}
+                {availableNetworks
+                  .filter((n) => !networkSources.includes(n.code))
+                  .map((network) => {
+                    const Icon = getSocialNetworkIcon(network.code);
+                    return (
+                      <button
+                        key={network.code}
+                        type="button"
+                        onClick={() => toggleNetwork(network.code)}
+                        className="flex items-center gap-1.5 rounded-full border border-border/60 bg-background/60 px-3 py-1 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+                        aria-label={`Add ${network.displayName}`}
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                        {network.displayName}
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
           </div>
-          <div className="lg:col-span-2 xl:col-span-5">
+          <div className="lg:col-span-2 xl:col-span-6">
             <Button
               onClick={() => void startGeneration()}
               disabled={busy || !selectedClientId || !selectedOrganizationId || networkSources.length === 0}
@@ -1136,15 +1205,21 @@ export function WorkflowClient() {
                                 In package
                               </Badge>
                             )}
-                            <span
-                              className={cn(
-                                "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-widest",
-                                strategyColors[result.strategyMode] ?? "bg-muted text-muted-foreground border-border"
-                              )}
+                            <Badge
+                              variant={strategyBadgeVariant(result.strategyMode)}
+                              className="text-[10px] uppercase tracking-widest"
                             >
                               {result.strategyMode}
-                            </span>
-                            {(() => { const net = networkOptions.find(n => n.value === result.networkSource); if (!net) return <Badge variant="muted">{result.networkSource}</Badge>; const NetIcon = net.icon; return <NetIcon className="h-4 w-4 text-muted-foreground shrink-0" title={net.label} />; })()}
+                            </Badge>
+                            {(() => {
+                              const NetIcon = getSocialNetworkIcon(result.networkSource);
+                              const networkLabel = availableNetworks.find((n) => n.code === result.networkSource)?.displayName ?? result.networkSource;
+                              return (
+                                <span title={networkLabel}>
+                                  <NetIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
 
@@ -1200,14 +1275,14 @@ export function WorkflowClient() {
                             size="sm"
                             variant="outline"
                             disabled={cardPipelineRunning[result.id]}
-                            onClick={() => void runCardPipeline(result.id, "flyer")}
+                            onClick={() => void runCardPipeline(result.id, "story")}
                           >
-                            {generatingConversion[result.id] === "flyer" ? (
+                            {generatingConversion[result.id] === "story" ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <Bookmark className="h-4 w-4" />
                             )}
-                            Flyer
+                            Story
                           </Button>
                           {/* Analyze button */}
                           <Button
@@ -1360,25 +1435,25 @@ export function WorkflowClient() {
 
                     <div className="space-y-2">
                       <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                        Flyer concept
+                        Story concept
                       </p>
-                      {generatedFlyers[activeResultId ?? ""] ? (
+                      {generatedStories[activeResultId ?? ""] ? (
                         <div className="rounded-xl border border-border bg-background/40 p-3 text-sm whitespace-pre-line">
-                          {generatedFlyers[activeResultId ?? ""]}
+                          {generatedStories[activeResultId ?? ""]}
                         </div>
                       ) : (
                         <Button
                           size="sm"
                           variant="outline"
                           disabled={!!generatingConversion[activeResultId ?? ""]}
-                          onClick={() => activeResultId && void generateFlyer(activeResultId)}
+                          onClick={() => activeResultId && void generateStory(activeResultId)}
                         >
-                          {generatingConversion[activeResultId ?? ""] === "flyer" ? (
+                          {generatingConversion[activeResultId ?? ""] === "story" ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
                             <Bookmark className="h-4 w-4" />
                           )}
-                          Generate flyer
+                          Generate story
                         </Button>
                       )}
                     </div>
@@ -1444,8 +1519,8 @@ export function WorkflowClient() {
                       <label className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
                         Mutation format
                       </label>
-                      <select
-                        className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+                      <Select
+                        className="w-full"
                         value={mutationMode}
                         onChange={(event) => setMutationMode(event.target.value)}
                       >
@@ -1454,7 +1529,7 @@ export function WorkflowClient() {
                             {option.label}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     </div>
 
                     {/* Tablet emulator */}
@@ -1519,14 +1594,12 @@ export function WorkflowClient() {
                               <Badge variant="muted" className="text-[10px]">
                                 {item.networkSource}
                               </Badge>
-                              <span
-                                className={cn(
-                                  "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-widest",
-                                  strategyColors[item.strategyMode] ?? "bg-muted text-muted-foreground border-border"
-                                )}
+                              <Badge
+                                variant={strategyBadgeVariant(item.strategyMode)}
+                                className="text-[10px] uppercase tracking-widest"
                               >
                                 {item.strategyMode}
-                              </span>
+                              </Badge>
                               <Badge variant="muted" className="text-[10px]">
                                 {item.mutationFormat}
                               </Badge>
@@ -1581,8 +1654,8 @@ export function WorkflowClient() {
                         {/* Edit form: only shown when editing */}
                         {editingCartItemId === item.resultId && (
                           <div className="mt-3 space-y-2 border-t border-border pt-3">
-                            <select
-                              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+                            <Select
+                              className="w-full"
                               value={editCartMutation}
                               onChange={(e) => setEditCartMutation(e.target.value)}
                             >
@@ -1591,7 +1664,7 @@ export function WorkflowClient() {
                                   {option.label}
                                 </option>
                               ))}
-                            </select>
+                            </Select>
                             <textarea
                               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                               rows={2}
@@ -1978,7 +2051,4 @@ function SocialTabletPreview({
   );
 }
 
-function formatDate(value: string) {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
-}
+

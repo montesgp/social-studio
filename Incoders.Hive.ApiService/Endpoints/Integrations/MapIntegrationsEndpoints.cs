@@ -1,14 +1,19 @@
 using Incoders.Hive.ApiService.Endpoints.Common;
+using Incoders.Hive.Application.Abstractions;
+using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Application.Features.Integrations;
+using Incoders.Hive.Application.Features.Integrations.Actors;
 using Incoders.Hive.Application.Features.Integrations.Configure;
 using Incoders.Hive.Application.Features.Integrations.Delete;
 using Incoders.Hive.Application.Features.Integrations.GetAllProviders;
 using Incoders.Hive.Application.Features.Integrations.GetByProvider;
 using Incoders.Hive.Application.Features.Integrations.GetOverview;
-using Incoders.Hive.Application.Features.Integrations.SetDefaultAi;
+using Incoders.Hive.Application.Features.Integrations.Models;
 using Incoders.Hive.Application.Features.Integrations.TestConnection;
+using Incoders.Hive.Application.Features.Integrations.WorkflowConfigurations;
 using Incoders.Hive.Domain.Integrations;
+using Incoders.Hive.Infrastructure.Identity;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -66,12 +71,74 @@ public static class IntegrationsEndpointsExtensions
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPut("/organization/default-ai", SetDefaultAiAsync)
-            .WithName("SetDefaultAiIntegration")
-            .WithSummary("Select default AI provider/model for the resolved organization")
-            .Produces<OrganizationIntegrationResponse>(StatusCodes.Status200OK)
+        group.MapGet("/organization/{providerKey}/models", ListOrganizationAiModelsAsync)
+            .WithName("ListOrganizationAiModels")
+            .WithSummary("List synchronized AI models for the resolved organization/provider")
+            .Produces<OrganizationAiModelsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/organization/{providerKey}/models/sync", SyncOrganizationAiModelsAsync)
+            .WithName("SyncOrganizationAiModels")
+            .WithSummary("Synchronize AI models for the resolved organization/provider using configured credentials")
+            .Produces<OrganizationAiModelsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/organization/{providerKey}/actors", ListOrganizationActorsAsync)
+            .WithName("ListOrganizationActors")
+            .WithSummary("List the synchronized actor catalog for the resolved organization/provider")
+            .Produces<OrganizationActorsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/organization/{providerKey}/actors/sync", SyncOrganizationActorsAsync)
+            .WithName("SyncOrganizationActors")
+            .WithSummary("Synchronize the actor catalog for the resolved organization/provider using configured credentials")
+            .Produces<OrganizationActorsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // ─── Canva per-user OAuth (PKCE) — WU-5 ─────────────────────────────────
+
+        var workflowConfigGroup = app.MapGroup("/api/integrations/workflow-configurations")
+            .WithTags("Integrations")
+            .RequireAuthorization(IdentityServicesExtensions.Policies.PlatformAdmin);
+
+        workflowConfigGroup.MapGet("/", ListWorkflowConfigurationsAsync)
+            .WithName("ListWorkflowConfigurations")
+            .WithSummary("List workflow step routing configuration for a selected organization (sysadmin only)")
+            .Produces<WorkflowConfigurationOverviewResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        workflowConfigGroup.MapPut("/{organizationId:guid}/{workflowKey}", UpsertWorkflowConfigurationsAsync)
+            .WithName("UpsertWorkflowConfigurations")
+            .WithSummary("Replace workflow step routing configuration for a selected organization/workflow (sysadmin only)")
+            .Produces<WorkflowConfigurationOverviewResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        var canvaGroup = app.MapGroup("/api/integrations/canva")
+            .WithTags("Integrations")
+            .RequireAuthorization();
+
+        // Authorize requires auth (called by the admin's browser via fetch with the bearer): it
+        // returns the Canva authorize URL as JSON so the SPA can navigate to Canva.
+        canvaGroup.MapGet("/authorize", CanvaOAuthFacade.AuthorizeAsync)
+            .WithName("CanvaOAuthAuthorize")
+            .WithSummary("Start Canva org OAuth PKCE flow — returns the Canva authorize URL as JSON")
+            .Produces<CanvaAuthorizeUrlResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+        // Callback is an UNAUTHENTICATED browser navigation FROM Canva (no bearer) — it must allow
+        // anonymous; security comes from validating the OAuth state against the server-side cache.
+        canvaGroup.MapGet("/callback", CanvaOAuthFacade.CallbackAsync)
+            .AllowAnonymous()
+            .WithName("CanvaOAuthCallback")
+            .WithSummary("Canva OAuth callback — exchanges code for the org token and redirects to UI")
+            .Produces(StatusCodes.Status302Found);
 
         return app;
     }
@@ -186,8 +253,8 @@ public static class IntegrationsEndpointsExtensions
         return result.Match(response => (IResult)TypedResults.Ok(response));
     }
 
-    private static async Task<IResult> SetDefaultAiAsync(
-        [FromBody] SetDefaultAiIntegrationRequest body,
+    private static async Task<IResult> ListOrganizationAiModelsAsync(
+        string providerKey,
         ISender sender,
         ICurrentTenant currentTenant,
         CancellationToken cancellationToken)
@@ -198,12 +265,186 @@ public static class IntegrationsEndpointsExtensions
         }
 
         var result = await sender.Send(
-            new SetDefaultAiIntegrationCommand(organizationId.Value, body.ProviderKey, body.Model),
+            new ListOrganizationAiModelsQuery(organizationId.Value, providerKey),
             cancellationToken);
 
         return result.Match(response => (IResult)TypedResults.Ok(response));
     }
+
+    private static async Task<IResult> SyncOrganizationAiModelsAsync(
+        string providerKey,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } organizationId)
+        {
+            return IntegrationErrors.OrganizationRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new SyncOrganizationAiModelsCommand(organizationId.Value, providerKey),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    private static async Task<IResult> ListOrganizationActorsAsync(
+        string providerKey,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } organizationId)
+        {
+            return IntegrationErrors.OrganizationRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new ListOrganizationActorsQuery(organizationId.Value, providerKey),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    private static async Task<IResult> SyncOrganizationActorsAsync(
+        string providerKey,
+        ISender sender,
+        ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } organizationId)
+        {
+            return IntegrationErrors.OrganizationRequired.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new SyncOrganizationActorsCommand(organizationId.Value, providerKey),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    private static async Task<IResult> ListWorkflowConfigurationsAsync(
+        [FromQuery] Guid organizationId,
+        [FromQuery] string? workflowKey,
+        ISender sender,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetWorkflowConfigurationsQuery(organizationId, workflowKey),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
+    private static async Task<IResult> UpsertWorkflowConfigurationsAsync(
+        Guid organizationId,
+        string workflowKey,
+        [FromBody] UpsertWorkflowConfigurationsRequest body,
+        ISender sender,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new UpsertWorkflowConfigurationsCommand(
+                organizationId,
+                workflowKey,
+                body.Steps ?? []),
+            cancellationToken);
+
+        return result.Match(response => (IResult)TypedResults.Ok(response));
+    }
+
 }
+
+/// <summary>
+/// Minimal API handler delegates for Canva per-user OAuth endpoints (WU-5).
+///
+/// <para>
+/// Authorize: builds PKCE URL and redirects the user to Canva.
+/// Callback: validates state, exchanges code+verifier for tokens, redirects to the UI.
+/// </para>
+///
+/// <para>
+/// Errors (invalid/expired state, Canva error) produce a redirect to the error page —
+/// no HTTP 500 is ever returned for expected OAuth failures.
+/// </para>
+/// </summary>
+public static class CanvaOAuthFacade
+{
+    // UI success and error redirect paths — the SPA handles these routes.
+    private const string SuccessRedirectPath = "/integrations/canva/connected";
+    private const string ErrorRedirectPath = "/integrations/canva/error";
+
+    /// <summary>
+    /// GET /api/integrations/canva/authorize?orgIntegrationId={guid}&amp;redirectUri={uri}
+    ///
+    /// Resolves the user + org context, calls <see cref="ICanvaOAuthService.BuildAuthorizeUrlAsync"/>,
+    /// stores verifier in cache, then 302-redirects to Canva.
+    /// </summary>
+    public static async Task<IResult> AuthorizeAsync(
+        [FromQuery] Guid orgIntegrationId,
+        [FromQuery] string redirectUri,
+        [FromServices] ICanvaOAuthService oauthService,
+        [FromServices] ICurrentUser currentUser,
+        [FromServices] ICurrentTenant currentTenant,
+        CancellationToken cancellationToken)
+    {
+        if (currentUser.UserId is null)
+            return TypedResults.Unauthorized();
+
+        if (currentTenant.TenantId is not { } tenantId)
+            return IntegrationErrors.OrganizationRequired.ToProblem();
+
+        // Org-level connection: the token is stored under the shared org sentinel, not the
+        // initiating user — so the whole org reuses this single connection.
+        var result = await oauthService.BuildAuthorizeUrlAsync(
+            CanvaOrgConnection.SharedUserId,
+            orgIntegrationId,
+            tenantId.Value,
+            redirectUri,
+            cancellationToken);
+
+        // Return the URL as JSON — the SPA fetches this (with its bearer) then navigates the
+        // browser to Canva. A 302 here would be useless: the SPA can't send the bearer on a
+        // full-page navigation.
+        return result.IsSuccess
+            ? TypedResults.Ok(new CanvaAuthorizeUrlResponse(result.Value))
+            : result.Error.ToProblem();
+    }
+
+    /// <summary>
+    /// GET /api/integrations/canva/callback?code={code}&amp;state={state}&amp;orgIntegrationId={guid}&amp;redirectUri={uri}
+    ///
+    /// Validates state, exchanges code+verifier for tokens, redirects to the UI success or error page.
+    /// Expected failures (invalid/expired state, Canva error) redirect to the error page — no 500.
+    /// </summary>
+    public static async Task<IResult> CallbackAsync(
+        [FromQuery] string? code,
+        [FromQuery] string? state,
+        [FromQuery] string? error,
+        [FromServices] ICanvaOAuthService oauthService,
+        CancellationToken cancellationToken)
+    {
+        // Canva may return an error param instead of a code (e.g., the user cancelled).
+        if (!string.IsNullOrWhiteSpace(error))
+            return TypedResults.Redirect(ErrorRedirectPath + "?reason=" + Uri.EscapeDataString(error));
+
+        if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(state))
+            return TypedResults.Redirect(ErrorRedirectPath + "?reason=no-code");
+
+        // No bearer/tenant here (browser navigation from Canva): the org + integration + verifier
+        // + redirect URI are all recovered from the server-side cache keyed by the validated state.
+        var result = await oauthService.ExchangeCodeAsync(code, state, cancellationToken);
+
+        return result.IsSuccess
+            ? TypedResults.Redirect(SuccessRedirectPath)
+            : TypedResults.Redirect(ErrorRedirectPath + "?reason=" + Uri.EscapeDataString(result.Error.Code));
+    }
+}
+
+/// <summary>Response of GET .../canva/authorize: the Canva authorization URL the SPA navigates to.</summary>
+public sealed record CanvaAuthorizeUrlResponse(string AuthorizeUrl);
 
 public sealed record ConfigureOrganizationIntegrationRequest(
     IntegrationConnectionMode ConnectionMode,
@@ -213,4 +454,5 @@ public sealed record ConfigureOrganizationIntegrationRequest(
 
 public sealed record IntegrationCredentialInput(string Key, string? Value);
 
-public sealed record SetDefaultAiIntegrationRequest(string ProviderKey, string? Model);
+public sealed record UpsertWorkflowConfigurationsRequest(
+    IReadOnlyList<WorkflowStepConfigurationInput>? Steps);

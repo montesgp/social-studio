@@ -27,7 +27,8 @@ public sealed class ClientReferentAccount : Entity<ClientReferentAccountId>
         string? notes,
         bool isActive,
         DateTime createdAtUtc,
-        DateTime updatedAtUtc)
+        DateTime updatedAtUtc,
+        int sortOrder)
         : base(id)
     {
         ClientId = clientId;
@@ -40,6 +41,7 @@ public sealed class ClientReferentAccount : Entity<ClientReferentAccountId>
         IsActive = isActive;
         CreatedAtUtc = createdAtUtc;
         UpdatedAtUtc = updatedAtUtc;
+        SortOrder = sortOrder;
     }
 
     // Parameterless constructor for EF Core
@@ -61,6 +63,8 @@ public sealed class ClientReferentAccount : Entity<ClientReferentAccountId>
 
     public bool IsActive { get; private set; }
 
+    public int SortOrder { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
 
     public DateTime UpdatedAtUtc { get; private set; }
@@ -77,7 +81,8 @@ public sealed class ClientReferentAccount : Entity<ClientReferentAccountId>
         string? handle,
         string? label,
         string? notes,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        int sortOrder = 0)
     {
         var urlValidation = ValidateProfileUrl(profileUrl);
         if (urlValidation.IsFailure)
@@ -114,7 +119,8 @@ public sealed class ClientReferentAccount : Entity<ClientReferentAccountId>
             notesValidation.Value,
             true,
             nowUtc,
-            nowUtc));
+            nowUtc,
+            sortOrder));
     }
 
     /// <summary>
@@ -131,18 +137,20 @@ public sealed class ClientReferentAccount : Entity<ClientReferentAccountId>
         string? notes,
         bool isActive,
         DateTime createdAtUtc,
-        DateTime updatedAtUtc)
+        DateTime updatedAtUtc,
+        int sortOrder = 0)
     {
         return new ClientReferentAccount(
             id, clientId, organizationId, socialNetworkId,
             profileUrl, handle, label, notes,
-            isActive, createdAtUtc, updatedAtUtc);
+            isActive, createdAtUtc, updatedAtUtc, sortOrder);
     }
 
     /// <summary>
-    /// Updates all editable fields. ClientId, OrganizationId, SocialNetworkId are immutable.
+    /// Updates all editable fields. ClientId and OrganizationId are immutable.
     /// </summary>
     public Result<ClientReferentAccount> Update(
+        SocialNetworkId socialNetworkId,
         string profileUrl,
         string? handle,
         string? label,
@@ -173,6 +181,7 @@ public sealed class ClientReferentAccount : Entity<ClientReferentAccountId>
             return Result.Failure<ClientReferentAccount>(notesValidation.Error);
         }
 
+        SocialNetworkId = socialNetworkId;
         ProfileUrl = urlValidation.Value;
         Handle = handleValidation.Value;
         Label = labelValidation.Value;
@@ -180,6 +189,55 @@ public sealed class ClientReferentAccount : Entity<ClientReferentAccountId>
         UpdatedAtUtc = nowUtc;
 
         return Result.Success(this);
+    }
+
+    public Result<ClientReferentAccount> Update(
+        string profileUrl,
+        string? handle,
+        string? label,
+        string? notes,
+        DateTime nowUtc)
+    {
+        return Update(SocialNetworkId, profileUrl, handle, label, notes, nowUtc);
+    }
+
+    /// <summary>
+    /// Sets the sort order for this account. Used by the static Reorder helper.
+    /// </summary>
+    public void SetSortOrder(int order, DateTime nowUtc)
+    {
+        SortOrder = order;
+        UpdatedAtUtc = nowUtc;
+    }
+
+    /// <summary>
+    /// Assigns 0-based sequential SortOrder to all accounts following the supplied orderedIds sequence.
+    /// All IDs in orderedIds must correspond to an account in the accounts list; extra IDs are an error.
+    /// Idempotent — re-sending the same order produces the same result.
+    /// </summary>
+    public static Result<IReadOnlyList<ClientReferentAccount>> Reorder(
+        IReadOnlyList<ClientReferentAccount> accounts,
+        IReadOnlyList<Guid> orderedIds,
+        DateTime nowUtc)
+    {
+        var accountById = accounts.ToDictionary(a => a.Id.Value);
+
+        foreach (var id in orderedIds)
+        {
+            if (!accountById.ContainsKey(id))
+            {
+                return Result.Failure<IReadOnlyList<ClientReferentAccount>>(
+                    ClientReferentAccountErrors.Validation($"Account id '{id}' was not found in the client's accounts."));
+            }
+        }
+
+        for (var i = 0; i < orderedIds.Count; i++)
+        {
+            var account = accountById[orderedIds[i]];
+            account.SetSortOrder(i, nowUtc);
+        }
+
+        return Result.Success<IReadOnlyList<ClientReferentAccount>>(accounts);
     }
 
     public Result<ClientReferentAccount> Deactivate(DateTime nowUtc)

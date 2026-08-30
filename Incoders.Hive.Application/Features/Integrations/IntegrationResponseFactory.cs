@@ -8,9 +8,16 @@ internal static class IntegrationResponseFactory
         Guid organizationId,
         IntegrationProvider provider,
         OrganizationIntegration? integration,
-        IReadOnlyList<string> configuredCredentialKeys)
+        IReadOnlyList<string> configuredCredentialKeys,
+        IReadOnlyDictionary<string, string>? credentialValues = null,
+        IReadOnlyList<string>? availableModels = null,
+        IntegrationProviderCategory? category = null,
+        bool supportsModelSync = false)
     {
         var providerResponse = IntegrationProviderResponse.FromDomain(provider);
+        var values = credentialValues ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var resolvedCategory = category ?? provider.Category;
+        var models = availableModels ?? provider.ModelsFor(resolvedCategory);
 
         if (integration is null)
         {
@@ -31,12 +38,11 @@ internal static class IntegrationResponseFactory
                 organizationId,
                 provider.Key,
                 provider.DisplayName,
-                provider.Category,
+                resolvedCategory,
                 provider.IconKey,
                 fallbackMode,
                 fallbackStatus,
                 provider.SystemDefaultReadOnly,
-                false,
                 null,
                 null,
                 null,
@@ -44,8 +50,11 @@ internal static class IntegrationResponseFactory
                 provider.SupportsManagedByIncoders,
                 provider.SupportsSystemDefault,
                 provider.SystemDefaultReadOnly,
+                models,
                 providerResponse.CredentialFields,
-                configuredCredentialKeys);
+                configuredCredentialKeys,
+                values,
+                supportsModelSync);
         }
 
         return new OrganizationIntegrationResponse(
@@ -53,12 +62,11 @@ internal static class IntegrationResponseFactory
             integration.OrganizationId,
             provider.Key,
             provider.DisplayName,
-            provider.Category,
+            resolvedCategory,
             provider.IconKey,
             integration.ConnectionMode,
             integration.Status,
             integration.IsReadOnly,
-            integration.IsDefaultAi,
             integration.SelectedAiModel,
             integration.LastTestedAtUtc,
             integration.LastError,
@@ -66,7 +74,10 @@ internal static class IntegrationResponseFactory
             provider.SupportsManagedByIncoders,
             provider.SupportsSystemDefault,
             provider.SystemDefaultReadOnly,
+            models,
             providerResponse.CredentialFields,
-            configuredCredentialKeys);
+            configuredCredentialKeys,
+            values,
+            supportsModelSync);
     }
 }

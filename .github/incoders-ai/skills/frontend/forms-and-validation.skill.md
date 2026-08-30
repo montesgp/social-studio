@@ -19,6 +19,7 @@ Pure backend or pure infrastructure repos.
 
 ## Procedure
 1. Use the framework's reactive forms primitive (Angular Reactive Forms, React Hook Form, Formik, etc. — whatever the active stack declares).
+   - **UI primitives**: always use `<Select>`, `<Input>`, `<Button>` from `@/components/ui/` — raw `<select>`, `<input>`, `<button>` are forbidden in feature code. See `core/ui-primitives.rules.md` for the full contract and size table.
 2. Reuse shared validators when applicable (email, phone, URL, required-trimmed, min/max length, document ID patterns, numeric constraints, semantic date ranges). Do not duplicate regex rules across features.
 3. Keep validators centralized (`shared/validators`, `core/validation`, or equivalent). Feature-local validators only for truly feature-specific rules.
 4. For semantic date-range pairs (`start`/`end`, `from`/`to`, `date_from`/`date_to`, `valid_from`/`valid_to`): apply a reusable cross-field validator, prevent invalid submission, wire UI constraints (`min`/`max`/datepicker filter), preserve the rule in both create and edit, support optional open-ended ranges only when explicitly intended, and map failures to clear translated messages.
@@ -28,6 +29,7 @@ Pure backend or pure infrastructure repos.
 8. Use shared async-button (or equivalent) for submit; prevent duplicate submissions; expose loading/submitting/success/error states.
 9. Use translation keys for every visible label, placeholder, hint, and tooltip.
 10. Use semantic design tokens for state styles; no hardcoded colors.
+11. Apply focus-first-error on failed submit: after a submit attempt with validation errors, apply the focus-management fallback chain defined in `skills/frontend/ux-focus-management.skill.md` §Procedure-3. Error messages and toasts alone are not sufficient — the cursor must land on the first invalid field.
 
 ## Output Expectations
 - Forms across the app feel like one design system, not separate experiments.

@@ -12,6 +12,7 @@ Ensure test completeness, reliability, and correctness across unit, integration,
 - Verify destructive-action confirmation flows execute only after confirm and never on cancel.
 - Verify HTTP/network transport is not called from components.
 - Verify domain logic has unit tests; infrastructure/providers have integration tests; external APIs are mocked unless explicitly required.
+- Use TestSprite as the AI-assisted QA tier when the active manifest declares it.
 - Reject superficial tests without meaningful assertions.
 
 ## Load Conditions
@@ -20,6 +21,7 @@ Always loaded for any change that touches code with behavior.
 ## Tools / Skills
 - `skills/shared/audit.skill.md`
 - The active stack's testing instruction (e.g. `stacks/angular/testing.instructions.md`).
+- `providers/testing/testsprite/testsprite-validation.skill.md` when the TestSprite provider is active.
 
 ## Decision Rules
 - MUST use the test framework declared by the active stack/manifest (e.g. Jasmine for Angular, xUnit for .NET) — never mix frameworks.

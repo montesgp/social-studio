@@ -10,6 +10,8 @@ public sealed class UserPreferenceData
 
     public string? AccentTheme { get; set; }
 
+    public string DateFormat { get; set; } = string.Empty;
+
     public DateTime CreatedAtUtc { get; set; }
 
     public DateTime UpdatedAtUtc { get; set; }

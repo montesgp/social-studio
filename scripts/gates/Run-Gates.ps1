@@ -69,6 +69,7 @@ $gateScripts = [ordered] @{
     'secrets'        = 'checks\Check-Secrets.ps1'
     'security'       = 'checks\Check-Security.ps1'
     'vulnerabilities'= 'checks\Check-Vulnerabilities.ps1'
+    'migration-drift'= 'checks\Check-MigrationDrift.ps1'
 }
 
 # Filter
@@ -114,7 +115,7 @@ foreach ($gate in $selected) {
 }
 
 if ($Json) {
-    $allResults | ConvertTo-Json -Depth 6
+    ConvertTo-SafeGateResultsJson -Results $allResults
 } elseif (-not $NoSummary) {
     Write-GateSummary -Results $allResults
 }

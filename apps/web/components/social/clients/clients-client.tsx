@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { useDateFormatter } from "@/lib/format/use-date-formatter";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Archive,
   CheckCircle2,
@@ -10,43 +11,58 @@ import {
   Clock3,
   Edit3,
   Eye,
+  LayoutGrid,
+  LayoutList,
   Plus,
   RefreshCcw,
   RotateCcw,
   Search,
   Sparkles,
+  Trash2,
   Users,
   X
 } from "lucide-react";
 import {
   activateSocialClient,
-  createSocialClient,
+  deleteSocialClient,
   deactivateSocialClient,
   getSocialClient,
-  listSocialClients,
-  updateSocialClient
+  listSocialClients
 } from "@/lib/api/social-clients";
-import { ApiError, PageResult, SocialClient } from "@/lib/api/types";
+import { listOrganizations } from "@/lib/api/organizations";
+import { ApiError, Organization, PageResult, SocialClient } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
-import { ClientReferentAccountsSection } from "@/components/social/clients/client-referent-accounts-section";
+import { useActiveOrg } from "@/lib/auth/active-org-context";
+import { ClientBrandManualSection } from "@/components/social/clients/client-brand-manual-section";
+import { ClientFormPanel } from "@/components/social/clients/client-form-panel";
+import { useClientForm } from "@/components/social/clients/use-client-form";
 
-type Mode = "create" | "edit";
 type StatusFilter = "active" | "archived" | "all";
+type ViewMode = "grid" | "table";
 
-export function ClientsClient() {
+interface ClientsClientProps {
+  isPlatformAdmin: boolean;
+}
+
+export function ClientsClient({ isPlatformAdmin }: ClientsClientProps) {
+  const { formatDate } = useDateFormatter();
   const sessionToken = useAccessToken();
+  const { orgId, isInitialized: orgInitialized } = useActiveOrg();
   const toast = useToast();
   const lastErrorToastRef = useRef<{ message: string; at: number } | null>(null);
 
   const [page, setPage] = useState<PageResult<SocialClient> | null>(null);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -54,17 +70,70 @@ export function ClientsClient() {
   const [status, setStatus] = useState<StatusFilter>("active");
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize] = useState(12);
-  const [formOpen, setFormOpen] = useState(false);
-  const [mode, setMode] = useState<Mode>("create");
-  const [selected, setSelected] = useState<SocialClient | null>(null);
   const [details, setDetails] = useState<SocialClient | null>(null);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [pendingDelete, setPendingDelete] = useState<SocialClient | null>(null);
 
-  const items = page?.items ?? [];
   const effectiveToken = sessionToken ?? "";
+  const items = useMemo(() => page?.items ?? [], [page]);
+
+  const organizationNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const organization of organizations) {
+      map.set(organization.id, organization.name);
+    }
+    return map;
+  }, [organizations]);
+
+  const {
+    formOpen,
+    mode,
+    selected,
+    name,
+    description,
+    sectorOrNiche,
+    backgroundSourcingPolicy,
+    aestheticRefreshThresholdDays,
+    maxPiecesPerGeneration,
+    signsOwnSlides,
+    fieldErrors,
+    referentAccounts,
+    referentAccountsLoading,
+    competitorAccounts,
+    competitorAccountsLoading,
+    ownAccounts,
+    ownAccountsLoading,
+    niches,
+    nichesLoading,
+    submitting,
+    setName,
+    setDescription,
+    setNiches,
+    setBackgroundSourcingPolicy,
+    setAestheticRefreshThresholdDays,
+    setMaxPiecesPerGeneration,
+    setSignsOwnSlides,
+    setReferentAccounts,
+    setCompetitorAccounts,
+    setOwnAccounts,
+    openCreate,
+    openEdit,
+    closeForm,
+    onSubmit,
+  } = useClientForm({
+    effectiveToken,
+    onSuccess: (saved, formMode) => {
+      setSuccess(formMode === "create" ? "Client created." : "Client updated.");
+      toast.success(formMode === "create" ? "Client created" : "Client updated", saved.name);
+      setDetails(saved);
+      void loadClients();
+    },
+    onError: (message) => {
+      setError(message);
+      pushErrorToast(message);
+    },
+  });
   const stats = useMemo(() => {
     const active = items.filter((item) => item.isActive).length;
     return {
@@ -87,15 +156,48 @@ export function ClientsClient() {
   }
 
   useEffect(() => {
-    if (!effectiveToken) {
+    if (!orgInitialized) return;
+    setPageNumber(1);
+    setDetails(null);
+  }, [orgId, orgInitialized]);
+
+  useEffect(() => {
+    if (!orgInitialized || !effectiveToken || !isPlatformAdmin) {
+      setOrganizations([]);
+      return;
+    }
+
+    void loadOrganizations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveToken, isPlatformAdmin, orgInitialized]);
+
+  useEffect(() => {
+    if (!orgInitialized) return;
+
+    if (!effectiveToken || (!isPlatformAdmin && !orgId)) {
       setLoading(false);
       setPage(null);
+      setDetails(null);
       return;
     }
 
     void loadClients();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageNumber, status, effectiveToken, sessionToken]);
+  }, [pageNumber, status, effectiveToken, sessionToken, orgInitialized, orgId, isPlatformAdmin, selectedOrganizationId]);
+
+  async function loadOrganizations() {
+    try {
+      const data = await listOrganizations(
+        { includeInactive: false, page: 1, pageSize: 100 },
+        effectiveToken || undefined
+      );
+      setOrganizations([...data.items].sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (err) {
+      const message = (err as ApiError).message;
+      setError(message);
+      pushErrorToast(message);
+    }
+  }
 
   async function loadClients(nextPage = pageNumber) {
     setLoading(true);
@@ -103,6 +205,7 @@ export function ClientsClient() {
     try {
       const data = await listSocialClients(
         {
+          organizationId: isPlatformAdmin && selectedOrganizationId ? selectedOrganizationId : undefined,
           name: query || undefined,
           includeInactive: status !== "active",
           page: nextPage,
@@ -117,6 +220,10 @@ export function ClientsClient() {
           : data;
 
       setPage(normalized);
+      setDetails((current) => {
+        if (!current) return null;
+        return normalized.items.find((item) => item.id === current.id) ?? null;
+      });
     } catch (err) {
       const message = (err as ApiError).message;
       setError(message);
@@ -130,63 +237,19 @@ export function ClientsClient() {
     try {
       const client = await getSocialClient(id, effectiveToken || undefined);
       setDetails(client);
-    } catch {
-      setDetails(null);
+    } catch (err) {
+      // Keep whatever openDetails already put in the panel instead of blanking it, and
+      // surface why the refresh failed — silently resetting to the empty state made the
+      // panel look like it flashed and lost the selection with no explanation.
+      const message = (err as ApiError).message;
+      setError(message);
+      pushErrorToast(message);
     }
-  }
-
-  function openCreate() {
-    setMode("create");
-    setSelected(null);
-    setName("");
-    setDescription("");
-    setFormOpen(true);
-  }
-
-  function openEdit(item: SocialClient) {
-    setMode("edit");
-    setSelected(item);
-    setName(item.name);
-    setDescription(item.description ?? "");
-    setFormOpen(true);
   }
 
   async function openDetails(item: SocialClient) {
     setDetails(item);
     await refreshDetails(item.id);
-  }
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    setSuccess(null);
-
-    try {
-      const payload = { name, description: description.trim() || null };
-      const saved =
-        mode === "create"
-          ? await createSocialClient(payload, effectiveToken || undefined)
-          : selected
-            ? await updateSocialClient(selected.id, payload, effectiveToken || undefined)
-            : null;
-
-      setSuccess(mode === "create" ? "Client created." : "Client updated.");
-      toast.success(mode === "create" ? "Client created" : "Client updated", name.trim());
-      setFormOpen(false);
-      setName("");
-      setDescription("");
-      if (saved) {
-        setDetails(saved);
-      }
-      await loadClients();
-    } catch (err) {
-      const message = (err as ApiError).message;
-      setError(message);
-      pushErrorToast(message);
-    } finally {
-      setSubmitting(false);
-    }
   }
 
   async function onArchive(item: SocialClient) {
@@ -205,6 +268,20 @@ export function ClientsClient() {
       toast.success("Client reactivated", activated.name);
       setDetails(activated);
     });
+  }
+
+  function onRequestDelete(item: SocialClient) {
+    setPendingDelete(item);
+  }
+
+  async function onConfirmDelete(item: SocialClient) {
+    await runAction(item.id, async () => {
+      const deleted = await deleteSocialClient(item.id, effectiveToken || undefined);
+      setSuccess("Client deleted permanently.");
+      toast.success("Client deleted permanently", deleted.name);
+      setDetails((current) => (current?.id === item.id ? null : current));
+    });
+    setPendingDelete(null);
   }
 
   async function runAction(id: string, action: () => Promise<void>) {
@@ -229,6 +306,16 @@ export function ClientsClient() {
     void loadClients(1);
   }
 
+  function resolveOrganizationName(client: SocialClient) {
+    return client.organizationName ?? organizationNameById.get(client.organizationId) ?? client.organizationId;
+  }
+
+  function changeOrganizationFilter(organizationId: string) {
+    setSelectedOrganizationId(organizationId);
+    setPageNumber(1);
+    setDetails(null);
+  }
+
   return (
     <div className="space-y-6">
       <section className="relative overflow-hidden rounded-3xl border border-border bg-card p-6 shadow-2xl">
@@ -242,7 +329,9 @@ export function ClientsClient() {
             <div>
               <h1 className="text-3xl font-semibold tracking-tight md:text-5xl">Clients cockpit</h1>
               <p className="mt-3 text-sm leading-6 text-muted-foreground md:text-base">
-                Manage Social customers under the resolved organization.
+                {isPlatformAdmin
+                  ? "Manage Social customers across organizations."
+                  : "Manage Social customers under the resolved organization."}
               </p>
             </div>
           </div>
@@ -258,7 +347,65 @@ export function ClientsClient() {
         </div>
       </section>
 
-      <div className="grid gap-3 md:grid-cols-4">
+      <AnimatePresence>
+        {formOpen && (
+          <motion.div
+            key="inline-form"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <Card>
+              <CardHeader>
+                <CardTitle>{mode === "create" ? "New client" : "Edit client"}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ClientFormPanel
+                  mode={mode}
+                  clientId={selected?.id ?? null}
+                  name={name}
+                  description={description}
+                  sectorOrNiche={sectorOrNiche}
+                  niches={niches}
+                  nichesLoading={nichesLoading}
+                  backgroundSourcingPolicy={backgroundSourcingPolicy}
+                  aestheticRefreshThresholdDays={aestheticRefreshThresholdDays}
+                  maxPiecesPerGeneration={maxPiecesPerGeneration}
+                  signsOwnSlides={signsOwnSlides}
+                  fieldErrors={fieldErrors}
+                  referentAccounts={referentAccounts}
+                  referentAccountsLoading={referentAccountsLoading}
+                  competitorAccounts={competitorAccounts}
+                  competitorAccountsLoading={competitorAccountsLoading}
+                  ownAccounts={ownAccounts}
+                  ownAccountsLoading={ownAccountsLoading}
+                  submitting={submitting}
+                  onNameChange={setName}
+                  onDescriptionChange={setDescription}
+                  onNichesChange={setNiches}
+                  onBackgroundSourcingPolicyChange={setBackgroundSourcingPolicy}
+                  onAestheticRefreshThresholdDaysChange={setAestheticRefreshThresholdDays}
+                  onMaxPiecesPerGenerationChange={setMaxPiecesPerGeneration}
+                  onSignsOwnSlidesChange={setSignsOwnSlides}
+                  onReferentAccountsChange={setReferentAccounts}
+                  onCompetitorAccountsChange={setCompetitorAccounts}
+                  onOwnAccountsChange={setOwnAccounts}
+                  onSubmit={onSubmit}
+                  onCancel={() => {
+                    closeForm();
+                    setDetails(details);
+                  }}
+                  token={effectiveToken}
+                />
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={Users} label="Visible" value={stats.visible} hint="Rows in current view" />
         <MetricCard icon={CheckCircle2} label="Active" value={stats.active} hint="Ready for campaigns" />
         <MetricCard icon={Archive} label="Archived" value={stats.archived} hint="Recoverable records" />
@@ -267,7 +414,7 @@ export function ClientsClient() {
 
       <Card>
         <CardContent className="p-4">
-          <form className="grid gap-3 lg:grid-cols-[1fr_auto_auto]" onSubmit={applyFilters}>
+          <form className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto]" onSubmit={applyFilters}>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
@@ -277,6 +424,20 @@ export function ClientsClient() {
                 placeholder="Search clients by name..."
               />
             </div>
+            {isPlatformAdmin ? (
+              <Select
+                className="w-full lg:min-w-[220px]"
+                value={selectedOrganizationId}
+                onChange={(event) => changeOrganizationFilter(event.target.value)}
+              >
+                <option value="">All organizations</option>
+                {organizations.map((organization) => (
+                  <option key={organization.id} value={organization.id}>
+                    {organization.name}
+                  </option>
+                ))}
+              </Select>
+            ) : null}
             <StatusTabs value={status} onChange={setStatus} />
             <Button type="submit">Apply</Button>
           </form>
@@ -286,92 +447,221 @@ export function ClientsClient() {
       {error ? <Notice tone="error" message={error} onDismiss={() => setError(null)} /> : null}
       {success ? <Notice tone="success" message={success} onDismiss={() => setSuccess(null)} /> : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
+      <div className={cn("grid gap-6", !formOpen && "xl:grid-cols-[minmax(0,1fr)_420px]")}>
         <Card className="overflow-hidden">
           <CardHeader className="border-b border-border">
-            <CardTitle className="flex items-center justify-between text-base">
-              <span>Client grid</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                Page {page?.page ?? pageNumber} of {Math.max(page?.totalPages ?? 1, 1)}
-              </span>
+            <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+              <span>Clients</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={viewMode === "grid" ? "default" : "outline"}
+                  className="h-7 px-2"
+                  title="Grid view"
+                  onClick={() => setViewMode("grid")}
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant={viewMode === "table" ? "default" : "outline"}
+                  className="h-7 px-2"
+                  title="Table view"
+                  onClick={() => setViewMode("table")}
+                >
+                  <LayoutList className="h-4 w-4" />
+                </Button>
+                <span className="text-xs font-normal text-muted-foreground">
+                  Page {page?.page ?? pageNumber} of {Math.max(page?.totalPages ?? 1, 1)}
+                </span>
+              </div>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {loading ? (
-              <div className="grid gap-3 p-4 md:grid-cols-2">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <div key={index} className="h-36 animate-pulse rounded-2xl border border-border bg-muted/40" />
-                ))}
-              </div>
-            ) : items.length === 0 ? (
-              <EmptyState onCreate={openCreate} />
-            ) : (
-              <div className="grid gap-3 p-4 md:grid-cols-2">
-                {items.map((item, index) => (
-                  <motion.article
-                    key={item.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.03 }}
-                    className={cn(
-                      "group rounded-2xl border border-border bg-background/40 p-4 transition hover:border-primary/60 hover:bg-muted/30",
-                      details?.id === item.id && "border-primary/80 bg-primary/10"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h2 className="font-semibold">{item.name}</h2>
-                          <Badge variant={item.isActive ? "success" : "muted"}>
-                            {item.isActive ? "Active" : "Archived"}
-                          </Badge>
+            {viewMode === "grid" ? (
+              loading ? (
+                <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div key={index} className="h-36 animate-pulse rounded-2xl border border-border bg-muted/40" />
+                  ))}
+                </div>
+              ) : items.length === 0 ? (
+                <EmptyState onCreate={openCreate} />
+              ) : (
+                <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                  {items.map((item, index) => (
+                    <motion.article
+                      key={item.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.03 }}
+                      className={cn(
+                        "group rounded-2xl border border-border bg-background/40 p-4 transition hover:border-primary/60 hover:bg-muted/30",
+                        details?.id === item.id && "border-primary/80 bg-primary/10"
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <h2 className="min-w-0 truncate font-semibold">{item.name}</h2>
+                            <Badge variant={item.isActive ? "success" : "muted"} className="shrink-0">
+                              {item.isActive ? "Active" : "Archived"}
+                            </Badge>
+                          </div>
+                          {isPlatformAdmin ? (
+                            <p className="mt-1 truncate text-xs text-muted-foreground">{resolveOrganizationName(item)}</p>
+                          ) : null}
+                          {item.description ? (
+                            <p className="mt-1 truncate text-xs text-muted-foreground">{item.description}</p>
+                          ) : (
+                            <p className="mt-2 truncate text-xs text-muted-foreground">{item.id}</p>
+                          )}
                         </div>
-                        {item.description ? (
-                          <p className="mt-1 max-w-[32rem] truncate text-xs text-muted-foreground">{item.description}</p>
-                        ) : (
-                          <p className="mt-2 max-w-[32rem] truncate text-xs text-muted-foreground">{item.id}</p>
-                        )}
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => void openDetails(item)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                      <Fact label="Updated" value={formatDate(item.updatedAtUtc)} />
-                      <Fact label="Created" value={formatDate(item.createdAtUtc)} />
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
-                        <Edit3 className="h-4 w-4" /> Edit
-                      </Button>
-                      {item.isActive ? (
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          disabled={actingId === item.id}
-                          onClick={() => void onArchive(item)}
-                        >
-                          <Archive className="h-4 w-4" /> Archive
-                        </Button>
-                      ) : (
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={actingId === item.id}
-                          onClick={() => void onReactivate(item)}
+                          className="shrink-0"
+                          title="View details"
+                          onClick={() => void openDetails(item)}
                         >
-                          <RotateCcw className="h-4 w-4" /> Reactivate
+                          <Eye className="h-4 w-4" />
                         </Button>
-                      )}
-                    </div>
-                  </motion.article>
-                ))}
-              </div>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                        {isPlatformAdmin ? <Fact label="Organization" value={resolveOrganizationName(item)} /> : null}
+                        <Fact label="Updated" value={formatDate(item.updatedAtUtc)} />
+                        <Fact label="Created" value={formatDate(item.createdAtUtc)} />
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
+                          <Edit3 className="h-4 w-4" /> Edit
+                        </Button>
+                        {item.isActive ? (
+                          <Button
+                            variant="warning"
+                            size="sm"
+                            disabled={actingId === item.id}
+                            onClick={() => void onArchive(item)}
+                          >
+                            <Archive className="h-4 w-4" /> Archive
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={actingId === item.id}
+                            onClick={() => void onReactivate(item)}
+                          >
+                            <RotateCcw className="h-4 w-4" /> Reactivate
+                          </Button>
+                        )}
+                        {isPlatformAdmin ? (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={actingId === item.id}
+                            onClick={() => onRequestDelete(item)}
+                          >
+                            <Trash2 className="h-4 w-4" /> Delete
+                          </Button>
+                        ) : null}
+                      </div>
+                    </motion.article>
+                  ))}
+                </div>
+              )
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    {isPlatformAdmin ? <TableHead>Organization</TableHead> : null}
+                    <TableHead>Status</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    Array.from({ length: 4 }).map((_, index) => (
+                      <TableRow key={index}>
+                        {Array.from({ length: isPlatformAdmin ? 6 : 5 }).map((__, col) => (
+                          <TableCell key={col}>
+                            <div className="h-4 animate-pulse rounded bg-muted/40" />
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  ) : items.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={isPlatformAdmin ? 6 : 5} className="py-12 text-center text-sm text-muted-foreground">
+                        No clients in this view.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    items.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.name}</TableCell>
+                        {isPlatformAdmin ? (
+                          <TableCell className="text-xs text-muted-foreground">{resolveOrganizationName(item)}</TableCell>
+                        ) : null}
+                        <TableCell>
+                          <Badge variant={item.isActive ? "success" : "muted"}>{item.isActive ? "Active" : "Archived"}</Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">
+                          {item.description ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{formatDate(item.createdAtUtc)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="inline-flex gap-2">
+                            <Button variant="outline" size="sm" onClick={() => void openDetails(item)}>
+                              Details
+                            </Button>
+                            <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
+                              Edit
+                            </Button>
+                            {item.isActive ? (
+                              <Button
+                                variant="warning"
+                                size="sm"
+                                disabled={actingId === item.id}
+                                onClick={() => void onArchive(item)}
+                              >
+                                Archive
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={actingId === item.id}
+                                onClick={() => void onReactivate(item)}
+                              >
+                                Reactivate
+                              </Button>
+                            )}
+                            {isPlatformAdmin ? (
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                disabled={actingId === item.id}
+                                onClick={() => onRequestDelete(item)}
+                              >
+                                Delete
+                              </Button>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
             )}
 
-            <div className="flex items-center justify-between border-t border-border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4">
               <Button
                 variant="outline"
                 disabled={!page?.hasPreviousPage || loading}
@@ -393,103 +683,44 @@ export function ClientsClient() {
           </CardContent>
         </Card>
 
-        <ClientDetailsPanel
-          client={details}
-          onEdit={(item) => openEdit(item)}
-          onArchive={(item) => void onArchive(item)}
-          onReactivate={(item) => void onReactivate(item)}
-          acting={actingId === details?.id}
-        />
+        {!formOpen && (
+          <ClientDetailsPanel
+            client={details}
+            organizationName={details && isPlatformAdmin ? resolveOrganizationName(details) : null}
+            onEdit={(item) => openEdit(item)}
+            onArchive={(item) => void onArchive(item)}
+            onReactivate={(item) => void onReactivate(item)}
+            onDelete={onRequestDelete}
+            canDelete={isPlatformAdmin}
+            acting={actingId === details?.id}
+          />
+        )}
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Data table</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">{item.name}</TableCell>
-                  <TableCell>
-                    <Badge variant={item.isActive ? "success" : "muted"}>{item.isActive ? "Active" : "Archived"}</Badge>
-                  </TableCell>
-                  <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">
-                    {item.description ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{formatDate(item.createdAtUtc)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => void openDetails(item)}>
-                        Details
-                      </Button>
-                      <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
-                        Edit
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{mode === "create" ? "Create client" : "Edit client"}</DialogTitle>
-            <DialogDescription>
-              Manage the Social client profile for this organization.
-            </DialogDescription>
-          </DialogHeader>
-          <form className="space-y-4" onSubmit={onSubmit}>
-            <div className="space-y-2">
-              <label htmlFor="client-name" className="text-sm font-medium">
-                Name
-              </label>
-              <Input
-                id="client-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="e.g. Acme Growth Studio"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="client-description" className="text-sm font-medium">
-                Description <span className="text-muted-foreground">(optional)</span>
-              </label>
-              <textarea
-                id="client-description"
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Brief description of this client..."
-                rows={3}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="secondary" onClick={() => setFormOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={submitting || !name.trim()}>
-                {submitting ? "Saving..." : mode === "create" ? "Create" : "Save changes"}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <ConfirmationDialog
+        open={pendingDelete !== null}
+        title="Delete client permanently?"
+        description={
+          pendingDelete
+            ? `This will permanently delete "${pendingDelete.name}" and all client-scoped data, including accounts, brand manuals, plans, analyses, generated packages, and stored assets. This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete permanently"
+        cancelLabel="Cancel"
+        confirmVariant="destructive"
+        icon={<Trash2 className="h-5 w-5" />}
+        disableDismiss={pendingDelete !== null && actingId === pendingDelete.id}
+        onConfirm={() => {
+          if (pendingDelete) {
+            void onConfirmDelete(pendingDelete);
+          }
+        }}
+        onCancel={() => {
+          if (!actingId) {
+            setPendingDelete(null);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -529,19 +760,17 @@ function StatusTabs({ value, onChange }: { value: StatusFilter; onChange: (value
   ];
 
   return (
-    <div className="inline-flex rounded-md border border-border bg-background p-1">
+    <div className="flex flex-wrap rounded-md border border-border bg-background p-1 lg:inline-flex lg:flex-nowrap">
       {options.map((option) => (
-        <button
+        <Button
           key={option.value}
           type="button"
+          variant={value === option.value ? "secondary" : "ghost"}
+          size="sm"
           onClick={() => onChange(option.value)}
-          className={cn(
-            "rounded px-3 py-2 text-sm text-muted-foreground transition",
-            value === option.value && "bg-muted text-foreground"
-          )}
         >
           {option.label}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -549,17 +778,25 @@ function StatusTabs({ value, onChange }: { value: StatusFilter; onChange: (value
 
 function ClientDetailsPanel({
   client,
+  organizationName,
   onEdit,
   onArchive,
   onReactivate,
+  onDelete,
+  canDelete,
   acting
 }: {
   client: SocialClient | null;
+  organizationName: string | null;
   onEdit: (client: SocialClient) => void;
   onArchive: (client: SocialClient) => void;
   onReactivate: (client: SocialClient) => void;
+  onDelete: (client: SocialClient) => void;
+  canDelete: boolean;
   acting: boolean;
 }) {
+  const { formatDateTime } = useDateFormatter();
+
   if (!client) {
     return (
       <Card className="min-h-[28rem]">
@@ -580,30 +817,31 @@ function ClientDetailsPanel({
     <Card className="sticky top-6 min-h-[28rem]">
       <CardHeader className="border-b border-border">
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle>{client.name}</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">{client.id}</p>
+          <div className="min-w-0 flex-1">
+            <CardTitle className="break-words">{client.name}</CardTitle>
+            <p className="mt-1 break-all text-xs text-muted-foreground">{client.id}</p>
           </div>
-          <Badge variant={client.isActive ? "success" : "muted"}>
+          <Badge variant={client.isActive ? "success" : "muted"} className="shrink-0">
             {client.isActive ? "Active" : "Archived"}
           </Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-5 p-6">
         <div className="grid gap-3">
+          {organizationName ? <Fact label="Organization" value={organizationName} /> : null}
           {client.description ? <Fact label="Description" value={client.description} /> : null}
           <Fact label="Created" value={formatDateTime(client.createdAtUtc)} />
           <Fact label="Updated" value={formatDateTime(client.updatedAtUtc)} />
         </div>
 
-        <ClientReferentAccountsSection clientId={client.id} />
+        <ClientBrandManualSection clientId={client.id} />
 
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => onEdit(client)}>
             <Edit3 className="h-4 w-4" /> Edit
           </Button>
           {client.isActive ? (
-            <Button variant="destructive" disabled={acting} onClick={() => onArchive(client)}>
+            <Button variant="warning" disabled={acting} onClick={() => onArchive(client)}>
               <Archive className="h-4 w-4" /> Archive
             </Button>
           ) : (
@@ -611,6 +849,11 @@ function ClientDetailsPanel({
               <RotateCcw className="h-4 w-4" /> Reactivate
             </Button>
           )}
+          {canDelete ? (
+            <Button variant="destructive" disabled={acting} onClick={() => onDelete(client)}>
+              <Trash2 className="h-4 w-4" /> Delete
+            </Button>
+          ) : null}
         </div>
       </CardContent>
     </Card>
@@ -639,13 +882,19 @@ function Notice({ tone, message, onDismiss }: { tone: "error" | "success"; messa
     <div
       className={cn(
         "flex items-center justify-between rounded-xl border p-4 text-sm",
-        tone === "error" ? "border-red-500/40 bg-red-500/10 text-red-100" : "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"
+        tone === "error" ? "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-200" : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
       )}
     >
       <span>{tone === "error" ? `Error: ${message}` : message}</span>
-      <button type="button" onClick={onDismiss} className="opacity-70 hover:opacity-100">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onDismiss}
+        className="h-7 px-2 opacity-70 hover:opacity-100"
+      >
         <X className="h-4 w-4" />
-      </button>
+      </Button>
     </div>
   );
 }
@@ -657,18 +906,4 @@ function Fact({ label, value }: { label: string; value: string }) {
       <p className="mt-1 break-all text-sm">{value}</p>
     </div>
   );
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(value));
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value));
 }

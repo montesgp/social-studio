@@ -13,7 +13,6 @@ public sealed class OrganizationIntegration : Entity<OrganizationIntegrationId>
         IntegrationConnectionMode connectionMode,
         IntegrationStatus status,
         bool isReadOnly,
-        bool isDefaultAi,
         string? selectedAiModel,
         DateTime? lastTestedAtUtc,
         string? lastError,
@@ -26,7 +25,6 @@ public sealed class OrganizationIntegration : Entity<OrganizationIntegrationId>
         ConnectionMode = connectionMode;
         Status = status;
         IsReadOnly = isReadOnly;
-        IsDefaultAi = isDefaultAi;
         SelectedAiModel = selectedAiModel;
         LastTestedAtUtc = lastTestedAtUtc;
         LastError = lastError;
@@ -43,8 +41,6 @@ public sealed class OrganizationIntegration : Entity<OrganizationIntegrationId>
     public IntegrationStatus Status { get; private set; }
 
     public bool IsReadOnly { get; private set; }
-
-    public bool IsDefaultAi { get; private set; }
 
     public string? SelectedAiModel { get; private set; }
 
@@ -63,7 +59,6 @@ public sealed class OrganizationIntegration : Entity<OrganizationIntegrationId>
         IntegrationConnectionMode connectionMode,
         IntegrationStatus status,
         bool isReadOnly,
-        bool isDefaultAi,
         string? selectedAiModel,
         DateTime? lastTestedAtUtc,
         string? lastError,
@@ -84,14 +79,9 @@ public sealed class OrganizationIntegration : Entity<OrganizationIntegrationId>
             return Result.Failure<OrganizationIntegration>(IntegrationErrors.ReadOnlySystemDefaultOnly);
         }
 
-        if (isDefaultAi && status != IntegrationStatus.Connected)
-        {
-            return Result.Failure<OrganizationIntegration>(IntegrationErrors.DefaultAiProviderNotConnected);
-        }
-
         if (!string.IsNullOrWhiteSpace(selectedAiModel) && selectedAiModel.Trim().Length > SelectedAiModelMaxLength)
         {
-            return Result.Failure<OrganizationIntegration>(IntegrationErrors.DefaultAiProviderNotConnected);
+            return Result.Failure<OrganizationIntegration>(IntegrationErrors.AiModelRequired);
         }
 
         return Result.Success(new OrganizationIntegration(
@@ -101,7 +91,6 @@ public sealed class OrganizationIntegration : Entity<OrganizationIntegrationId>
             connectionMode,
             status,
             isReadOnly,
-            isDefaultAi,
             NormalizeModel(selectedAiModel),
             lastTestedAtUtc,
             string.IsNullOrWhiteSpace(lastError) ? null : lastError.Trim(),
@@ -116,7 +105,6 @@ public sealed class OrganizationIntegration : Entity<OrganizationIntegrationId>
         IntegrationConnectionMode connectionMode,
         IntegrationStatus status,
         bool isReadOnly,
-        bool isDefaultAi,
         string? selectedAiModel,
         DateTime? lastTestedAtUtc,
         string? lastError,
@@ -130,7 +118,6 @@ public sealed class OrganizationIntegration : Entity<OrganizationIntegrationId>
             connectionMode,
             status,
             isReadOnly,
-            isDefaultAi,
             selectedAiModel,
             lastTestedAtUtc,
             lastError,
@@ -152,7 +139,7 @@ public sealed class OrganizationIntegration : Entity<OrganizationIntegrationId>
 
         if (!string.IsNullOrWhiteSpace(selectedAiModel) && selectedAiModel.Trim().Length > SelectedAiModelMaxLength)
         {
-            return Result.Failure(IntegrationErrors.DefaultAiProviderNotConnected);
+            return Result.Failure(IntegrationErrors.AiModelRequired);
         }
 
         ConnectionMode = mode;
@@ -164,14 +151,10 @@ public sealed class OrganizationIntegration : Entity<OrganizationIntegrationId>
         if (!enabled)
         {
             Status = IntegrationStatus.Disabled;
-            IsDefaultAi = false;
             return Result.Success();
         }
 
-        if (Status == IntegrationStatus.Disabled)
-        {
-            Status = IntegrationStatus.NotConfigured;
-        }
+        Status = IntegrationStatus.Configured;
 
         return Result.Success();
     }
@@ -181,36 +164,6 @@ public sealed class OrganizationIntegration : Entity<OrganizationIntegrationId>
         Status = isSuccess ? IntegrationStatus.Connected : IntegrationStatus.Failed;
         LastTestedAtUtc = nowUtc;
         LastError = isSuccess ? null : (string.IsNullOrWhiteSpace(error) ? IntegrationErrors.ConnectionTestFailed.MessageKey : error.Trim());
-        UpdatedAtUtc = nowUtc;
-
-        if (!isSuccess)
-        {
-            IsDefaultAi = false;
-        }
-    }
-
-    public Result SetDefaultAi(string? model, DateTime nowUtc)
-    {
-        if (Status != IntegrationStatus.Connected)
-        {
-            return Result.Failure(IntegrationErrors.DefaultAiProviderNotConnected);
-        }
-
-        if (!string.IsNullOrWhiteSpace(model) && model.Trim().Length > SelectedAiModelMaxLength)
-        {
-            return Result.Failure(IntegrationErrors.DefaultAiProviderNotConnected);
-        }
-
-        IsDefaultAi = true;
-        SelectedAiModel = NormalizeModel(model) ?? SelectedAiModel;
-        UpdatedAtUtc = nowUtc;
-
-        return Result.Success();
-    }
-
-    public void ClearDefaultAi(DateTime nowUtc)
-    {
-        IsDefaultAi = false;
         UpdatedAtUtc = nowUtc;
     }
 

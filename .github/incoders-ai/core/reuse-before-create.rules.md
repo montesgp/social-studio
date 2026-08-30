@@ -13,8 +13,9 @@ Always loaded when any profile is active.
 Never skipped.
 
 ## Rules
-- MUST search the repository for an existing reusable abstraction before creating a new helper, mapper, utility, validator, service, adapter, dialog, button variant, filter panel, form shell, table/list shell, modal, loader, status badge, pagination control, or notification primitive.
+- MUST search the repository for an existing reusable abstraction before creating a new helper, mapper, utility, validator, service, adapter, dialog, button variant, filter panel, form shell, table/list shell, modal, loader, status badge, pagination control, notification primitive, or multi-step progress indicator.
 - MUST prefer extending an existing primitive over duplicating its shape under a new name.
+- MUST NOT create a parallel UI component when the only difference from an existing primitive is configuration (e.g., step labels, step count, visual variant). Extend via a new prop instead. See `core/ui-primitives.rules.md` §Extending primitives for the full contract.
 - MUST NOT introduce a second equivalent abstraction unless the divergence is documented and reviewed.
 - SHOULD centralize common date/time, error, mapping, key-generation, and validation behavior in shared modules.
 - SHOULD keep shared abstractions simple, discoverable, and named after the role they play rather than the feature that introduced them.

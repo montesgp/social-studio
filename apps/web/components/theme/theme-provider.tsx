@@ -1,16 +1,21 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { ApiError, ThemeKey } from "@/lib/api/types";
+import { ApiError, DateFormat, ThemeKey } from "@/lib/api/types";
 import { getCurrentUserPreferences, updateCurrentUserPreferences } from "@/lib/api/user-preferences";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { shouldApplyBackendSync } from "@/lib/theme/hydrate-guard";
+
+const DEFAULT_DATE_FORMAT: DateFormat = "dd/MM/yyyy";
 
 interface ThemeContextValue {
   themeKey: ThemeKey;
   resolvedThemeKey: Exclude<ThemeKey, "system">;
+  dateFormat: DateFormat;
   isSaving: boolean;
   setTheme: (nextThemeKey: ThemeKey) => Promise<void>;
+  setDateFormat: (nextDateFormat: DateFormat) => Promise<void>;
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
@@ -25,15 +30,22 @@ function resolveTheme(themeKey: ThemeKey, prefersDark: boolean): Exclude<ThemeKe
 
 export function ThemeProvider({
   children,
-  initialThemeKey
+  initialThemeKey,
+  initialDateFormat = DEFAULT_DATE_FORMAT
 }: {
   children: React.ReactNode;
   initialThemeKey: ThemeKey;
+  initialDateFormat?: DateFormat;
 }) {
   const toast = useToast();
   const accessToken = useAccessToken();
   const syncErrorNotified = useRef(false);
+  // Hydrate from the backend at most once per session — a token refresh re-runs the sync effect
+  // below, and a later resync must never clobber a just-made local selection with a stale GET
+  // response (see lib/theme/hydrate-guard.ts).
+  const hasHydratedRef = useRef(false);
   const [themeKey, setThemeKey] = useState<ThemeKey>(initialThemeKey);
+  const [dateFormat, setDateFormatState] = useState<DateFormat>(initialDateFormat);
   const [prefersDark, setPrefersDark] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -55,7 +67,7 @@ export function ThemeProvider({
     let cancelled = false;
 
     async function syncFromBackend() {
-      if (!accessToken) {
+      if (!accessToken || !shouldApplyBackendSync(hasHydratedRef.current)) {
         return;
       }
 
@@ -63,7 +75,9 @@ export function ThemeProvider({
         const preferences = await getCurrentUserPreferences(accessToken);
         if (!cancelled) {
           setThemeKey(preferences.themeKey);
+          setDateFormatState(preferences.dateFormat ?? DEFAULT_DATE_FORMAT);
           syncErrorNotified.current = false;
+          hasHydratedRef.current = true;
         }
       } catch (error) {
         if (!syncErrorNotified.current) {
@@ -96,7 +110,7 @@ export function ThemeProvider({
     setIsSaving(true);
 
     try {
-      await updateCurrentUserPreferences({ themeKey: nextThemeKey }, accessToken);
+      await updateCurrentUserPreferences({ themeKey: nextThemeKey, dateFormat }, accessToken);
       toast.success(
         "Theme updated",
         nextThemeKey === "dark" ? "Dark mode enabled." : nextThemeKey === "light" ? "Light mode enabled." : "System mode enabled."
@@ -110,8 +124,36 @@ export function ThemeProvider({
     }
   }
 
+  async function setDateFormat(nextDateFormat: DateFormat) {
+    if (nextDateFormat === dateFormat) {
+      return;
+    }
+
+    const previous = dateFormat;
+    setDateFormatState(nextDateFormat);
+
+    if (!accessToken) {
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await updateCurrentUserPreferences({ themeKey, dateFormat: nextDateFormat }, accessToken);
+      toast.success("Date format updated", `Dates now display as ${nextDateFormat}.`);
+    } catch (error) {
+      setDateFormatState(previous);
+      const message = (error as ApiError).message ?? "Could not persist date format preference.";
+      toast.error("Date format update failed", message);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
-    <ThemeContext.Provider value={{ themeKey, resolvedThemeKey, isSaving, setTheme }}>
+    <ThemeContext.Provider
+      value={{ themeKey, resolvedThemeKey, dateFormat, isSaving, setTheme, setDateFormat }}
+    >
       {children}
     </ThemeContext.Provider>
   );

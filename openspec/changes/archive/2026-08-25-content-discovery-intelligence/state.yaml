@@ -1,0 +1,252 @@
+change: content-discovery-intelligence
+status: apply-complete
+completed_at: "2026-08-10"
+adr: docs/architecture/adr/0012-content-discovery-source-chain-and-candidate-persistence.md
+adr_status: accepted
+
+apply:
+  date: "2026-08-10"
+  request_id: cdi-wu7-mount-001
+  note: >
+    WU-7 MOUNT run (follow-up to cdi-final-001). The discovery shortlist
+    (apps/web/components/social/discovery/content-discovery-shortlist.tsx) is now reachable and
+    usable in the running app: single-analyzer-client.tsx's "By Search" input mode was rewired
+    from the previous mock path (findBestMatch/getMockVideoBySearch, now removed) to real
+    discovery. The operator picks a client + criterion (references/own/niche), clicks Discover,
+    which runs through the EXISTING content-workflow endpoints (startContentWorkflow -> poll
+    getContentWorkflowStatus -> listContentWorkflowResults) -- the only HTTP surface that already
+    exercises IContentDiscoveryService, so no new backend endpoint was authored. Selecting exactly
+    one candidate and clicking "Analyze this one" reuses the EXISTING AnalyzeSingleContentCommand
+    endpoint and the EXISTING pollUntilTerminal/AnalysisOverlay machinery verbatim (WU-7.3). The
+    "unconfigured niche actor" vs. "ran, found nothing" distinction (CD-13/D12) is surfaced via the
+    EXISTING /api/integrations/organization checklist overview (single-analyzer group,
+    single-analyzer-niche-search-actor item) rather than a new endpoint, since
+    ContentDiscoveryPlan.UnconfiguredSourceKeys itself is not surfaced onto the workflow session
+    response (WU-8.3) -- same underlying fact, existing surface (WU-7.4). New pure/tested logic:
+    apps/web/lib/social/content-discovery-shortlist.ts gained
+    mapDiscoveryResultsToShortlistCandidates, isSingleAnalyzerNicheSearchActorConfigured,
+    isNicheSearchUnconfigured (7 new tests, 12 total in that file, 170 total frontend lib tests).
+    No backend files touched by this run. dotnet test: 3020 passed / 0 failed / 2 skipped,
+    unchanged from cdi-final-001 (confirms no backend regression and no backend code on this
+    path). npm run lint / npm run build / npx tsc --noEmit all pass clean.
+  remaining_follow_ups:
+    - "Once the owner configures a real (single-analyzer, content-discovery, discover-niche-content, niche-search, tiktok) actor, run the niche source for real and correct TikTokNicheSearchAdapter.MapItem field-by-field against the live response if it differs from the documented shape."
+    - "The 'references'/'own'/'niche' shortlist criteria selector is the only discovery entry point mounted; 'viral'/'competitors' (CD-03 all-sources fallback) remain reachable only through the pre-existing workflow-client.tsx batch UI, not through this shortlist. No scenario in this change requires exposing them here."
+
+apply_wu6_wu8_wu9:
+  date: "2026-08-10"
+  request_id: cdi-final-001
+  note: >
+    Prior apply slice (superseded note, kept for history). WU-6 remainder (niche-search adapter,
+    resolver, source, DI registration, narrowed no-actor-literal guard), WU-8 ('own'/'propios'
+    alias fix, end to end), and WU-9 (ADR amendment, gates) landed complete. WU-7 (frontend
+    shortlist) landed PARTIALLY in this run: the single-selection logic and the "exactly one POST
+    to the existing endpoint" behavior were implemented and unit-tested, and a ready-to-mount
+    presentational component existed, but it was NOT mounted into a page yet -- see the `apply:`
+    block above (cdi-wu7-mount-001) for the completed mount. The WU-0 schema spike was explicitly
+    waived by the owner (no actor configured yet); TikTokNicheSearchAdapter ships
+    documentation-derived, degrades every field to null defensively, and is flagged
+    PENDING LIVE VERIFICATION in both the adapter and its fixture. See ADR-0012's
+    "Amendment — spike waived" section.
+
+amendment:
+  date: "2026-08-09"
+  status: tasks-amended
+  note: >
+    Two owner corrections applied to specs (this phase): (1) no actor may ever be forced in
+    code, actor routing is always workflow/step configuration-driven, mirroring the existing
+    single-analyzer URL flow, with settings-UI checklist-group visibility now specified;
+    (2) this change is instant, single-selection, not batch — the operator selects exactly ONE
+    ranked candidate for synchronous analysis reusing the Single Analyzer by URL's
+    screen-blocking progress UX; automatic TOP-N background fan-out is removed and moves to the
+    later Magic Generator change. design.md, ADR-0012 and tasks.md were all re-amended on
+    2026-08-09 (tasks.md amended surgically, not regenerated: WU-0/WU-1/WU-6/WU-7 restructured,
+    WU-2..5/WU-8/WU-9 preserved). No SDD artifact remains pending for this amendment.
+  corrections_applied:
+    - "Correction 1: configuration-driven actor routing, no hardcoded fallback (content-discovery CD-12/CD-13; integrations INT-DISC-01 tightened, INT-DISC-02/03/04 added)."
+    - "Correction 2: single-selection instant synchronous analysis replaces TOP-N automatic fan-out (content-discovery CD-10 rewritten in place; old text preserved under Removed/Superseded)."
+  specs_amended:
+    - openspec/changes/content-discovery-intelligence/specs/content-discovery/spec.md
+    - openspec/changes/content-discovery-intelligence/specs/integrations/spec-delta.md
+  specs_reviewed_no_change:
+    - openspec/changes/content-discovery-intelligence/specs/content-research/spec-delta.md
+  design_amended:
+    - openspec/changes/content-discovery-intelligence/design.md
+    - docs/architecture/adr/0012-content-discovery-source-chain-and-candidate-persistence.md
+  tasks_amended:
+    - openspec/changes/content-discovery-intelligence/tasks.md
+  pending: []
+
+placement_correction:
+  date: "2026-08-09"
+  request_id: cdi-wu6-relocate-003
+  status: applied
+  note: >
+    Owner correction 3 (apply-phase relocation, WU-6 only). The previous apply run put
+    content-discovery under the "generator" workflow key and duplicated the
+    analyze-content/generate-content/generate-image steps that already exist under
+    single-analyzer/content-analysis to make that group self-sufficient. Owner pushback: not
+    found at /settings/integrations under Single Analyzer, and duplicating the AI steps would
+    force configuring the same AI providers twice for what is the SAME downstream pipeline
+    (CreateContentGenerationBatchCommand/GenerateContentPackageCommand anchor to AnalysisId, not
+    URL, once a candidate becomes a SingleContentAnalysis). Corrected: content-discovery moved to
+    single-analyzer, sibling of content-analysis/profile-analysis, holding ONLY
+    discover-niche-content; the checklist item moved from generatorChecklist to
+    singleAnalyzerChecklist and renamed generator-niche-search-actor ->
+    single-analyzer-niche-search-actor; the seeder's WorkflowKey changed generator ->
+    single-analyzer, reading existing single-analyzer rows and concatenating before
+    ReplaceWorkflowAsync so real operator configuration for content-analysis/profile-analysis is
+    never wiped. design.md D11, ADR-0012 §6, integrations spec-delta INT-DISC-02/03, and tasks.md
+    WU-6 entries updated to match.
+  files_changed:
+    - Incoders.Hive.Application/Features/Integrations/WorkflowConfigurations/WorkflowConfigurationCatalog.cs
+    - Incoders.Hive.Application/Features/Integrations/GetOverview/GetOrganizationIntegrationsHandler.cs
+    - Incoders.Hive.Infrastructure/Integrations/TikTokNicheSearchWorkflowStepSeeder.cs
+    - Incoders.Hive.Tests/Application/Integrations/WorkflowConfigurationCatalogContentDiscoveryStepTests.cs
+    - Incoders.Hive.Tests/Application/Integrations/OrganizationIntegrationsFlowTests.cs
+    - Incoders.Hive.Tests/Infrastructure/Integrations/TikTokNicheSearchWorkflowStepSeederTests.cs
+    - openspec/changes/content-discovery-intelligence/design.md
+    - docs/architecture/adr/0012-content-discovery-source-chain-and-candidate-persistence.md
+    - openspec/changes/content-discovery-intelligence/specs/integrations/spec-delta.md
+    - openspec/changes/content-discovery-intelligence/tasks.md
+
+artifacts:
+  exploration: openspec/changes/content-discovery-intelligence/exploration.md
+  proposal: openspec/changes/content-discovery-intelligence/proposal.md
+  design: openspec/changes/content-discovery-intelligence/design.md
+  tasks: openspec/changes/content-discovery-intelligence/tasks.md
+  diagram: null
+  specs:
+    - openspec/changes/content-discovery-intelligence/specs/content-discovery/spec.md
+    - openspec/changes/content-discovery-intelligence/specs/content-research/spec-delta.md
+    - openspec/changes/content-discovery-intelligence/specs/integrations/spec-delta.md
+  merged_specs: []
+
+capabilities:
+  new:
+    - content-discovery
+  modified:
+    - content-research
+    - integrations
+
+scope:
+  phase: 1
+  name: "Discovery chain (references + own + TikTok niche search), configuration-driven actor routing, pure opportunity scorer, Trending/Proven classification, candidate + account-baseline persistence, ranked shortlist with single-selection instant analysis"
+  roadmap:
+    - phase: 2
+      name: "Instagram and YouTube niche search sources"
+      status: deferred
+      notes: "One search adapter proves the shape; more networks multiply unverified provider schemas."
+    - phase: 3
+      name: "Clustering component + patterns table"
+      status: deferred
+      notes: >
+        Clustering runs after deep analysis over extracted topics/hooks. Only the cheap pre-analysis
+        lexical co-occurrence scoring signal ships now; the clustering schema is not yet justifiable.
+    - phase: 4
+      name: "True growth velocity (second observation of the same candidate)"
+      status: deferred
+      notes: "discovered_candidates records (candidate, observed_at, metrics) so a later second observation becomes possible."
+    - phase: 5
+      name: "Weighted strategy mix across sources"
+      status: deferred
+      notes: "Revisit at >=3 live sources per criterion; a configurable mix over one live source is a no-op with maintenance cost."
+    - phase: 6
+      name: "Competitor discovery source"
+      status: deferred
+      notes: "The 'competitors' criterion falls back to the default ordered chain until a dedicated source lands."
+    - phase: 7
+      name: "Magic Generator (multi-select background batch analysis of discovered candidates)"
+      status: deferred
+      notes: >
+        Added by the 2026-08-09 scope amendment. This change is instant, single-selection only:
+        the operator picks exactly one ranked candidate for synchronous analysis. Selecting
+        multiple candidates for background batch processing is a separate, later change.
+
+decisions:
+  - "SearchCriterion becomes the discovery router; it is already normalized/validated and echoed into payloads but is never passed into ContentDiscoveryRequest (InMemoryContentWorkflowService.cs:130). No weighted allocator."
+  - "ContentDiscoveryChain replaces the single IContentDiscoveryService registration at DependencyInjection.cs:220 in the same commit; a second registration would silently win and erase the first."
+  - "TikTok first for niche search: its URL adapter already parses shares and publish date, the lowest schema risk."
+  - "The 'own' criterion defect is fixed AND the own-winners source ships: it is a near-clone of ReferenceAccountContentDiscovery swapping ReferentAccounts for IClientOwnAccountRepository over the same IProfileScrapeResolver."
+  - "Metrics are nullable with explicit availability, never zero-filled; zero-filling would systematically penalise whole networks."
+  - "Two persistence tables now (discovered_candidates, account_baselines); no patterns/clustering table."
+  - "Account baselines computed for already-scraped accounts (referents, own) and for TOP N after cheap filtering only; cached so cost amortizes. Never per candidate."
+  - "Trending/Proven are single-snapshot proxies; Undetermined is a first-class outcome when PublishedAtUtc is unavailable. True velocity is deferred."
+  - "Domain is untouched: discovery candidates are research data, not a business aggregate with invariants."
+  - "ADR required by openspec/config.yaml (require_adr_for_architecture_changes): new Application port + new persistence model + DI registration replacement. Numbered 0012 because 0005 and 0006 are each used twice in docs/architecture/adr/."
+
+non_goals:
+  - "Instagram and YouTube niche search sources."
+  - "Weighted 35/35/20/10 strategy mix."
+  - "Clustering component and patterns table."
+  - "Embeddings."
+  - "True growth velocity measurement."
+  - "Competitor discovery source."
+  - "YouTube seeding in SocialNetworkCatalogSeeder."
+  - "Persisting workflow sessions (InMemoryContentWorkflowService stays in-memory)."
+  - "Frontend redesign; only the existing 'own' option starts succeeding."
+  - "Automatic TOP-N background fan-out into deep analysis (added by the 2026-08-09 amendment; superseded by single-selection instant synchronous analysis). Multi-select background batch processing is the separate, later Magic Generator change."
+  - "Hardcoding any discovery actor id in Application/Infrastructure code (added by the 2026-08-09 amendment); actor routing is always workflow/step configuration-driven."
+
+design_decisions:
+  - "D1 IContentDiscoveryService returns ContentDiscoveryPlan(Candidates, Shortfall, FailedSourceKeys); a bare list cannot satisfy CD-01/CD-11 at the port boundary."
+  - "D2 Metric availability is plain long? — null = network does not report, 0 = reported zero. No parallel (value,isAvailable) wrapper."
+  - "D3 (OQ-3 RESOLVED) candidate_key = '{network}:{normalized content URL}' via one pure CandidateIdentity.From shared by in-run dedup and the DB column."
+  - "D4 (OQ-2 RESOLVED) Source declares Supports(criterion); 'niche' gets the niche source ONLY, no filler. Shortfall is the honest answer."
+  - "D5 'viral'/'competitors' claimed by no source -> chain consults ALL sources in order (CD-03)."
+  - "D6 Append-only observation rows sharing candidate_key; no identity/observation table split."
+  - "D7 (OQ-5 RESOLVED) Scorer weights are fixed constants in code; per-org configuration is dead config over one scorer."
+  - "D8 REPLACED 2026-08-09 (OQ-6 now moot): single selection reuses the EXISTING AnalyzeSingleContentCommand endpoint + existing client polling overlay (AnalyzeSingleContentHandler = StartAsync + EnqueueAsync; single-analyzer-client.tsx polls every 2500ms). No new command, endpoint, queue, progress channel or concurrency primitive. The withdrawn fan-out moves to Magic Generator."
+  - "D11 CORRECTED 2026-08-09 (owner correction 3, apply-phase relocation): Discovery configuration ships as a NEW analysis type 'content-discovery' under the EXISTING 'single-analyzer' workflow key (step 'discover-niche-content' ONLY — no duplicated analyze-content/generate-content/generate-image), sibling of content-analysis/profile-analysis, NOT under 'generator' and not a new top-level workflow key. Once the operator selects a discovered candidate it becomes a SingleContentAnalysis and the downstream pipeline (CreateContentGenerationBatchCommand, GenerateContentPackageCommand) anchors to that AnalysisId exactly as the by-URL flow does, so it reuses the SAME AI-provider configuration rather than a duplicated one. The original 'generator' placement duplicated the three AI steps to make that group self-sufficient, forcing the operator to configure the same AI providers twice; rejected on owner pushback. INT-DISC-03 remains satisfied by construction since 'single-analyzer' already has a checklist group. One optional checklist item, 'single-analyzer-niche-search-actor', is appended to singleAnalyzerChecklist."
+  - "D12 ContentDiscoveryPlan gains UnconfiguredSourceKeys, distinct from FailedSourceKeys (CD-13). Confirmed, not assumed: FailedSourceKeys alone cannot distinguish 'no actor configured' from 'provider errored'. IContentDiscoverySource returns SourceDiscoveryResult(Outcome: Ran|Unconfigured|Failed, Candidates)."
+  - "D13 No literal actor id anywhere in Application/Infrastructure (CD-12/INT-DISC-01). Resolution is IWorkflowConfigurationResolver.ResolveStepAsync + actor_mappings_json, mirroring ApifyProfileScrapeResolver.cs:146-163. A seeded placeholder mapping is DATA, never a code fallback. A repository-wide no-actor-literal test guards it, written RED first."
+  - "D9 (OQ-4 RESOLVED for this change) No purge now; index (organization_id, observed_at) makes the later purge one ranged delete. Named follow-up."
+  - "D10 Domain untouched — CONFIRMED after challenging the ProfileStats precedent. Revisit trigger: a candidate gaining an operator lifecycle (select/dismiss/archive)."
+  - "OQ-7 RESOLVED: co-occurrence tokenizes Title+Summary (lowercase, punctuation stripped, tokens >= 4 chars, ES+EN stopwords); signal = max distinct-author count per token, K = 3, normalized by set author count."
+  - "Assumed configurable values: trending window 14d, proven floor 90d, TOP N = 8, baseline TTL 30d."
+
+open_questions:
+  - "OQ-1 BLOCKING (RESTRUCTURED 2026-08-09) — Apify niche-search SCHEMA spike unresolved. It verifies the response shape of whatever actor the OPERATOR has configured for (tiktok, niche-search); the actor id is an input to the spike, never chosen or named by the design, and never enters code, tests or fixture names (CD-12/D13). Inputs to try: searchQueries / hashtags. No adapter code may be committed before a sanitized capability-named fixture exists. Missing playCount = escalate, do not ship. Unmappable shape handling is specified in design §7.1."
+  - "PQ-1 Trending window / proven floor values (assumed 14d / 90d, configurable)."
+  - "PQ-2 TOP N fixed vs operator-chosen (assumed small fixed 5-10). Now display-only: N bounds the shortlist shown, not how many analyses run (always exactly one)."
+  - "PQ-3 Account baseline staleness TTL (assumed ~30 days)."
+  - "PQ-4 Instagram-only references/own: acceptable first slice for a TikTok-only client?"
+  - "PQ-5 'viral'/'competitors' silent fallback to the default chain vs explicit not-implemented response."
+
+risks:
+  - "Response schema of whichever actor the operator configures for niche search is verified by documentation only, never a live call. Schema spike REQUIRED before adapter code is committed."
+  - "A literal actor id creeping into code as a temporary convenience; guarded by a repository-wide no-actor-literal test written RED first."
+  - "Discovery stage rendering as 'not configurable yet' if it were given a workflow key without a checklist group; avoided by reusing the 'single-analyzer' key (D11, corrected 2026-08-09)."
+  - "Silent DI override erasing a source if line 220 is supplemented instead of replaced."
+  - "DiscoveredContent contract change breaks ReferenceAccountContentDiscovery and its tests (deliberate, coordinated)."
+  - "Baseline scraping cost overrun if baselines leak beyond known accounts and TOP N."
+  - "Zero-filled metrics skewing the score across networks."
+  - "Trending/Proven misread as measurement rather than snapshot proxy."
+  - "PR size roughly 3,000-4,000 changed lines, far over the review budget (knowingly accepted)."
+  - "Instagram-only profile scraping limits references/own for TikTok-first clients."
+
+validation:
+  gates: PASS
+  detail: "Backend: dotnet test Incoders.Hive.Tests.csproj -c Release = 3020 passed / 0 failed / 2 skipped (unchanged from cdi-final-001). Frontend: npx tsx --test lib/**/*.test.ts = 170 passed; npx tsc --noEmit clean; npm run build clean; npm run lint no new warnings. pwsh -File scripts/gates/Run-Gates.ps1 (cdi-wu7-mount-001): 17 pass / 1 skipped (coverage, no cobertura file) / 1 warn (pre-existing vulnerabilities.frontend.web high=4 critical=0, unrelated) — PASS, no MUST gate failed."
+
+delivery:
+  strategy: exception-ok
+  review_budget_lines: 1500
+  size_forecast_lines: "2600-3400 (revised down 2026-08-09: TOP-N fan-out slice removed, offset by new config/guard tasks)"
+  budget_risk: High
+  size_exception_accepted: true
+  chained_prs: false
+  target_branch: dev
+  branch: null
+
+testing:
+  strict_tdd: true
+  test_command: "dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release"
+  gates_command: "pwsh -File scripts/gates/Run-Gates.ps1"
+
+prd_traceability:
+  - "docs/PRD.md §1 Product Summary — discover high-performing content in a niche"
+  - "docs/PRD.md §2 Problem — manual, inconsistent repeated research"
+  - "docs/PRD.md §3 Goals — automate content research and idea generation"
+  - "docs/PRD.md §6 step 2 — niche / reference accounts / own accounts source strategies"
+  - "docs/PRD.md §6 step 3 — retrieve candidate high-performing content through configured data provider"

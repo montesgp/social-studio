@@ -329,6 +329,88 @@ public sealed class ClientReferentAccountTests
         Assert.Equal("stored://trusted-data", account.ProfileUrl);
     }
 
+    // --- SortOrder ---
+
+    [Fact]
+    public void Create_AssignsSortOrder()
+    {
+        var result = ClientReferentAccount.Create(
+            ClientReferentAccountId.New(),
+            ValidClientId, ValidOrgId, ValidNetworkId,
+            ValidProfileUrl, null, null, null, Now, sortOrder: 3);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3, result.Value.SortOrder);
+    }
+
+    [Fact]
+    public void Create_DefaultSortOrder_IsZero()
+    {
+        var result = CreateValid();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0, result.Value.SortOrder);
+    }
+
+    // --- Reorder ---
+
+    [Fact]
+    public void Reorder_ValidIds_AssignsZeroBasedSortOrder()
+    {
+        var idA = ClientReferentAccountId.New();
+        var idB = ClientReferentAccountId.New();
+        var idC = ClientReferentAccountId.New();
+
+        var accounts = new[]
+        {
+            CreateValidWithId(idA, 0),
+            CreateValidWithId(idB, 1),
+            CreateValidWithId(idC, 2),
+        };
+
+        var reorderResult = ClientReferentAccount.Reorder(accounts, [idC.Value, idA.Value, idB.Value], Later);
+
+        Assert.True(reorderResult.IsSuccess);
+        var reordered = reorderResult.Value;
+        Assert.Equal(1, reordered.Single(a => a.Id == idA).SortOrder);
+        Assert.Equal(2, reordered.Single(a => a.Id == idB).SortOrder);
+        Assert.Equal(0, reordered.Single(a => a.Id == idC).SortOrder);
+    }
+
+    [Fact]
+    public void Reorder_WithUnknownId_ReturnsError()
+    {
+        var idA = ClientReferentAccountId.New();
+        var accounts = new[] { CreateValidWithId(idA, 0) };
+        var unknownId = Guid.NewGuid();
+
+        var result = ClientReferentAccount.Reorder(accounts, [unknownId], Later);
+
+        Assert.True(result.IsFailure);
+    }
+
+    [Fact]
+    public void Reorder_Idempotent_SameOrderTwice_Succeeds()
+    {
+        var idA = ClientReferentAccountId.New();
+        var idB = ClientReferentAccountId.New();
+
+        var accounts = new[]
+        {
+            CreateValidWithId(idA, 0),
+            CreateValidWithId(idB, 1),
+        };
+
+        var result1 = ClientReferentAccount.Reorder(accounts, [idA.Value, idB.Value], Later);
+        Assert.True(result1.IsSuccess);
+
+        var result2 = ClientReferentAccount.Reorder(result1.Value.ToArray(), [idA.Value, idB.Value], Later);
+        Assert.True(result2.IsSuccess);
+
+        Assert.Equal(0, result2.Value.Single(a => a.Id == idA).SortOrder);
+        Assert.Equal(1, result2.Value.Single(a => a.Id == idB).SortOrder);
+    }
+
     // --- Helpers ---
 
     private static Result<ClientReferentAccount> CreateValid() =>
@@ -342,4 +424,10 @@ public sealed class ClientReferentAccountTests
             "Main IG",
             "Key competitor",
             Now);
+
+    private static ClientReferentAccount CreateValidWithId(ClientReferentAccountId id, int sortOrder) =>
+        ClientReferentAccount.Restore(
+            id, ValidClientId, ValidOrgId, ValidNetworkId,
+            ValidProfileUrl, null, null, null,
+            true, Now, Now, sortOrder);
 }

@@ -113,7 +113,7 @@ The installer is safe to re-run; it overwrites only its own hooks (recognized by
 
 ## CI
 
-- `.github/workflows/quality-gates.yml` runs on every push to `main`, every PR targeting `main`, and on demand via `workflow_dispatch`.
+- `.github/workflows/quality-gates.yml` runs on every PR targeting `dev` or `main`, and on demand via `workflow_dispatch`.
 - It calls `_reusable-quality-gates.yml`, which sets up dotnet + node + pwsh and invokes the same script developers run locally.
 - Coverage artifacts are uploaded under the `coverage` artifact name for 14 days.
 
@@ -125,7 +125,7 @@ Doc-only changes do NOT trigger CI. The `paths-ignore` block in `quality-gates.y
 - `.github/incoders-ai/gates/**` and any `*.md` under `.github/incoders-ai/**` or `.github/project-ai/**`
 - `.alt/**`
 
-If a push touches at least one non-ignored file, the full workflow runs. If the change is purely documentation, no compute is spent.
+If a PR targeting `dev`/`main` touches at least one non-ignored file, the full workflow runs. If the change is purely documentation, no compute is spent.
 
 ## How to port to another repo
 

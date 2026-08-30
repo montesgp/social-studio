@@ -9,6 +9,8 @@ const networkCopy: Record<string, string> = {
 export interface SingleAnalyzerResult {
   id: string;
   organizationId: string;
+  clientId: string | null;
+  clientName: string | null;
   inputMode: "url" | "search";
   inputUrl: string;
   searchQuery: string;
@@ -16,6 +18,7 @@ export interface SingleAnalyzerResult {
   thumbnailUrl: string;
   videoUrl: string;
   title: string;
+  description: string | null;
   author: string;
   views: number;
   likes: number;
@@ -25,6 +28,19 @@ export interface SingleAnalyzerResult {
   scriptDraft: string;
   analyzedAtUtc: string;
   downloadedAtUtc: string | null;
+  // Optional rich metadata sourced from the live scraping integration (Apify).
+  contentType?: string;
+  shares?: number;
+  saves?: number;
+  durationSeconds?: number | null;
+  publishedAtUtc?: string | null;
+  hashtags?: string[];
+  dataSource?: "apify" | "mock";
+  primaryHook?: string | null;
+  isFallbackThumbnail?: boolean;
+  aiAnalysisFailedAttemptCount?: number;
+  isAiAnalysisRetryBlocked?: boolean;
+  aiAnalysisRetryBlockedAtUtc?: string | null;
 }
 
 const analyzerSessions = new Map<string, SingleAnalyzerResult>();
@@ -51,6 +67,8 @@ function slugify(text: string): string {
 function buildResult(
   id: string,
   organizationId: string,
+  clientId: string | null,
+  clientName: string | null,
   inputMode: "url" | "search",
   inputUrl: string,
   searchQuery: string,
@@ -66,6 +84,8 @@ function buildResult(
   return {
     id,
     organizationId,
+    clientId,
+    clientName,
     inputMode,
     inputUrl,
     searchQuery,
@@ -73,6 +93,8 @@ function buildResult(
     thumbnailUrl: `https://picsum.photos/seed/${encodeURIComponent(id)}/640/360`,
     videoUrl: inputUrl || `https://example.com/mock/${networkSource}/video-${id}`,
     title,
+    description:
+      "A compact mock description that mirrors scraped social captions. Longer live descriptions can be expanded in the analyzer card.",
     author,
     views,
     likes,
@@ -85,7 +107,12 @@ function buildResult(
   };
 }
 
-export function getMockVideoByUrl(organizationId: string, url: string): SingleAnalyzerResult {
+export function getMockVideoByUrl(
+  organizationId: string,
+  url: string,
+  clientId: string | null = null,
+  clientName: string | null = null
+): SingleAnalyzerResult {
   const now = new Date().toISOString();
   const networkSource = deriveNetworkFromUrl(url);
   const id = `sa-url-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -100,6 +127,8 @@ export function getMockVideoByUrl(organizationId: string, url: string): SingleAn
   return buildResult(
     id,
     organizationId,
+    clientId,
+    clientName,
     "url",
     url,
     "",
@@ -118,7 +147,9 @@ export function getMockVideoBySearch(
   organizationId: string,
   query: string,
   networkSource: string,
-  strategyMode: string
+  strategyMode: string,
+  clientId: string | null = null,
+  clientName: string | null = null
 ): SingleAnalyzerResult {
   const now = new Date().toISOString();
   const id = `sa-search-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -134,6 +165,8 @@ export function getMockVideoBySearch(
   return buildResult(
     id,
     organizationId,
+    clientId,
+    clientName,
     "search",
     "",
     query,
@@ -153,6 +186,8 @@ export function analyzeMockVideo(organizationId: string, id: string): SingleAnal
   const base = existing ?? {
     id,
     organizationId,
+    clientId: null,
+    clientName: null,
     inputMode: "url" as const,
     inputUrl: "",
     searchQuery: "",
@@ -160,6 +195,7 @@ export function analyzeMockVideo(organizationId: string, id: string): SingleAnal
     thumbnailUrl: `https://picsum.photos/seed/${encodeURIComponent(id)}/640/360`,
     videoUrl: `https://example.com/mock/tiktok/${id}`,
     title: "Mock video analysis",
+    description: null,
     author: "@mock_creator",
     views: 25000,
     likes: 1950,
@@ -172,11 +208,15 @@ export function analyzeMockVideo(organizationId: string, id: string): SingleAnal
   };
 
   const networkLabel = networkCopy[base.networkSource] ?? base.networkSource;
+  const clientContext = base.clientName
+    ? `Client context: ${base.clientName} - adapt future mutations to this client's active brand strategy.`
+    : "Client context: none - preserve the original video's positioning without client-specific orientation.";
 
   const analyzed: SingleAnalyzerResult = {
     ...base,
     videoAnalysis: [
       `Network source: ${networkLabel}`,
+      clientContext,
       `Hook style: direct promise in the first 2 seconds — strong pattern interrupt.`,
       `Format angle: ${base.strategyMode} narrative with visual rhythm, B-roll cuts every 3s, and CTA pacing in the last 4s.`,
       `Engagement signals: ${base.views.toLocaleString()} views · ${base.likes.toLocaleString()} likes · ${base.comments.toLocaleString()} comments.`,
@@ -234,6 +274,8 @@ function seedDefaultHistory() {
     {
       id: "sa-seed-001",
       organizationId: orgId,
+      clientId: "client-wellness-lab",
+      clientName: "Wellness Lab",
       inputMode: "url",
       inputUrl: "https://www.tiktok.com/@creator/video/123456",
       searchQuery: "",
@@ -241,6 +283,8 @@ function seedDefaultHistory() {
       thumbnailUrl: "https://picsum.photos/seed/sa-seed-001/640/360",
       videoUrl: "https://www.tiktok.com/@creator/video/123456",
       title: "TikTok: 3 productivity habits that changed my output",
+      description:
+        "Three practical habits for building a productivity system that survives busy weeks, client interruptions, and the usual motivation drop after day three.",
       author: "@daily_growth",
       views: 87400,
       likes: 6820,
@@ -265,6 +309,8 @@ function seedDefaultHistory() {
     {
       id: "sa-seed-002",
       organizationId: orgId,
+      clientId: "client-wellness-lab",
+      clientName: "Wellness Lab",
       inputMode: "search",
       inputUrl: "",
       searchQuery: "morning routine habits",
@@ -272,6 +318,8 @@ function seedDefaultHistory() {
       thumbnailUrl: "https://picsum.photos/seed/sa-seed-002/640/360",
       videoUrl: "https://example.com/mock/instagram/seed-002",
       title: "Instagram: morning routine habits — what nobody talks about",
+      description:
+        "A calm morning routine breakdown focused on the hidden setup work that makes the visible habits easier to repeat.",
       author: "@wellness_lab_ig",
       views: 43200,
       likes: 3370,
@@ -296,6 +344,8 @@ function seedDefaultHistory() {
     {
       id: "sa-seed-003",
       organizationId: orgId,
+      clientId: "client-growth-studio",
+      clientName: "Growth Studio",
       inputMode: "search",
       inputUrl: "",
       searchQuery: "content creation for beginners",
@@ -303,6 +353,8 @@ function seedDefaultHistory() {
       thumbnailUrl: "https://picsum.photos/seed/sa-seed-003/640/360",
       videoUrl: "https://example.com/mock/youtube/seed-003",
       title: "YouTube: content creation for beginners — explained in 60 seconds",
+      description:
+        "A fast beginner-friendly creator framework with simple tools, clear pacing, and an intentionally lightweight production setup.",
       author: "@growth_studio_yt",
       views: 61800,
       likes: 4810,

@@ -2,6 +2,7 @@
 
 LOAD:
 - core/best-practice.rules.md
+- core/ui-primitives.rules.md
 - profiles/frontend.profile.md
 - stacks/frontend/*
 - stacks/react/*

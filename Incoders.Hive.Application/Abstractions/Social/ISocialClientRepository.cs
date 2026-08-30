@@ -19,7 +19,7 @@ public interface ISocialClientRepository
 }
 
 public sealed record SocialClientQuery(
-    Guid OrganizationId,
+    Guid? OrganizationId,
     string? NameContains,
     bool IncludeInactive,
     int Page,

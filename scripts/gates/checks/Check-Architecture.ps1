@@ -65,7 +65,7 @@ foreach ($projName in $layerMap.Keys) {
         foreach ($pr in $prNodes) {
             $include = [string] $pr.Include
             if ($include) {
-                $refs += [System.IO.Path]::GetFileNameWithoutExtension($include)
+                $refs += Get-ProjectReferenceName -Include $include
             }
         }
         foreach ($refName in $refs) {

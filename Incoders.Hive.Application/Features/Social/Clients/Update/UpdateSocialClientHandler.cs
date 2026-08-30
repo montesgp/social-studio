@@ -37,11 +37,46 @@ public sealed class UpdateSocialClientHandler
             return Result.Failure<SocialClientResponse>(ClientErrors.NotFound);
         }
 
-        var renamed = client.Rename(request.Name, request.Description, _clock.UtcNow);
+        var renamed = client.Rename(request.Name, request.Description, _clock.UtcNow, request.SectorOrNiche);
         if (renamed.IsFailure)
         {
             return Result.Failure<SocialClientResponse>(renamed.Error);
         }
+
+        // WU-8 (BSP-08b): update policy when provided in the request.
+        // A null request.BackgroundSourcingPolicy means "leave the current policy unchanged",
+        // not "clear the policy". Use SetBackgroundSourcingPolicy(null, ...) explicitly to clear.
+        if (request.BackgroundSourcingPolicy.HasValue)
+        {
+            client.SetBackgroundSourcingPolicy(request.BackgroundSourcingPolicy, _clock.UtcNow);
+        }
+
+        // WU-7 (CAG-CS-02): update threshold when provided; null = leave current unchanged.
+        if (request.AestheticRefreshThresholdDays.HasValue)
+        {
+            var thresholdResult = client.SetAestheticRefreshThresholdDays(
+                request.AestheticRefreshThresholdDays, _clock.UtcNow);
+            if (thresholdResult.IsFailure)
+            {
+                return Result.Failure<SocialClientResponse>(thresholdResult.Error);
+            }
+        }
+
+        // Per-client generation piece cap; null = leave current unchanged (same convention as the
+        // threshold above).
+        if (request.MaxPiecesPerGeneration.HasValue)
+        {
+            var capResult = client.SetMaxPiecesPerGeneration(
+                request.MaxPiecesPerGeneration, _clock.UtcNow);
+            if (capResult.IsFailure)
+            {
+                return Result.Failure<SocialClientResponse>(capResult.Error);
+            }
+        }
+
+        // Issue #70: always-explicit opt-in for @handle signature — plain boolean, every update
+        // sets the flag (no "leave unchanged" sentinel, unlike the nullable-override fields above).
+        client.SetSignsOwnSlides(request.SignsOwnSlides, _clock.UtcNow);
 
         _clients.Update(client);
         await _unitOfWork.SaveChangesAsync(cancellationToken);

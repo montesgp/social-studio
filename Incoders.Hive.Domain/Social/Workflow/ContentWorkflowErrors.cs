@@ -44,6 +44,10 @@ public static class ContentWorkflowErrors
         "social.workflow.result_not_found",
         "social.workflow.errors.result_not_found");
 
+    public static readonly Error OriginModeInvalid = Error.Validation(
+        "social.workflow.origin_mode_invalid",
+        "social.workflow.errors.origin_mode_invalid");
+
     public static readonly Error PackageSelectionRequired = Error.Validation(
         "social.workflow.package_selection_required",
         "social.workflow.errors.package_selection_required");

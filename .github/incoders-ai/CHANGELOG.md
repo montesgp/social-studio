@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.7.0
+- **New skill: `skills/frontend/ux-focus-management.skill.md`** — Formalizes mandatory UX focus management for all interactive frontend surfaces: auto-focus on form/dialog/panel mount, viewport scroll-into-view on route navigation (with `prefers-reduced-motion` guard), and focus-first-error fallback chain on failed form submit.
+- **`skills/frontend/forms-and-validation.skill.md` §Procedure** — Added step 11: apply `ux-focus-management` focus-first-error chain after a failed submit. Error messages alone are not sufficient.
+- **`skills/shared/reuse-before-create.skill.md` §Procedure step 3** — Added explicit variant-via-props boundary: same behavior + different configuration → extend via prop; different interaction contract → new registered primitive with documented justification.
+- **`core/reuse-before-create.rules.md`** — Added "multi-step progress indicator" to protected primitive list; added MUST rule against creating parallel UI components for configuration variants; cross-referenced `core/ui-primitives.rules.md` §Extending primitives.
+- **`profiles/frontend.profile.md`** — Registered `skills/frontend/ux-focus-management.skill.md` in the default frontend skill loadout.
+- **`VERSION.md`** — Synced to 1.7.0 (was stale at 1.4.0; latest released was 1.6.0).
+
+## 1.6.0
+- **`core/best-practice.rules.md` §7 — external-provider write authorization moved to PR approval.** Removed the per-query "show the exact SQL and request authorization" gate. Schema/data changes (incl. EF migrations) are now authorized by PR approval — the PR review IS the verification — and run on merge/deploy without separate confirmation. This repo applies migrations on startup via `Database.Migrate()`, so an approved+merged change auto-applies pending migrations on the next deploy. Destructive AD-HOC operations outside a reviewed PR still require explicit authorization.
+
+## 1.5.0
+- **`core/git-safety.rules.md` relaxed from STRICT.** Agents may now create branches, stage, commit, push to non-protected work branches, and open pull requests without per-action authorization. The user retains exclusive authority over integration: approving and merging pull requests into the protected branches `dev` and `main` (decided after reviewing the full PR; approval may be delegated to an agent only on explicit request). Always-forbidden items remain: hook-skip flags, force push / history rewrite on shared branches, and `rm -rf` on source. Synced references in `AGENTS.md` (`.codex/`, `.claude/CLAUDE.md`), `gates/ai-agent.gate.md`, `skills/shared/git-commit-workflow.skill.md`, `core/best-practice.rules.md`, and `.github/copilot-instructions.md`.
+
+## 1.4.0
+- Added the reusable TestSprite QA provider layer for ecosystem-wide AI-assisted validation.
+- Introduced `providers/testing/testsprite/testsprite-validation.skill.md` and wired the global test engineer agent to use it when available.
+- Fixed the TestSprite provider manifest so every LOAD target resolves to an existing file.
+
 ## 1.3.0
 - Major content enrichment. Ecosystem moved from skeleton (3-10 line stubs) to operational baseline across `core/`, `profiles/`, `stacks/`, `skills/`, `agents/`.
 - **`core/`**:

@@ -1,7 +1,11 @@
 import { ApiError, ProblemDetails } from "@/lib/api/types";
 import * as httpLoadingStore from "@/lib/loading/http-loading-store";
+import { ACTIVE_ORG_STORAGE_KEY } from "@/lib/auth/session";
+import { refreshAuthSession } from "@/lib/auth/refresh-session";
 
 const BROWSER_API_BASE_URL = "/hive-api";
+
+const AUTH_REFRESH_PATH = "/api/auth/refresh";
 
 function getServerApiBaseUrl() {
   const configuredBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -12,32 +16,54 @@ function getServerApiBaseUrl() {
   return configuredBaseUrl.endsWith("/") ? configuredBaseUrl.slice(0, -1) : configuredBaseUrl;
 }
 
-export async function apiRequest<T>(path: string, init?: RequestInit, token?: string): Promise<T> {
+export async function apiRequest<T>(path: string, init?: RequestInit, token?: string, tenantId?: string): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (init?.body !== undefined && init.body !== null && !headers.has("Content-Type")) {
+  const isFormDataBody =
+    typeof FormData !== "undefined" &&
+    init?.body !== undefined &&
+    init.body instanceof FormData;
+
+  if (init?.body !== undefined && init.body !== null && !isFormDataBody && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const baseUrl = typeof window === "undefined" ? getServerApiBaseUrl() : BROWSER_API_BASE_URL;
   const isBrowser = typeof window !== "undefined";
+  const baseUrl = isBrowser ? BROWSER_API_BASE_URL : getServerApiBaseUrl();
 
   if (isBrowser) {
-    httpLoadingStore.increment();
+    const orgId = tenantId ?? window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+    if (orgId) headers.set("X-Tenant-Id", orgId);
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`${baseUrl}${path}`, {
-      ...init,
-      headers,
-      cache: "no-store"
-    });
-  } finally {
-    if (isBrowser) {
-      httpLoadingStore.decrement();
+  const sendRequest = async () => {
+    if (isBrowser) httpLoadingStore.increment();
+    try {
+      return await fetch(`${baseUrl}${path}`, {
+        ...init,
+        headers,
+        cache: "no-store"
+      });
+    } finally {
+      if (isBrowser) {
+        httpLoadingStore.decrement();
+      }
+    }
+  };
+
+  let response = await sendRequest();
+
+  // On an expired/invalid access token, transparently rotate the session once and
+  // retry the original request. Refresh requests themselves are never retried to
+  // avoid loops. A failed refresh clears the session, surfacing the 401 to the caller.
+  const canAttemptRefresh = isBrowser && Boolean(token) && !path.startsWith(AUTH_REFRESH_PATH);
+  if (response.status === 401 && canAttemptRefresh) {
+    const refreshedToken = await refreshAuthSession();
+    if (refreshedToken) {
+      headers.set("Authorization", `Bearer ${refreshedToken}`);
+      response = await sendRequest();
     }
   }
 
@@ -49,8 +75,17 @@ export async function apiRequest<T>(path: string, init?: RequestInit, token?: st
       // ignored
     }
 
+    const validationErrors = problem?.errors;
+    const validationMessage =
+      validationErrors && typeof validationErrors === "object"
+        ? Object.values(validationErrors as Record<string, unknown>)
+            .flatMap((value) => (Array.isArray(value) ? value : [value]))
+            .filter((value): value is string => typeof value === "string")
+            .join(" ")
+        : "";
+
     const error: ApiError = {
-      message: problem?.detail ?? problem?.title ?? `HTTP ${response.status}`,
+      message: validationMessage || problem?.detail || problem?.title || `HTTP ${response.status}`,
       problem
     };
 

@@ -6,4 +6,5 @@ namespace Incoders.Hive.Application.Features.UserPreferences.Update;
 
 public sealed record UpdateCurrentUserPreferenceCommand(
     string ThemeKey,
-    string? AccentTheme) : IRequest<Result<UserPreferenceResponse>>;
+    string? AccentTheme,
+    string DateFormat) : IRequest<Result<UserPreferenceResponse>>;

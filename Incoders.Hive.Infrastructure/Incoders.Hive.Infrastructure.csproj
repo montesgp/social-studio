@@ -67,17 +67,33 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.1.0" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.52.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+    <PackageReference Include="SkiaSharp" Version="3.119.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.0" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Incoders.Hive.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Ai\Providers\DefaultComfyUiWorkflowTemplate.json" />
+    <EmbeddedResource Include="Ai\Providers\DefaultComfyUiWorkflowTemplateWithDetailer.json" />
+    <EmbeddedResource Include="Rendering\Fonts\Assets\NotoColorEmoji.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.NotoColorEmoji.ttf" />
+    <EmbeddedResource Include="Rendering\Fonts\Assets\LiberationSans-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.LiberationSans-Regular.ttf" />
+    <EmbeddedResource Include="Rendering\Fonts\Assets\LiberationSerif-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.LiberationSerif-Regular.ttf" />
+    <EmbeddedResource Include="Rendering\Fonts\Assets\LiberationMono-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.LiberationMono-Regular.ttf" />
+    <EmbeddedResource Include="Rendering\Fonts\Assets\DejaVuSans-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.DejaVuSans-Regular.ttf" />
+    <EmbeddedResource Include="Rendering\Fonts\Assets\DejaVuSerif-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.DejaVuSerif-Regular.ttf" />
   </ItemGroup>
 
 </Project>

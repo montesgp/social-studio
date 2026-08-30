@@ -10,10 +10,12 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "fk_user_preferences_users_user_id",
-                schema: "platform",
-                table: "user_preferences");
+            // Idempotency guard (issue #62): on a clean replay from empty, ReintroduceIdentityTables
+            // drops+recreates identity.users, which cascades this FK away before we reach here. Using
+            // DROP CONSTRAINT IF EXISTS keeps the chain replayable. The FK is being removed anyway, so
+            // this is semantically identical. On production (already applied) EF never re-runs it.
+            migrationBuilder.Sql(
+                "ALTER TABLE platform.user_preferences DROP CONSTRAINT IF EXISTS fk_user_preferences_users_user_id;");
 
             migrationBuilder.Sql(
                 "UPDATE platform.user_preferences SET theme_key = 'dark' WHERE theme_key = 'hive-core'");

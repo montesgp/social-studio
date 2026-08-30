@@ -7,18 +7,8 @@
 name: Quality Gates
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'LICENSE'
-      - '.github/incoders-ai/gates/**'   # gate definitions are markdown
-      - '.github/incoders-ai/**/*.md'
-      - '.github/project-ai/**/*.md'
-      - '.alt/**'
   pull_request:
-    branches: [main]
+    branches: [dev, main]
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
@@ -52,8 +42,107 @@ jobs:
     with:
       runs-on: ubuntu-latest
       dotnet-version: '10.0.x'
-      node-version: '20'
+      # Node 22 (current LTS) matches the local dev runtime. On Node 20 the frontend test command
+      # `tsx --test "lib/**/*.test.ts"` cannot expand the `**` globstar (Node added test-runner glob
+      # support in v21), so the gate failed with "Could not find .../lib/**/*.test.ts" on every PR
+      # even though it passed locally. GitHub also deprecated Node 20 on the runners.
+      node-version: '22'
       config-path: 'project.gates.yml'
       only: ${{ inputs.only || '' }}
       skip: ${{ inputs.skip || '' }}
       fail-on-warn: false
+      frontend-api-base-url: 'http://localhost:5000'
+
+  ephemeral-verify:
+    # Slice 1 (issue #57): proves the full EF migration chain applies cleanly on a disposable
+    # Postgres and publishes the idempotent SQL script as a reviewable PR artifact. Lives as a
+    # sibling job (not inside the reusable gate runner) because it needs a `services:` container.
+    # Secret-free: the connection string below targets the ephemeral service container only.
+    name: Ephemeral Migration Verify
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: migration_verify
+          POSTGRES_USER: verify
+          POSTGRES_PASSWORD: verify_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U verify -d migration_verify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ConnectionStrings__Postgres: Host=localhost;Port=5432;Database=migration_verify;Username=verify;Password=verify_ci_only
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dotnet-ef tool
+        run: dotnet tool restore
+
+      - name: Restore NuGet packages
+        run: dotnet restore Incoders.Hive.slnx
+
+      - name: Apply full migration chain from empty
+        run: >-
+          dotnet ef database update
+          --project Incoders.Hive.Infrastructure
+          --startup-project Incoders.Hive.ApiService
+          --configuration Release
+
+      - name: Generate idempotent migration script
+        run: >-
+          dotnet ef migrations script --idempotent -o migrate.sql
+          --project Incoders.Hive.Infrastructure
+          --startup-project Incoders.Hive.ApiService
+          --configuration Release
+
+      - name: Upload idempotent script artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: migrate.sql
+          path: migrate.sql
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Round-trip - Down to previous migration
+        run: |
+          set -euo pipefail
+          migrations=$(dotnet ef migrations list \
+            --project Incoders.Hive.Infrastructure \
+            --startup-project Incoders.Hive.ApiService \
+            --configuration Release \
+            --no-color | tr -d '\r')
+          latest=$(echo "$migrations" | tail -n 1 | tr -d '[:space:]')
+          previous=$(echo "$migrations" | tail -n 2 | head -n 1 | tr -d '[:space:]')
+          if [ -z "$previous" ]; then
+            echo "::error::could not determine the previous migration for the Down step"
+            exit 1
+          fi
+          # With only a single migration in the chain, "previous" == "latest" and applying it
+          # would be a silent no-op that never exercises Down() at all. Fail loudly instead of
+          # letting the round-trip pass green without rolling anything back.
+          if [ "$previous" = "$latest" ]; then
+            echo "::error::only one migration exists (${latest}); the Down round-trip would be a no-op. Add a second migration or special-case the empty-history round-trip explicitly."
+            exit 1
+          fi
+          echo "Rolling back to: $previous"
+          dotnet ef database update "$previous" \
+            --project Incoders.Hive.Infrastructure \
+            --startup-project Incoders.Hive.ApiService \
+            --configuration Release
+
+      - name: Round-trip - Up again
+        run: >-
+          dotnet ef database update
+          --project Incoders.Hive.Infrastructure
+          --startup-project Incoders.Hive.ApiService
+          --configuration Release

@@ -5,13 +5,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, CheckCircle2 } from "lucide-react";
 import { subscribe, getSnapshot } from "@/lib/loading/progress-store";
 
+// Stable reference required by useSyncExternalStore — a new object on every call causes an infinite loop.
+const SERVER_SNAPSHOT = {
+  isVisible: false,
+  value: 0,
+  label: "",
+  sublabel: undefined as string | undefined,
+};
+
 export function ProgressBar(): React.ReactElement {
-  const state = useSyncExternalStore(subscribe, getSnapshot, () => ({
-    isVisible: false,
-    value: 0,
-    label: "",
-    sublabel: undefined as string | undefined,
-  }));
+  const state = useSyncExternalStore(subscribe, getSnapshot, () => SERVER_SNAPSHOT);
 
   const { isVisible, value, label, sublabel } = state;
   const isComplete = value >= 100;

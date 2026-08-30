@@ -59,7 +59,6 @@ public sealed class IntegrationResolver : IIntegrationResolver
                 IntegrationConnectionMode.SystemDefault,
                 IntegrationStatus.Connected,
                 true,
-                false,
                 null,
                 new Dictionary<string, string>()));
         }
@@ -83,59 +82,7 @@ public sealed class IntegrationResolver : IIntegrationResolver
             integration.ConnectionMode,
             integration.Status,
             integration.IsReadOnly,
-            integration.IsDefaultAi,
             integration.SelectedAiModel,
-            plain));
-    }
-
-    public async Task<Result<ResolvedIntegration>> ResolveDefaultAiProviderAsync(
-        Guid organizationId,
-        CancellationToken cancellationToken = default)
-    {
-        if (organizationId == Guid.Empty)
-        {
-            return Result.Failure<ResolvedIntegration>(IntegrationErrors.OrganizationRequired);
-        }
-
-        var providers = await _providers.ListActiveAsync(cancellationToken);
-        var aiProviders = providers
-            .Where(x => x.Category == IntegrationProviderCategory.AiModel)
-            .ToDictionary(x => x.Id);
-
-        var aiIntegrations = await _integrations.ListByOrganizationAndCategoryAsync(
-            organizationId,
-            IntegrationProviderCategory.AiModel,
-            cancellationToken);
-
-        var target = aiIntegrations.FirstOrDefault(x => x.IsDefaultAi && x.Status == IntegrationStatus.Connected)
-                     ?? aiIntegrations.FirstOrDefault(x => x.Status == IntegrationStatus.Connected);
-
-        if (target is null)
-        {
-            return Result.Failure<ResolvedIntegration>(IntegrationErrors.DefaultAiProviderNotConnected);
-        }
-
-        if (!aiProviders.TryGetValue(target.ProviderId, out var provider))
-        {
-            return Result.Failure<ResolvedIntegration>(IntegrationErrors.ProviderNotFound);
-        }
-
-        var credentials = await _credentials.ListByIntegrationIdAsync(target.Id, cancellationToken);
-        var plain = credentials.ToDictionary(
-            x => x.Key,
-            x => _protector.Unprotect(x.EncryptedValue),
-            StringComparer.OrdinalIgnoreCase);
-
-        return Result.Success(new ResolvedIntegration(
-            organizationId,
-            provider.Key,
-            provider.DisplayName,
-            provider.Category,
-            target.ConnectionMode,
-            target.Status,
-            target.IsReadOnly,
-            target.IsDefaultAi,
-            target.SelectedAiModel,
             plain));
     }
 }

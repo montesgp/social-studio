@@ -17,6 +17,7 @@ public class UserPreferenceTests
             Guid.NewGuid(),
             themeKey,
             null,
+            DateFormats.Default,
             Now);
 
         Assert.True(result.IsSuccess);
@@ -31,10 +32,59 @@ public class UserPreferenceTests
             Guid.NewGuid(),
             "neon-mode",
             null,
+            DateFormats.Default,
             Now);
 
         Assert.True(result.IsFailure);
         Assert.Equal("user_preferences.invalid_theme_key", result.Error.Code);
+    }
+
+    [Theory]
+    [InlineData(DateFormats.DdMmYyyy)]
+    [InlineData(DateFormats.MmDdYyyy)]
+    [InlineData(DateFormats.YyyyMmDd)]
+    public void Create_ValidDateFormat_Succeeds(string dateFormat)
+    {
+        var result = UserPreference.Create(
+            UserPreferenceId.New(),
+            Guid.NewGuid(),
+            ThemeKeys.Dark,
+            null,
+            dateFormat,
+            Now);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(dateFormat, result.Value.DateFormat);
+    }
+
+    [Fact]
+    public void Create_InvalidDateFormat_Fails()
+    {
+        var result = UserPreference.Create(
+            UserPreferenceId.New(),
+            Guid.NewGuid(),
+            ThemeKeys.Dark,
+            null,
+            "DD.MM.YYYY",
+            Now);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("user_preferences.invalid_date_format", result.Error.Code);
+    }
+
+    [Fact]
+    public void Create_NoDateFormat_DefaultsToSystemDefault()
+    {
+        var result = UserPreference.Create(
+            UserPreferenceId.New(),
+            Guid.NewGuid(),
+            ThemeKeys.Dark,
+            null,
+            DateFormats.Default,
+            Now);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(DateFormats.Default, result.Value.DateFormat);
     }
 
     [Fact]
@@ -45,15 +95,51 @@ public class UserPreferenceTests
             Guid.NewGuid(),
             ThemeKeys.Dark,
             null,
+            DateFormats.Default,
             Now).Value;
         var later = Now.AddMinutes(30);
 
-        var result = preference.UpdateTheme(ThemeKeys.Light, "vibrant", later);
+        var result = preference.UpdateTheme(ThemeKeys.Light, "vibrant", DateFormats.Default, later);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ThemeKeys.Light, preference.ThemeKey);
         Assert.Equal("vibrant", preference.AccentTheme);
         Assert.Equal(later, preference.UpdatedAtUtc);
         Assert.Equal(Now, preference.CreatedAtUtc);
+    }
+
+    [Fact]
+    public void UpdateTheme_UpdatesDateFormat()
+    {
+        var preference = UserPreference.Create(
+            UserPreferenceId.New(),
+            Guid.NewGuid(),
+            ThemeKeys.Dark,
+            null,
+            DateFormats.Default,
+            Now).Value;
+        var later = Now.AddMinutes(30);
+
+        var result = preference.UpdateTheme(ThemeKeys.Dark, null, DateFormats.YyyyMmDd, later);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(DateFormats.YyyyMmDd, preference.DateFormat);
+    }
+
+    [Fact]
+    public void UpdateTheme_InvalidDateFormat_Fails()
+    {
+        var preference = UserPreference.Create(
+            UserPreferenceId.New(),
+            Guid.NewGuid(),
+            ThemeKeys.Dark,
+            null,
+            DateFormats.Default,
+            Now).Value;
+
+        var result = preference.UpdateTheme(ThemeKeys.Dark, null, "not-a-format", Now);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("user_preferences.invalid_date_format", result.Error.Code);
     }
 }

@@ -31,4 +31,24 @@ public static class ClientErrors
     public static readonly Error AlreadyActive = Error.Conflict(
         "social.clients.already_active",
         "social.clients.errors.already_active");
+
+    public static readonly Error SectorOrNicheTooLong = Error.Validation(
+        "social.clients.sector_or_niche_too_long",
+        "social.clients.errors.sector_or_niche_too_long");
+
+    public static readonly Error AestheticRefreshThresholdTooLow = Error.Validation(
+        "social.clients.aesthetic_refresh_threshold_too_low",
+        "social.clients.errors.aesthetic_refresh_threshold_too_low");
+
+    public static readonly Error AestheticRefreshThresholdTooHigh = Error.Validation(
+        "social.clients.aesthetic_refresh_threshold_too_high",
+        "social.clients.errors.aesthetic_refresh_threshold_too_high");
+
+    public static readonly Error MaxPostsToAnalyzeOutOfRange = Error.Validation(
+        "social.clients.max_posts_to_analyze_out_of_range",
+        "social.clients.errors.max_posts_to_analyze_out_of_range");
+
+    public static readonly Error MaxPiecesPerGenerationOutOfRange = Error.Validation(
+        "social.clients.max_pieces_per_generation_out_of_range",
+        "social.clients.errors.max_pieces_per_generation_out_of_range");
 }

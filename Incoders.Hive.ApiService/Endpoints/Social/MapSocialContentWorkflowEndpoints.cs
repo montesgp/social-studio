@@ -4,11 +4,7 @@ using Incoders.Hive.Application.Common.Pagination;
 using Incoders.Hive.Application.Features.Social.Workflow;
 using Incoders.Hive.Domain.Social.Workflow;
 using MediatR;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Routing;
 
 namespace Incoders.Hive.ApiService.Endpoints.Social;
 
@@ -114,7 +110,9 @@ public static class SocialContentWorkflowEndpointsExtensions
                 body.ClientName,
                 body.SearchCriterion,
                 body.StrategyMode,
-                body.NetworkSources),
+                body.NetworkSources,
+                body.ForceRefresh,
+                body.OriginMode),
             cancellationToken);
 
         return result.Match(workflow => (IResult)TypedResults.Created($"/api/social/workflows/{workflow.WorkflowId}/status", workflow));
@@ -298,12 +296,24 @@ public static class SocialContentWorkflowEndpointsExtensions
     }
 }
 
+/// <param name="ForceRefresh">
+/// The operator's EXPLICIT opt-in to a billed provider run. Absent or <c>false</c> means "serve from the
+/// stored candidate bank" — no client can start a paid scrape by forgetting a field.
+/// </param>
+/// <param name="OriginMode">
+/// <c>discovery</c> (default when absent) reaches the market: scraping providers or the stored bank.
+/// <c>ai-ideas</c> reaches nothing — the model invents topics from the client's own context, so no actor
+/// runs and nothing is billed. An unrecognised value is REJECTED rather than defaulted, so a typo cannot
+/// start the paid scrape the caller was avoiding. Spanish aliases (<c>ideas</c>, <c>ia</c>) are accepted.
+/// </param>
 public sealed record StartSocialContentWorkflowRequest(
     Guid ClientId,
     string ClientName,
     string SearchCriterion,
     string StrategyMode,
-    IReadOnlyList<string> NetworkSources);
+    IReadOnlyList<string> NetworkSources,
+    bool ForceRefresh = false,
+    string? OriginMode = null);
 
 public sealed record SelectSocialContentWorkflowRequest(IReadOnlyList<Guid>? ResultIds);
 

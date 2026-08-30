@@ -9,6 +9,8 @@ public static class ContentWorkflowCatalog
         ["references"] = "references",
         ["reference"] = "references",
         ["referentes"] = "references",
+        ["own"] = "own",
+        ["propios"] = "own",
         ["viral"] = "viral",
         ["virales"] = "viral",
         ["competitors"] = "competitors",
@@ -37,6 +39,24 @@ public static class ContentWorkflowCatalog
         ["ig"] = "instagram",
         ["youtube"] = "youtube",
         ["yt"] = "youtube",
+    };
+
+    /// <summary>
+    /// Where a run's raw material comes from. <c>discovery</c> reaches the market (scraping providers,
+    /// or the stored candidate bank); <c>ai-ideas</c> reaches nothing at all and lets the model invent
+    /// topics from the client's own context. This decides whether an actor can run, so an unrecognised
+    /// value is rejected rather than defaulted — see ContentWorkflowErrors.OriginModeInvalid.
+    /// </summary>
+    private static readonly Dictionary<string, string> OriginModeAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["discovery"] = "discovery",
+        ["descubrimiento"] = "discovery",
+        ["scraping"] = "discovery",
+        ["ai-ideas"] = "ai-ideas",
+        ["ai_ideas"] = "ai-ideas",
+        ["ideas"] = "ai-ideas",
+        ["ia"] = "ai-ideas",
+        ["ideas-ia"] = "ai-ideas",
     };
 
     private static readonly Dictionary<string, string> ActionAliases = new(StringComparer.OrdinalIgnoreCase)
@@ -83,6 +103,23 @@ public static class ContentWorkflowCatalog
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(value => value)
             .ToList();
+
+    /// <summary>The canonical value used when a caller says nothing: today's behaviour, unchanged.</summary>
+    public const string DefaultOriginMode = "discovery";
+
+    public static IReadOnlyList<string> OriginModes { get; } = OriginModeAliases.Values.Distinct().OrderBy(x => x).ToList();
+
+    /// <summary>
+    /// Normalizes an origin mode. An EMPTY or absent value resolves to <see cref="DefaultOriginMode"/>
+    /// so every existing caller keeps working; anything unrecognised resolves to empty and the caller
+    /// must reject it.
+    /// </summary>
+    public static string NormalizeOriginMode(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? DefaultOriginMode
+            : NormalizeAlias(value, OriginModeAliases);
+
+    public static bool IsValidOriginMode(string? value) => NormalizeOriginMode(value).Length > 0;
 
     public static string NormalizeActionType(string value) => NormalizeAlias(value, ActionAliases);
 

@@ -1,9 +1,15 @@
-using System.Text;
+﻿using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Incoders.Hive.Domain.Social.ClientBrandManuals;
+using Incoders.Hive.Domain.UserPreferences;
 using Incoders.Hive.Infrastructure.Persistence.Postgres;
 using Incoders.Hive.Infrastructure.Persistence.Postgres.Entities;
+using Incoders.Hive.Infrastructure.Persistence.Postgres.Json;
 
 namespace Incoders.Hive.Infrastructure.Identity;
 
@@ -20,6 +26,12 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<TenantMembershipData> TenantMemberships => Set<TenantMembershipData>();
 
+    public DbSet<SystemModuleData> SystemModules => Set<SystemModuleData>();
+
+    public DbSet<OrganizationModuleData> OrganizationModules => Set<OrganizationModuleData>();
+
+    public DbSet<OrganizationUserModuleData> OrganizationUserModules => Set<OrganizationUserModuleData>();
+
     public DbSet<SystemSettingData> SystemSettings => Set<SystemSettingData>();
 
     public DbSet<SocialClientData> SocialClients => Set<SocialClientData>();
@@ -32,9 +44,77 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<OrganizationIntegrationCredentialData> OrganizationIntegrationCredentials => Set<OrganizationIntegrationCredentialData>();
 
+    public DbSet<IntegrationProviderCapabilityData> IntegrationProviderCapabilities => Set<IntegrationProviderCapabilityData>();
+
+    public DbSet<OrganizationAiModelData> OrganizationAiModels => Set<OrganizationAiModelData>();
+
+    public DbSet<OrganizationActorData> OrganizationActors => Set<OrganizationActorData>();
+
+    public DbSet<OrganizationWorkflowStepConfigurationData> OrganizationWorkflowStepConfigurations => Set<OrganizationWorkflowStepConfigurationData>();
+
     public DbSet<SocialNetworkData> SocialNetworks => Set<SocialNetworkData>();
 
+    public DbSet<NicheData> Niches => Set<NicheData>();
+
+    public DbSet<ClientNicheData> ClientNiches => Set<ClientNicheData>();
+
     public DbSet<ClientReferentAccountData> ClientReferentAccounts => Set<ClientReferentAccountData>();
+
+    public DbSet<ClientCompetitorAccountData> ClientCompetitorAccounts => Set<ClientCompetitorAccountData>();
+
+    public DbSet<ClientOwnAccountData> ClientOwnAccounts => Set<ClientOwnAccountData>();
+
+    public DbSet<ClientBrandManualData> ClientBrandManuals => Set<ClientBrandManualData>();
+
+    public DbSet<GeneralStrategyData> GeneralStrategies => Set<GeneralStrategyData>();
+
+    public DbSet<ContentPlanData> ContentPlans => Set<ContentPlanData>();
+
+    public DbSet<ContentPlanSlotData> ContentPlanSlots => Set<ContentPlanSlotData>();
+
+    public DbSet<SingleContentAnalysisData> SingleContentAnalyses => Set<SingleContentAnalysisData>();
+
+    public DbSet<IntegrationExecutionAttemptData> IntegrationExecutionAttempts => Set<IntegrationExecutionAttemptData>();
+
+    public DbSet<UsageEventData> UsageEvents => Set<UsageEventData>();
+
+    public DbSet<ProviderCostRateData> ProviderCostRates => Set<ProviderCostRateData>();
+
+    public DbSet<ContentGenerationJobData> ContentGenerationJobs => Set<ContentGenerationJobData>();
+
+    public DbSet<ContentGenerationFormatResultData> ContentGenerationFormatResults => Set<ContentGenerationFormatResultData>();
+
+    public DbSet<GeneratedPackageData> GeneratedPackages => Set<GeneratedPackageData>();
+
+    public DbSet<ContentGenerationFormatAssetData> ContentGenerationFormatAssets => Set<ContentGenerationFormatAssetData>();
+
+    public DbSet<ProfileAnalysisData> ProfileAnalyses => Set<ProfileAnalysisData>();
+
+    public DbSet<CanvaUserTokenData> CanvaUserTokens => Set<CanvaUserTokenData>();
+
+    public DbSet<ContentStudioItemData> ContentStudioItems => Set<ContentStudioItemData>();
+
+    public DbSet<ContentStudioSetData> ContentStudioSets => Set<ContentStudioSetData>();
+
+    public DbSet<ContentStudioSetItemData> ContentStudioSetItems => Set<ContentStudioSetItemData>();
+
+    public DbSet<PublicationData> Publications => Set<PublicationData>();
+
+    public DbSet<PublicationAttemptData> PublicationAttempts => Set<PublicationAttemptData>();
+
+    public DbSet<ClientAccountConnectionData> ClientAccountConnections => Set<ClientAccountConnectionData>();
+
+    public DbSet<DiscoveredCandidateData> DiscoveredCandidates => Set<DiscoveredCandidateData>();
+
+    public DbSet<AccountBaselineData> AccountBaselines => Set<AccountBaselineData>();
+
+    public DbSet<DiscoveryRunData> DiscoveryRuns => Set<DiscoveryRunData>();
+
+    public DbSet<NicheOpportunityData> NicheOpportunities => Set<NicheOpportunityData>();
+
+    public DbSet<NicheDiscoveryEvidenceData> NicheDiscoveryEvidence => Set<NicheDiscoveryEvidenceData>();
+
+    public DbSet<MarketCatalogData> MarketCatalog => Set<MarketCatalogData>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -76,10 +156,90 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasKey(x => new { x.TenantId, x.UserId });
             entity.Property(x => x.TenantId).HasColumnName("organization_id");
             entity.Property(x => x.Role).HasMaxLength(32).IsRequired();
+            entity.HasIndex(x => x.UserId)
+                .IsUnique()
+                .HasDatabaseName("ix_organization_memberships_user_id_unique");
             entity.HasOne(x => x.Tenant)
                 .WithMany()
                 .HasForeignKey(x => x.TenantId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<SystemModuleData>(entity =>
+        {
+            entity.ToTable("system_modules", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ModuleKey).HasColumnName("key_module").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.DisplayName).HasColumnName("display_name").HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Description).HasColumnName("description").HasMaxLength(280).IsRequired();
+            entity.Property(x => x.ShortLabel).HasColumnName("short_label").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            entity.HasIndex(x => x.ModuleKey).IsUnique();
+            entity.HasIndex(x => x.IsActive).HasDatabaseName("ix_system_modules_is_active");
+        });
+
+        builder.Entity<OrganizationModuleData>(entity =>
+        {
+            entity.ToTable("organization_modules", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => new { x.OrganizationId, x.ModuleId });
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id");
+            entity.Property(x => x.ModuleId).HasColumnName("module_id");
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Module)
+                .WithMany()
+                .HasForeignKey(x => x.ModuleId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.OrganizationId, x.SortOrder })
+                .HasDatabaseName("ix_organization_modules_org_sort_order");
+        });
+
+        builder.Entity<OrganizationUserModuleData>(entity =>
+        {
+            entity.ToTable("organization_user_modules", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => new { x.OrganizationId, x.UserId, x.ModuleId });
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id");
+            entity.Property(x => x.ModuleId).HasColumnName("module_id");
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<TenantMembershipData>()
+                .WithMany()
+                .HasForeignKey(x => new { x.OrganizationId, x.UserId })
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_organization_user_modules_membership");
+
+            entity.HasOne(x => x.Module)
+                .WithMany()
+                .HasForeignKey(x => x.ModuleId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => x.UserId)
+                .HasDatabaseName("ix_organization_user_modules_user_id");
+
+            entity.HasIndex(x => new { x.OrganizationId, x.UserId, x.SortOrder })
+                .HasDatabaseName("ix_organization_user_modules_org_user_sort_order");
         });
 
         builder.Entity<SystemSettingData>(entity =>
@@ -100,7 +260,43 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Description).HasMaxLength(1_000);
+            entity.Property(x => x.SectorOrNiche).HasMaxLength(300);
             entity.Property(x => x.IsActive).IsRequired();
+
+            // WU-6 §6.2: background sourcing policy — nullable smallint, stored as short? via
+            // HasConversion<short?>() so no EF enum type leaks into Domain/Application layers.
+            // NULL == Unset == legacy 3-tier behavior. Refs: design §10.1; BSP-07.
+            entity.Property(x => x.BackgroundSourcingPolicy)
+                .HasColumnName("background_sourcing_policy")
+                .HasColumnType("smallint")
+                .IsRequired(false);
+
+            // CAG-CS-01: per-client staleness threshold override — nullable smallint.
+            // NULL = use system default (30 days). Range 1–365 enforced in domain setter.
+            entity.Property(x => x.AestheticRefreshThresholdDays)
+                .HasColumnName("aesthetic_refresh_threshold_days")
+                .HasColumnType("smallint")
+                .IsRequired(false);
+
+            // Per-client profile posts-to-analyze override — nullable smallint. NULL = default (12).
+            entity.Property(x => x.MaxPostsToAnalyze)
+                .HasColumnName("max_posts_to_analyze")
+                .HasColumnType("smallint")
+                .IsRequired(false);
+
+            // Per-client generation piece cap — nullable smallint. NULL = no cap.
+            entity.Property(x => x.MaxPiecesPerGeneration)
+                .HasColumnName("max_pieces_per_generation")
+                .HasColumnType("smallint")
+                .IsRequired(false);
+
+            // Issue #70: plain boolean opt-in for @handle signature on generated slides.
+            // NOT NULL DEFAULT false — existing clients default to not-signed (intended change).
+            entity.Property(x => x.SignsOwnSlides)
+                .HasColumnName("signs_own_slides")
+                .HasDefaultValue(false)
+                .IsRequired();
+
             entity.HasIndex(x => new { x.OrganizationId, x.Name });
             entity.HasOne(x => x.Organization)
                 .WithMany()
@@ -115,6 +311,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.UserId).IsRequired();
             entity.Property(x => x.ThemeKey).HasMaxLength(32).IsRequired();
             entity.Property(x => x.AccentTheme).HasMaxLength(64);
+            entity.Property(x => x.DateFormat).HasMaxLength(16).IsRequired().HasDefaultValue(DateFormats.Default);
             entity.HasIndex(x => x.UserId).IsUnique();
         });
 
@@ -124,9 +321,10 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Key).HasMaxLength(64).IsRequired();
             entity.Property(x => x.DisplayName).HasMaxLength(120).IsRequired();
-            entity.Property(x => x.Category).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.CategoriesJson).IsRequired();
             entity.Property(x => x.IconKey).HasMaxLength(64).IsRequired();
             entity.Property(x => x.CredentialFieldsJson).IsRequired();
+            entity.Property(x => x.ModelsByCategoryJson).IsRequired();
             entity.Property(x => x.IsActive).IsRequired();
             entity.Property(x => x.SupportsBringYourOwnKey).IsRequired();
             entity.Property(x => x.SupportsManagedByIncoders).IsRequired();
@@ -144,7 +342,6 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
             entity.Property(x => x.SelectedAiModel).HasMaxLength(200);
             entity.Property(x => x.IsReadOnly).IsRequired();
-            entity.Property(x => x.IsDefaultAi).IsRequired();
             entity.HasIndex(x => new { x.OrganizationId, x.ProviderId }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Status });
 
@@ -173,6 +370,156 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        builder.Entity<IntegrationProviderCapabilityData>(entity =>
+        {
+            entity.ToTable("integration_provider_capabilities", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.CapabilityKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.PlatformKey).HasMaxLength(64);
+            entity.Property(x => x.IsActive).IsRequired();
+            entity.HasIndex(x => new { x.ProviderId, x.CapabilityKey })
+                .IsUnique()
+                .HasFilter("platform_key IS NULL")
+                .HasDatabaseName("ix_integration_provider_capabilities_provider_capability_global");
+            entity.HasIndex(x => new { x.ProviderId, x.CapabilityKey, x.PlatformKey })
+                .IsUnique()
+                .HasFilter("platform_key IS NOT NULL")
+                .HasDatabaseName("ix_integration_provider_capabilities_provider_capability_platform");
+
+            entity.HasOne(x => x.Provider)
+                .WithMany(x => x.Capabilities)
+                .HasForeignKey(x => x.ProviderId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<OrganizationAiModelData>(entity =>
+        {
+            entity.ToTable("organization_ai_models", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.OrganizationIntegrationId).HasColumnName("organization_integration_id").IsRequired();
+            entity.Property(x => x.ProviderId).HasColumnName("provider_id").IsRequired();
+            entity.Property(x => x.ProviderKey).HasColumnName("provider_key").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ModelId).HasColumnName("model_id").HasMaxLength(200).IsRequired();
+            entity.Property(x => x.DisplayName).HasColumnName("display_name").HasMaxLength(240).IsRequired();
+            entity.Property(x => x.CapabilitiesJson).HasColumnName("capabilities_json").IsRequired();
+            entity.Property(x => x.MetadataJson).HasColumnName("metadata_json").IsRequired();
+            entity.Property(x => x.IsAvailable).HasColumnName("is_available").IsRequired();
+            entity.Property(x => x.SyncedAtUtc).HasColumnName("synced_at_utc").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasIndex(x => new { x.OrganizationId, x.ProviderId, x.ModelId })
+                .IsUnique()
+                .HasDatabaseName("ix_organization_ai_models_org_provider_model");
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.OrganizationIntegration)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationIntegrationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Provider)
+                .WithMany()
+                .HasForeignKey(x => x.ProviderId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<OrganizationActorData>(entity =>
+        {
+            entity.ToTable("organization_actors", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.OrganizationIntegrationId).HasColumnName("organization_integration_id").IsRequired();
+            entity.Property(x => x.ProviderId).HasColumnName("provider_id").IsRequired();
+            entity.Property(x => x.ProviderKey).HasColumnName("provider_key").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ActorId).HasColumnName("actor_id").HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Username).HasColumnName("username").HasMaxLength(200).IsRequired();
+            entity.Property(x => x.DisplayName).HasColumnName("display_name").HasMaxLength(240).IsRequired();
+            entity.Property(x => x.MetadataJson).HasColumnName("metadata_json").IsRequired();
+            entity.Property(x => x.IsOwned).HasColumnName("is_owned").IsRequired();
+            entity.Property(x => x.IsAvailable).HasColumnName("is_available").IsRequired();
+            entity.Property(x => x.SyncedAtUtc).HasColumnName("synced_at_utc").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasIndex(x => new { x.OrganizationId, x.ProviderId, x.ActorId })
+                .IsUnique()
+                .HasDatabaseName("ix_organization_actors_org_provider_actor");
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.OrganizationIntegration)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationIntegrationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Provider)
+                .WithMany()
+                .HasForeignKey(x => x.ProviderId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<OrganizationWorkflowStepConfigurationData>(entity =>
+        {
+            entity.ToTable("organization_workflow_step_configs", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.WorkflowKey).HasColumnName("workflow_key").HasMaxLength(80).IsRequired();
+            entity.Property(x => x.AnalysisType).HasColumnName("analysis_type").HasMaxLength(80).IsRequired();
+            entity.Property(x => x.StepKey).HasColumnName("step_key").HasMaxLength(120).IsRequired();
+            entity.Property(x => x.OperationKey).HasColumnName("operation_key").HasMaxLength(80);
+            entity.Property(x => x.NetworkKey).HasColumnName("network_key").HasMaxLength(64);
+            entity.Property(x => x.ProviderId).HasColumnName("provider_id").IsRequired();
+            entity.Property(x => x.ProviderKey).HasColumnName("provider_key").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.OrganizationIntegrationId).HasColumnName("organization_integration_id").IsRequired();
+            entity.Property(x => x.ModelId).HasColumnName("model_id").HasMaxLength(200);
+            entity.Property(x => x.ActorId).HasColumnName("actor_id").HasMaxLength(240);
+            entity.Property(x => x.Priority).HasColumnName("priority").IsRequired();
+            entity.Property(x => x.IsEnabled).HasColumnName("is_enabled").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasIndex(x => new { x.OrganizationId, x.WorkflowKey, x.AnalysisType })
+                .HasDatabaseName("ix_org_workflow_step_configs_org_workflow_analysis");
+
+            entity.HasIndex(x => new
+                {
+                    x.OrganizationId,
+                    x.WorkflowKey,
+                    x.AnalysisType,
+                    x.StepKey,
+                    x.NetworkKey,
+                    x.OperationKey,
+                    x.Priority
+                })
+                .IsUnique()
+                .HasDatabaseName("ix_org_workflow_step_configs_step_priority");
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.OrganizationIntegration)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationIntegrationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Provider)
+                .WithMany()
+                .HasForeignKey(x => x.ProviderId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
         builder.Entity<ClientReferentAccountData>(entity =>
         {
             entity.ToTable("client_referent_accounts", PostgresDatabaseNames.SocialSchema);
@@ -186,6 +533,7 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.Label).HasColumnName("label").HasMaxLength(80);
             entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(500);
             entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
             entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
             entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
 
@@ -215,11 +563,157 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasIndex(x => x.ClientId)
                 .HasDatabaseName("ix_client_referent_accounts_client_id");
 
+            entity.HasIndex(x => new { x.ClientId, x.SortOrder })
+                .HasDatabaseName("ix_client_referent_accounts_client_sort_order");
+
             entity.HasIndex(x => x.OrganizationId)
                 .HasDatabaseName("ix_client_referent_accounts_organization_id");
 
             entity.HasIndex(x => x.SocialNetworkId)
                 .HasDatabaseName("ix_client_referent_accounts_social_network_id");
+        });
+
+        builder.Entity<ClientCompetitorAccountData>(entity =>
+        {
+            entity.ToTable("client_competitor_accounts", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.SocialNetworkId).HasColumnName("social_network_id").IsRequired();
+            entity.Property(x => x.ProfileUrl).HasColumnName("profile_url").HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.Handle).HasColumnName("handle").HasMaxLength(100);
+            entity.Property(x => x.Label).HasColumnName("label").HasMaxLength(80);
+            entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(500);
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<SocialNetworkData>()
+                .WithMany()
+                .HasForeignKey(x => x.SocialNetworkId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ClientId, x.SocialNetworkId, x.ProfileUrl })
+                .IsUnique()
+                .HasDatabaseName("ix_client_competitor_accounts_client_network_url");
+
+            entity.HasIndex(x => x.ClientId)
+                .HasDatabaseName("ix_client_competitor_accounts_client_id");
+
+            entity.HasIndex(x => new { x.ClientId, x.SortOrder })
+                .HasDatabaseName("ix_client_competitor_accounts_client_sort_order");
+
+            entity.HasIndex(x => x.OrganizationId)
+                .HasDatabaseName("ix_client_competitor_accounts_organization_id");
+
+            entity.HasIndex(x => x.SocialNetworkId)
+                .HasDatabaseName("ix_client_competitor_accounts_social_network_id");
+        });
+
+        builder.Entity<ClientOwnAccountData>(entity =>
+        {
+            entity.ToTable("client_own_accounts", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.SocialNetworkId).HasColumnName("social_network_id").IsRequired();
+            entity.Property(x => x.ProfileUrl).HasColumnName("profile_url").HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.Handle).HasColumnName("handle").HasMaxLength(100);
+            entity.Property(x => x.Label).HasColumnName("label").HasMaxLength(80);
+            entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(500);
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<SocialNetworkData>()
+                .WithMany()
+                .HasForeignKey(x => x.SocialNetworkId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ClientId, x.SocialNetworkId, x.ProfileUrl })
+                .IsUnique()
+                .HasDatabaseName("ix_client_own_accounts_client_network_url");
+
+            entity.HasIndex(x => x.ClientId)
+                .HasDatabaseName("ix_client_own_accounts_client_id");
+
+            entity.HasIndex(x => new { x.ClientId, x.SortOrder })
+                .HasDatabaseName("ix_client_own_accounts_client_sort_order");
+
+            entity.HasIndex(x => x.OrganizationId)
+                .HasDatabaseName("ix_client_own_accounts_organization_id");
+
+            entity.HasIndex(x => x.SocialNetworkId)
+                .HasDatabaseName("ix_client_own_accounts_social_network_id");
+        });
+
+        builder.Entity<ClientBrandManualData>(entity =>
+        {
+            entity.ToTable("client_brand_manuals", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.Title).HasColumnName("title").HasMaxLength(80).IsRequired();
+            entity.Property(x => x.VoiceAndTone).HasColumnName("voice_and_tone").HasMaxLength(2000);
+            entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(4000);
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // jsonb columns — ADR 3/4/5
+            ConfigureJsonbCollection<ClientBrandManualData, ColorEntry>(entity, x => x.ColorPalette, "color_palette");
+            ConfigureJsonbCollection<ClientBrandManualData, LogoEntry>(entity, x => x.Logos, "logos");
+            ConfigureJsonbCollection<ClientBrandManualData, BackgroundEntry>(entity, x => x.BackgroundTemplates, "background_templates");
+            ConfigureJsonbCollection<ClientBrandManualData, TypographyEntry>(entity, x => x.Typography, "typography");
+
+            // FK: client_id → social.clients(id) ON DELETE CASCADE
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => x.ClientId)
+                .HasDatabaseName("ix_client_brand_manuals_client_id");
+
+            entity.HasIndex(x => x.OrganizationId)
+                .HasDatabaseName("ix_client_brand_manuals_organization_id");
+
+            // Partial unique index: at most one active manual per client (ADR 6)
+            entity.HasIndex(x => x.ClientId)
+                .IsUnique()
+                .HasFilter("is_active = true")
+                .HasDatabaseName("ix_client_brand_manuals_one_active_per_client");
         });
 
         builder.Entity<SocialNetworkData>(entity =>
@@ -235,6 +729,1062 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
             entity.HasIndex(x => x.Code).IsUnique().HasDatabaseName("ix_social_networks_code");
         });
+
+        builder.Entity<NicheData>(entity =>
+        {
+            entity.ToTable("niches", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.Code).HasColumnName("code").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.DisplayName).HasColumnName("display_name").HasMaxLength(120).IsRequired();
+            entity.Property(x => x.IconKey).HasColumnName("icon_key").HasMaxLength(32);
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            ConfigureJsonbCollection<NicheData, string>(entity, x => x.SearchHashtags, "search_hashtags");
+
+            entity.HasIndex(x => x.Code).IsUnique().HasDatabaseName("ix_niches_code");
+
+            // Display name is what the picker searches and what an operator reads: two entries that
+            // read the same are a catalog defect, so the uniqueness is enforced here too.
+            entity.HasIndex(x => x.DisplayName).IsUnique().HasDatabaseName("ix_niches_display_name");
+
+            // The bounded list orders by created_at desc when no search term is supplied.
+            entity.HasIndex(x => x.CreatedAtUtc).HasDatabaseName("ix_niches_created_at_utc");
+        });
+
+        builder.Entity<ClientNicheData>(entity =>
+        {
+            entity.ToTable("client_niches", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => new { x.ClientId, x.NicheId });
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.NicheId).HasColumnName("niche_id").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict, not Cascade: deleting a catalog entry must not silently rewrite what a
+            // client declared about itself. Deactivate the niche instead.
+            entity.HasOne<NicheData>()
+                .WithMany()
+                .HasForeignKey(x => x.NicheId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(x => x.NicheId).HasDatabaseName("ix_client_niches_niche_id");
+        });
+
+        builder.Entity<SingleContentAnalysisData>(entity =>
+        {
+            entity.ToTable("single_content_analyses", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id");
+            entity.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
+            entity.Property(x => x.SourceUrl).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.NormalizedUrl).HasMaxLength(2048);
+            entity.Property(x => x.SourcePlatformKey).HasMaxLength(64);
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.FailureCode).HasMaxLength(128);
+            entity.Property(x => x.FailureMessageKey).HasMaxLength(200);
+            entity.Property(x => x.AiAnalysisFailedAttemptCount)
+                .HasColumnName("ai_analysis_failed_attempt_count")
+                .IsRequired()
+                .HasDefaultValue(0);
+            entity.Property(x => x.AiAnalysisRetryBlockedAtUtc)
+                .HasColumnName("ai_analysis_retry_blocked_at_utc");
+            entity.Property(x => x.PatternSetJson)
+                .HasColumnName("pattern_set_json")
+                .HasColumnType("jsonb");
+            entity.HasIndex(x => new { x.OrganizationId, x.Status })
+                .HasDatabaseName("ix_single_content_analyses_org_status");
+            entity.HasIndex(x => new { x.OrganizationId, x.SourcePlatformKey })
+                .HasDatabaseName("ix_single_content_analyses_org_platform");
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ProfileAnalysisData>(entity =>
+        {
+            entity.ToTable("profile_analyses", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id");
+            entity.Property(x => x.OwnAccountId).HasColumnName("own_account_id");
+            entity.Property(x => x.ProfileUrlOrHandle).HasColumnName("profile_url_or_handle").HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.RawPostsDatasetJson).HasColumnName("raw_posts_dataset_json").HasColumnType("jsonb");
+            entity.Property(x => x.ServerDerivedStatsJson).HasColumnName("server_derived_stats_json").HasColumnType("jsonb");
+            entity.Property(x => x.ProfileSnapshotJson).HasColumnName("profile_snapshot_json").HasColumnType("jsonb");
+            entity.Property(x => x.AiAnalysisJson).HasColumnName("ai_analysis_json").HasColumnType("jsonb");
+            entity.Property(x => x.AestheticProfileJson).HasColumnName("aesthetic_profile_json").HasColumnType("jsonb");
+            entity.Property(x => x.ProviderDiagnosticsJson).HasColumnName("provider_diagnostics_json").HasColumnType("jsonb");
+            entity.Property(x => x.FailureCode).HasColumnName("failure_code").HasMaxLength(128);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            entity.Property(x => x.CompletedAtUtc).HasColumnName("completed_at_utc");
+
+            // Composite index: tenant-scoped queries ordered by creation time (newest first) — PA-15
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedAtUtc })
+                .HasDatabaseName("ix_profile_analyses_org_created_at");
+
+            // Sparse index for client-linked records
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId })
+                .HasDatabaseName("ix_profile_analyses_org_client_id");
+
+            entity.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<IntegrationExecutionAttemptData>(entity =>
+        {
+            entity.ToTable("integration_execution_attempts", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.CapabilityKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ProviderKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.FailureCode).HasMaxLength(128);
+            entity.Property(x => x.CorrelationId).IsRequired(false);
+            entity.Property(x => x.CorrelationKind).HasMaxLength(128).IsRequired(false);
+            entity.HasIndex(x => new { x.AnalysisId, x.CapabilityKey, x.ProviderKey, x.AttemptNumber })
+                .HasDatabaseName("ix_integration_attempts_analysis_capability_provider_attempt");
+
+            // AnalysisId is now nullable — rows produced by background services carry a
+            // CorrelationId instead of an AnalysisId.  The FK is retained but made optional.
+            entity.HasOne(x => x.Analysis)
+                .WithMany(x => x.Attempts)
+                .HasForeignKey(x => x.AnalysisId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired(false);
+        });
+
+        builder.Entity<UsageEventData>(entity =>
+        {
+            entity.ToTable("usage_events", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id");
+            entity.Property(x => x.WorkflowKey).HasColumnName("workflow_key").HasMaxLength(128).IsRequired();
+            entity.Property(x => x.PipelineStepKey).HasColumnName("pipeline_step_key").HasMaxLength(128).IsRequired();
+            entity.Property(x => x.ProviderKey).HasColumnName("provider_key").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Model).HasColumnName("model").HasMaxLength(128);
+            entity.Property(x => x.PromptVersion).HasColumnName("prompt_version").HasMaxLength(64);
+            entity.Property(x => x.RequestTimestamp).HasColumnName("request_timestamp").IsRequired();
+            entity.Property(x => x.CompletedTimestamp).HasColumnName("completed_timestamp").IsRequired();
+            entity.Property(x => x.DurationMs).HasColumnName("duration_ms").IsRequired();
+            entity.Property(x => x.InputTokens).HasColumnName("input_tokens");
+            entity.Property(x => x.OutputTokens).HasColumnName("output_tokens");
+            entity.Property(x => x.EstimatedCostUsd).HasColumnName("estimated_cost_usd").HasColumnType("numeric(18,6)");
+            entity.Property(x => x.RequestSizeBytes).HasColumnName("request_size_bytes");
+            entity.Property(x => x.ResponseSizeBytes).HasColumnName("response_size_bytes");
+            entity.Property(x => x.RetryCount).HasColumnName("retry_count").IsRequired().HasDefaultValue(0);
+            entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.FailureCode).HasColumnName("failure_code").HasMaxLength(128);
+            entity.Property(x => x.CorrelationId).HasColumnName("correlation_id").IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+
+            entity.HasIndex(x => new { x.OrganizationId, x.RequestTimestamp })
+                .HasDatabaseName("ix_usage_events_org_timestamp");
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId, x.RequestTimestamp })
+                .HasDatabaseName("ix_usage_events_org_client_timestamp");
+            entity.HasIndex(x => new { x.ProviderKey, x.Model, x.RequestTimestamp })
+                .HasDatabaseName("ix_usage_events_provider_model_timestamp");
+            entity.HasIndex(x => x.CorrelationId)
+                .HasDatabaseName("ix_usage_events_correlation_id");
+        });
+
+        builder.Entity<ProviderCostRateData>(entity =>
+        {
+            entity.ToTable("provider_cost_rates", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProviderKey).HasColumnName("provider_key").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Model).HasColumnName("model").HasMaxLength(128);
+            entity.Property(x => x.CostPer1KInputTokens).HasColumnName("cost_per_1k_input_tokens").HasColumnType("numeric(18,8)");
+            entity.Property(x => x.CostPer1KOutputTokens).HasColumnName("cost_per_1k_output_tokens").HasColumnType("numeric(18,8)");
+            entity.Property(x => x.CostPerRequest).HasColumnName("cost_per_request").HasColumnType("numeric(18,8)");
+            entity.Property(x => x.EffectiveFrom).HasColumnName("effective_from").IsRequired();
+            entity.Property(x => x.EffectiveTo).HasColumnName("effective_to");
+            entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(500);
+
+            entity.HasIndex(x => new { x.ProviderKey, x.Model, x.EffectiveFrom })
+                .IsUnique()
+                .HasDatabaseName("ix_provider_cost_rates_provider_model_effective_from");
+        });
+
+        builder.Entity<ContentGenerationBatchData>(entity =>
+        {
+            entity.ToTable("content_generation_batches", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id");
+            entity.Property(x => x.AnalysisId).HasColumnName("analysis_id").IsRequired();
+            entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.CompositionJson)
+                .HasColumnName("composition_json")
+                .HasColumnType("jsonb")
+                .IsRequired()
+                .HasDefaultValueSql("'[]'");
+            entity.Property(x => x.TotalPieces).HasColumnName("total_pieces").IsRequired();
+            entity.Property(x => x.CorrelationId).HasColumnName("correlation_id").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+            entity.Property(x => x.CompletedAt).HasColumnName("completed_at");
+
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedAt })
+                .HasDatabaseName("ix_content_generation_batches_org_created");
+            // The global progress surface polls active batches per tenant on an interval.
+            entity.HasIndex(x => new { x.OrganizationId, x.Status })
+                .HasDatabaseName("ix_content_generation_batches_org_status");
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ContentGenerationJobData>(entity =>
+        {
+            entity.ToTable("content_generation_jobs", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id");
+            entity.Property(x => x.AnalysisId).HasColumnName("analysis_id").IsRequired();
+            entity.Property(x => x.BatchId).HasColumnName("batch_id");
+            entity.Property(x => x.BatchPieceIndex).HasColumnName("batch_piece_index");
+            entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.StatusReason).HasColumnName("status_reason").HasMaxLength(500);
+            entity.Property(x => x.StartedAt).HasColumnName("started_at");
+            entity.Property(x => x.CompletedAt).HasColumnName("completed_at");
+            entity.Property(x => x.ErrorCode).HasColumnName("error_code").HasMaxLength(128);
+            entity.Property(x => x.BrandSnapshotJson).HasColumnName("brand_snapshot_json").HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.ManifestJson).HasColumnName("manifest_json").HasColumnType("jsonb");
+            entity.Property(x => x.RegenerationObjection).HasColumnName("regeneration_objection").HasMaxLength(1000);
+            entity.Property(x => x.CorrelationId).HasColumnName("correlation_id").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+
+            // RequestedFormats as jsonb text[]
+            var formatsConverter = new ValueConverter<List<string>, string>(
+                v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>());
+            var formatsComparer = new ValueComparer<List<string>>(
+                (a, b) => a!.SequenceEqual(b!),
+                x => x.Aggregate(0, (h, e) => HashCode.Combine(h, e.GetHashCode())),
+                x => x.ToList());
+            entity.Property(x => x.RequestedFormats)
+                .HasColumnName("requested_formats")
+                .HasColumnType("jsonb")
+                .IsRequired()
+                .HasDefaultValueSql("'[]'")
+                .HasConversion(formatsConverter)
+                .Metadata.SetValueComparer(formatsComparer);
+
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedAt })
+                .HasDatabaseName("ix_content_generation_jobs_org_created");
+            entity.HasIndex(x => x.AnalysisId)
+                .HasDatabaseName("ix_content_generation_jobs_analysis_id");
+            entity.HasIndex(x => x.Status)
+                .HasDatabaseName("ix_content_generation_jobs_status");
+            // Progress is counted from the child jobs on every poll, so this lookup must be indexed.
+            entity.HasIndex(x => x.BatchId)
+                .HasDatabaseName("ix_content_generation_jobs_batch_id");
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(x => x.FormatResults)
+                .WithOne(x => x.Job)
+                .HasForeignKey(x => x.JobId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ContentGenerationFormatResultData>(entity =>
+        {
+            entity.ToTable("content_generation_format_results", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.JobId).HasColumnName("job_id").IsRequired();
+            entity.Property(x => x.FormatKey).HasColumnName("format_key").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.OutputJson).HasColumnName("output_json").HasColumnType("jsonb");
+            entity.Property(x => x.CompositionSpecJson).HasColumnName("composition_spec_json").HasColumnType("jsonb");
+            entity.Property(x => x.RenderedAssetUri).HasColumnName("rendered_asset_uri").HasMaxLength(2048);
+            entity.Property(x => x.InferredFieldsJson).HasColumnName("inferred_fields_json").HasColumnType("jsonb");
+            entity.Property(x => x.PromptVersion).HasColumnName("prompt_version").HasMaxLength(64);
+            entity.Property(x => x.ErrorCode).HasColumnName("error_code").HasMaxLength(128);
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+
+            entity.HasIndex(x => new { x.JobId, x.FormatKey })
+                .IsUnique()
+                .HasDatabaseName("ix_content_generation_format_results_job_format");
+
+            entity.HasOne(x => x.Job)
+                .WithMany(x => x.FormatResults)
+                .HasForeignKey(x => x.JobId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<DiscoveredCandidateData>(entity =>
+        {
+            entity.ToTable("discovered_candidates", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.CandidateKey).HasColumnName("candidate_key").HasMaxLength(1024).IsRequired();
+            entity.Property(x => x.NetworkKey).HasColumnName("network_key").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.SourceKey).HasColumnName("source_key").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.SearchCriterion).HasColumnName("search_criterion").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ContentUrl).HasColumnName("content_url").HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.AuthorHandle).HasColumnName("author_handle").HasMaxLength(256).IsRequired();
+            entity.Property(x => x.Title).HasColumnName("title").HasMaxLength(1000).IsRequired();
+            entity.Property(x => x.Summary).HasColumnName("summary");
+            entity.Property(x => x.ThumbnailUrl).HasColumnName("thumbnail_url").HasMaxLength(2048);
+            entity.Property(x => x.PublishedAt).HasColumnName("published_at");
+            entity.Property(x => x.Views).HasColumnName("views");
+            entity.Property(x => x.Likes).HasColumnName("likes");
+            entity.Property(x => x.Comments).HasColumnName("comments");
+            entity.Property(x => x.Shares).HasColumnName("shares");
+            entity.Property(x => x.Saves).HasColumnName("saves");
+            entity.Property(x => x.OpportunityScore).HasColumnName("opportunity_score");
+            entity.Property(x => x.Classification).HasColumnName("classification");
+            entity.Property(x => x.ObservedAt).HasColumnName("observed_at").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.BankHashtags).HasColumnName("bank_hashtags");
+
+            // The candidate bank read: one organization's reserve for one network, narrowed in SQL
+            // before the hashtag overlap is applied.
+            entity.HasIndex(x => new { x.OrganizationId, x.NetworkKey, x.ClientId })
+                .HasDatabaseName("ix_discovered_candidates_bank");
+
+            // Identity lookup — "has this content been observed before, and when".
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId, x.CandidateKey })
+                .HasDatabaseName("ix_discovered_candidates_org_client_key");
+
+            // History reads AND the future ranged purge (D9) — this table grows unbounded by design in
+            // this change; a later purge is a one-line ranged delete keyed on this index.
+            entity.HasIndex(x => new { x.OrganizationId, x.ObservedAt })
+                .HasDatabaseName("ix_discovered_candidates_org_observed");
+
+            // A double-write of the SAME candidate inside the SAME run is a hard error, not a silent
+            // duplicate (CD-08).
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId, x.CandidateKey, x.ObservedAt })
+                .IsUnique()
+                .HasDatabaseName("ux_discovered_candidates_key_observed");
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<AccountBaselineData>(entity =>
+        {
+            entity.ToTable("account_baselines", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.NetworkKey).HasColumnName("network_key").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.AuthorHandle).HasColumnName("author_handle").HasMaxLength(256).IsRequired();
+            entity.Property(x => x.MedianViews).HasColumnName("median_views");
+            entity.Property(x => x.MedianEngagement).HasColumnName("median_engagement");
+            entity.Property(x => x.PostCount).HasColumnName("post_count").IsRequired();
+            entity.Property(x => x.ComputedAt).HasColumnName("computed_at").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+
+            // The upsert target (design §5.2). No client_id anywhere on this table: a baseline is a
+            // property of the author, not of whichever client discovered them.
+            entity.HasIndex(x => new { x.OrganizationId, x.NetworkKey, x.AuthorHandle })
+                .IsUnique()
+                .HasDatabaseName("ux_account_baselines_org_network_handle");
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<DiscoveryRunData>(entity =>
+        {
+            entity.ToTable("discovery_runs", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.RequestedByUserId).HasColumnName("requested_by_user_id").IsRequired();
+            entity.Property(x => x.SourceMarketCode).HasColumnName("source_market_code").HasMaxLength(16).IsRequired();
+            entity.Property(x => x.TargetMarketCode).HasColumnName("target_market_code").HasMaxLength(16).IsRequired();
+            entity.Property(x => x.NetworkKey).HasColumnName("network_key").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ContentFormat).HasColumnName("content_format").HasMaxLength(16).IsRequired();
+            entity.Property(x => x.ConfigurationSnapshotJson).HasColumnName("configuration_snapshot_json").HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.WindowDays).HasColumnName("window_days").IsRequired();
+            entity.Property(x => x.Depth).HasColumnName("depth").IsRequired();
+            entity.Property(x => x.Status).HasColumnName("status").IsRequired();
+            entity.Property(x => x.WeightsJson).HasColumnName("weights_json").HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.OriginSourceKeys).HasColumnName("origin_source_keys");
+            entity.Property(x => x.UnconfiguredSourceKeys).HasColumnName("unconfigured_source_keys");
+            entity.Property(x => x.FailedSourceKeys).HasColumnName("failed_source_keys");
+            entity.Property(x => x.ProviderUnitsSpent).HasColumnName("provider_units_spent").IsRequired();
+            entity.Property(x => x.AiCompletionsSpent).HasColumnName("ai_completions_spent").IsRequired();
+            entity.Property(x => x.SemanticDegraded).HasColumnName("semantic_degraded").IsRequired();
+            entity.Property(x => x.FailureReasonKey).HasColumnName("failure_reason_key");
+            entity.Property(x => x.StartedAt).HasColumnName("started_at");
+            entity.Property(x => x.CompletedAt).HasColumnName("completed_at");
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedAt })
+                .HasDatabaseName("ix_discovery_runs_org_created");
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<NicheOpportunityData>(entity =>
+        {
+            entity.ToTable("niche_opportunities", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RunId).HasColumnName("run_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.NicheId).HasColumnName("niche_id");
+            entity.Property(x => x.SubNicheLabel).HasColumnName("sub_niche_label").HasMaxLength(256);
+            entity.Property(x => x.ContentPattern).HasColumnName("content_pattern").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.TopicLabels).HasColumnName("topic_labels");
+            entity.Property(x => x.OpportunityScore).HasColumnName("opportunity_score").IsRequired();
+            entity.Property(x => x.ConfidenceScore).HasColumnName("confidence_score").IsRequired();
+            entity.Property(x => x.EffectiveWeightDenominator).HasColumnName("effective_weight_denominator").IsRequired();
+            entity.Property(x => x.ExcludedSignalsJson).HasColumnName("excluded_signals_json").HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.MedianViews).HasColumnName("median_views");
+            entity.Property(x => x.OutlierRatio).HasColumnName("outlier_ratio");
+            entity.Property(x => x.OutlierDensity).HasColumnName("outlier_density");
+            entity.Property(x => x.GrowthProxy).HasColumnName("growth_proxy");
+            entity.Property(x => x.CrossChannelRepetition).HasColumnName("cross_channel_repetition");
+            entity.Property(x => x.TargetMarketDemand).HasColumnName("target_market_demand");
+            entity.Property(x => x.TargetMarketCompetition).HasColumnName("target_market_competition");
+            entity.Property(x => x.TargetMarketGap).HasColumnName("target_market_gap");
+            entity.Property(x => x.TargetMarketRawDemand).HasColumnName("target_market_raw_demand");
+            entity.Property(x => x.AutomationSuitability).HasColumnName("automation_suitability");
+            entity.Property(x => x.ChannelSampleSize).HasColumnName("channel_sample_size").IsRequired();
+            entity.Property(x => x.VideoSampleSize).HasColumnName("video_sample_size").IsRequired();
+            entity.Property(x => x.Rank).HasColumnName("rank").IsRequired();
+            entity.Property(x => x.ObservedAt).HasColumnName("observed_at").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+
+            // A double-write inside a run is a hard error, mirroring ux_discovered_candidates_key_observed.
+            entity.HasIndex(x => new { x.RunId, x.Rank })
+                .IsUnique()
+                .HasDatabaseName("ux_niche_opportunities_run_rank");
+
+            // History reads and the future ranged purge — one index, mirroring ix_discovered_candidates_org_observed.
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedAt })
+                .HasDatabaseName("ix_niche_opportunities_org_created");
+
+            entity.HasOne<DiscoveryRunData>()
+                .WithMany()
+                .HasForeignKey(x => x.RunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<NicheDiscoveryEvidenceData>(entity =>
+        {
+            entity.ToTable("niche_discovery_evidence", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RunId).HasColumnName("run_id").IsRequired();
+            entity.Property(x => x.OpportunityId).HasColumnName("opportunity_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.EvidenceKind).HasColumnName("evidence_kind").IsRequired();
+            entity.Property(x => x.ExternalRef).HasColumnName("external_ref").HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.ChannelHandle).HasColumnName("channel_handle").HasMaxLength(256).IsRequired();
+            entity.Property(x => x.Title).HasColumnName("title").HasMaxLength(1000).IsRequired();
+            entity.Property(x => x.ThumbnailUrl).HasColumnName("thumbnail_url").HasMaxLength(2048);
+            entity.Property(x => x.PublishedAt).HasColumnName("published_at");
+            entity.Property(x => x.Views).HasColumnName("views");
+            entity.Property(x => x.Likes).HasColumnName("likes");
+            entity.Property(x => x.Comments).HasColumnName("comments");
+            entity.Property(x => x.SubscriberCount).HasColumnName("subscriber_count");
+            entity.Property(x => x.TotalViews).HasColumnName("total_views");
+            entity.Property(x => x.VideoCount).HasColumnName("video_count");
+            entity.Property(x => x.DurationSeconds).HasColumnName("duration_seconds");
+            entity.Property(x => x.LanguageCode).HasColumnName("language_code").HasMaxLength(16);
+            entity.Property(x => x.Country).HasColumnName("country").HasMaxLength(8);
+            entity.Property(x => x.Description).HasColumnName("description");
+            entity.Property(x => x.SourceKey).HasColumnName("source_key").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ObservedAt).HasColumnName("observed_at").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+
+            // Scoped PER OPPORTUNITY: one channel legitimately backs several opportunities in the same
+            // run (it publishes into more than one cluster), and evidence is read per opportunity. Keying
+            // uniqueness on the run alone rejected those as duplicates and aborted the whole append.
+            entity.HasIndex(x => new { x.RunId, x.OpportunityId, x.EvidenceKind, x.ExternalRef })
+                .IsUnique()
+                .HasDatabaseName("ux_niche_discovery_evidence_run_opportunity_kind_ref");
+
+            entity.HasOne<DiscoveryRunData>()
+                .WithMany()
+                .HasForeignKey(x => x.RunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<NicheOpportunityData>()
+                .WithMany()
+                .HasForeignKey(x => x.OpportunityId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<MarketCatalogData>(entity =>
+        {
+            entity.ToTable("market_catalog", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.MarketCode).HasColumnName("market_code").HasMaxLength(16).IsRequired();
+            entity.Property(x => x.DisplayNameKey).HasColumnName("display_name_key").HasMaxLength(128).IsRequired();
+            entity.Property(x => x.PrimaryLanguage).HasColumnName("primary_language").HasMaxLength(8).IsRequired();
+            entity.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+
+            entity.HasIndex(x => x.MarketCode)
+                .IsUnique()
+                .HasDatabaseName("ux_market_catalog_code");
+        });
+
+        builder.Entity<GeneratedPackageData>(entity =>
+        {
+            entity.ToTable("generated_packages", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.JobId).HasColumnName("job_id").IsRequired();
+            entity.Property(x => x.StorageUri).HasColumnName("storage_uri").HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.SizeBytes).HasColumnName("size_bytes").IsRequired();
+            entity.Property(x => x.ManifestJson).HasColumnName("manifest_json").HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.ExpiresAt).HasColumnName("expires_at");
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.DownloadCount)
+                .HasColumnName("download_count")
+                .IsRequired()
+                .HasDefaultValue(0);
+            entity.Property(x => x.LastDownloadedAtUtc).HasColumnName("last_downloaded_at_utc");
+            entity.Property(x => x.LastDownloadedByUserId).HasColumnName("last_downloaded_by_user_id");
+            entity.Property(x => x.CanvaSendCount)
+                .HasColumnName("canva_send_count")
+                .IsRequired()
+                .HasDefaultValue(0);
+            entity.Property(x => x.LastSentToCanvaAtUtc).HasColumnName("last_sent_to_canva_at_utc");
+            entity.Property(x => x.LastSentToCanvaByUserId).HasColumnName("last_sent_to_canva_by_user_id");
+
+            // 1:1 with job — unique FK
+            entity.HasIndex(x => x.JobId)
+                .IsUnique()
+                .HasDatabaseName("ix_generated_packages_job_id");
+
+            entity.HasOne(x => x.Job)
+                .WithOne(x => x.Package)
+                .HasForeignKey<GeneratedPackageData>(x => x.JobId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ContentGenerationFormatAssetData>(entity =>
+        {
+            entity.ToTable("content_generation_format_assets", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.FormatResultId).HasColumnName("format_result_id").IsRequired();
+            entity.Property(x => x.AssetIndex).HasColumnName("asset_index").IsRequired();
+            entity.Property(x => x.StoragePath).HasColumnName("storage_path").IsRequired();
+            entity.Property(x => x.Filename).HasColumnName("filename").HasMaxLength(500).IsRequired();
+            entity.Property(x => x.MimeType).HasColumnName("mime_type").HasMaxLength(128).IsRequired();
+            entity.Property(x => x.SizeBytes).HasColumnName("size_bytes").IsRequired();
+            entity.Property(x => x.ContentHash).HasColumnName("content_hash").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+
+            // UNIQUE: one asset per (format_result_id, asset_index)
+            entity.HasIndex(x => new { x.FormatResultId, x.AssetIndex })
+                .IsUnique()
+                .HasDatabaseName("ix_content_generation_format_assets_result_index");
+
+            entity.HasIndex(x => x.FormatResultId)
+                .HasDatabaseName("ix_content_generation_format_assets_format_result_id");
+
+            entity.HasIndex(x => x.StoragePath)
+                .HasDatabaseName("ix_content_generation_format_assets_storage_path");
+
+            entity.HasOne(x => x.FormatResult)
+                .WithMany(x => x.Assets)
+                .HasForeignKey(x => x.FormatResultId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<GeneralStrategyData>(entity =>
+        {
+            entity.ToTable("general_strategies", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.TargetAudience).HasColumnName("target_audience").HasMaxLength(1000);
+            entity.Property(x => x.PostingFrequency).HasColumnName("posting_frequency").HasMaxLength(200);
+            entity.Property(x => x.Notes).HasColumnName("notes").HasMaxLength(2000);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            ConfigureJsonbCollection<GeneralStrategyData, string>(entity, x => x.ContentPillars, "content_pillars");
+
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => x.ClientId)
+                .IsUnique()
+                .HasDatabaseName("ix_general_strategies_one_per_client");
+
+            entity.HasIndex(x => x.OrganizationId)
+                .HasDatabaseName("ix_general_strategies_organization_id");
+        });
+
+        builder.Entity<ContentPlanData>(entity =>
+        {
+            entity.ToTable("content_plans", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+
+            // Period columns
+            entity.Property(x => x.PeriodKind).HasColumnName("period_kind").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.Year).HasColumnName("year").IsRequired();
+            entity.Property(x => x.Month).HasColumnName("month").IsRequired();
+
+            // Objective node
+            entity.Property(x => x.ObjectiveText).HasColumnName("objective_text").HasMaxLength(3000).IsRequired();
+            ConfigureJsonbCollection<ContentPlanData, string>(entity, x => x.ObjectiveKpis, "objective_kpis");
+
+            // Objective Provenance (flat owned columns with prefix)
+            entity.Property(x => x.ObjectiveProvenanceSource)
+                .HasColumnName("objective_provenance_source").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.ObjectiveProvenanceStatus)
+                .HasColumnName("objective_provenance_status").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.ObjectiveProvenanceGeneratedAtUtc)
+                .HasColumnName("objective_provenance_generated_at_utc");
+            entity.Property(x => x.ObjectiveProvenancePromptVersion)
+                .HasColumnName("objective_provenance_prompt_version").HasMaxLength(64);
+
+            // Content Strategy node
+            entity.Property(x => x.ContentStrategyText).HasColumnName("content_strategy_text").HasMaxLength(10000);
+
+            // Content Strategy Provenance
+            entity.Property(x => x.ContentStrategyProvenanceSource)
+                .HasColumnName("content_strategy_provenance_source").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.ContentStrategyProvenanceStatus)
+                .HasColumnName("content_strategy_provenance_status").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.ContentStrategyProvenanceGeneratedAtUtc)
+                .HasColumnName("content_strategy_provenance_generated_at_utc");
+            entity.Property(x => x.ContentStrategyProvenancePromptVersion)
+                .HasColumnName("content_strategy_provenance_prompt_version").HasMaxLength(64);
+
+            // Calendar-level Provenance
+            entity.Property(x => x.CalendarProvenanceSource)
+                .HasColumnName("calendar_provenance_source").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.CalendarProvenanceStatus)
+                .HasColumnName("calendar_provenance_status").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.CalendarProvenanceGeneratedAtUtc)
+                .HasColumnName("calendar_provenance_generated_at_utc");
+            entity.Property(x => x.CalendarProvenancePromptVersion)
+                .HasColumnName("calendar_provenance_prompt_version").HasMaxLength(64);
+
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // FK: client_id → social.clients(id) ON DELETE CASCADE
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Unique constraint on (client_id, period_kind, year, month)
+            entity.HasIndex(x => new { x.ClientId, x.PeriodKind, x.Year, x.Month })
+                .IsUnique()
+                .HasDatabaseName("ix_content_plans_client_period");
+
+            entity.HasIndex(x => x.ClientId)
+                .HasDatabaseName("ix_content_plans_client_id");
+
+            entity.HasIndex(x => x.OrganizationId)
+                .HasDatabaseName("ix_content_plans_organization_id");
+
+            // Slots collection — cascade-loaded for upsert, navigation for EF cascade
+            entity.HasMany(x => x.Slots)
+                .WithOne(x => x.ContentPlan)
+                .HasForeignKey(x => x.ContentPlanId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // B3 WU-4 — per-user Canva OAuth token storage (CANVA-USER-01, CANVA-USER-02, CANVA-USER-03)
+        builder.Entity<CanvaUserTokenData>(entity =>
+        {
+            entity.ToTable("canva_user_tokens", PostgresDatabaseNames.PlatformSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id").IsRequired();
+            entity.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
+            entity.Property(x => x.OrganizationIntegrationId).HasColumnName("organization_integration_id").IsRequired();
+            entity.Property(x => x.EncryptedAccessToken).HasColumnName("encrypted_access_token").IsRequired();
+            entity.Property(x => x.EncryptedRefreshToken).HasColumnName("encrypted_refresh_token").IsRequired();
+            entity.Property(x => x.AccessTokenExpiresAtUtc).HasColumnName("access_token_expires_at_utc").IsRequired();
+            entity.Property(x => x.Scopes).HasColumnName("scopes").HasMaxLength(1024).IsRequired();
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // D2: xmin-based optimistic concurrency token for refresh-token rotation serialization.
+            // UseXminAsConcurrencyToken() is Npgsql-specific; falls back gracefully on in-memory provider.
+            entity.Property(x => x.RowVersion)
+                .HasColumnName("xmin")
+                .HasColumnType("xid")
+                .ValueGeneratedOnAddOrUpdate()
+                .IsConcurrencyToken();
+
+            // Unique constraint: one active token per user per org-level Canva integration.
+            entity.HasIndex(x => new { x.UserId, x.OrganizationIntegrationId })
+                .IsUnique()
+                .HasDatabaseName("ix_canva_user_tokens_user_org_integration");
+
+            entity.HasIndex(x => x.OrganizationIntegrationId)
+                .HasDatabaseName("ix_canva_user_tokens_org_integration_id");
+
+            // FK: organization_integration_id → platform.organization_integrations(id) ON DELETE CASCADE
+            // When the org-level Canva integration is removed, all per-user tokens are also removed.
+            entity.HasOne<OrganizationIntegrationData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationIntegrationId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_canva_user_tokens_organization_integration");
+        });
+
+        builder.Entity<ContentPlanSlotData>(entity =>
+        {
+            entity.ToTable("content_plan_slots", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.ContentPlanId).HasColumnName("content_plan_id").IsRequired();
+            entity.Property(x => x.Day).HasColumnName("day").IsRequired();
+            entity.Property(x => x.ContentFormat).HasColumnName("content_format").HasMaxLength(200).IsRequired();
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
+            entity.Property(x => x.ProducedPackageId).HasColumnName("produced_package_id");
+
+            // Slot Provenance
+            entity.Property(x => x.SlotProvenanceSource)
+                .HasColumnName("slot_provenance_source").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.SlotProvenanceStatus)
+                .HasColumnName("slot_provenance_status").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.SlotProvenanceGeneratedAtUtc)
+                .HasColumnName("slot_provenance_generated_at_utc");
+            entity.Property(x => x.SlotProvenancePromptVersion)
+                .HasColumnName("slot_provenance_prompt_version").HasMaxLength(64);
+
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // FK: content_plan_id → social.content_plans(id) ON DELETE CASCADE
+            entity.HasOne(x => x.ContentPlan)
+                .WithMany(x => x.Slots)
+                .HasForeignKey(x => x.ContentPlanId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => x.ContentPlanId)
+                .HasDatabaseName("ix_content_plan_slots_plan_id");
+
+            entity.HasIndex(x => new { x.ContentPlanId, x.SortOrder })
+                .HasDatabaseName("ix_content_plan_slots_plan_sort_order");
+        });
+
+        // ── Content Studio (editorial working surface; soft refs to generation/plan) ──
+        builder.Entity<ContentStudioItemData>(entity =>
+        {
+            entity.ToTable("content_studio_items", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+
+            // Origin (soft Guids — no FK to generation/package)
+            entity.Property(x => x.GeneratorKind).HasColumnName("generator_kind").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.SourceRunId).HasColumnName("source_run_id").IsRequired();
+            entity.Property(x => x.SourcePackageId).HasColumnName("source_package_id");
+            entity.Property(x => x.FormatResultId).HasColumnName("format_result_id").IsRequired();
+            entity.Property(x => x.FormatKey).HasColumnName("format_key").HasMaxLength(64).IsRequired();
+
+            entity.Property(x => x.ContentMedium).HasColumnName("content_medium").HasColumnType("smallint").IsRequired();
+
+            // Draft (editable working payload)
+            entity.Property(x => x.DraftText).HasColumnName("draft_text");
+            entity.Property(x => x.DraftCaption).HasColumnName("draft_caption");
+            entity.Property(x => x.DraftVisualSpecMarkup).HasColumnName("draft_visual_spec_markup");
+            entity.Property(x => x.TargetNetwork).HasColumnName("target_network").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.TargetPlacement).HasColumnName("target_placement").HasMaxLength(64).IsRequired();
+            ConfigureJsonbCollection<ContentStudioItemData, ContentStudioAssetData>(entity, x => x.DraftAssets, "draft_assets");
+
+            // Lifecycle
+            entity.Property(x => x.ReviewState).HasColumnName("review_state").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.RejectionReason).HasColumnName("rejection_reason").HasMaxLength(2000);
+            entity.Property(x => x.ReviewerUserId).HasColumnName("reviewer_user_id");
+
+            // Variants
+            entity.Property(x => x.VariantGroupId).HasColumnName("variant_group_id").IsRequired();
+            entity.Property(x => x.IsPrimaryVariant).HasColumnName("is_primary_variant").IsRequired();
+
+            // Edit trace (owned, prefixed edit_*)
+            entity.Property(x => x.EditLastSource).HasColumnName("edit_last_source").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.EditLastAtUtc).HasColumnName("edit_last_at_utc");
+            entity.Property(x => x.EditPromptVersion).HasColumnName("edit_prompt_version").HasMaxLength(64);
+
+            // Plan context (owned, nullable, prefixed plan_*)
+            entity.Property(x => x.PlanContentPlanId).HasColumnName("plan_content_plan_id");
+            entity.Property(x => x.PlanPeriodKind).HasColumnName("plan_period_kind").HasColumnType("smallint");
+            entity.Property(x => x.PlanYear).HasColumnName("plan_year");
+            entity.Property(x => x.PlanMonth).HasColumnName("plan_month");
+            entity.Property(x => x.PlanCalendarSlotId).HasColumnName("plan_calendar_slot_id");
+
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: client_id → social.clients(id) ON DELETE CASCADE
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => x.OrganizationId).HasDatabaseName("ix_content_studio_items_organization_id");
+            entity.HasIndex(x => x.ClientId).HasDatabaseName("ix_content_studio_items_client_id");
+            entity.HasIndex(x => x.SourceRunId).HasDatabaseName("ix_content_studio_items_source_run_id");
+            entity.HasIndex(x => new { x.OrganizationId, x.ReviewState }).HasDatabaseName("ix_content_studio_items_org_review_state");
+            entity.HasIndex(x => x.VariantGroupId).HasDatabaseName("ix_content_studio_items_variant_group_id");
+        });
+
+        builder.Entity<ContentStudioSetData>(entity =>
+        {
+            entity.ToTable("content_studio_sets", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.SetKind).HasColumnName("set_kind").HasColumnType("smallint").IsRequired();
+
+            // Origin (soft, nullable)
+            entity.Property(x => x.OriginGeneratorKind).HasColumnName("origin_generator_kind").HasColumnType("smallint");
+            entity.Property(x => x.OriginSourceRunId).HasColumnName("origin_source_run_id");
+            entity.Property(x => x.OriginCampaignId).HasColumnName("origin_campaign_id");
+            entity.Property(x => x.OriginPeriodKind).HasColumnName("origin_period_kind").HasColumnType("smallint");
+            entity.Property(x => x.OriginYear).HasColumnName("origin_year");
+            entity.Property(x => x.OriginMonth).HasColumnName("origin_month");
+
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => x.ClientId).HasDatabaseName("ix_content_studio_sets_client_id");
+            entity.HasIndex(x => x.OriginSourceRunId).HasDatabaseName("ix_content_studio_sets_origin_source_run_id");
+
+            // Idempotency guard: at most one GenerationRun set per (org, source run)
+            entity.HasIndex(x => new { x.OrganizationId, x.OriginSourceRunId })
+                .IsUnique()
+                .HasFilter("origin_source_run_id IS NOT NULL")
+                .HasDatabaseName("ix_content_studio_sets_org_run_unique");
+
+            // set → items (FK lives on the join row; item_id stays a soft ref)
+            entity.HasMany(x => x.Items)
+                .WithOne(x => x.Set)
+                .HasForeignKey(x => x.SetId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ContentStudioSetItemData>(entity =>
+        {
+            entity.ToTable("content_studio_set_items", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SetId).HasColumnName("set_id").IsRequired();
+            entity.Property(x => x.ItemId).HasColumnName("item_id").IsRequired();
+            entity.Property(x => x.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
+
+            entity.HasIndex(x => new { x.SetId, x.ItemId })
+                .IsUnique()
+                .HasDatabaseName("ix_content_studio_set_items_set_item");
+            entity.HasIndex(x => x.ItemId)
+                .HasDatabaseName("ix_content_studio_set_items_item_id");
+        });
+
+        // ── Publications (publication axis; soft ref to content_studio_items, orphan-tolerant) ──
+        builder.Entity<PublicationData>(entity =>
+        {
+            entity.ToTable("publications", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+
+            // Soft reference — no FK to content_studio_items
+            entity.Property(x => x.ContentItemId).HasColumnName("content_item_id").IsRequired();
+
+            entity.Property(x => x.DestinationClientAccountConnectionId)
+                .HasColumnName("destination_client_account_connection_id").IsRequired();
+            entity.Property(x => x.DestinationSocialNetworkId)
+                .HasColumnName("destination_social_network_id").IsRequired();
+            entity.Property(x => x.DestinationNetworkKey)
+                .HasColumnName("destination_network_key").HasMaxLength(64).IsRequired();
+
+            entity.Property(x => x.Status).HasColumnName("status").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.ScheduledForUtc).HasColumnName("scheduled_for_utc");
+            entity.Property(x => x.ExternalReference).HasColumnName("external_reference").HasMaxLength(256);
+
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: client_id → social.clients(id) ON DELETE CASCADE
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // publication → attempts (owned one-to-many, cascade; FK lives on the attempt side)
+            entity.HasMany(x => x.Attempts)
+                .WithOne(x => x.Publication)
+                .HasForeignKey(x => x.PublicationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId }).HasDatabaseName("ix_publications_client");
+            entity.HasIndex(x => x.ContentItemId).HasDatabaseName("ix_publications_content_item");
+            entity.HasIndex(x => new { x.OrganizationId, x.Status }).HasDatabaseName("ix_publications_status");
+            entity.HasIndex(x => new { x.Status, x.ScheduledForUtc }).HasDatabaseName("ix_publications_scheduled");
+        });
+
+        builder.Entity<PublicationAttemptData>(entity =>
+        {
+            entity.ToTable("publication_attempts", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.PublicationId).HasColumnName("publication_id").IsRequired();
+            entity.Property(x => x.AttemptNumber).HasColumnName("attempt_number").IsRequired();
+            entity.Property(x => x.StartedAtUtc).HasColumnName("started_at_utc").IsRequired();
+            entity.Property(x => x.FinishedAtUtc).HasColumnName("finished_at_utc");
+            entity.Property(x => x.Outcome).HasColumnName("outcome").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.ErrorMessage).HasColumnName("error_message").HasMaxLength(2000);
+            entity.Property(x => x.ExternalReference).HasColumnName("external_reference").HasMaxLength(256);
+
+            entity.HasIndex(x => new { x.PublicationId, x.AttemptNumber })
+                .IsUnique()
+                .HasDatabaseName("ix_publication_attempts_publication_attempt_number");
+            entity.HasIndex(x => x.PublicationId).HasDatabaseName("ix_publication_attempts_publication_id");
+        });
+
+        // ── Client account connections (per-client publish credential; ciphertext only) ──
+        builder.Entity<ClientAccountConnectionData>(entity =>
+        {
+            entity.ToTable("client_account_connections", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.SocialNetworkId).HasColumnName("social_network_id").IsRequired();
+            entity.Property(x => x.OrganizationIntegrationId).HasColumnName("organization_integration_id").IsRequired();
+            entity.Property(x => x.ExternalAccountId).HasColumnName("external_account_id").HasMaxLength(256).IsRequired();
+            entity.Property(x => x.EncryptedAccessToken).HasColumnName("encrypted_access_token").IsRequired();
+            entity.Property(x => x.TokenExpiresAtUtc).HasColumnName("token_expires_at_utc");
+            entity.Property(x => x.Status).HasColumnName("status").HasColumnType("smallint").IsRequired();
+            entity.Property(x => x.LastTestedAtUtc).HasColumnName("last_tested_at_utc");
+            entity.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(2000);
+            entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // FK: organization_id → platform.organizations(id) ON DELETE CASCADE
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: client_id → social.clients(id) ON DELETE CASCADE
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK: organization_integration_id → platform.organization_integrations(id)
+            entity.HasOne<OrganizationIntegrationData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationIntegrationId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId, x.SocialNetworkId })
+                .IsUnique()
+                .HasDatabaseName("ix_client_account_connections_org_client_network_unique");
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId })
+                .HasDatabaseName("ix_client_account_connections_org_client");
+        });
+    }
+
+    /// <summary>
+    /// Configures a jsonb column with ValueConverter (System.Text.Json) and ValueComparer (deep-equal).
+    /// Resolution 4: null deserializes to empty list. Resolution 5: pinned options via SocialJsonOptions.Default.
+    /// Resolution 6: comparer snapshot uses ToList() so Update replaces refs with new List instances.
+    /// Generic over both the entity type and the item type so it can be reused for all social aggregates (ADR-3).
+    /// </summary>
+    private static void ConfigureJsonbCollection<TEntity, TItem>(
+        Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TEntity> entity,
+        System.Linq.Expressions.Expression<Func<TEntity, List<TItem>>> propertyExpression,
+        string columnName)
+        where TEntity : class
+        where TItem : class
+    {
+        var converter = new ValueConverter<List<TItem>, string>(
+            v => JsonSerializer.Serialize(v, SocialJsonOptions.Default),
+            v => JsonSerializer.Deserialize<List<TItem>>(v, SocialJsonOptions.Default) ?? new List<TItem>());
+
+        var comparer = new ValueComparer<List<TItem>>(
+            (a, b) => a!.SequenceEqual(b!),
+            x => x.Aggregate(0, (h, e) => HashCode.Combine(h, e!.GetHashCode())),
+            x => x.ToList());
+
+        entity.Property(propertyExpression)
+            .HasColumnName(columnName)
+            .HasColumnType("jsonb")
+            .IsRequired()
+            .HasDefaultValueSql("'[]'")
+            .HasConversion(converter)
+            .Metadata.SetValueComparer(comparer);
     }
 }
 

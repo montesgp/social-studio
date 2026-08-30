@@ -1,0 +1,18 @@
+[
+  {
+    "_comment": "REAL payload recorded from an actual run of the operator's configured TikTok Discover actor (2026-08-11). This actor family FLATTENS nested objects into dot-notation property names ('authorMeta.name' is one property whose name contains a dot, not an object). It reports no collectCount and no video cover. Capability-named fixture: it names no actor id anywhere.",
+    "authorMeta.avatar": "https://p16-common-sign.tiktokcdn.com/tos-maliva-avt-0068/0f10fc9d557f6ec0746164738a182298~tplv-tiktokx-cropcenter:720:720.jpeg?dr=14579&refresh_token=374b8033&x-expires=1786597200&x-signature=hbKoQ5Zg%2Fsu%2B3JRQtWrYQsebTuw%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=81f88b70&idc=my",
+    "authorMeta.name": "jhonahmed9",
+    "text": "Don't Skip This after updates on Your Samsung Galaxy phone! First go to settings and follow me step by step.#software#updates#settings#tipsandtricks#cybetsecutiy ",
+    "diggCount": 3389,
+    "shareCount": 243,
+    "playCount": 214300,
+    "commentCount": 38,
+    "videoMeta.duration": 68,
+    "musicMeta.musicName": "original sound - leeprotech",
+    "musicMeta.musicAuthor": "leeprotech",
+    "musicMeta.musicOriginal": false,
+    "createTimeISO": "2026-05-15T17:12:48.000Z",
+    "webVideoUrl": "https://www.tiktok.com/@jhonahmed9/video/7640167678669458690"
+  }
+]

@@ -40,7 +40,7 @@ Before declaring a task complete the agent MUST:
 
 ### 4. Commit / Push Discipline (default level: **MUST**)
 - The agent MUST NOT push or commit if a MUST gate fails.
-- The agent MUST follow `.github/incoders-ai/core/git-safety.rules.md` (STRICT: all Git write operations forbidden by default; the user is the only authority that can authorize commit, push, branch, merge, rebase, reset, tag, etc.).
+- The agent MUST follow `.github/incoders-ai/core/git-safety.rules.md` (agents branch/commit/push and open PRs; the user approves and merges PRs into `dev`/`main`).
 - The agent MUST NOT use `--no-verify`, `-c core.hooksPath=/dev/null`, or any equivalent skip-hook flag. The pre-commit and pre-push hooks installed by `scripts/gates/Install-Hooks.ps1` exist precisely to enforce sections 2 and 3 of this gate.
 
 ### 5. Architecture Discipline (default level: **MUST**)

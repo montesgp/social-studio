@@ -1,0 +1,83 @@
+change: content-aesthetic-generation
+status: apply-complete
+completed_at: "2026-06-21"
+adr: docs/architecture/adr/0006-client-aesthetic-ensure-fresh-port.md
+
+artifacts:
+  proposal: openspec/changes/content-aesthetic-generation/proposal.md
+  design: null
+  tasks: openspec/changes/content-aesthetic-generation/tasks.md
+  diagram: null
+  specs:
+    - openspec/changes/content-aesthetic-generation/specs/content-generation/spec-delta.md
+    - openspec/changes/content-aesthetic-generation/specs/profile-analysis/spec-delta.md
+    - openspec/changes/content-aesthetic-generation/specs/background-sourcing-policy/spec-delta.md
+  merged_specs:
+    - openspec/specs/content-generation/spec.md
+    - openspec/specs/profile-analysis/spec.md
+    - openspec/specs/background-sourcing-policy/spec.md
+
+scope:
+  phase: 1
+  name: "Active ClientAesthetic generation: non-blocking refresh-if-stale + richer ClientAestheticProfile (descriptors + voice/copy style + avg slides) threaded into background designer and copy generators + server-derived AverageSlidesPerCarousel + wider post sample"
+  builds_on: content-background-sourcing-policy
+  roadmap:
+    - phase: 2
+      name: "CASE C real client background IMAGES (Approach B)"
+      status: deferred
+      notes: >
+        Capture per-post displayUrl/displayResources, persist durable copies (Apify presigned
+        URLs likely expire), feed real images into the AI designer. GATED on an Apify actor spike
+        confirming field availability AND a URL-durability decision (re-upload to Supabase Storage).
+        The Phase 1 ClientAestheticProfile model is designed to accept image URLs via nullable
+        fields WITHOUT a breaking change.
+    - phase: 3
+      name: "Post CAPTION capture for deeper copy-style inference"
+      status: deferred
+      notes: "Another Apify mapping gap; captions are not currently captured per post."
+
+decisions:
+  - "PHASED scope (Approach C). Phase 1 ships text-descriptor-based aesthetic; real images (Approach B) are a separate follow-up gated on an Apify actor spike."
+  - "Stale/missing analysis is NON-BLOCKING: generate now with best-available data (fresh > stale > degrade to Creative/AI-palette) AND fire-and-forget a profile re-analysis so the NEXT generation is fresh. The generation job NEVER blocks on the async analysis pipeline."
+  - "ClientAestheticProfile model designed with nullable fields to accept image URLs later WITHOUT a breaking change; image capture is NOT implemented now."
+  - "Richer profile (background descriptors + voice/copy style + AverageSlidesPerCarousel) threaded into BOTH the AI background designer AND the copy generators."
+  - "Copy-style guidance is ADDITIVE and coexists with the existing advisory ConcisionConstraint; concision is not replaced."
+  - "AverageSlidesPerCarousel is a server-derived stat (no AI) from carousel child counts; best-effort if childrenCount is unavailable."
+  - "maxPostsPerProfile raised from 12 toward 15-20 (Apify cost tradeoff noted)."
+  - "On-demand refresh resolves the client's own account via IClientOwnAccountRepository and reuses the IProfileAnalysisJobQueue trigger (mirrors AnalyzeProfileHandler)."
+  - "System-default staleness threshold = 30 days; per-client override via Client.AestheticRefreshThresholdDays (int?, min 1d max 365d); persisted in social.clients (additive nullable column); exposed in client ABM API + web form."
+
+non_goals:
+  - "Real client background IMAGES + image persistence (Approach B) - separate follow-up gated on actor spike + URL durability."
+  - "Post CAPTION capture for deeper copy inference."
+  - "Blocking / waiting-for-analysis generation job state (explicitly rejected)."
+  - "Per-org post-limit configuration (system default only); per-client staleness threshold IS now in scope."
+  - "Hard constraints from the aesthetic signal (avg-slides + copy style are advisory only)."
+
+open_questions:
+  - "OQ-1 RESOLVED: system default 30 days; per-client override Client.AestheticRefreshThresholdDays (int?, null = system default, min 1d max 365d)."
+  - "OQ-2 AverageSlidesPerCarousel as soft hint vs hard constraint; handling fractional/extreme averages."
+  - "OQ-3 VoiceTone read directly at generation time vs imputed into BrandManual.VoiceAndTone."
+  - "OQ-4 childrenCount availability from the all-in-one actor (confirm during apply; best-effort if absent)."
+  - "OQ-5 Exact degrade path when NO analysis exists (Creative / AI-palette); logged/surfaced?"
+  - "OQ-6 Reader evolution: widen IClientAestheticDescriptorReader (breaking, single caller) vs sibling IClientAestheticProfileReader."
+  - "OQ-7 Final maxPostsPerProfile value (15/18/20) vs Apify cost."
+  - "OQ-8 Refresh debounce: multiple enqueues vs one in-flight refresh per client."
+
+risks:
+  - "UNCONFIRMED actor childrenCount in profile-scraper mode (best-effort/null if absent)."
+  - "Async-pipeline non-blocking UX: first run for an un-analyzed client uses degraded data; fresh appears next run."
+  - "Image-URL durability for Phase 2 (presigned URLs expire) - out of scope, gated."
+  - "maxPostsPerProfile cost increase (12 -> 20 ~1.7x Apify cost)."
+  - "OwnAccountId resolution (processor only has ClientId; resolve via IClientOwnAccountRepository, degrade if missing)."
+  - "Concision + aesthetic copy coexistence (must be additive/advisory; concision wins on length)."
+  - "Prompt-version bump if ProfileAiAnalysis schema changes (invalidates cached AI outputs)."
+
+validation:
+  gates: PENDING
+  detail: "Proposal phase only - no implementation; gates run at apply/verify."
+
+delivery:
+  strategy: ask-on-risk
+  target_branch: dev
+  branch: feat/content-format-taxonomy

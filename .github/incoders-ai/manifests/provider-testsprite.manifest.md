@@ -1,5 +1,5 @@
 # TestSprite Provider Manifest
 
 LOAD:
-- providers/testing/testsprite/*
-- skills/testing/testsprite-validation.skill.md
+- providers/testing/testsprite/testsprite.instructions.md
+- providers/testing/testsprite/testsprite-validation.skill.md

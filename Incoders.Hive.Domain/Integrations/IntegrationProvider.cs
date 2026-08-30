@@ -12,7 +12,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
         IntegrationProviderId id,
         string key,
         string displayName,
-        IntegrationProviderCategory category,
+        IReadOnlyList<IntegrationProviderCategory> categories,
         string? description,
         string iconKey,
         bool supportsBringYourOwnKey,
@@ -20,6 +20,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
         bool supportsSystemDefault,
         bool systemDefaultReadOnly,
         IReadOnlyList<IntegrationCredentialField> credentialFields,
+        IReadOnlyDictionary<IntegrationProviderCategory, IReadOnlyList<string>> modelsByCategory,
         bool isActive,
         DateTime createdAtUtc,
         DateTime updatedAtUtc)
@@ -27,7 +28,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
     {
         Key = key;
         DisplayName = displayName;
-        Category = category;
+        Categories = categories;
         Description = description;
         IconKey = iconKey;
         SupportsBringYourOwnKey = supportsBringYourOwnKey;
@@ -35,6 +36,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
         SupportsSystemDefault = supportsSystemDefault;
         SystemDefaultReadOnly = systemDefaultReadOnly;
         CredentialFields = credentialFields;
+        ModelsByCategory = modelsByCategory;
         IsActive = isActive;
         CreatedAtUtc = createdAtUtc;
         UpdatedAtUtc = updatedAtUtc;
@@ -44,7 +46,15 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
 
     public string DisplayName { get; private set; }
 
-    public IntegrationProviderCategory Category { get; private set; }
+    /// <summary>
+    /// All catalog categories this provider serves. A single connector (one credential) can be
+    /// presented under multiple Integrations sections — e.g. OpenAI under both AI model providers
+    /// and Media generation providers. The first entry is the primary category.
+    /// </summary>
+    public IReadOnlyList<IntegrationProviderCategory> Categories { get; private set; }
+
+    /// <summary>Primary category — back-compat for consumers that assume a single category.</summary>
+    public IntegrationProviderCategory Category => Categories[0];
 
     public string? Description { get; private set; }
 
@@ -60,11 +70,22 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
 
     public IReadOnlyList<IntegrationCredentialField> CredentialFields { get; private set; }
 
+    /// <summary>Catalog model menus keyed by the category they belong to.</summary>
+    public IReadOnlyDictionary<IntegrationProviderCategory, IReadOnlyList<string>> ModelsByCategory { get; private set; }
+
+    /// <summary>Models for the primary category — back-compat for single-category consumers.</summary>
+    public IReadOnlyList<string> AvailableModels => ModelsFor(Category);
+
     public bool IsActive { get; private set; }
 
     public DateTime CreatedAtUtc { get; private set; }
 
     public DateTime UpdatedAtUtc { get; private set; }
+
+    public bool ServesCategory(IntegrationProviderCategory category) => Categories.Contains(category);
+
+    public IReadOnlyList<string> ModelsFor(IntegrationProviderCategory category) =>
+        ModelsByCategory.TryGetValue(category, out var models) ? models : [];
 
     public static Result<IntegrationProvider> Create(
         IntegrationProviderId id,
@@ -78,6 +99,41 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
         bool supportsSystemDefault,
         bool systemDefaultReadOnly,
         IReadOnlyList<IntegrationCredentialField> credentialFields,
+        IReadOnlyList<string> availableModels,
+        DateTime nowUtc)
+    {
+        return Create(
+            id,
+            key,
+            displayName,
+            [category],
+            description,
+            iconKey,
+            supportsBringYourOwnKey,
+            supportsManagedByIncoders,
+            supportsSystemDefault,
+            systemDefaultReadOnly,
+            credentialFields,
+            new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>
+            {
+                [category] = availableModels ?? [],
+            },
+            nowUtc);
+    }
+
+    public static Result<IntegrationProvider> Create(
+        IntegrationProviderId id,
+        string key,
+        string displayName,
+        IReadOnlyList<IntegrationProviderCategory> categories,
+        string? description,
+        string iconKey,
+        bool supportsBringYourOwnKey,
+        bool supportsManagedByIncoders,
+        bool supportsSystemDefault,
+        bool systemDefaultReadOnly,
+        IReadOnlyList<IntegrationCredentialField> credentialFields,
+        IReadOnlyDictionary<IntegrationProviderCategory, IReadOnlyList<string>> modelsByCategory,
         DateTime nowUtc)
     {
         var normalizedKey = key?.Trim().ToLowerInvariant() ?? string.Empty;
@@ -85,6 +141,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
         var normalizedDescription = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
         var normalizedIconKey = iconKey?.Trim().ToLowerInvariant() ?? string.Empty;
         var fields = credentialFields ?? [];
+        var normalizedCategories = (categories ?? []).Distinct().ToList();
 
         if (string.IsNullOrWhiteSpace(normalizedKey) || normalizedKey.Length > KeyMaxLength)
         {
@@ -94,6 +151,11 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
         if (string.IsNullOrWhiteSpace(normalizedName) || normalizedName.Length > DisplayNameMaxLength)
         {
             return Result.Failure<IntegrationProvider>(IntegrationErrors.ProviderNameRequired);
+        }
+
+        if (normalizedCategories.Count == 0)
+        {
+            return Result.Failure<IntegrationProvider>(IntegrationErrors.ProviderCategoryRequired);
         }
 
         if (string.IsNullOrWhiteSpace(normalizedIconKey) || normalizedIconKey.Length > IconKeyMaxLength)
@@ -122,11 +184,13 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
             return Result.Failure<IntegrationProvider>(IntegrationErrors.ProviderCredentialFieldDuplicate);
         }
 
+        var models = NormalizeModels(normalizedCategories, modelsByCategory);
+
         return Result.Success(new IntegrationProvider(
             id,
             normalizedKey,
             normalizedName,
-            category,
+            normalizedCategories,
             normalizedDescription,
             normalizedIconKey,
             supportsBringYourOwnKey,
@@ -134,6 +198,7 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
             supportsSystemDefault,
             systemDefaultReadOnly,
             fields,
+            models,
             true,
             nowUtc,
             nowUtc));
@@ -151,15 +216,16 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
         bool supportsSystemDefault,
         bool systemDefaultReadOnly,
         IReadOnlyList<IntegrationCredentialField> credentialFields,
+        IReadOnlyList<string> availableModels,
         bool isActive,
         DateTime createdAtUtc,
         DateTime updatedAtUtc)
     {
-        return new IntegrationProvider(
+        return Restore(
             id,
             key,
             displayName,
-            category,
+            [category],
             description,
             iconKey,
             supportsBringYourOwnKey,
@@ -167,6 +233,47 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
             supportsSystemDefault,
             systemDefaultReadOnly,
             credentialFields,
+            new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>
+            {
+                [category] = availableModels ?? [],
+            },
+            isActive,
+            createdAtUtc,
+            updatedAtUtc);
+    }
+
+    public static IntegrationProvider Restore(
+        IntegrationProviderId id,
+        string key,
+        string displayName,
+        IReadOnlyList<IntegrationProviderCategory> categories,
+        string? description,
+        string iconKey,
+        bool supportsBringYourOwnKey,
+        bool supportsManagedByIncoders,
+        bool supportsSystemDefault,
+        bool systemDefaultReadOnly,
+        IReadOnlyList<IntegrationCredentialField> credentialFields,
+        IReadOnlyDictionary<IntegrationProviderCategory, IReadOnlyList<string>> modelsByCategory,
+        bool isActive,
+        DateTime createdAtUtc,
+        DateTime updatedAtUtc)
+    {
+        var normalizedCategories = (categories ?? []).Distinct().ToList();
+
+        return new IntegrationProvider(
+            id,
+            key,
+            displayName,
+            normalizedCategories,
+            description,
+            iconKey,
+            supportsBringYourOwnKey,
+            supportsManagedByIncoders,
+            supportsSystemDefault,
+            systemDefaultReadOnly,
+            credentialFields,
+            NormalizeModels(normalizedCategories, modelsByCategory),
             isActive,
             createdAtUtc,
             updatedAtUtc);
@@ -181,5 +288,20 @@ public sealed class IntegrationProvider : Entity<IntegrationProviderId>
             IntegrationConnectionMode.SystemDefault => SupportsSystemDefault,
             _ => false,
         };
+    }
+
+    private static IReadOnlyDictionary<IntegrationProviderCategory, IReadOnlyList<string>> NormalizeModels(
+        IReadOnlyList<IntegrationProviderCategory> categories,
+        IReadOnlyDictionary<IntegrationProviderCategory, IReadOnlyList<string>>? modelsByCategory)
+    {
+        var source = modelsByCategory ?? new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>();
+        var normalized = new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>();
+
+        foreach (var category in categories)
+        {
+            normalized[category] = source.TryGetValue(category, out var models) ? models : [];
+        }
+
+        return normalized;
     }
 }

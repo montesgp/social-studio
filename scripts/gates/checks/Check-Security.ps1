@@ -108,6 +108,7 @@ foreach ($proj in $scanProjects) {
         Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' }
     foreach ($file in $cs) {
         $text = Get-Content -LiteralPath $file.FullName -Raw
+        if ($null -eq $text) { $text = '' }
         foreach ($p in $insecurePatterns) {
             $m = [regex]::Matches($text, $p.Regex)
             foreach ($mm in $m) {
@@ -136,6 +137,7 @@ $nonHttps = @()
 foreach ($f in $appsettings) {
     if ($f.Name -match '(?i)Development') { continue }
     $text = Get-Content -LiteralPath $f.FullName -Raw
+    if ($null -eq $text) { $text = '' }
     $matches = [regex]::Matches($text, '"(http://[^"]+)"')
     foreach ($m in $matches) {
         $url = $m.Groups[1].Value

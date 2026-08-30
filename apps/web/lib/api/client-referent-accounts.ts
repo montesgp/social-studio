@@ -5,6 +5,7 @@ import type {
   UpdateClientReferentAccountPayload,
   ListClientReferentAccountsQuery,
   PagedClientReferentAccounts,
+  SyncClientReferentAccountPayload,
 } from "@/lib/api/types";
 
 const base = (clientId: string) => `/api/social/clients/${clientId}/referent-accounts`;
@@ -13,6 +14,7 @@ export async function listClientReferentAccounts(
   clientId: string,
   query: ListClientReferentAccountsQuery = {},
   token?: string,
+  organizationId?: string,
 ): Promise<PagedClientReferentAccounts> {
   const params = new URLSearchParams();
   if (query.includeInactive) params.set("includeInactive", "true");
@@ -23,6 +25,7 @@ export async function listClientReferentAccounts(
     `${base(clientId)}${qs ? `?${qs}` : ""}`,
     undefined,
     token,
+    organizationId,
   );
 }
 
@@ -80,5 +83,31 @@ export async function activateClientReferentAccount(
     `${base(clientId)}/${id}/activate`,
     { method: "POST" },
     token,
+  );
+}
+
+export async function reorderClientReferentAccounts(
+  clientId: string,
+  orderedIds: string[],
+  token?: string,
+): Promise<void> {
+  await apiRequest<void>(
+    `${base(clientId)}/reorder`,
+    { method: "POST", body: JSON.stringify({ orderedIds }) },
+    token,
+  );
+}
+
+export async function syncClientReferentAccounts(
+  clientId: string,
+  items: SyncClientReferentAccountPayload[],
+  token?: string,
+  organizationId?: string,
+): Promise<ClientReferentAccount[]> {
+  return apiRequest<ClientReferentAccount[]>(
+    base(clientId),
+    { method: "PUT", body: JSON.stringify({ items }) },
+    token,
+    organizationId,
   );
 }

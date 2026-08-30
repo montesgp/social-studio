@@ -8,4 +8,10 @@ namespace Incoders.Hive.Infrastructure.Identity;
 public sealed class ApplicationUser : IdentityUser<Guid>
 {
     public string? DisplayName { get; set; }
+
+    /// <summary>
+    /// Lifecycle status. Suspended users are denied login regardless of credentials.
+    /// Defaults to <see cref="UserStatus.Active"/>.
+    /// </summary>
+    public UserStatus Status { get; set; } = UserStatus.Active;
 }

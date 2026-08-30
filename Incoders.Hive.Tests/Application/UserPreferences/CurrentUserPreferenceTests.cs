@@ -24,6 +24,7 @@ public class CurrentUserPreferenceTests
         Assert.True(result.IsSuccess);
         Assert.Equal(ThemeKeys.Dark, result.Value.ThemeKey);
         Assert.Equal(userId, result.Value.UserId);
+        Assert.Equal(DateFormats.Default, result.Value.DateFormat);
     }
 
     [Fact]
@@ -36,22 +37,41 @@ public class CurrentUserPreferenceTests
         var handler = new UpdateCurrentUserPreferenceHandler(repo, currentUser, new InMemoryUnitOfWork(), clock);
 
         var created = await handler.Handle(
-            new UpdateCurrentUserPreferenceCommand(ThemeKeys.Light, null),
+            new UpdateCurrentUserPreferenceCommand(ThemeKeys.Light, null, DateFormats.Default),
             CancellationToken.None);
 
         Assert.True(created.IsSuccess);
         Assert.Equal(ThemeKeys.Light, created.Value.ThemeKey);
         Assert.Equal(userId, created.Value.UserId);
+        Assert.Equal(DateFormats.Default, created.Value.DateFormat);
 
         clock.UtcNow = Now.AddMinutes(15);
         var updated = await handler.Handle(
-            new UpdateCurrentUserPreferenceCommand(ThemeKeys.System, "social-light"),
+            new UpdateCurrentUserPreferenceCommand(ThemeKeys.System, "social-light", DateFormats.YyyyMmDd),
             CancellationToken.None);
 
         Assert.True(updated.IsSuccess);
         Assert.Equal(ThemeKeys.System, updated.Value.ThemeKey);
         Assert.Equal("social-light", updated.Value.AccentTheme);
+        Assert.Equal(DateFormats.YyyyMmDd, updated.Value.DateFormat);
         Assert.Equal(Now.AddMinutes(15), updated.Value.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public async Task UpdateCurrent_InvalidDateFormat_Fails()
+    {
+        var userId = Guid.NewGuid();
+        var repo = new FakeUserPreferenceRepository();
+        var currentUser = new FakeCurrentUser(userId);
+        var clock = new TestClock(Now);
+        var handler = new UpdateCurrentUserPreferenceHandler(repo, currentUser, new InMemoryUnitOfWork(), clock);
+
+        var result = await handler.Handle(
+            new UpdateCurrentUserPreferenceCommand(ThemeKeys.Light, null, "invalid-format"),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("user_preferences.invalid_date_format", result.Error.Code);
     }
 }
 

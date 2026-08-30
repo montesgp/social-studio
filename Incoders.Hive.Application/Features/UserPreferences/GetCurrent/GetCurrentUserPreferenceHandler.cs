@@ -40,6 +40,7 @@ public sealed class GetCurrentUserPreferenceHandler
                 userId,
                 ThemeKeys.Dark,
                 null,
+                DateFormats.Default,
                 null,
                 null));
         }

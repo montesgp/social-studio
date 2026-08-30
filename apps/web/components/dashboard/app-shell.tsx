@@ -1,27 +1,50 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  type MouseEvent as ReactMouseEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { useAccessToken } from "@/components/auth/use-access-token";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeSelector } from "@/components/theme/theme-selector";
 import { SidebarAreaSwitcher } from "@/components/dashboard/sidebar-area-switcher";
-import { workspaceNavigation, adminNavigation } from "@/lib/navigation";
-import type { NavGroup } from "@/lib/navigation";
-import { ThemeKey } from "@/lib/api/types";
-import { HttpLoader } from "@/components/ui/http-loader";
+import { BatchProgressIndicator } from "@/components/social/generator/batch-progress-indicator";
+import { adminNavigation, getWorkspaceNavigation, workspaceModules } from "@/lib/navigation";
+import type { NavGroup, WorkspaceModule, WorkspaceModuleKey } from "@/lib/navigation";
+import { getWorkspaceModules } from "@/lib/api/me";
+import { DateFormat, ThemeKey } from "@/lib/api/types";
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { Button } from "@/components/ui/button";
+import { useActiveOrg } from "@/lib/auth/active-org-context";
+import { StageOverlay } from "@/components/ui/stage-overlay";
+import { subscribe as subscribeHttpLoading, getSnapshot as getHttpLoadingSnapshot } from "@/lib/loading/http-loading-store";
+import {
+  subscribe as subscribeBlockingLoader,
+  getSnapshot as getBlockingLoaderSnapshot,
+  getServerSnapshot as getBlockingLoaderServerSnapshot
+} from "@/lib/loading/blocking-loader-store";
+import { subscribe as subscribeSignOut, getSnapshot as getSignOutSnapshot } from "@/lib/auth/sign-out-store";
 
 function NavGroupSection({
   group,
   pathname,
-  layoutId
+  layoutId,
+  onNavigateStart
 }: {
   group: NavGroup;
   pathname: string;
   layoutId: string;
+  onNavigateStart: () => void;
 }) {
   return (
     <div>
@@ -54,6 +77,10 @@ function NavGroupSection({
             <Link
               key={item.href}
               href={item.href}
+              onClick={(event) => {
+                if (active || shouldSkipClientNavigationLoader(event)) return;
+                onNavigateStart();
+              }}
               className={cn(
                 "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground",
                 active && "text-primary"
@@ -76,34 +103,283 @@ function NavGroupSection({
   );
 }
 
+function shouldSkipClientNavigationLoader(event: ReactMouseEvent<HTMLAnchorElement>): boolean {
+  const target = event.currentTarget.getAttribute("target");
+
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    (target !== null && target !== "_self")
+  );
+}
+
+function ModuleSwitcher({
+  modules,
+  activeModule,
+  onChange
+}: {
+  modules: WorkspaceModule[];
+  activeModule: WorkspaceModuleKey;
+  onChange: (moduleKey: WorkspaceModuleKey) => void;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/40 p-1">
+      <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+        Module
+      </p>
+      <div className="grid gap-1">
+        {modules.map((module) => {
+          const Icon = module.icon;
+          const active = activeModule === module.key;
+
+          return (
+            <Button
+              key={module.key}
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-pressed={active}
+              className={cn(
+                "h-auto justify-start gap-2 px-2 py-2 text-left",
+                active
+                  ? "border border-primary/40 bg-primary/20 text-primary shadow-[0_0_18px_rgba(59,130,246,0.22)] hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              onClick={() => onChange(module.key)}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="min-w-0">
+                <span className="block text-xs font-semibold leading-tight">{module.label}</span>
+                <span className="block text-[10px] font-normal leading-tight text-muted-foreground">
+                  {module.description}
+                </span>
+              </span>
+            </Button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function AppShell({
   children,
   userEmail,
   initialThemeKey,
+  initialDateFormat,
   isPlatformAdmin
 }: {
   children: React.ReactNode;
   userEmail?: string;
   initialThemeKey: ThemeKey;
+  initialDateFormat?: DateFormat;
   isPlatformAdmin: boolean;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const accessToken = useAccessToken();
+  const { orgId, isInitialized: isOrgInitialized } = useActiveOrg();
+  const [activeModuleKey, setActiveModuleKey] = useState<WorkspaceModuleKey>("hive-social");
+  const [availableModules, setAvailableModules] = useState<WorkspaceModule[]>([]);
+  const [modulesLoaded, setModulesLoaded] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(true);
+  const [routeSawHttpPending, setRouteSawHttpPending] = useState(false);
+  const routeLoadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modulesLoadedRef = useRef(false);
+  const isHttpLoading = useSyncExternalStore(subscribeHttpLoading, getHttpLoadingSnapshot, () => false);
+  const blockingLoader = useSyncExternalStore(
+    subscribeBlockingLoader,
+    getBlockingLoaderSnapshot,
+    getBlockingLoaderServerSnapshot
+  );
+  const isSigningOut = useSyncExternalStore(subscribeSignOut, getSignOutSnapshot, () => false);
   const isAdminArea = pathname.startsWith("/admin");
   const activeArea = isAdminArea ? "admin" : "workspace";
-  const navGroups = isAdminArea ? adminNavigation : workspaceNavigation;
+  const moduleOptions = useMemo(
+    () => (isPlatformAdmin ? availableModules.length > 0 ? availableModules : workspaceModules : availableModules),
+    [availableModules, isPlatformAdmin]
+  );
+  const activeModule = moduleOptions.find((module) => module.key === activeModuleKey) ?? moduleOptions[0] ?? null;
+  const navGroups = isAdminArea ? adminNavigation : getWorkspaceNavigation(activeModule?.key);
   const layoutId = `sidebar-active-${activeArea}`;
+  const waitingForInitialShellData =
+    !accessToken || !modulesLoaded || (!isPlatformAdmin && !isOrgInitialized);
+
+  const startClientRouteLoading = useCallback(() => {
+    if (routeLoadingTimeoutRef.current) {
+      clearTimeout(routeLoadingTimeoutRef.current);
+      routeLoadingTimeoutRef.current = null;
+    }
+
+    setRouteSawHttpPending(false);
+    setRouteLoading(true);
+
+    routeLoadingTimeoutRef.current = setTimeout(() => {
+      setRouteLoading(false);
+      routeLoadingTimeoutRef.current = null;
+    }, 12000);
+  }, []);
+
+  useEffect(() => {
+    modulesLoadedRef.current = modulesLoaded;
+  }, [modulesLoaded]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      setAvailableModules([]);
+      setModulesLoaded(false);
+      return;
+    }
+
+    if (!isPlatformAdmin && !isOrgInitialized) {
+      return;
+    }
+
+    let cancelled = false;
+    // Token refreshes publish a new access token, which re-runs this effect.
+    // Do NOT drop the shell back to the initial blocking loader after the first
+    // module load; refresh permissions in the background instead.
+    if (!modulesLoadedRef.current) {
+      setModulesLoaded(false);
+    }
+
+    void (async () => {
+      try {
+        const apiModules = await getWorkspaceModules(accessToken);
+        if (cancelled) return;
+
+        const mapped = apiModules
+          .map((module) => workspaceModules.find((candidate) => candidate.key === module.key))
+          .filter((module): module is WorkspaceModule => module !== undefined);
+
+        setAvailableModules(mapped);
+        setActiveModuleKey((current) => {
+          if (mapped.some((module) => module.key === current)) {
+            return current;
+          }
+
+          return mapped[0]?.key ?? "hive-social";
+        });
+      } catch {
+        if (cancelled) return;
+        setAvailableModules(isPlatformAdmin ? workspaceModules : []);
+      } finally {
+        if (!cancelled) {
+          setModulesLoaded(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isOrgInitialized, isPlatformAdmin, orgId]);
+
+  useEffect(() => {
+    if (routeLoadingTimeoutRef.current) {
+      clearTimeout(routeLoadingTimeoutRef.current);
+      routeLoadingTimeoutRef.current = null;
+    }
+
+    setRouteLoading(true);
+    setRouteSawHttpPending(false);
+
+    routeLoadingTimeoutRef.current = setTimeout(() => {
+      setRouteLoading(false);
+      routeLoadingTimeoutRef.current = null;
+    }, 350);
+
+    return () => {
+      if (routeLoadingTimeoutRef.current) {
+        clearTimeout(routeLoadingTimeoutRef.current);
+        routeLoadingTimeoutRef.current = null;
+      }
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!routeLoading) return;
+    if (isHttpLoading) {
+      setRouteSawHttpPending(true);
+      return;
+    }
+
+    if (routeSawHttpPending && !isHttpLoading) {
+      setRouteLoading(false);
+    }
+  }, [routeLoading, routeSawHttpPending, isHttpLoading]);
+
+  useEffect(() => {
+    if (waitingForInitialShellData) {
+      setRouteLoading(true);
+    }
+  }, [waitingForInitialShellData]);
+
+  function changeModule(moduleKey: WorkspaceModuleKey) {
+    setActiveModuleKey(moduleKey);
+    if (!isAdminArea) {
+      router.push("/dashboard");
+    }
+  }
+
+  const shellOverlayTitle = isSigningOut
+    ? "Cerrando sesión…"
+    : waitingForInitialShellData
+    ? "Preparing workspace"
+    : blockingLoader.isVisible
+    ? blockingLoader.title
+    : "Loading tool";
+  const shellOverlayStages = isSigningOut
+    ? [{ key: "sign-out", label: "Cerrando sesión…" }]
+    : waitingForInitialShellData
+    ? [{ key: "shell", label: "Loading modules, permissions and menu context..." }]
+    : blockingLoader.isVisible
+    ? blockingLoader.stages
+    : [{ key: "route", label: "Fetching data required to render this view..." }];
 
   return (
-    <ThemeProvider initialThemeKey={initialThemeKey}>
-      <HttpLoader />
+    <ThemeProvider initialThemeKey={initialThemeKey} initialDateFormat={initialDateFormat}>
       <ProgressBar />
+      <StageOverlay
+        visible={waitingForInitialShellData || routeLoading || blockingLoader.isVisible}
+        stages={shellOverlayStages}
+        activeKey={blockingLoader.isVisible ? blockingLoader.activeKey : shellOverlayStages[0]?.key ?? null}
+        outcome={blockingLoader.isVisible ? blockingLoader.outcome : "running"}
+        failureDetail={blockingLoader.isVisible ? blockingLoader.failureDetail : null}
+        runningTitle={shellOverlayTitle}
+        ariaLabel={shellOverlayTitle}
+      />
       <div className="min-h-screen bg-background">
         <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[220px_1fr]">
           <aside className="border-r border-border bg-card/50 p-3">
             <div className="mb-6">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">Incoders Hive</p>
-              <h1 className="text-xl font-semibold">Hive Social</h1>
+              <h1 className="text-xl font-semibold">{isAdminArea ? "Platform Admin" : activeModule?.label ?? "Workspace"}</h1>
             </div>
+
+            {!isAdminArea ? (
+              <div className="mb-5">
+                {moduleOptions.length > 0 ? (
+                  <ModuleSwitcher
+                    modules={moduleOptions}
+                    activeModule={activeModule?.key ?? "hive-social"}
+                    onChange={changeModule}
+                  />
+                ) : modulesLoaded ? (
+                  <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                    No modules assigned for this organization.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                    Loading modules...
+                  </div>
+                )}
+              </div>
+            ) : null}
 
             {isPlatformAdmin ? (
               <div className="mb-5">
@@ -113,7 +389,13 @@ export function AppShell({
 
             <nav>
               {navGroups.map((group, i) => (
-                <NavGroupSection key={i} group={group} pathname={pathname} layoutId={layoutId} />
+                <NavGroupSection
+                  key={i}
+                  group={group}
+                  pathname={pathname}
+                  layoutId={layoutId}
+                  onNavigateStart={startClientRouteLoading}
+                />
               ))}
             </nav>
           </aside>
@@ -122,7 +404,11 @@ export function AppShell({
             <header className="border-b border-border px-3 py-3">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm text-muted-foreground">Workflow-oriented AI-native SaaS module</p>
+                  <p className="text-sm text-muted-foreground">
+                    {isAdminArea
+                      ? "Platform operations and governance"
+                      : activeModule?.description ?? "No module assigned to this workspace context."}
+                  </p>
                 </div>
                 <div className="rounded-lg border border-border bg-card/50 px-3 py-2">
                   <p className="text-[11px] uppercase tracking-widest text-muted-foreground">User</p>
@@ -136,6 +422,15 @@ export function AppShell({
                 </div>
               </div>
             </header>
+
+            {/*
+              Batch progress sits ABOVE the page content and outside it on purpose: background
+              generation is only useful if the operator can leave the Generator and still see it.
+              Renders nothing when no batch is running.
+            */}
+            <div className="px-3 pt-3 empty:hidden">
+              <BatchProgressIndicator />
+            </div>
 
             <main className="flex-1 p-3">
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>

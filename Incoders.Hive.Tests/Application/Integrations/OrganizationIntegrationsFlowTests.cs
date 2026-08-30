@@ -1,10 +1,12 @@
 using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Integrations;
+using Incoders.Hive.Application.Abstractions.Social.ContentDiscovery;
+using Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
 using Incoders.Hive.Application.Features.Integrations;
 using Incoders.Hive.Application.Features.Integrations.Configure;
 using Incoders.Hive.Application.Features.Integrations.GetByProvider;
 using Incoders.Hive.Application.Features.Integrations.GetOverview;
-using Incoders.Hive.Application.Features.Integrations.SetDefaultAi;
+using Incoders.Hive.Application.Features.Integrations.TestConnection;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Tests.Common;
 
@@ -15,7 +17,7 @@ public sealed class OrganizationIntegrationsFlowTests
     private static readonly DateTime Now = new(2026, 5, 16, 12, 0, 0, DateTimeKind.Utc);
 
     [Fact]
-    public async Task Overview_IncludesReadonlySystemDefaultApify_AndChecklistStartsPending()
+    public async Task Overview_IncludesReadonlySystemDefaultApify_AndChecklistRequiresAiOnly()
     {
         var harness = new IntegrationsHarness(Now);
         var organizationId = Guid.NewGuid();
@@ -32,7 +34,56 @@ public sealed class OrganizationIntegrationsFlowTests
         Assert.True(apify.IsReadOnly);
         Assert.Null(apify.IntegrationId);
 
-        Assert.All(overview.Value.Checklist, item => Assert.False(item.IsCompleted));
+        Assert.Equal(
+            ["single-analyzer", "generator", "niche-discovery"],
+            overview.Value.ChecklistGroups.Select(x => x.Key));
+        Assert.All(
+            overview.Value.ChecklistGroups.Where(x => x.Key != "niche-discovery"),
+            group =>
+            {
+                Assert.Contains(group.Items, item => item.Key.EndsWith("data-provider", StringComparison.Ordinal) && item.IsCompleted);
+                Assert.Contains(group.Items, item => item.Key.EndsWith("ai-provider", StringComparison.Ordinal) && !item.IsCompleted);
+            });
+    }
+
+    [Fact]
+    public async Task Overview_NicheDiscoveryChecklistGroup_IsPresent_WithBothItemsUnsatisfiedWithoutAProbe()
+    {
+        // INT-ND-03 scenario 2: a workflow key ("niche-discovery") with no matching checklist group
+        // renders "not configurable yet" in Settings even when the backend is fully wired — so the
+        // GROUP'S PRESENCE is asserted directly here, not merely absence-of-crash.
+        var harness = new IntegrationsHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var nicheDiscoveryGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "niche-discovery");
+        Assert.Equal("Niche Discovery", nicheDiscoveryGroup.Label);
+
+        Assert.Contains(nicheDiscoveryGroup.Items, item => item.Label.Contains("YouTube Data API key", StringComparison.Ordinal));
+        Assert.Contains(nicheDiscoveryGroup.Items, item => item.Label.Contains("discovery origin", StringComparison.Ordinal));
+        Assert.All(nicheDiscoveryGroup.Items, item => Assert.False(item.IsCompleted));
+    }
+
+    [Fact]
+    public async Task Overview_NicheDiscoveryChecklistGroup_SatisfiedItems_WhenTheOriginProbeReportsReady()
+    {
+        var organizationId = Guid.NewGuid();
+        var probe = new FakeNicheDiscoveryOriginProbe(readyFor: [(organizationId, "youtube")]);
+        var harness = new IntegrationsHarness(Now, originProbe: probe);
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var nicheDiscoveryGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "niche-discovery");
+        Assert.All(nicheDiscoveryGroup.Items, item => Assert.True(item.IsCompleted));
     }
 
     [Fact]
@@ -62,11 +113,81 @@ public sealed class OrganizationIntegrationsFlowTests
 
         foreach (var providerKey in expectedProviders)
         {
-            var integration = overview.Value.Integrations.SingleOrDefault(x => x.ProviderKey == providerKey);
+            var integration = overview.Value.Integrations.FirstOrDefault(x => x.ProviderKey == providerKey);
 
             Assert.NotNull(integration);
             Assert.False(string.IsNullOrWhiteSpace(integration!.IconKey));
         }
+    }
+
+    [Fact]
+    public async Task Overview_ExplodesMultiCategoryProvider_IntoOneCardPerCategoryWithItsModels()
+    {
+        var harness = new IntegrationsHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var openAiCards = overview.Value.Integrations
+            .Where(x => x.ProviderKey == "openai")
+            .ToList();
+
+        // One shared OpenAI connector, presented under both sections.
+        Assert.Equal(2, openAiCards.Count);
+
+        var aiModelCard = openAiCards.Single(x => x.Category == IntegrationProviderCategory.AiModel);
+        var mediaCard = openAiCards.Single(x => x.Category == IntegrationProviderCategory.MediaGeneration);
+
+        // Each card exposes ONLY the models for its own category.
+        Assert.Equal(["gpt-4.1", "gpt-4o"], aiModelCard.AvailableModels);
+        Assert.Equal(["dall-e-3", "gpt-image-1"], mediaCard.AvailableModels);
+    }
+
+    [Fact]
+    public async Task Overview_ConnectedMultiCategoryProvider_KeepsDistinctCategoriesPerCard()
+    {
+        var harness = new IntegrationsHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        // Connect the shared OpenAI credential once.
+        var configured = await harness.Configure.Handle(
+            new ConfigureOrganizationIntegrationCommand(
+                organizationId,
+                "openai",
+                IntegrationConnectionMode.BringYourOwnKey,
+                true,
+                "gpt-4.1",
+                new Dictionary<string, string>
+                {
+                    ["api_key"] = "sk-test-openai"
+                }),
+            CancellationToken.None);
+        Assert.True(configured.IsSuccess);
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var openAiCards = overview.Value.Integrations
+            .Where(x => x.ProviderKey == "openai")
+            .ToList();
+
+        // Even once connected, the card MUST stay split across both sections — not collapse to AiModel.
+        Assert.Equal(2, openAiCards.Count);
+        Assert.Contains(openAiCards, x => x.Category == IntegrationProviderCategory.AiModel);
+        Assert.Contains(openAiCards, x => x.Category == IntegrationProviderCategory.MediaGeneration);
+
+        // Both cards reference the same shared integration (one credential).
+        Assert.Single(openAiCards.Select(x => x.IntegrationId).Distinct());
+
+        var mediaCard = openAiCards.Single(x => x.Category == IntegrationProviderCategory.MediaGeneration);
+        Assert.Equal(["dall-e-3", "gpt-image-1"], mediaCard.AvailableModels);
     }
 
     [Fact]
@@ -85,7 +206,7 @@ public sealed class OrganizationIntegrationsFlowTests
     }
 
     [Fact]
-    public async Task ConfigureRequiredProviders_ThenChecklistIsCompleted_AndDefaultAiCanBeSelected()
+    public async Task ConfigureRequiredProviders_ThenChecklistGroupsAreCompleted()
     {
         var harness = new IntegrationsHarness(Now);
         var organizationId = Guid.NewGuid();
@@ -103,91 +224,265 @@ public sealed class OrganizationIntegrationsFlowTests
                 }),
             CancellationToken.None);
 
-        var canvaConfigured = await harness.Configure.Handle(
-            new ConfigureOrganizationIntegrationCommand(
-                organizationId,
-                "canva",
-                IntegrationConnectionMode.BringYourOwnKey,
-                true,
-                null,
-                new Dictionary<string, string>
-                {
-                    ["access_token"] = "canva-token"
-                }),
-            CancellationToken.None);
-
-        var blotatoConfigured = await harness.Configure.Handle(
-            new ConfigureOrganizationIntegrationCommand(
-                organizationId,
-                "blotato",
-                IntegrationConnectionMode.BringYourOwnKey,
-                true,
-                null,
-                new Dictionary<string, string>
-                {
-                    ["api_key"] = "blotato-token"
-                }),
-            CancellationToken.None);
-
         Assert.True(openAiConfigured.IsSuccess);
-        Assert.True(canvaConfigured.IsSuccess);
-        Assert.True(blotatoConfigured.IsSuccess);
+        Assert.Equal(IntegrationStatus.Configured, openAiConfigured.Value.Status);
 
-        var defaultAi = await harness.SetDefaultAi.Handle(
-            new SetDefaultAiIntegrationCommand(organizationId, "openai", "gpt-4.1-mini"),
-            CancellationToken.None);
-
-        Assert.True(defaultAi.IsSuccess);
-        Assert.True(defaultAi.Value.IsDefaultAi);
+        Assert.True((await harness.TestConnection.Handle(
+            new TestOrganizationIntegrationConnectionCommand(organizationId, "openai"),
+            CancellationToken.None)).IsSuccess);
 
         var overview = await harness.GetOverview.Handle(
             new GetOrganizationIntegrationsQuery(organizationId),
             CancellationToken.None);
 
         Assert.True(overview.IsSuccess);
-        Assert.All(overview.Value.Checklist, item => Assert.True(item.IsCompleted));
-        Assert.Equal("openai", overview.Value.DefaultAiProviderKey);
-        Assert.Equal("gpt-4.1-mini", overview.Value.DefaultAiModel);
+
+        // Only REQUIRED items must be completed: "single-analyzer-niche-search-actor" is optional
+        // (INT-DISC-03) and stays unsatisfied here — no niche-search route was configured.
+        // "niche-discovery" is excluded from this assertion: it is gated by an unrelated
+        // INICheDiscoveryOriginProbe, not wired in this test, so its required items stay
+        // unsatisfied by construction (WU-4.8: unsatisfied until WU-5 wires a real probe).
+        Assert.All(
+            overview.Value.ChecklistGroups.Where(x => x.Key != "niche-discovery"),
+            group => Assert.All(group.Items.Where(item => item.IsRequired), item => Assert.True(item.IsCompleted)));
+        Assert.DoesNotContain(overview.Value.Checklist, item => item.Key.Contains("canva", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(overview.Value.Checklist, item => item.Key.Contains("blotato", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ConfigureProvider_SavesCredentialsAsConfiguredWithoutMarkingConnected_AndGetByProviderReturnsValues()
+    {
+        var harness = new IntegrationsHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        var configured = await harness.Configure.Handle(
+            new ConfigureOrganizationIntegrationCommand(
+                organizationId,
+                "apify",
+                IntegrationConnectionMode.BringYourOwnKey,
+                true,
+                null,
+                new Dictionary<string, string>
+                {
+                    ["api_key"] = "apify-token",
+                    ["actor_id"] = "clockworks/tiktok-scraper"
+                }),
+            CancellationToken.None);
+
+        Assert.True(configured.IsSuccess);
+        Assert.Equal(IntegrationStatus.Configured, configured.Value.Status);
+        Assert.Empty(configured.Value.CredentialValues);
+
+        var loaded = await harness.GetByProvider.Handle(
+            new GetOrganizationIntegrationByProviderQuery(organizationId, "apify"),
+            CancellationToken.None);
+
+        Assert.True(loaded.IsSuccess);
+        Assert.Equal(IntegrationStatus.Configured, loaded.Value.Status);
+        Assert.Equal("apify-token", loaded.Value.CredentialValues["api_key"]);
+        Assert.Equal("clockworks/tiktok-scraper", loaded.Value.CredentialValues["actor_id"]);
+    }
+
+    [Fact]
+    public async Task ConfigureApify_AllowsActorMappingsByNetworkAndVariant()
+    {
+        var harness = new IntegrationsHarness(Now);
+        var organizationId = Guid.NewGuid();
+        const string actorMappingsJson = "[{\"networkKey\":\"tiktok\",\"variantKey\":\"single-video\",\"actorId\":\"clockworks/tiktok-scraper\"},{\"networkKey\":\"instagram\",\"variantKey\":\"profile\",\"actorId\":\"vendor/instagram-profile\"}]";
+
+        var configured = await harness.Configure.Handle(
+            new ConfigureOrganizationIntegrationCommand(
+                organizationId,
+                "apify",
+                IntegrationConnectionMode.BringYourOwnKey,
+                true,
+                null,
+                new Dictionary<string, string>
+                {
+                    ["api_key"] = "apify-token",
+                    ["actor_mappings_json"] = actorMappingsJson
+                }),
+            CancellationToken.None);
+
+        Assert.True(configured.IsSuccess);
+        Assert.Equal(IntegrationStatus.Configured, configured.Value.Status);
+
+        var loaded = await harness.GetByProvider.Handle(
+            new GetOrganizationIntegrationByProviderQuery(organizationId, "apify"),
+            CancellationToken.None);
+
+        Assert.True(loaded.IsSuccess);
+        Assert.Equal(actorMappingsJson, loaded.Value.CredentialValues["actor_mappings_json"]);
+    }
+
+    [Fact]
+    public async Task Overview_SingleAnalyzerChecklist_ContainsOptionalNicheSearchActorItem_PerSupportedNetwork_UnsatisfiedByDefault()
+    {
+        var probe = new FakeNicheSearchConfigurationProbe(
+            [new NicheSearchSupportedNetwork("tiktok", "TikTok")],
+            resolvesFor: []);
+        var harness = new IntegrationsHarness(Now, probe);
+        var organizationId = Guid.NewGuid();
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var singleAnalyzerGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "single-analyzer");
+        var item = singleAnalyzerGroup.Items.Single(x => x.Key == "single-analyzer-niche-search-actor-tiktok");
+
+        // INT-DISC-03: optional — discovery still works on references/own with the niche stage unconfigured.
+        Assert.False(item.IsRequired);
+        Assert.False(item.IsCompleted);
+        Assert.Contains("TikTok", item.Label, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Overview_SingleAnalyzerChecklist_NicheSearchActorItem_SatisfiedWhenTheProbeResolvesAnActor()
+    {
+        var organizationId = Guid.NewGuid();
+        var probe = new FakeNicheSearchConfigurationProbe(
+            [new NicheSearchSupportedNetwork("tiktok", "TikTok")],
+            resolvesFor: [(organizationId, "tiktok")]);
+
+        var harness = new IntegrationsHarness(Now, probe);
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var singleAnalyzerGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "single-analyzer");
+        var item = singleAnalyzerGroup.Items.Single(x => x.Key == "single-analyzer-niche-search-actor-tiktok");
+
+        Assert.False(item.IsRequired);
+        Assert.True(item.IsCompleted);
+    }
+
+    [Fact]
+    public async Task Overview_SingleAnalyzerChecklist_EmitsNoNicheSearchItem_ForANetworkWithoutAnAdapter()
+    {
+        // Instagram/YouTube are configurable but have no niche-search adapter, so the honest signal is
+        // the ABSENCE of an item ("not supported yet"), never "configure an actor".
+        var organizationId = Guid.NewGuid();
+        var probe = new FakeNicheSearchConfigurationProbe(
+            [new NicheSearchSupportedNetwork("tiktok", "TikTok")],
+            resolvesFor: [(organizationId, "instagram")]);
+
+        var harness = new IntegrationsHarness(Now, probe);
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var singleAnalyzerGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "single-analyzer");
+
+        Assert.DoesNotContain(
+            singleAnalyzerGroup.Items,
+            x => x.Key == "single-analyzer-niche-search-actor-instagram");
+        Assert.Contains(singleAnalyzerGroup.Items, x => x.Key == "single-analyzer-niche-search-actor-tiktok");
+    }
+
+    [Fact]
+    public async Task Overview_SingleAnalyzerChecklist_OmitsNicheSearchItemsEntirely_WhenNoProbeIsWired()
+    {
+        var harness = new IntegrationsHarness(Now);
+        var organizationId = Guid.NewGuid();
+
+        var overview = await harness.GetOverview.Handle(
+            new GetOrganizationIntegrationsQuery(organizationId),
+            CancellationToken.None);
+
+        Assert.True(overview.IsSuccess);
+
+        var singleAnalyzerGroup = overview.Value.ChecklistGroups.Single(x => x.Key == "single-analyzer");
+
+        Assert.DoesNotContain(
+            singleAnalyzerGroup.Items,
+            x => x.Key.StartsWith("single-analyzer-niche-search-actor", StringComparison.Ordinal));
+    }
+
+    private sealed class FakeNicheSearchConfigurationProbe : INicheSearchConfigurationProbe
+    {
+        private readonly HashSet<(Guid OrganizationId, string NetworkKey)> _resolvesFor;
+
+        public FakeNicheSearchConfigurationProbe(
+            IReadOnlyList<NicheSearchSupportedNetwork> supportedNetworks,
+            IReadOnlyList<(Guid OrganizationId, string NetworkKey)> resolvesFor)
+        {
+            SupportedNetworks = supportedNetworks;
+            _resolvesFor = [.. resolvesFor];
+        }
+
+        public IReadOnlyList<NicheSearchSupportedNetwork> SupportedNetworks { get; }
+
+        public Task<bool> ResolvesActorAsync(Guid organizationId, string networkKey, CancellationToken ct = default) =>
+            Task.FromResult(_resolvesFor.Contains((organizationId, networkKey)));
+    }
+
+    private sealed class FakeNicheDiscoveryOriginProbe : INicheDiscoveryOriginProbe
+    {
+        private readonly HashSet<(Guid OrganizationId, string NetworkKey)> _readyFor;
+
+        public FakeNicheDiscoveryOriginProbe(IReadOnlyList<(Guid OrganizationId, string NetworkKey)> readyFor)
+        {
+            _readyFor = [.. readyFor];
+        }
+
+        public Task<bool> IsReadyAsync(Guid organizationId, string networkKey, CancellationToken ct = default) =>
+            Task.FromResult(_readyFor.Contains((organizationId, networkKey)));
     }
 
     private sealed class IntegrationsHarness
     {
         private readonly InMemoryIntegrationProviderCatalogRepository _providers;
 
-        public IntegrationsHarness(DateTime nowUtc)
+        public IntegrationsHarness(
+            DateTime nowUtc,
+            INicheSearchConfigurationProbe? nicheSearchProbe = null,
+            INicheDiscoveryOriginProbe? originProbe = null)
         {
             _providers = new InMemoryIntegrationProviderCatalogRepository(nowUtc);
             Integrations = new InMemoryOrganizationIntegrationRepository(_providers);
             Credentials = new InMemoryOrganizationIntegrationCredentialRepository();
 
             var protector = new FakeIntegrationSecretProtector();
-            var tester = new AlwaysSuccessfulConnectionTester();
             var unitOfWork = new InMemoryUnitOfWork();
             var clock = new TestClock(nowUtc);
+            var tester = new AlwaysSuccessfulConnectionTester();
 
             Configure = new ConfigureOrganizationIntegrationHandler(
                 _providers,
                 Integrations,
                 Credentials,
                 protector,
-                tester,
                 unitOfWork,
                 clock);
 
             GetOverview = new GetOrganizationIntegrationsHandler(
                 _providers,
                 Integrations,
-                Credentials);
+                Credentials,
+                nicheSearchProbe: nicheSearchProbe,
+                nicheDiscoveryOriginProbe: originProbe);
 
             GetByProvider = new GetOrganizationIntegrationByProviderHandler(
                 _providers,
                 Integrations,
-                Credentials);
+                Credentials,
+                protector);
 
-            SetDefaultAi = new SetDefaultAiIntegrationHandler(
+            TestConnection = new TestOrganizationIntegrationConnectionHandler(
                 _providers,
                 Integrations,
                 Credentials,
+                protector,
+                tester,
                 unitOfWork,
                 clock);
         }
@@ -202,7 +497,7 @@ public sealed class OrganizationIntegrationsFlowTests
 
         public GetOrganizationIntegrationByProviderHandler GetByProvider { get; }
 
-        public SetDefaultAiIntegrationHandler SetDefaultAi { get; }
+        public TestOrganizationIntegrationConnectionHandler TestConnection { get; }
     }
 
     private sealed class InMemoryIntegrationProviderCatalogRepository : IIntegrationProviderCatalogRepository
@@ -263,16 +558,21 @@ public sealed class OrganizationIntegrationsFlowTests
         {
             return
             [
-                CreateProvider(
+                CreateMultiProvider(
                     "openai",
                     "OpenAI",
-                    IntegrationProviderCategory.AiModel,
+                    [IntegrationProviderCategory.AiModel, IntegrationProviderCategory.MediaGeneration],
                     "openai",
                     true,
                     true,
                     false,
                     false,
                     [new IntegrationCredentialField("api_key", "API key", true, true)],
+                    new Dictionary<IntegrationProviderCategory, IReadOnlyList<string>>
+                    {
+                        [IntegrationProviderCategory.AiModel] = ["gpt-4.1", "gpt-4o"],
+                        [IntegrationProviderCategory.MediaGeneration] = ["dall-e-3", "gpt-image-1"],
+                    },
                     nowUtc),
                 CreateProvider(
                     "canva",
@@ -283,7 +583,11 @@ public sealed class OrganizationIntegrationsFlowTests
                     false,
                     false,
                     false,
-                    [new IntegrationCredentialField("access_token", "Access token", true, true)],
+                    [
+                        new IntegrationCredentialField("client_id",     "Client ID",     true,  true),
+                        new IntegrationCredentialField("client_secret", "Client secret", true,  true),
+                        new IntegrationCredentialField("scopes",        "Scopes",        false, false)
+                    ],
                     nowUtc),
                 CreateProvider(
                     "blotato",
@@ -305,7 +609,11 @@ public sealed class OrganizationIntegrationsFlowTests
                     true,
                     true,
                     true,
-                    [new IntegrationCredentialField("api_token", "API token", true, true)],
+                    [
+                        new IntegrationCredentialField("api_key", "API key", true, true),
+                        new IntegrationCredentialField("actor_id", "Default actor ID", false, false),
+                        new IntegrationCredentialField("actor_mappings_json", "Actor mappings", false, false)
+                    ],
                     nowUtc),
                 CreateProvider(
                     "google-drive",
@@ -411,6 +719,38 @@ public sealed class OrganizationIntegrationsFlowTests
                 supportsSystemDefault,
                 readonlySystemDefault,
                 fields,
+                [],
+                nowUtc);
+
+            return created.Value;
+        }
+
+        private static IntegrationProvider CreateMultiProvider(
+            string key,
+            string displayName,
+            IReadOnlyList<IntegrationProviderCategory> categories,
+            string iconKey,
+            bool supportsByok,
+            bool supportsManaged,
+            bool supportsSystemDefault,
+            bool readonlySystemDefault,
+            IReadOnlyList<IntegrationCredentialField> fields,
+            IReadOnlyDictionary<IntegrationProviderCategory, IReadOnlyList<string>> modelsByCategory,
+            DateTime nowUtc)
+        {
+            var created = IntegrationProvider.Create(
+                IntegrationProviderId.New(),
+                key,
+                displayName,
+                categories,
+                null,
+                iconKey,
+                supportsByok,
+                supportsManaged,
+                supportsSystemDefault,
+                readonlySystemDefault,
+                fields,
+                modelsByCategory,
                 nowUtc);
 
             return created.Value;

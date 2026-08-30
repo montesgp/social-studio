@@ -1,20 +1,19 @@
 using Incoders.Hive.ApiService.Endpoints.Common;
+using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Application.Common.Pagination;
 using Incoders.Hive.Application.Features.Social.Clients;
 using Incoders.Hive.Application.Features.Social.Clients.Activate;
 using Incoders.Hive.Application.Features.Social.Clients.Create;
+using Incoders.Hive.Application.Features.Social.Clients.Delete;
 using Incoders.Hive.Application.Features.Social.Clients.Deactivate;
 using Incoders.Hive.Application.Features.Social.Clients.GetAll;
 using Incoders.Hive.Application.Features.Social.Clients.GetById;
 using Incoders.Hive.Application.Features.Social.Clients.Update;
 using Incoders.Hive.Domain.Social.Clients;
+using Incoders.Hive.Infrastructure.Identity;
 using MediatR;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Routing;
 
 namespace Incoders.Hive.ApiService.Endpoints.Social;
 
@@ -68,25 +67,46 @@ public static class SocialClientsEndpointsExtensions
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        group.MapDelete("/{id:guid}", DeleteAsync)
+            .WithName("DeleteSocialClient")
+            .WithSummary("Hard-delete a Hive Social client and all client-scoped data")
+            .RequireAuthorization(IdentityServicesExtensions.Policies.PlatformAdmin)
+            .Produces<DeletedSocialClientResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return app;
     }
 
     private static async Task<IResult> ListAsync(
         ISender sender,
         ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
         CancellationToken cancellationToken,
+        [FromQuery] Guid? organizationId = null,
         [FromQuery] string? name = null,
         [FromQuery] bool includeInactive = false,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
-        if (currentTenant.TenantId is not { } organizationId)
+        Guid? resolvedOrganizationId;
+
+        if (currentUser.IsPlatformAdmin)
         {
-            return ClientErrors.OrganizationRequired.ToProblem();
+            // null = all orgs; explicit param scopes to a specific org
+            resolvedOrganizationId = organizationId;
+        }
+        else
+        {
+            if (currentTenant.TenantId is not { } tenantId)
+            {
+                return ClientErrors.OrganizationRequired.ToProblem();
+            }
+            resolvedOrganizationId = tenantId.Value;
         }
 
         var result = await sender.Send(
-            new GetSocialClientsQuery(organizationId.Value, name, includeInactive, page, pageSize),
+            new GetSocialClientsQuery(resolvedOrganizationId, name, includeInactive, page, pageSize),
             cancellationToken);
 
         return result.Match(r => (IResult)TypedResults.Ok(r));
@@ -96,15 +116,29 @@ public static class SocialClientsEndpointsExtensions
         Guid id,
         ISender sender,
         ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
         CancellationToken cancellationToken)
     {
-        if (currentTenant.TenantId is not { } organizationId)
+        Guid? resolvedOrganizationId;
+
+        // Mirrors ListAsync: a platform admin lists clients across every organization, so the
+        // by-id lookup has to reach the same rows. Scoping it to the admin's own active tenant
+        // made every client outside that tenant 404 straight out of the list.
+        if (currentUser.IsPlatformAdmin)
         {
-            return ClientErrors.OrganizationRequired.ToProblem();
+            resolvedOrganizationId = null;
+        }
+        else
+        {
+            if (currentTenant.TenantId is not { } tenantId)
+            {
+                return ClientErrors.OrganizationRequired.ToProblem();
+            }
+            resolvedOrganizationId = tenantId.Value;
         }
 
         var result = await sender.Send(
-            new GetSocialClientByIdQuery(id, organizationId.Value),
+            new GetSocialClientByIdQuery(id, resolvedOrganizationId),
             cancellationToken);
 
         return result.Match(client => (IResult)TypedResults.Ok(client));
@@ -122,7 +156,15 @@ public static class SocialClientsEndpointsExtensions
         }
 
         var result = await sender.Send(
-            new CreateSocialClientCommand(organizationId.Value, body.Name, body.Description),
+            new CreateSocialClientCommand(
+                organizationId.Value,
+                body.Name,
+                body.Description,
+                body.SectorOrNiche,
+                body.BackgroundSourcingPolicy,
+                body.AestheticRefreshThresholdDays,
+                body.MaxPiecesPerGeneration,
+                body.SignsOwnSlides),
             cancellationToken);
 
         return result.Match(client => TypedResults.Created($"/api/social/clients/{client.Id}", client));
@@ -141,7 +183,16 @@ public static class SocialClientsEndpointsExtensions
         }
 
         var result = await sender.Send(
-            new UpdateSocialClientCommand(id, organizationId.Value, body.Name, body.Description),
+            new UpdateSocialClientCommand(
+                id,
+                organizationId.Value,
+                body.Name,
+                body.Description,
+                body.SectorOrNiche,
+                body.BackgroundSourcingPolicy,
+                body.AestheticRefreshThresholdDays,
+                body.SignsOwnSlides,
+                body.MaxPiecesPerGeneration),
             cancellationToken);
 
         return result.Match(client => (IResult)TypedResults.Ok(client));
@@ -182,8 +233,43 @@ public static class SocialClientsEndpointsExtensions
 
         return result.Match(client => (IResult)TypedResults.Ok(client));
     }
+
+    private static async Task<IResult> DeleteAsync(
+        Guid id,
+        ISender sender,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new DeleteSocialClientCommand(id),
+            cancellationToken);
+
+        return result.Match(client => (IResult)TypedResults.Ok(client));
+    }
 }
 
-public sealed record CreateSocialClientRequest(string Name, string? Description);
+public sealed record CreateSocialClientRequest(
+    string Name,
+    string? Description,
+    string? SectorOrNiche = null,
+    // WU-8 (BSP-08): optional background sourcing policy. Null = Unset = legacy 3-tier default.
+    Domain.Social.Clients.BackgroundSourcingPolicy? BackgroundSourcingPolicy = null,
+    // WU-7 (CAG-CS-02): optional aesthetic refresh threshold in days. Null = system default (30 days).
+    int? AestheticRefreshThresholdDays = null,
+    // Issue #70: optional opt-in for @handle signature on generated slides. Plain boolean,
+    // default false = not signed.
+    bool SignsOwnSlides = false,
+    // Per-client cap on pieces built per generation job. Null = no cap.
+    int? MaxPiecesPerGeneration = null);
 
-public sealed record UpdateSocialClientRequest(string Name, string? Description);
+public sealed record UpdateSocialClientRequest(
+    string Name,
+    string? Description,
+    string? SectorOrNiche = null,
+    // WU-8 (BSP-08b): optional policy update. Null = leave current policy unchanged.
+    Domain.Social.Clients.BackgroundSourcingPolicy? BackgroundSourcingPolicy = null,
+    // WU-7 (CAG-CS-02): optional threshold update in days. Null = leave current threshold unchanged.
+    int? AestheticRefreshThresholdDays = null,
+    // Issue #70: always-explicit opt-in for @handle signature on generated slides. Plain boolean.
+    bool SignsOwnSlides = false,
+    // Per-client generation piece cap. Null = leave the current cap unchanged.
+    int? MaxPiecesPerGeneration = null);

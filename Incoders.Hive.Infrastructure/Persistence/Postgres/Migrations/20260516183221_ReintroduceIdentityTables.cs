@@ -12,6 +12,21 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // Idempotency guard (issue #62): make this migration replayable from an empty database.
+            // The earlier migration UseIdentitySchemaSnakeCase renamed the AspNet* Identity tables
+            // into identity.* — so on a clean replay from empty those tables already exist at this
+            // point, and the CreateTable calls below would fail with 42P07 "relation already exists".
+            // Dropping them first lets the full chain apply cleanly from scratch (local dev + the CI
+            // ephemeral-verify job). This affects fresh replays only: on environments where this
+            // migration is already recorded as applied (production), EF never re-runs it.
+            migrationBuilder.Sql("DROP TABLE IF EXISTS identity.role_claims CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS identity.user_claims CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS identity.user_logins CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS identity.user_roles CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS identity.user_tokens CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS identity.users CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS identity.roles CASCADE;");
+
             migrationBuilder.EnsureSchema(
                 name: "identity");
 

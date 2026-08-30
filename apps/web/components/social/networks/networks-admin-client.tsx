@@ -3,11 +3,9 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   Archive,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Edit3,
-  Globe,
   Plus,
   RefreshCcw,
   RotateCcw,
@@ -23,7 +21,11 @@ import {
   listSocialNetworks,
   updateSocialNetwork
 } from "@/lib/api/social-networks";
-import { getSocialNetworkIcon } from "@/lib/social-network-icons";
+import {
+  getSocialNetworkIcon,
+  getSocialNetworkIconOption,
+  socialNetworkIconOptions
+} from "@/lib/social-network-icons";
 import { ApiError, PageResult, SocialNetwork } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toaster";
 import { useAccessToken } from "@/components/auth/use-access-token";
+import { useActiveOrg } from "@/lib/auth/active-org-context";
 
 type Mode = "create" | "edit";
 type StatusFilter = "active" | "archived" | "all";
@@ -48,6 +51,7 @@ interface NetworksAdminClientProps {
 export function NetworksAdminClient({ isPlatformAdmin = false }: NetworksAdminClientProps) {
   const sessionToken = useAccessToken();
   const toast = useToast();
+  const { isInitialized: orgInitialized } = useActiveOrg();
   const lastErrorToastRef = useRef<{ message: string; at: number } | null>(null);
 
   const [page, setPage] = useState<PageResult<SocialNetwork> | null>(null);
@@ -86,6 +90,7 @@ export function NetworksAdminClient({ isPlatformAdmin = false }: NetworksAdminCl
   }
 
   useEffect(() => {
+    if (!orgInitialized) return;
     if (!effectiveToken) {
       setLoading(false);
       setPage(null);
@@ -93,7 +98,7 @@ export function NetworksAdminClient({ isPlatformAdmin = false }: NetworksAdminCl
     }
     void loadNetworks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageNumber, status, includeInactive, effectiveToken]);
+  }, [pageNumber, status, includeInactive, effectiveToken, orgInitialized]);
 
   async function loadNetworks(nextPage = pageNumber) {
     setLoading(true);
@@ -170,11 +175,14 @@ export function NetworksAdminClient({ isPlatformAdmin = false }: NetworksAdminCl
       setDisplayNameError(null);
     }
 
-    if (!iconKey.trim()) {
-      setIconKeyError("Icon key is required.");
+    const normalizedIconKey = iconKey.trim();
+    const isKnownIcon = socialNetworkIconOptions.some((option) => option.key === normalizedIconKey);
+
+    if (!normalizedIconKey) {
+      setIconKeyError("Select an icon for this network.");
       valid = false;
-    } else if (iconKey.trim().length > 32) {
-      setIconKeyError("Icon key must not exceed 32 characters.");
+    } else if (!isKnownIcon) {
+      setIconKeyError("Select one of the available social network icons.");
       valid = false;
     } else {
       setIconKeyError(null);
@@ -354,14 +362,22 @@ export function NetworksAdminClient({ isPlatformAdmin = false }: NetworksAdminCl
               <TableBody>
                 {items.map((item) => {
                   const NetworkIcon = getSocialNetworkIcon(item.iconKey);
+                  const iconOption = getSocialNetworkIconOption(item.iconKey);
                   return (
                     <TableRow key={item.id}>
                       <TableCell>
-                        <NetworkIcon className="h-5 w-5 text-muted-foreground" />
+                        <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-muted/40">
+                          <NetworkIcon className="h-5 w-5 text-muted-foreground" />
+                        </div>
                       </TableCell>
                       <TableCell className="font-mono text-sm">{item.code}</TableCell>
                       <TableCell className="font-medium">{item.displayName}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{item.iconKey}</TableCell>
+                      <TableCell>
+                        <div className="space-y-0.5">
+                          <p className="text-sm">{iconOption?.label ?? "Unknown icon"}</p>
+                          <p className="font-mono text-xs text-muted-foreground">{item.iconKey}</p>
+                        </div>
+                      </TableCell>
                       <TableCell>
                         <Badge variant={item.isActive ? "success" : "muted"}>
                           {item.isActive ? "Active" : "Inactive"}
@@ -471,21 +487,44 @@ export function NetworksAdminClient({ isPlatformAdmin = false }: NetworksAdminCl
               {displayNameError && <p className="text-xs text-red-500">{displayNameError}</p>}
             </div>
 
-            {/* Icon Key */}
-            <div className="space-y-1">
-              <label htmlFor="network-icon-key" className="text-sm font-medium">
-                Icon Key
-              </label>
-              <Input
-                id="network-icon-key"
-                value={iconKey}
-                onChange={(e) => setIconKey(e.target.value)}
-                placeholder="e.g. instagram"
-                maxLength={32}
-              />
-              <p className="text-xs text-muted-foreground">
-                Lowercase identifier used to resolve the Lucide icon in the frontend.
-              </p>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-sm font-medium">Icon</label>
+                {iconKey ? <span className="font-mono text-xs text-muted-foreground">{iconKey}</span> : null}
+              </div>
+              <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto rounded-xl border border-border bg-background/40 p-2 sm:grid-cols-3">
+                {socialNetworkIconOptions.map((option) => {
+                  const Icon = option.icon;
+                  const isSelected = iconKey === option.key;
+
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      aria-pressed={isSelected}
+                      onClick={() => {
+                        setIconKey(option.key);
+                        setIconKeyError(null);
+                      }}
+                      className={cn(
+                        "flex min-h-16 items-center gap-2 rounded-md border p-2 text-left text-sm transition",
+                        "hover:border-primary/60 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                        isSelected
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border bg-card/50 text-muted-foreground"
+                      )}
+                    >
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+                        <Icon className="h-5 w-5" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">{option.label}</span>
+                        <span className="block truncate font-mono text-xs opacity-75">{option.key}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
               {iconKeyError && <p className="text-xs text-red-500">{iconKeyError}</p>}
             </div>
 

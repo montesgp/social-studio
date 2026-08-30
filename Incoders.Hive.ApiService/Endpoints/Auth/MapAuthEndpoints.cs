@@ -1,11 +1,6 @@
 using Incoders.Hive.Infrastructure.Identity;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.Logging;
 
 namespace Incoders.Hive.ApiService.Endpoints.Auth;
 
@@ -108,6 +103,11 @@ public static class AuthEndpointsExtensions
             return TypedResults.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Invalid credentials");
         }
 
+        if (user.Status == UserStatus.Suspended)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "User account is disabled");
+        }
+
         var roles = await users.GetRolesAsync(user);
         var tokens = jwt.Issue(user, roles);
         return TypedResults.Ok(ToResponse(tokens));
@@ -128,6 +128,11 @@ public static class AuthEndpointsExtensions
         if (user is null)
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unknown user");
+        }
+
+        if (user.Status == UserStatus.Suspended)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "User account is disabled");
         }
 
         var roles = await users.GetRolesAsync(user);

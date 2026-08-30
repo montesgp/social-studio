@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!--
+    Favicon for Incoders Hive. Picked up automatically by the Next.js App Router file convention,
+    which is why it lives in app/ rather than public/.
+
+    This is deliberately NOT the full mark: the connector lines and satellite nodes of
+    components/auth/hive-logo.tsx collapse into mud at 16px. What survives at tab size is the
+    silhouette, so the cell and its cube carry the identity alone. Colours are hard-coded because a
+    favicon renders outside the document and cannot read the theme tokens.
+  -->
+  <defs>
+    <linearGradient id="hive-favicon-cell" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0%" stop-color="#A855F7" />
+      <stop offset="100%" stop-color="#7C3AED" />
+    </linearGradient>
+  </defs>
+
+  <polygon points="16,2 28,9 28,23 16,30 4,23 4,9" fill="url(#hive-favicon-cell)" />
+
+  <!-- Isometric cube: side faces first, lighter top face on them, so it reads as volume at any size. -->
+  <polygon points="16,9.5 22.5,13.25 22.5,20.75 16,24.5 9.5,20.75 9.5,13.25" fill="#FFFFFF" fill-opacity="0.92" />
+  <polygon points="16,9.5 22.5,13.25 16,17 9.5,13.25" fill="#FFFFFF" />
+</svg>

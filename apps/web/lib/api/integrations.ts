@@ -2,8 +2,12 @@ import { apiRequest } from "@/lib/api/client";
 import {
   IntegrationConnectionMode,
   IntegrationProvider,
+  OrganizationActorsResponse,
+  OrganizationAiModelsResponse,
   OrganizationIntegration,
-  OrganizationIntegrationsOverview
+  OrganizationIntegrationsOverview,
+  WorkflowConfigurationOverview,
+  WorkflowStepConfigurationInput
 } from "@/lib/api/types";
 
 function organizationHeaders(organizationId: string) {
@@ -24,11 +28,6 @@ export interface ConfigureIntegrationPayload {
   credentials?: IntegrationCredentialInput[];
 }
 
-export interface SetDefaultAiPayload {
-  providerKey: string;
-  model?: string;
-}
-
 export async function listIntegrationProviders(token?: string) {
   return apiRequest<IntegrationProvider[]>("/api/integrations/providers", undefined, token);
 }
@@ -39,6 +38,29 @@ export async function listOrganizationIntegrations(organizationId: string, token
     {
       headers: organizationHeaders(organizationId)
     },
+    token
+  );
+}
+
+export interface CanvaAuthorizeUrlResponse {
+  authorizeUrl: string;
+}
+
+/**
+ * Starts the ORG-level Canva OAuth connect. Returns the Canva authorization URL the caller must
+ * navigate the browser to. The `redirectUri` is the env-derived callback (see the Connect button);
+ * it must be in the Canva app's allowed redirect URIs.
+ */
+export async function getCanvaAuthorizeUrl(
+  organizationId: string,
+  orgIntegrationId: string,
+  redirectUri: string,
+  token?: string
+) {
+  const query = new URLSearchParams({ orgIntegrationId, redirectUri }).toString();
+  return apiRequest<CanvaAuthorizeUrlResponse>(
+    `/api/integrations/canva/authorize?${query}`,
+    { headers: organizationHeaders(organizationId) },
     token
   );
 }
@@ -92,17 +114,76 @@ export async function testOrganizationIntegration(organizationId: string, provid
   );
 }
 
-export async function setDefaultAiIntegration(
+export async function listOrganizationAiModels(organizationId: string, providerKey: string, token?: string) {
+  return apiRequest<OrganizationAiModelsResponse>(
+    `/api/integrations/organization/${providerKey}/models`,
+    {
+      headers: organizationHeaders(organizationId)
+    },
+    token
+  );
+}
+
+export async function syncOrganizationAiModels(organizationId: string, providerKey: string, token?: string) {
+  return apiRequest<OrganizationAiModelsResponse>(
+    `/api/integrations/organization/${providerKey}/models/sync`,
+    {
+      method: "POST",
+      headers: organizationHeaders(organizationId)
+    },
+    token
+  );
+}
+
+export async function listOrganizationActors(organizationId: string, providerKey: string, token?: string) {
+  return apiRequest<OrganizationActorsResponse>(
+    `/api/integrations/organization/${providerKey}/actors`,
+    {
+      headers: organizationHeaders(organizationId)
+    },
+    token
+  );
+}
+
+export async function syncOrganizationActors(organizationId: string, providerKey: string, token?: string) {
+  return apiRequest<OrganizationActorsResponse>(
+    `/api/integrations/organization/${providerKey}/actors/sync`,
+    {
+      method: "POST",
+      headers: organizationHeaders(organizationId)
+    },
+    token
+  );
+}
+
+export async function listWorkflowConfigurations(
   organizationId: string,
-  payload: SetDefaultAiPayload,
+  workflowKey?: string,
   token?: string
 ) {
-  return apiRequest<OrganizationIntegration>(
-    "/api/integrations/organization/default-ai",
+  const query = new URLSearchParams({ organizationId });
+  if (workflowKey) {
+    query.set("workflowKey", workflowKey);
+  }
+
+  return apiRequest<WorkflowConfigurationOverview>(
+    `/api/integrations/workflow-configurations?${query.toString()}`,
+    undefined,
+    token
+  );
+}
+
+export async function upsertWorkflowConfigurations(
+  organizationId: string,
+  workflowKey: string,
+  steps: WorkflowStepConfigurationInput[],
+  token?: string
+) {
+  return apiRequest<WorkflowConfigurationOverview>(
+    `/api/integrations/workflow-configurations/${organizationId}/${workflowKey}`,
     {
       method: "PUT",
-      headers: organizationHeaders(organizationId),
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ steps })
     },
     token
   );

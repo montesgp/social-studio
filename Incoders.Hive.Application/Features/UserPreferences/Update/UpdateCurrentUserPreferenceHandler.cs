@@ -43,6 +43,7 @@ public sealed class UpdateCurrentUserPreferenceHandler
                 userId,
                 request.ThemeKey,
                 request.AccentTheme,
+                request.DateFormat,
                 _clock.UtcNow);
 
             if (created.IsFailure)
@@ -55,7 +56,7 @@ public sealed class UpdateCurrentUserPreferenceHandler
             return Result.Success(UserPreferenceResponse.FromDomain(created.Value));
         }
 
-        var updated = existing.UpdateTheme(request.ThemeKey, request.AccentTheme, _clock.UtcNow);
+        var updated = existing.UpdateTheme(request.ThemeKey, request.AccentTheme, request.DateFormat, _clock.UtcNow);
         if (updated.IsFailure)
         {
             return Result.Failure<UserPreferenceResponse>(updated.Error);

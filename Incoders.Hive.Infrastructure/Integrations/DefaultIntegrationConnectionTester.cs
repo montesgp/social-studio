@@ -5,39 +5,46 @@ namespace Incoders.Hive.Infrastructure.Integrations;
 
 public sealed class DefaultIntegrationConnectionTester : IIntegrationConnectionTester
 {
-    public Task<IntegrationConnectionTestResult> TestAsync(
+    private readonly IReadOnlyList<IExternalIntegrationHealthCheck> _healthChecks;
+
+    public DefaultIntegrationConnectionTester(
+        IEnumerable<IExternalIntegrationHealthCheck>? healthChecks = null)
+    {
+        _healthChecks = healthChecks?.ToList() ?? [];
+    }
+
+    public async Task<IntegrationConnectionTestResult> TestAsync(
         IntegrationProvider provider,
         IntegrationConnectionMode mode,
         IReadOnlyDictionary<string, string> credentials,
         CancellationToken cancellationToken = default)
     {
-        _ = cancellationToken;
-
         if (mode == IntegrationConnectionMode.SystemDefault)
         {
-            return Task.FromResult(new IntegrationConnectionTestResult(true));
+            return new IntegrationConnectionTestResult(true);
         }
 
         foreach (var field in provider.CredentialFields.Where(x => x.IsRequired))
         {
             if (!credentials.TryGetValue(field.Key, out var value) || string.IsNullOrWhiteSpace(value))
             {
-                return Task.FromResult(new IntegrationConnectionTestResult(
-                    false,
-                    $"Missing required credential: {field.Key}"));
+                return new IntegrationConnectionTestResult(false, $"Missing required credential: {field.Key}");
             }
         }
 
-        var hasFailureMarker = credentials.Values.Any(value =>
-            value.Contains("__FAIL__", StringComparison.OrdinalIgnoreCase));
+        // If a provider-specific health check exists, run a REAL connectivity probe against the
+        // provider's API. Otherwise fall back to "required credentials present" (no live check yet).
+        var healthCheck = _healthChecks.FirstOrDefault(
+            x => string.Equals(x.ProviderKey, provider.Key, StringComparison.OrdinalIgnoreCase));
 
-        if (hasFailureMarker)
+        if (healthCheck is null)
         {
-            return Task.FromResult(new IntegrationConnectionTestResult(
-                false,
-                "Credentials were rejected by provider test simulation."));
+            return new IntegrationConnectionTestResult(true);
         }
 
-        return Task.FromResult(new IntegrationConnectionTestResult(true));
+        var result = await healthCheck.CheckAsync(credentials, cancellationToken);
+        return new IntegrationConnectionTestResult(
+            result.IsSuccess,
+            result.IsSuccess ? null : (result.Message ?? result.ErrorCode));
     }
 }

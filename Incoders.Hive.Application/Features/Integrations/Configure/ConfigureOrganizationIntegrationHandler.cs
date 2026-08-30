@@ -14,7 +14,6 @@ public sealed class ConfigureOrganizationIntegrationHandler
     private readonly IOrganizationIntegrationRepository _integrations;
     private readonly IOrganizationIntegrationCredentialRepository _credentials;
     private readonly IIntegrationSecretProtector _protector;
-    private readonly IIntegrationConnectionTester _connectionTester;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
@@ -23,7 +22,6 @@ public sealed class ConfigureOrganizationIntegrationHandler
         IOrganizationIntegrationRepository integrations,
         IOrganizationIntegrationCredentialRepository credentials,
         IIntegrationSecretProtector protector,
-        IIntegrationConnectionTester connectionTester,
         IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -31,7 +29,6 @@ public sealed class ConfigureOrganizationIntegrationHandler
         _integrations = integrations;
         _credentials = credentials;
         _protector = protector;
-        _connectionTester = connectionTester;
         _unitOfWork = unitOfWork;
         _clock = clock;
     }
@@ -92,9 +89,8 @@ public sealed class ConfigureOrganizationIntegrationHandler
                 request.OrganizationId,
                 provider.Id,
                 request.ConnectionMode,
-                request.Enabled ? IntegrationStatus.NotConfigured : IntegrationStatus.Disabled,
+                request.Enabled ? IntegrationStatus.Configured : IntegrationStatus.Disabled,
                 isReadOnly,
-                false,
                 request.SelectedAiModel,
                 null,
                 null,
@@ -196,25 +192,6 @@ public sealed class ConfigureOrganizationIntegrationHandler
 
                 await _credentials.UpsertAsync(createdCredential.Value, cancellationToken);
             }
-        }
-
-        if (!request.Enabled)
-        {
-            integration.ClearDefaultAi(nowUtc);
-        }
-        else
-        {
-            IntegrationConnectionTestResult testResult;
-            if (request.ConnectionMode == IntegrationConnectionMode.SystemDefault)
-            {
-                testResult = new IntegrationConnectionTestResult(true);
-            }
-            else
-            {
-                testResult = await _connectionTester.TestAsync(provider, request.ConnectionMode, mergedCredentials, cancellationToken);
-            }
-
-            integration.MarkTestResult(testResult.IsSuccess, testResult.ErrorMessage, nowUtc);
         }
 
         if (!isNew)

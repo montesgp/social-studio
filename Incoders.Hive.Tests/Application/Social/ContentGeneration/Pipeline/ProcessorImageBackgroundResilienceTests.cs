@@ -1,0 +1,785 @@
+using System.Text.Json;
+using Incoders.Hive.Application.Abstractions.Observability;
+using Incoders.Hive.Application.Abstractions.Social;
+using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
+using Incoders.Hive.Domain.Common;
+using Incoders.Hive.Domain.Social.ClientBrandManuals;
+using Incoders.Hive.Domain.Social.Clients;
+using Incoders.Hive.Domain.Social.ContentGeneration;
+using ClientProfileSnapshot = Incoders.Hive.Domain.Social.ContentGeneration.ClientProfileSnapshot;
+using Incoders.Hive.Domain.Social.SingleAnalyzer;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Pipeline;
+
+/// <summary>
+/// WU-8.2 Resilience tests: image-gen failure → CSS fallback; job completes; no unhandled exception.
+///
+/// Refs: CIG-CG-03-a (partial success — CSS for failed slides), CIG-CG-03-b (all fail → all CSS),
+/// IMG-05 (service exception caught → all CSS, job completes); design §4.1.
+/// </summary>
+public sealed class ProcessorImageBackgroundResilienceTests
+{
+    private static readonly Guid OrgId = Guid.Parse("5e5e5e5e-5e5e-5e5e-5e5e-5e5e5e5e5e5e");
+    private static readonly Guid ClientId = Guid.Parse("6f6f6f6f-6f6f-6f6f-6f6f-6f6f6f6f6f6f");
+    private static readonly Guid AnalysisId = Guid.Parse("7a7a7a7a-7a7a-7a7a-7a7a-7a7a7a7a7a7a");
+    private static readonly Guid JobId = Guid.Parse("8b8b8b8b-8b8b-8b8b-8b8b-8b8b8b8b8b8b");
+
+    // -----------------------------------------------------------------------
+    // CIG-CG-03-b: service returns empty map → all slides degrade to CSS; job completes
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClientAesthetic_ServiceReturnsEmptyMap_AllSlidesCss_JobCompletes()
+    {
+        // GIVEN a ClientAesthetic carousel with creative slides [1, 5], service returns empty map (all failed)
+        var rendererSpy = new ResilienceTrackingRenderer();
+        var processor = BuildProcessor(
+            slideCount: 5,
+            creativeSlideIndices: [1, 5],
+            imageService: new FixedResultImageService(new Dictionary<int, BackgroundSelection.ForcedDefault>()),
+            renderer: rendererSpy);
+
+        // WHEN processing runs — THEN no exception propagates
+        var ex = await Record.ExceptionAsync(() => processor.ProcessAsync(JobId, CancellationToken.None));
+        Assert.Null(ex);
+
+        // AND all slides were rendered (CSS designer path for each)
+        Assert.True(rendererSpy.RenderCallCount > 0,
+            "Renderer MUST be called for each slide even when all image-gen failed (CIG-CG-03-b).");
+    }
+
+    // -----------------------------------------------------------------------
+    // CIG-CG-03-a: partial map (slide 1 succeeded, slide 5 absent) → job completes; image service called
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClientAesthetic_ServiceReturnsPartialMap_JobCompletes_NoPropagatedError()
+    {
+        // GIVEN service returns ForcedDefault only for slide 1 (slide 5 absent = CSS fallback)
+        var rendererSpy = new ResilienceTrackingRenderer();
+        var capturedRequests = new List<ClientAestheticImageRequest>();
+        var partialMap = new Dictionary<int, BackgroundSelection.ForcedDefault>
+        {
+            [1] = new BackgroundSelection.ForcedDefault("https://storage.example.com/slide1.png", "ai-generated-background")
+        };
+        var capturingService = new CapturingImageService(partialMap, capturedRequests);
+
+        var processor = BuildProcessor(
+            slideCount: 5,
+            creativeSlideIndices: [1, 5],
+            imageService: capturingService,
+            renderer: rendererSpy);
+
+        // WHEN
+        var ex = await Record.ExceptionAsync(() => processor.ProcessAsync(JobId, CancellationToken.None));
+
+        // THEN no exception propagates (CIG-CG-03-a)
+        Assert.Null(ex);
+
+        // AND the renderer was called (all slides rendered — partial image success handled)
+        Assert.True(rendererSpy.RenderCallCount > 0,
+            "Renderer MUST be called when service returns a partial map — slides render normally.");
+
+        // AND the image service was called with at least one creative index
+        // (exact index set depends on TryGetSlideCount / payload shape; the key contract
+        // is that the service was entered for ClientAesthetic + non-null imageBackgroundService)
+        Assert.NotEmpty(capturedRequests);
+        Assert.NotEmpty(capturedRequests[0].CreativeSlideIndices);
+    }
+
+    // -----------------------------------------------------------------------
+    // IMG-05: service throws an exception → caught; all slides degrade to CSS; job completes
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClientAesthetic_ServiceThrowsException_CaughtAndJobCompletes()
+    {
+        // GIVEN the service throws an unhandled exception
+        var rendererSpy = new ResilienceTrackingRenderer();
+        var processor = BuildProcessor(
+            slideCount: 3,
+            creativeSlideIndices: [1, 3],
+            imageService: new ThrowingImageService(),
+            renderer: rendererSpy);
+
+        // WHEN — THEN no unhandled exception propagates (IMG-05)
+        var ex = await Record.ExceptionAsync(() => processor.ProcessAsync(JobId, CancellationToken.None));
+        Assert.Null(ex);
+
+        // AND the renderer was still called — CSS path used as fallback
+        Assert.True(rendererSpy.RenderCallCount > 0,
+            "Renderer MUST be called even after service exception — CSS fallback ensures job completion (IMG-05).");
+    }
+
+    // -----------------------------------------------------------------------
+    // FIX-1: processor opens a ProviderCallContext scope before invoking the image service
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClientAesthetic_ImageBuild_ProviderCallContextIsActive()
+    {
+        // GIVEN a spy that records whether ProviderCallContext.Current was non-null when called
+        var providerCallContext = new ProviderCallContext();
+        var scopeSpy = new ScopeCheckingImageService(providerCallContext);
+
+        var processor = BuildProcessorWithContext(
+            slideCount: 3,
+            creativeSlideIndices: [1, 3],
+            imageService: scopeSpy,
+            providerCallContext: providerCallContext);
+
+        // WHEN
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        // THEN the service was called AND the scope was active (FIX-1)
+        Assert.True(scopeSpy.WasCalled,
+            "BuildCreativeBackgroundsAsync MUST be called for a ClientAesthetic carousel with wired service.");
+        Assert.True(scopeSpy.ContextWasActive,
+            "ProviderCallContext.Current MUST be non-null when BuildCreativeBackgroundsAsync is called " +
+            "(FIX-1: decorators throw when Current is null).");
+    }
+
+    // -----------------------------------------------------------------------
+    // FIX-2: composition coherence — AI URL appears in plan BEFORE ComposeManyAsync
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClientAesthetic_SuccessfulImageBuild_CompositionPlanContainsAiUrl()
+    {
+        // GIVEN a service that returns a ForcedDefault with a known AI URL for slide 1
+        const string aiImageUrl = "https://storage.example.com/ai-background-slide1.png";
+        var successMap = new Dictionary<int, BackgroundSelection.ForcedDefault>
+        {
+            [1] = new BackgroundSelection.ForcedDefault(aiImageUrl, "ai-generated-background")
+        };
+        var composerSpy = new PlanCapturingCompositionService("carousel", slideCount: 3);
+        var processor = BuildProcessorWithComposer(
+            slideCount: 3,
+            creativeSlideIndices: [1],
+            imageService: new FixedResultImageService(successMap),
+            composer: composerSpy);
+
+        // WHEN
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        // THEN the plan passed to ComposeManyAsync already contains the AI ForcedDefault for slide 1
+        // (FIX-2: overlay happens before composition, not after)
+        Assert.True(composerSpy.ReceivedPlan is not null,
+            "ComposeManyAsync MUST receive a backgroundPlan (carousel with ClientAesthetic strategy).");
+        var slide1Selection = composerSpy.ReceivedPlan!.ForSlide(1);
+        Assert.IsType<BackgroundSelection.ForcedDefault>(slide1Selection);
+        var forced = (BackgroundSelection.ForcedDefault)slide1Selection;
+        Assert.Equal(aiImageUrl, forced.Url);
+    }
+
+    // -----------------------------------------------------------------------
+    // FIX-3: cancelled token during image build → OperationCanceledException propagates
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClientAesthetic_CancelledDuringImageBuild_PropagatesOperationCanceledException()
+    {
+        // GIVEN a CancellationTokenSource that fires during the image build
+        using var cts = new CancellationTokenSource();
+        var processor = BuildProcessor(
+            slideCount: 3,
+            creativeSlideIndices: [1, 3],
+            imageService: new CancellingImageService(cts));
+
+        // WHEN — THEN the cancellation propagates (FIX-3: not swallowed by catch (Exception))
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            processor.ProcessAsync(JobId, cts.Token));
+    }
+
+    // -----------------------------------------------------------------------
+    // CAFF-CG-01 (trigger A): a Photo-classified slide whose image generation failed degrades to
+    // the deterministic palette-backed flat treatment. AiVisualDesigner.ComposeAsync MUST NOT be
+    // called for that slide. Reuses FixedResultImageService (empty map = generation failed) and
+    // SelectionCapturingDesigner (asserts zero ComposeAsync invocations via an empty selection list).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClientAesthetic_PhotoSlideImageGenerationFails_DegradesToFaithfulFlat_DesignerNeverCalled()
+    {
+        // GIVEN a single-slide ClientAesthetic carousel whose BackgroundPattern classifies the slide
+        // as Photo, ColorPairings resolved, but image generation fails for that slide (empty map).
+        var rendererSpy = new ResilienceTrackingRenderer();
+        var designerSpy = new SelectionCapturingDesigner();
+        var formatResultsSpy = new ResilienceFormatResultRepository();
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["minimal"],
+            VoiceTone: "professional",
+            AverageSlidesPerCarousel: 1,
+            AnalyzedAtUtc: DateTime.UtcNow,
+            CreativeSlideIndices: [1],
+            BackgroundPattern: [SlideBackgroundKind.Photo],
+            ColorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)]);
+
+        var processor = BuildProcessorCore(
+            slideCount: 1,
+            profile,
+            imageService: new FixedResultImageService(new Dictionary<int, BackgroundSelection.ForcedDefault>()),
+            renderer: rendererSpy,
+            designer: designerSpy,
+            composer: null,
+            providerCallContext: null,
+            formatKey: "feed-carousel",
+            formatResults: formatResultsSpy);
+
+        // WHEN
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        // THEN the designer was never invoked for this slide (CAFF-CG-01).
+        Assert.Empty(designerSpy.ReceivedSelections);
+
+        // AND the slide rendered through the deterministic flat treatment using the client's
+        // resolved ColorPairings — no scrim, no gradient, no AI-designer markup.
+        Assert.NotNull(rendererSpy.ReceivedMarkup);
+        Assert.Contains("background:#112233", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("rgba(0,0,0,0.52)", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("linear-gradient", rendererSpy.ReceivedMarkup);
+
+        // AND (CAFF-CG-04) the persisted envelope carries the trigger-A degrade marker.
+        var persisted = formatResultsSpy.LastUpsert;
+        Assert.NotNull(persisted?.CompositionSpecJson);
+        var envelope = CompositionSpecJson.ParseList(persisted!.CompositionSpecJson).Single();
+        Assert.Equal(SlideDegradeReason.PhotoImageUnavailable, envelope.DegradeReason);
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    private ContentGenerationJobProcessor BuildProcessorWithContext(
+        int slideCount,
+        IReadOnlyList<int> creativeSlideIndices,
+        IClientAestheticImageBackgroundService imageService,
+        ProviderCallContext providerCallContext)
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["minimal"],
+            VoiceTone: "professional",
+            AverageSlidesPerCarousel: slideCount,
+            AnalyzedAtUtc: DateTime.UtcNow,
+            CreativeSlideIndices: creativeSlideIndices);
+
+        return BuildProcessorCore(
+            slideCount,
+            profile,
+            imageService,
+            renderer: new ResilienceTrackingRenderer(),
+            designer: new ResiliencePassthroughDesigner(),
+            composer: null,
+            providerCallContext: providerCallContext);
+    }
+
+    private ContentGenerationJobProcessor BuildProcessorWithComposer(
+        int slideCount,
+        IReadOnlyList<int> creativeSlideIndices,
+        IClientAestheticImageBackgroundService imageService,
+        IVisualCompositionService composer)
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["minimal"],
+            VoiceTone: "professional",
+            AverageSlidesPerCarousel: slideCount,
+            AnalyzedAtUtc: DateTime.UtcNow,
+            CreativeSlideIndices: creativeSlideIndices);
+
+        return BuildProcessorCore(
+            slideCount,
+            profile,
+            imageService,
+            renderer: new ResilienceTrackingRenderer(),
+            designer: new ResiliencePassthroughDesigner(),
+            composer: composer,
+            providerCallContext: null);
+    }
+
+    private ContentGenerationJobProcessor BuildProcessor(
+        int slideCount,
+        IReadOnlyList<int> creativeSlideIndices,
+        IClientAestheticImageBackgroundService imageService,
+        IContentRenderer? renderer = null,
+        IVisualDesigner? designer = null)
+    {
+        var profile = new ClientAestheticProfile(
+            BackgroundDescriptors: ["minimal"],
+            VoiceTone: "professional",
+            AverageSlidesPerCarousel: slideCount,
+            AnalyzedAtUtc: DateTime.UtcNow,
+            CreativeSlideIndices: creativeSlideIndices);
+
+        return BuildProcessorCore(
+            slideCount,
+            profile,
+            imageService,
+            renderer: renderer ?? new ResilienceTrackingRenderer(),
+            designer: designer ?? new ResiliencePassthroughDesigner(),
+            composer: null,
+            providerCallContext: null);
+    }
+
+    private ContentGenerationJobProcessor BuildProcessorCore(
+        int slideCount,
+        ClientAestheticProfile profile,
+        IClientAestheticImageBackgroundService imageService,
+        IContentRenderer renderer,
+        IVisualDesigner designer,
+        IVisualCompositionService? composer,
+        ProviderCallContext? providerCallContext,
+        // CAFF-CG-01: "carousel" is a legacy alias EXCLUDED from DesignedRasterFormats (ADR-3.6),
+        // so it never reaches the designer+guardrail block the degrade triggers live inside.
+        // Degrade-routing tests pass "feed-carousel" (a real canonical carousel format key).
+        string formatKey = "carousel",
+        // CAFF-CG-04: overridable so degrade-marker tests can inspect the persisted envelope.
+        IContentGenerationFormatResultRepository? formatResults = null)
+    {
+        var fakeJob = new ContentGenerationJob(
+            Id: JobId,
+            OrganizationId: OrgId,
+            ClientId: ClientId,
+            AnalysisId: AnalysisId,
+            RequestedFormats: [formatKey],
+            Status: "Queued",
+            StatusReason: null,
+            ErrorCode: null,
+            BrandSnapshotJson: "{}",
+            ManifestJson: null,
+            CorrelationId: Guid.NewGuid(),
+            CreatedAt: DateTime.UtcNow,
+            UpdatedAt: DateTime.UtcNow,
+            StartedAt: null,
+            CompletedAt: null);
+
+        var analysis = new SingleAnalyzerAnalysis(
+            Summary: "Test",
+            DetectedHooks: [],
+            LikelyAudience: "SMBs",
+            NarrativeStructure: "problem-solution",
+            Strengths: [],
+            Weaknesses: [],
+            DerivedIdeas: [],
+            ClientAdaptationRecommendations: [],
+            Confidence: 0.9,
+            Warnings: []);
+
+        var analysisJson = JsonSerializer.Serialize(analysis, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var analysisRecord = new SingleContentAnalysisRecord(
+            Id: AnalysisId,
+            OrganizationId: OrgId,
+            ClientId: ClientId,
+            UserId: Guid.NewGuid(),
+            SourceUrl: "https://example.com/test",
+            NormalizedUrl: null,
+            SourcePlatformKey: null,
+            Status: SingleContentAnalysisStatus.Analyzed,
+            ContentSnapshotJson: null,
+            AnalysisJson: analysisJson,
+            ProviderDiagnosticsJson: null,
+            FailureCode: null,
+            FailureMessageKey: null,
+            CreatedAtUtc: DateTime.UtcNow,
+            UpdatedAtUtc: DateTime.UtcNow,
+            CompletedAtUtc: DateTime.UtcNow);
+
+        var payload = BuildCarouselPayload(slideCount);
+
+        var brand = BrandSnapshot.FromBrandData(
+            new BrandManualSnapshot(
+                ColorPalette: [new WeightedColor("#333333", null, 0), new WeightedColor("#666666", null, 1)],
+                Logos: [],
+                BackgroundTemplates: [],
+                Typography: ["Inter"],
+                VoiceAndTone: null,
+                Notes: null),
+            strategy: null,
+            monthlyObjective: null,
+            client: new ClientProfileSnapshot("Test Client", null, null, BackgroundSourcingPolicy.ClientAesthetic));
+
+        return new ContentGenerationJobProcessor(
+            jobs: new ResilienceJobRepository(fakeJob),
+            analyses: new ResilienceAnalysisRepository(analysisRecord),
+            orchestrator: new ResilienceOrchestrator(formatKey, payload, brand),
+            formatResults: formatResults ?? new ResilienceFormatResultRepository(),
+            brandLoader: new ResilienceBrandLoader(brand),
+            composer: composer ?? new ResilienceCompositionService(formatKey, slideCount),
+            renderer: renderer,
+            packageBuilder: new ResiliencePackageBuilder(),
+            packageStorage: new ResiliencePackageStorage(),
+            packages: new ResiliencePackageRepository(),
+            assetStorage: null,
+            assetRepository: null,
+            designer: designer,
+            guardrails: new ResiliencePassingGuardrails(),
+            providerCallContext: providerCallContext ?? new ProviderCallContext(),
+            logger: NullLogger<ContentGenerationJobProcessor>.Instance,
+            backgroundStrategyResolver: new ResilienceClientAestheticStrategyResolver(formatKey, slideCount),
+            aestheticDescriptorReader: null,
+            aestheticProfileReader: new ResilienceFixedAestheticProfileReader(profile),
+            aestheticEnsureFreshService: null,
+            imageBackgroundService: imageService);
+    }
+
+    private static object BuildCarouselPayload(int slideCount)
+    {
+        var slides = Enumerable.Range(1, slideCount).Select(i => new
+        {
+            title = $"Slide {i}",
+            body = $"Body {i}"
+        }).ToArray();
+        return new { slides, coverTitle = "Cover", publicationDescription = "Test" };
+    }
+}
+
+// -----------------------------------------------------------------------
+// Test-local spy/stub types
+// -----------------------------------------------------------------------
+
+/// <summary>Returns a fixed map of ForcedDefault backgrounds.</summary>
+file sealed class FixedResultImageService(IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault> map)
+    : IClientAestheticImageBackgroundService
+{
+    public Task<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>> BuildCreativeBackgroundsAsync(
+        ClientAestheticImageRequest request,
+        CancellationToken ct = default) =>
+        Task.FromResult(map);
+}
+
+/// <summary>Throws InvalidOperationException to test the processor's exception isolation.</summary>
+file sealed class ThrowingImageService : IClientAestheticImageBackgroundService
+{
+    public Task<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>> BuildCreativeBackgroundsAsync(
+        ClientAestheticImageRequest request,
+        CancellationToken ct = default) =>
+        throw new InvalidOperationException("Simulated image-gen service failure");
+}
+
+/// <summary>Captures the request passed to BuildCreativeBackgroundsAsync and returns a fixed map.</summary>
+file sealed class CapturingImageService(
+    IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault> map,
+    List<ClientAestheticImageRequest> captured)
+    : IClientAestheticImageBackgroundService
+{
+    public Task<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>> BuildCreativeBackgroundsAsync(
+        ClientAestheticImageRequest request,
+        CancellationToken ct = default)
+    {
+        captured.Add(request);
+        return Task.FromResult(map);
+    }
+}
+
+/// <summary>Captures BackgroundSelection passed to ComposeAsync for each slide.</summary>
+file sealed class SelectionCapturingDesigner : IVisualDesigner
+{
+    private readonly List<BackgroundSelection> _selections = new();
+    public IReadOnlyList<BackgroundSelection> ReceivedSelections => _selections;
+    public bool IsActive => true;
+
+    public Task<Result<VisualDesignOutput>> ComposeAsync(
+        Guid organizationId,
+        VisualCompositionSpec contentPayload,
+        BrandManualSnapshot brandSnapshot,
+        BackgroundSelection backgroundSelection,
+        CancellationToken cancellationToken,
+        ClientAestheticDesignContext? aesthetic = null)
+    {
+        _selections.Add(backgroundSelection);
+        return Task.FromResult(Result.Success(new VisualDesignOutput(
+            Markup: BuildMarkup(contentPayload),
+            PromptVersionKey: "visual-designer/v1",
+            IsValid: false)));
+    }
+
+    private static string BuildMarkup(VisualCompositionSpec spec) =>
+        $"""<div class="composition" data-format="{spec.FormatKey}" style="width:{spec.Dimensions.Width}px;height:{spec.Dimensions.Height}px;"><div class="layer-background" data-layer="background"></div><div class="layer-content" data-layer="content"></div></div>""";
+}
+
+file sealed class ResiliencePassthroughDesigner : IVisualDesigner
+{
+    public bool IsActive => true;
+
+    public Task<Result<VisualDesignOutput>> ComposeAsync(
+        Guid organizationId,
+        VisualCompositionSpec contentPayload,
+        BrandManualSnapshot brandSnapshot,
+        BackgroundSelection backgroundSelection,
+        CancellationToken cancellationToken,
+        ClientAestheticDesignContext? aesthetic = null) =>
+        Task.FromResult(Result.Success(new VisualDesignOutput(
+            Markup: $"""<div class="composition" data-format="{contentPayload.FormatKey}" style="width:{contentPayload.Dimensions.Width}px;height:{contentPayload.Dimensions.Height}px;"><div class="layer-background" data-layer="background"></div></div>""",
+            PromptVersionKey: "visual-designer/v1",
+            IsValid: false)));
+}
+
+file sealed class ResiliencePassingGuardrails : IVisualGuardrailValidator
+{
+    public Result<VisualDesignOutput> Validate(VisualDesignOutput output, BrandManualSnapshot brand, VisualCompositionSpec spec) =>
+        Result.Success(output.WithValidated());
+}
+
+file sealed class ResilienceTrackingRenderer : IContentRendererWithGeometry
+{
+    private int _callCount;
+    public int RenderCallCount => _callCount;
+
+    // CAFF-CG-01/02: last markup received, so degrade-routing tests can assert flat-treatment
+    // content (or its absence) without a dedicated capturing renderer per test.
+    public string? ReceivedMarkup { get; private set; }
+
+    public Task<Result<RenderedAsset>> RenderAsync(VisualCompositionSpec spec, RenderOptions opts, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _callCount);
+        ReceivedMarkup = spec.DesignerMarkup;
+        var bytes = System.Text.Encoding.UTF8.GetBytes("fake-png");
+        return Task.FromResult(Result.Success(RenderedAsset.Create(spec.FormatKey, "image/png", $"{spec.FormatKey}.png", bytes)));
+    }
+
+    public Task<Result<RenderedAssetWithGeometry>> RenderWithGeometryAsync(
+        VisualCompositionSpec spec, RenderOptions opts, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _callCount);
+        ReceivedMarkup = spec.DesignerMarkup;
+        var bytes = System.Text.Encoding.UTF8.GetBytes("fake-png");
+        var asset = RenderedAsset.Create(spec.FormatKey, "image/png", $"{spec.FormatKey}.png", bytes);
+        return Task.FromResult(Result.Success(new RenderedAssetWithGeometry(asset, [], null)));
+    }
+}
+
+file sealed class ResilienceBrandLoader(BrandSnapshot brand) : IClientBrandSnapshotLoader
+{
+    public Task<BrandSnapshot> LoadAsync(Guid orgId, Guid clientId, CancellationToken ct = default) =>
+        Task.FromResult(brand);
+}
+
+file sealed class ResilienceFixedAestheticProfileReader(ClientAestheticProfile profile) : IClientAestheticProfileReader
+{
+    public Task<ClientAestheticProfile?> GetProfileAsync(Guid orgId, Guid clientId, CancellationToken ct) =>
+        Task.FromResult<ClientAestheticProfile?>(profile);
+}
+
+file sealed class ResilienceClientAestheticStrategyResolver(string formatKey, int slideCount) : IBackgroundStrategyResolver
+{
+    public IBackgroundSourcingStrategy? Resolve(BackgroundSourcingPolicy? policy) =>
+        policy == BackgroundSourcingPolicy.ClientAesthetic
+            ? new ResilienceClientAestheticStrategy(slideCount)
+            : null;
+}
+
+file sealed class ResilienceClientAestheticStrategy(int slideCount) : IBackgroundSourcingStrategy
+{
+    public BackgroundSourcingPolicy Policy => BackgroundSourcingPolicy.ClientAesthetic;
+
+    public CarouselBackgroundPlan Plan(BackgroundPlanRequest request)
+    {
+        var count = request.SlideCount < 1 ? 1 : request.SlideCount;
+        var perSlide = Enumerable.Range(1, count)
+            .Select(_ => (BackgroundSelection) new BackgroundSelection.ClientAesthetic([]))
+            .ToList();
+        return new CarouselBackgroundPlan(BackgroundSourcingPolicy.ClientAesthetic, perSlide, request.SeedToken);
+    }
+}
+
+file sealed class ResilienceCompositionService(string designedFormat, int slideCount) : IVisualCompositionService
+{
+    private static readonly CompositionPalette DefaultPalette = new("#333", "#666", "#999", "#FFF", "#EEE");
+    private static readonly CompositionTypography DefaultTypo = new("Inter", 24, "Inter", 14);
+    private static readonly CompositionDimensions DefaultDim = new(1080, 1080, 96);
+
+    public Task<VisualCompositionSpec> ComposeAsync(string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, ClientAestheticProfile? aestheticProfile = null) =>
+        Task.FromResult(BuildSpec(formatKey));
+
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
+        string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, CarouselBackgroundPlan? plan = null, ClientAestheticProfile? aestheticProfile = null)
+    {
+        var specs = Enumerable.Range(1, slideCount).Select(_ => BuildSpec(formatKey)).ToList();
+        return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>(specs);
+    }
+
+    private VisualCompositionSpec BuildSpec(string formatKey)
+    {
+        var outputKind = string.Equals(formatKey, designedFormat, StringComparison.OrdinalIgnoreCase)
+            ? CompositionOutputKind.Raster
+            : CompositionOutputKind.Text;
+
+        return new VisualCompositionSpec(
+            FormatKey: formatKey,
+            LayoutType: "carousel-carousel",
+            Palette: DefaultPalette,
+            Typography: DefaultTypo,
+            AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+            CopySlots: new Dictionary<string, string> { ["title"] = "Slide" },
+            Dimensions: DefaultDim)
+        with { OutputKind = outputKind, TextBody = outputKind == CompositionOutputKind.Text ? "body" : null };
+    }
+
+    public IReadOnlyList<string> GetInferredFields() => [];
+}
+
+file sealed class ResilienceJobRepository(ContentGenerationJob job) : IContentGenerationJobRepository
+{
+    public Task InsertAsync(ContentGenerationJob j, CancellationToken ct) => Task.CompletedTask;
+    public Task<ContentGenerationJob?> GetByIdAsync(Guid id, Guid orgId, CancellationToken ct) => Task.FromResult<ContentGenerationJob?>(job);
+    public Task<ContentGenerationJob?> GetByIdInternalAsync(Guid id, CancellationToken ct) => Task.FromResult<ContentGenerationJob?>(job);
+    public Task UpdateStatusAsync(Guid id, string status, string? reason, string? code, CancellationToken ct) => Task.CompletedTask;
+    public Task UpdateManifestAsync(Guid id, string json, DateTime completedAt, CancellationToken ct) => Task.CompletedTask;
+    public Task<IReadOnlyList<ContentGenerationJob>> ListPendingOrRunningAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<ContentGenerationJob>>([]);
+    public Task<ContentGenerationJob?> GetLatestByAnalysisAndClientAsync(Guid analysisId, Guid organizationId, Guid clientId, CancellationToken ct) => Task.FromResult<ContentGenerationJob?>(null);
+}
+
+file sealed class ResilienceAnalysisRepository(SingleContentAnalysisRecord record) : ISingleContentAnalysisRepository
+{
+    public Task AddAsync(SingleContentAnalysisRecord a, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<SingleContentAnalysisRecord?> GetByIdAsync(Guid id, Guid orgId, CancellationToken ct = default) => Task.FromResult<SingleContentAnalysisRecord?>(record);
+    public Task UpdateStatusAsync(Guid id, Guid orgId, SingleContentAnalysisStatus status, DateTime updatedAt, CancellationToken ct = default, string? failCode = null, string? failMsgKey = null) => Task.CompletedTask;
+    public Task UpdateAsync(SingleContentAnalysisRecord a, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<SingleContentAnalysisHistoryPage> ListByUserAsync(Guid orgId, Guid userId, int page, int pageSize, CancellationToken ct = default) =>
+        Task.FromResult(new SingleContentAnalysisHistoryPage([], 0, page, pageSize));
+    public Task<SingleContentAnalysisHistoryItem?> FindLatestByUserAndUrlAsync(Guid orgId, Guid userId, string normalized, string src, CancellationToken ct = default) =>
+        Task.FromResult<SingleContentAnalysisHistoryItem?>(null);
+    public Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(Guid id, Guid orgId, Guid userId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<string>?>([]);
+}
+
+file sealed class ResilienceFormatResultRepository : IContentGenerationFormatResultRepository
+{
+    private readonly Dictionary<(Guid JobId, string FormatKey), ContentGenerationFormatResult> _store = new();
+
+    // CAFF-CG-04: last persisted format result, so degrade-marker tests can inspect the actual
+    // persisted CompositionSpecJson without a dedicated spy repository per test.
+    public ContentGenerationFormatResult? LastUpsert { get; private set; }
+
+    public Task<ContentGenerationFormatResult> UpsertAsync(ContentGenerationFormatResult r, CancellationToken ct)
+    {
+        _store[(r.JobId, r.FormatKey)] = r;
+        LastUpsert = r;
+        return Task.FromResult(r);
+    }
+    public Task<IReadOnlyList<ContentGenerationFormatResult>> ListByJobAsync(Guid jobId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ContentGenerationFormatResult>>([]);
+}
+
+file sealed class ResilienceOrchestrator(string formatKey, object payload, BrandSnapshot brand)
+    : IContentGenerationOrchestrator
+{
+    public Task<OrchestratorResult> RunAsync(OrchestratorRequest request, CancellationToken ct)
+    {
+        var results = new Dictionary<string, FormatGenerationResult<object>>(StringComparer.OrdinalIgnoreCase)
+        {
+            [formatKey] = FormatGenerationResult<object>.Succeeded(payload, "test.v1", [])
+        };
+        return Task.FromResult(new OrchestratorResult(OrchestratorStatus.Succeeded, results, brand));
+    }
+}
+
+file sealed class ResiliencePackageBuilder : IGeneratedPackageBuilder
+{
+    public Task<BuiltPackage> BuildAsync(BuildPackageInput input, CancellationToken ct)
+    {
+        var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("fake-zip"));
+        var manifest = new GeneratedPackageManifest(new Dictionary<string, FormatAssetMetadata>(), [], [], 0, "test");
+        return Task.FromResult(new BuiltPackage(stream, stream.Length, manifest, "test.zip"));
+    }
+}
+
+file sealed class ResiliencePackageStorage : IGeneratedPackageStorage
+{
+    public Task<StoredPackageRef> StoreAsync(Stream content, StorePackageKey key, CancellationToken ct) =>
+        Task.FromResult(new StoredPackageRef("fake://test"));
+    public Task<Stream> OpenAsync(StoredPackageRef refKey, CancellationToken ct) =>
+        Task.FromResult<Stream>(new MemoryStream());
+    public Task DeleteAsync(StoredPackageRef refKey, CancellationToken ct) => Task.CompletedTask;
+}
+
+file sealed class ResiliencePackageRepository : IGeneratedPackageRepository
+{
+    public Task InsertAsync(GeneratedPackage p, CancellationToken ct) => Task.CompletedTask;
+    public Task<GeneratedPackage?> GetByJobIdAsync(Guid jobId, Guid organizationId, CancellationToken ct) =>
+        Task.FromResult<GeneratedPackage?>(null);
+}
+
+/// <summary>
+/// FIX-1: checks whether ProviderCallContext.Current is non-null at the moment it is called.
+/// </summary>
+file sealed class ScopeCheckingImageService(ProviderCallContext callContext) : IClientAestheticImageBackgroundService
+{
+    public bool WasCalled { get; private set; }
+    public bool ContextWasActive { get; private set; }
+
+    public Task<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>> BuildCreativeBackgroundsAsync(
+        ClientAestheticImageRequest request,
+        CancellationToken ct = default)
+    {
+        WasCalled = true;
+        ContextWasActive = callContext.Current is not null;
+        return Task.FromResult<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>>(
+            new Dictionary<int, BackgroundSelection.ForcedDefault>());
+    }
+}
+
+/// <summary>
+/// FIX-2: captures the backgroundPlan passed to ComposeManyAsync for plan-coherence assertions.
+/// </summary>
+file sealed class PlanCapturingCompositionService(string designedFormat, int slideCount) : IVisualCompositionService
+{
+    private static readonly CompositionPalette DefaultPalette = new("#333", "#666", "#999", "#FFF", "#EEE");
+    private static readonly CompositionTypography DefaultTypo = new("Inter", 24, "Inter", 14);
+    private static readonly CompositionDimensions DefaultDim = new(1080, 1080, 96);
+
+    public CarouselBackgroundPlan? ReceivedPlan { get; private set; }
+
+    public Task<VisualCompositionSpec> ComposeAsync(
+        string formatKey, object payload, BrandSnapshot brand, CancellationToken ct, ClientAestheticProfile? aestheticProfile = null) =>
+        Task.FromResult(BuildSpec(formatKey));
+
+    public Task<IReadOnlyList<VisualCompositionSpec>> ComposeManyAsync(
+        string formatKey, object payload, BrandSnapshot brand, CancellationToken ct,
+        CarouselBackgroundPlan? plan = null, ClientAestheticProfile? aestheticProfile = null)
+    {
+        ReceivedPlan = plan;
+        var specs = Enumerable.Range(1, slideCount).Select(_ => BuildSpec(formatKey)).ToList();
+        return Task.FromResult<IReadOnlyList<VisualCompositionSpec>>(specs);
+    }
+
+    private VisualCompositionSpec BuildSpec(string formatKey)
+    {
+        var outputKind = string.Equals(formatKey, designedFormat, StringComparison.OrdinalIgnoreCase)
+            ? CompositionOutputKind.Raster
+            : CompositionOutputKind.Text;
+        return new VisualCompositionSpec(
+            FormatKey: formatKey,
+            LayoutType: "carousel-carousel",
+            Palette: DefaultPalette,
+            Typography: DefaultTypo,
+            AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+            CopySlots: new Dictionary<string, string> { ["title"] = "Slide" },
+            Dimensions: DefaultDim)
+        with { OutputKind = outputKind, TextBody = outputKind == CompositionOutputKind.Text ? "body" : null };
+    }
+
+    public IReadOnlyList<string> GetInferredFields() => [];
+}
+
+/// <summary>
+/// FIX-3: cancels the token when called, then throws OperationCanceledException so the processor
+/// must propagate it (not swallow it inside the catch (Exception) block).
+/// </summary>
+file sealed class CancellingImageService(CancellationTokenSource cts) : IClientAestheticImageBackgroundService
+{
+    public Task<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>> BuildCreativeBackgroundsAsync(
+        ClientAestheticImageRequest request,
+        CancellationToken ct = default)
+    {
+        cts.Cancel();
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>>(
+            new Dictionary<int, BackgroundSelection.ForcedDefault>());
+    }
+}

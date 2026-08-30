@@ -14,6 +14,7 @@ public sealed class UserPreference : Entity<UserPreferenceId>
         Guid userId,
         string themeKey,
         string? accentTheme,
+        string dateFormat,
         DateTime createdAtUtc,
         DateTime updatedAtUtc)
         : base(id)
@@ -21,6 +22,7 @@ public sealed class UserPreference : Entity<UserPreferenceId>
         UserId = userId;
         ThemeKey = themeKey;
         AccentTheme = accentTheme;
+        DateFormat = dateFormat;
         CreatedAtUtc = createdAtUtc;
         UpdatedAtUtc = updatedAtUtc;
     }
@@ -31,6 +33,8 @@ public sealed class UserPreference : Entity<UserPreferenceId>
 
     public string? AccentTheme { get; private set; }
 
+    public string DateFormat { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
 
     public DateTime UpdatedAtUtc { get; private set; }
@@ -40,9 +44,10 @@ public sealed class UserPreference : Entity<UserPreferenceId>
         Guid userId,
         string themeKey,
         string? accentTheme,
+        string dateFormat,
         DateTime nowUtc)
     {
-        var validation = Validate(userId, themeKey, accentTheme);
+        var validation = Validate(userId, themeKey, accentTheme, dateFormat);
         if (validation.IsFailure)
         {
             return Result.Failure<UserPreference>(validation.Error);
@@ -53,6 +58,7 @@ public sealed class UserPreference : Entity<UserPreferenceId>
             userId,
             ThemeKeys.Normalize(themeKey),
             NormalizeAccentTheme(accentTheme),
+            DateFormats.Normalize(dateFormat),
             nowUtc,
             nowUtc));
     }
@@ -62,15 +68,16 @@ public sealed class UserPreference : Entity<UserPreferenceId>
         Guid userId,
         string themeKey,
         string? accentTheme,
+        string dateFormat,
         DateTime createdAtUtc,
         DateTime updatedAtUtc)
     {
-        return new UserPreference(id, userId, themeKey, accentTheme, createdAtUtc, updatedAtUtc);
+        return new UserPreference(id, userId, themeKey, accentTheme, dateFormat, createdAtUtc, updatedAtUtc);
     }
 
-    public Result UpdateTheme(string themeKey, string? accentTheme, DateTime nowUtc)
+    public Result UpdateTheme(string themeKey, string? accentTheme, string dateFormat, DateTime nowUtc)
     {
-        var validation = Validate(UserId, themeKey, accentTheme);
+        var validation = Validate(UserId, themeKey, accentTheme, dateFormat);
         if (validation.IsFailure)
         {
             return validation;
@@ -78,11 +85,12 @@ public sealed class UserPreference : Entity<UserPreferenceId>
 
         ThemeKey = ThemeKeys.Normalize(themeKey);
         AccentTheme = NormalizeAccentTheme(accentTheme);
+        DateFormat = DateFormats.Normalize(dateFormat);
         UpdatedAtUtc = nowUtc;
         return Result.Success();
     }
 
-    private static Result Validate(Guid userId, string themeKey, string? accentTheme)
+    private static Result Validate(Guid userId, string themeKey, string? accentTheme, string dateFormat)
     {
         if (userId == Guid.Empty)
         {
@@ -98,6 +106,11 @@ public sealed class UserPreference : Entity<UserPreferenceId>
         if (normalizedAccentTheme?.Length > AccentThemeMaxLength)
         {
             return Result.Failure(UserPreferenceErrors.AccentThemeTooLong);
+        }
+
+        if (!DateFormats.IsSupported(dateFormat))
+        {
+            return Result.Failure(UserPreferenceErrors.InvalidDateFormat);
         }
 
         return Result.Success();

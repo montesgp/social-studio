@@ -24,7 +24,7 @@ export function ForgotPasswordForm() {
     return (
       <div className="space-y-4 text-center">
         <p className="text-sm text-muted-foreground">
-          If that email address is in our system, you'll receive a password reset link shortly.
+          If that email address is in our system, you&apos;ll receive a password reset link shortly.
         </p>
         <Link href="/login" className="text-sm text-primary hover:underline">
           Back to sign in

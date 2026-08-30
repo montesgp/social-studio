@@ -6,13 +6,12 @@ using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Create;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Deactivate;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.GetById;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.GetByClient;
+using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Reorder;
+using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Sync;
 using Incoders.Hive.Application.Features.Social.ClientReferentAccounts.Update;
 using Incoders.Hive.Domain.Social.ClientReferentAccounts;
 using MediatR;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Routing;
 
 namespace Incoders.Hive.ApiService.Endpoints.Social;
 
@@ -38,6 +37,15 @@ public static class ClientReferentAccountsEndpointsExtensions
             .WithSummary("List referent accounts for a client, paginated")
             .Produces<PagedClientReferentAccountsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPut("/", SyncAsync)
+            .WithName("SyncClientReferentAccounts")
+            .WithSummary("Replace the client's referent account draft with the supplied ordered list")
+            .Produces<IReadOnlyList<ClientReferentAccountResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
         group.MapGet("/{id:guid}", GetByIdAsync)
             .WithName("GetClientReferentAccountById")
@@ -66,6 +74,14 @@ public static class ClientReferentAccountsEndpointsExtensions
             .Produces<ClientReferentAccountResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        // IMPORTANT: /reorder is a static segment — registered BEFORE /{id:guid} variants to avoid ambiguity
+        group.MapPost("/reorder", ReorderAsync)
+            .WithName("ReorderClientReferentAccounts")
+            .WithSummary("Reorder referent accounts by supplying the full ordered list of IDs (0-based position)")
+            .Produces<IReadOnlyList<ReorderedClientReferentAccountResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
         return app;
     }
@@ -161,6 +177,7 @@ public static class ClientReferentAccountsEndpointsExtensions
                 organizationId.Value,
                 clientId,
                 id,
+                body.SocialNetworkId,
                 body.ProfileUrl,
                 body.Handle,
                 body.Label,
@@ -168,6 +185,37 @@ public static class ClientReferentAccountsEndpointsExtensions
             cancellationToken);
 
         return result.Match(r => (IResult)TypedResults.Ok(r));
+    }
+
+    private static async Task<IResult> SyncAsync(
+        Guid clientId,
+        [FromBody] SyncClientReferentAccountsRequest body,
+        ICurrentTenant currentTenant,
+        ISender sender,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } organizationId)
+        {
+            return ClientReferentAccountErrors.NotFound.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new SyncClientReferentAccountsCommand(
+                organizationId.Value,
+                clientId,
+                body.Items.Select(x => new SyncClientReferentAccountItem(
+                    x.Id,
+                    x.SocialNetworkId,
+                    x.ProfileUrl,
+                    x.Handle,
+                    x.Label,
+                    x.Notes,
+                    x.IsActive)).ToList()),
+            cancellationToken);
+
+        return result.IsSuccess
+            ? TypedResults.Ok(result.Value)
+            : MapError(result.Error);
     }
 
     private static async Task<IResult> DeactivateAsync(
@@ -208,6 +256,30 @@ public static class ClientReferentAccountsEndpointsExtensions
         return result.Match(r => (IResult)TypedResults.Ok(r));
     }
 
+    private static async Task<IResult> ReorderAsync(
+        Guid clientId,
+        [FromBody] ReorderClientReferentAccountsRequest body,
+        ICurrentTenant currentTenant,
+        ISender sender,
+        CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not { } organizationId)
+        {
+            return ClientReferentAccountErrors.NotFound.ToProblem();
+        }
+
+        var result = await sender.Send(
+            new ReorderClientReferentAccountsCommand(
+                clientId,
+                organizationId.Value,
+                body.OrderedIds),
+            cancellationToken);
+
+        return result.IsSuccess
+            ? TypedResults.Ok(result.Value)
+            : MapError(result.Error);
+    }
+
     /// <summary>
     /// Maps domain errors to HTTP status codes, including 422 for SocialNetworkInactive.
     /// </summary>
@@ -235,7 +307,22 @@ public sealed record CreateClientReferentAccountRequest(
     string? Notes);
 
 public sealed record UpdateClientReferentAccountRequest(
+    Guid? SocialNetworkId,
     string ProfileUrl,
     string? Handle,
     string? Label,
     string? Notes);
+
+public sealed record ReorderClientReferentAccountsRequest(IReadOnlyList<Guid> OrderedIds);
+
+public sealed record SyncClientReferentAccountsRequest(
+    IReadOnlyList<SyncClientReferentAccountRequestItem> Items);
+
+public sealed record SyncClientReferentAccountRequestItem(
+    Guid? Id,
+    Guid SocialNetworkId,
+    string ProfileUrl,
+    string? Handle,
+    string? Label,
+    string? Notes,
+    bool IsActive);
