@@ -24,7 +24,9 @@ export interface EnqueueSummaryProps {
 /**
  * candidate × chosen-formats preview (spec: "Compose formats per candidate" — nothing enqueued until the
  * operator confirms here) plus the one-shot post-enqueue feedback (spec: "Post-enqueue feedback" — status
- * per candidate + ETA + link to the content-bank/jobs screen, no polling).
+ * per candidate + ETA + link to the operator-owned workflow progress view, no polling). The link target
+ * is backend-supplied (`response.jobsUrl`, see EnqueueContentWorkflowCandidatesCommandHandler) so this
+ * component never hardcodes the platform-admin content-generation-jobs route.
  */
 export function EnqueueSummary({
   selectedResults,
@@ -68,7 +70,7 @@ export function EnqueueSummary({
         </ul>
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild size="sm">
-            <Link href={response.jobsUrl || "/content-generation-jobs"}>
+            <Link href={response.jobsUrl || `/workflow/progress/${response.workflowId}`}>
               <Send className="h-4 w-4" /> {summary.jobsLinkLabel}
             </Link>
           </Button>

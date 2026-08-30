@@ -7,7 +7,7 @@ function response(overrides: Partial<EnqueueWorkflowCandidatesResponse> = {}): E
     workflowId: "wf-1",
     candidates: [],
     estimatedMinutes: 12,
-    jobsUrl: "/content-generation-jobs",
+    jobsUrl: "/workflow/progress/wf-1",
     ...overrides
   };
 }
@@ -31,7 +31,7 @@ test("summarizeEnqueueResponse counts accepted and rejected candidates", () => {
 test("summarizeEnqueueResponse never blocks on a poll — it is a pure one-shot formatter of the enqueue response", () => {
   const summary = summarizeEnqueueResponse(response({ estimatedMinutes: 8 }));
   assert.equal(summary.etaMessage, "Estimated time: about 8 minutes");
-  assert.match(summary.jobsLinkLabel, /Content Generation Jobs/);
+  assert.match(summary.jobsLinkLabel, /progress/i);
 });
 
 test("formatEta: zero or negative minutes", () => {

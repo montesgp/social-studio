@@ -17,8 +17,6 @@ namespace Incoders.Hive.Application.Features.Social.Workflow.Enqueue;
 public sealed class EnqueueContentWorkflowCandidatesCommandHandler
     : IRequestHandler<EnqueueContentWorkflowCandidatesCommand, Result<EnqueueContentWorkflowCandidatesResponse>>
 {
-    private const string JobsUrl = "/content-generation-jobs";
-
     private readonly IContentWorkflowSessionRepository _sessions;
     private readonly IContentWorkflowEnqueueQueue _queue;
     private readonly IClock _clock;
@@ -155,10 +153,15 @@ public sealed class EnqueueContentWorkflowCandidatesCommandHandler
             _etaOptions.PerPieceMinutes,
             totalPieces);
 
+        // The operator-owned Generator progress view for this exact workflow — NOT the platform-admin
+        // content-generation-jobs screen, which redirects a regular org operator away with no visibility
+        // into the work they just enqueued.
+        var jobsUrl = $"/workflow/progress/{request.WorkflowId}";
+
         return Result.Success(new EnqueueContentWorkflowCandidatesResponse(
             request.WorkflowId,
             results,
             estimatedMinutes,
-            JobsUrl));
+            jobsUrl));
     }
 }

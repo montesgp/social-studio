@@ -38,7 +38,7 @@ export function summarizeEnqueueResponse(response: EnqueueWorkflowCandidatesResp
     rejectedCount,
     totalCount: response.candidates.length,
     etaMessage: formatEta(response.estimatedMinutes),
-    jobsLinkLabel: "View progress in Content Generation Jobs"
+    jobsLinkLabel: "View enqueue progress"
   };
 }
 

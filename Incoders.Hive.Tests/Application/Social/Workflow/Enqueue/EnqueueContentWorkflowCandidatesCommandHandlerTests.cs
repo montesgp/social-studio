@@ -138,6 +138,22 @@ public sealed class EnqueueContentWorkflowCandidatesCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_ReturnsJobsUrlPointingAtTheOperatorOwnedWorkflowProgressView()
+    {
+        // Not the platform-admin content-generation-jobs screen (regular operators get redirected away
+        // from it) — the new Generator-owned progress view, scoped to this exact workflow.
+        var candidateId = Guid.NewGuid();
+        var (handler, _, _) = Build(SessionWith(candidateId, "https://tiktok.com/@a/video/1"));
+
+        var result = await handler.Handle(
+            Command([new WorkflowCandidateComposition(candidateId, [new BatchCompositionItem(ScriptKey, 1)])]),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal($"/workflow/progress/{WorkflowId}", result.Value.JobsUrl);
+    }
+
+    [Fact]
     public async Task Handle_ReturnsEstimatedMinutesFromTotalPieces()
     {
         var candidateId = Guid.NewGuid();
