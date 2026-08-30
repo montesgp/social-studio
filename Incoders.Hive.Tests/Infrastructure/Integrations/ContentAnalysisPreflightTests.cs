@@ -46,8 +46,74 @@ public sealed class ContentAnalysisPreflightTests
         Assert.Equal(SingleAnalyzerErrors.AiProviderUnavailable.Code, result.Error.Code);
     }
 
+    [Fact]
+    public async Task EnsureReady_FailsExtraction_WhenBothProvidersUnhealthy()
+    {
+        // Extraction keeps reporting priority when both probes fail — matches the previous
+        // sequential short-circuit behavior even though both now run concurrently.
+        var preflight = new ContentAnalysisPreflight(
+            new FakeResolver("apify", "claude"),
+            new IExternalIntegrationHealthCheck[] { Hc("apify", false), Hc("claude", false) });
+
+        var result = await preflight.EnsureReadyAsync(Guid.NewGuid(), "apify", "claude", CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(SingleAnalyzerErrors.ExtractionProviderUnavailable.Code, result.Error.Code);
+    }
+
+    [Fact]
+    public async Task EnsureReady_ProbesBothProvidersConcurrently()
+    {
+        var probeDelay = TimeSpan.FromMilliseconds(300);
+        var preflight = new ContentAnalysisPreflight(
+            new FakeResolver("apify", "claude"),
+            new IExternalIntegrationHealthCheck[]
+            {
+                new DelayedHealthCheck("apify", true, probeDelay),
+                new DelayedHealthCheck("claude", true, probeDelay),
+            });
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var result = await preflight.EnsureReadyAsync(Guid.NewGuid(), "apify", "claude", CancellationToken.None);
+        stopwatch.Stop();
+
+        Assert.True(result.IsSuccess);
+        // Sequential probing would take ~2x probeDelay; concurrent probing takes ~1x probeDelay.
+        Assert.True(
+            stopwatch.Elapsed < probeDelay * 2,
+            $"Expected concurrent probing (~{probeDelay}), but took {stopwatch.Elapsed}.");
+    }
+
     private static IExternalIntegrationHealthCheck Hc(string providerKey, bool healthy) =>
         new FakeHealthCheck(providerKey, healthy);
+
+    private sealed class DelayedHealthCheck : IExternalIntegrationHealthCheck
+    {
+        private readonly bool _healthy;
+        private readonly TimeSpan _delay;
+
+        public DelayedHealthCheck(string providerKey, bool healthy, TimeSpan delay)
+        {
+            ProviderKey = providerKey;
+            _healthy = healthy;
+            _delay = delay;
+        }
+
+        public string ProviderKey { get; }
+
+        public async Task<IntegrationHealthResult> CheckAsync(
+            IReadOnlyDictionary<string, string> credentials,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(_delay, cancellationToken);
+            return new IntegrationHealthResult(
+                _healthy,
+                ProviderKey,
+                _healthy ? 200 : 401,
+                _healthy ? null : "invalid_credentials",
+                _healthy ? "OK" : "rejected");
+        }
+    }
 
     private sealed class FakeHealthCheck : IExternalIntegrationHealthCheck
     {

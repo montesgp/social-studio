@@ -102,6 +102,7 @@ import {
   shouldAutoSwitchToPackage,
   shouldRefreshTerminalHistory,
   packageProgressState,
+  pollAttemptDelayMs,
 } from "@/lib/single-analyzer-ui-state";
 import { AnalysisOverlay } from "@/components/social/analysis-overlay";
 import { AnalyzerToolsToolbar } from "@/components/social/analyzer-tools-toolbar";
@@ -1635,6 +1636,15 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       return;
     }
 
+    // The overlay must appear the instant the user clicks Analyze, not after the duplicate-lookup
+    // round-trip resolves. setIsLoading/setAnalysisStatus run synchronously here, before any await,
+    // so <AnalysisOverlay visible={analysisStatus !== null}> renders on this same tick. If the
+    // lookup below finds a duplicate we revert both flags before showing the duplicate prompt
+    // instead of the overlay.
+    setDuplicateAnalysisPrompt(null);
+    setIsLoading(true);
+    setAnalysisStatus("Requested");
+
     if (!opts?.force && effectiveToken) {
       setIsCheckingDuplicate(true);
       setError(null);
@@ -1642,6 +1652,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
         const duplicate = await findSingleContentAnalysisByUrl(trimmedUrl, effectiveToken);
         if (duplicate.item) {
           setDuplicateAnalysisPrompt(duplicate.item);
+          setIsLoading(false);
+          setAnalysisStatus(null);
           return;
         }
       } catch {
@@ -1651,11 +1663,8 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       }
     }
 
-    setDuplicateAnalysisPrompt(null);
-    setIsLoading(true);
     resetVideoState();
     setIsSavedAnalysisView(false);
-    setAnalysisStatus("Requested");
     pollCancelRef.current = false;
     try {
       // ASYNC/POLL: POST queues the work and returns immediately with the analysis id/status.
@@ -1758,10 +1767,15 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
   async function pollUntilTerminal(id: string) {
     const deadline = Date.now() + POLL_TIMEOUT_MS;
+    let attemptIndex = 0;
     while (Date.now() < deadline) {
       if (pollCancelRef.current) return null;
-      await sleep(POLL_INTERVAL_MS);
-      if (pollCancelRef.current) return null;
+      const delay = pollAttemptDelayMs(attemptIndex, POLL_INTERVAL_MS);
+      if (delay > 0) {
+        await sleep(delay);
+        if (pollCancelRef.current) return null;
+      }
+      attemptIndex += 1;
       const current = await getSingleContentAnalysis(id, effectiveToken);
       setAnalysisStatus(current.status);
       if (current.status === "Analyzed" || current.status === "Failed") {

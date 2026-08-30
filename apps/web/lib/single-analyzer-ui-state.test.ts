@@ -6,6 +6,7 @@ import {
   shouldAutoSwitchToPackage,
   shouldRefreshTerminalHistory,
   packageProgressState,
+  pollAttemptDelayMs,
   PACKAGE_STEP_COUNT,
 } from "./single-analyzer-ui-state.ts";
 
@@ -92,4 +93,12 @@ test("packageProgressState Queued/Running/terminal states are unaffected by the 
   assert.equal(packageProgressState("Queued", {}, 3).label, "Queued");
   assert.equal(packageProgressState(null, {}, 3).label, "Initializing generation request");
   assert.equal(packageProgressState("Running", {}, 3).label, "Preparing analysis context");
+});
+
+// The overlay is already visible when polling starts, so the first status check must fire
+// immediately instead of waiting a full interval first.
+test("pollAttemptDelayMs fires the first poll immediately, then waits the interval between retries", () => {
+  assert.equal(pollAttemptDelayMs(0, 2500), 0);
+  assert.equal(pollAttemptDelayMs(1, 2500), 2500);
+  assert.equal(pollAttemptDelayMs(2, 2500), 2500);
 });

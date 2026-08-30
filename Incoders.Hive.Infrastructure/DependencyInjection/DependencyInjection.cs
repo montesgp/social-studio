@@ -376,6 +376,12 @@ public static class DependencyInjection
 #pragma warning restore EXTEXP0001
 
         services.AddScoped<IIntegrationSecretProtector, DataProtectionIntegrationSecretProtector>();
+        // Health-check probes are a quick connectivity ping (not the real workload), so give them a
+        // short, explicit timeout instead of inheriting the 100s HttpClient default — same style as
+        // the Canva/ComfyUI/Supabase clients configured above. A slow ping must not stall the
+        // content-analysis preflight gate.
+        services.AddHttpClient(nameof(ApifyIntegrationHealthCheck), client => client.Timeout = TimeSpan.FromSeconds(5));
+        services.AddHttpClient(nameof(ClaudeIntegrationHealthCheck), client => client.Timeout = TimeSpan.FromSeconds(5));
         // Real per-provider connectivity probes used by "Test connection".
         services.AddScoped<IExternalIntegrationHealthCheck, ApifyIntegrationHealthCheck>();
         services.AddScoped<IExternalIntegrationHealthCheck, ClaudeIntegrationHealthCheck>();

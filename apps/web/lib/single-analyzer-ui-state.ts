@@ -5,6 +5,17 @@
 /** Total number of user-visible package generation steps (Queued → Preparing → AI → Render → Zip). */
 export const PACKAGE_STEP_COUNT = 5;
 
+/**
+ * Delay (ms) a poll loop should wait before making its next status request.
+ *
+ * The FIRST poll attempt (attemptIndex === 0) must fire immediately — the overlay is already
+ * visible by the time polling starts, so there is nothing to gain from sleeping before the very
+ * first status check. Every subsequent attempt waits the normal interval between requests.
+ */
+export function pollAttemptDelayMs(attemptIndex: number, intervalMs: number): number {
+  return attemptIndex > 0 ? intervalMs : 0;
+}
+
 function isAiCheckpointStatus(status: string): boolean {
   return (
     status === "AiSucceeded" ||

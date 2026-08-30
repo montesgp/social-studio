@@ -33,14 +33,19 @@ internal sealed class ContentAnalysisPreflight : IContentAnalysisPreflight
         string aiProviderKey,
         CancellationToken cancellationToken = default)
     {
-        var extraction = await ProbeAsync(organizationId, extractionProviderKey, "extraction", cancellationToken);
-        if (!extraction)
+        // Extraction and AI probes are independent providers — run them concurrently instead of
+        // paying their latency back-to-back. Extraction still takes reporting priority when both
+        // fail, matching the previous sequential short-circuit behavior.
+        var extractionTask = ProbeAsync(organizationId, extractionProviderKey, "extraction", cancellationToken);
+        var aiTask = ProbeAsync(organizationId, aiProviderKey, "ai", cancellationToken);
+        await Task.WhenAll(extractionTask, aiTask);
+
+        if (!extractionTask.Result)
         {
             return Result.Failure(SingleAnalyzerErrors.ExtractionProviderUnavailable);
         }
 
-        var ai = await ProbeAsync(organizationId, aiProviderKey, "ai", cancellationToken);
-        if (!ai)
+        if (!aiTask.Result)
         {
             return Result.Failure(SingleAnalyzerErrors.AiProviderUnavailable);
         }
