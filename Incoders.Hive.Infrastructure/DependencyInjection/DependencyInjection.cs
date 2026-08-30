@@ -64,6 +64,7 @@ public static class DependencyInjection
 
         services.AddSingleton<ICacheStore, InMemoryCacheStore>();
         services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<IAsyncDelay, SystemAsyncDelay>();
         services.AddHttpClient();
         services.AddSingleton<IProcessRunner, SystemProcessRunner>();
 
