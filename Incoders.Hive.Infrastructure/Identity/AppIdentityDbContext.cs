@@ -82,6 +82,12 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
 
     public DbSet<ContentGenerationJobData> ContentGenerationJobs => Set<ContentGenerationJobData>();
 
+    public DbSet<ContentWorkflowSessionData> ContentWorkflowSessions => Set<ContentWorkflowSessionData>();
+
+    public DbSet<ContentWorkflowCandidateData> ContentWorkflowCandidates => Set<ContentWorkflowCandidateData>();
+
+    public DbSet<ContentWorkflowEventData> ContentWorkflowEvents => Set<ContentWorkflowEventData>();
+
     public DbSet<ContentGenerationFormatResultData> ContentGenerationFormatResults => Set<ContentGenerationFormatResultData>();
 
     public DbSet<GeneratedPackageData> GeneratedPackages => Set<GeneratedPackageData>();
@@ -1753,6 +1759,92 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
                 .HasDatabaseName("ix_client_account_connections_org_client_network_unique");
             entity.HasIndex(x => new { x.OrganizationId, x.ClientId })
                 .HasDatabaseName("ix_client_account_connections_org_client");
+        });
+
+        builder.Entity<ContentWorkflowSessionData>(entity =>
+        {
+            entity.ToTable("content_workflow_sessions", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasColumnName("organization_id").IsRequired();
+            entity.Property(x => x.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(x => x.ClientName).HasColumnName("client_name").HasMaxLength(256).IsRequired();
+            entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ConfigJson).HasColumnName("config_json").HasColumnType("jsonb");
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+
+            entity.HasIndex(x => new { x.OrganizationId, x.ClientId, x.CreatedAt })
+                .HasDatabaseName("ix_content_workflow_sessions_org_client_created");
+
+            entity.HasOne<TenantData>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<SocialClientData>()
+                .WithMany()
+                .HasForeignKey(x => x.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(x => x.Candidates)
+                .WithOne(x => x.Session)
+                .HasForeignKey(x => x.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ContentWorkflowCandidateData>(entity =>
+        {
+            entity.ToTable("content_workflow_candidates", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SessionId).HasColumnName("session_id").IsRequired();
+            entity.Property(x => x.ExternalResultId).HasColumnName("external_result_id").HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.PayloadJson).HasColumnName("payload_json").HasColumnType("jsonb");
+            entity.Property(x => x.IsSelected).HasColumnName("is_selected").IsRequired();
+            entity.Property(x => x.CompositionJson)
+                .HasColumnName("composition_json")
+                .HasColumnType("jsonb")
+                .IsRequired()
+                .HasDefaultValueSql("'[]'");
+            entity.Property(x => x.EnqueueKey).HasColumnName("enqueue_key").HasMaxLength(64);
+            entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
+            entity.Property(x => x.FailureCode).HasColumnName("failure_code").HasMaxLength(128);
+            entity.Property(x => x.AnalysisId).HasColumnName("analysis_id");
+            entity.Property(x => x.BatchId).HasColumnName("batch_id");
+            entity.Property(x => x.QueuedAt).HasColumnName("queued_at").IsRequired();
+            entity.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+
+            entity.HasIndex(x => x.SessionId)
+                .HasDatabaseName("ix_content_workflow_candidates_session_id");
+
+            // Partial unique index (design decision #6): "double-click does not double-bill". Only
+            // enforced while the candidate is NON-TERMINAL — a candidate allowed to reach a terminal
+            // status and then get re-composed (operator retries a failed one) must not collide with its
+            // own earlier, now-irrelevant key. Terminal statuses mirror
+            // WorkflowCandidateTransition.IsTerminal: AnalysisFailed(3), BatchFailed(5), BatchStarted(6).
+            entity.HasIndex(x => new { x.SessionId, x.EnqueueKey })
+                .IsUnique()
+                .HasDatabaseName("ix_content_workflow_candidates_session_enqueue_key_active")
+                .HasFilter("status NOT IN ('AnalysisFailed', 'BatchFailed', 'BatchStarted') AND enqueue_key IS NOT NULL");
+        });
+
+        builder.Entity<ContentWorkflowEventData>(entity =>
+        {
+            entity.ToTable("content_workflow_events", PostgresDatabaseNames.SocialSchema);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SessionId).HasColumnName("session_id").IsRequired();
+            entity.Property(x => x.CandidateId).HasColumnName("candidate_id");
+            entity.Property(x => x.Kind).HasColumnName("kind").HasMaxLength(64).IsRequired();
+            entity.Property(x => x.MessageKey).HasColumnName("message_key").HasMaxLength(256).IsRequired();
+            entity.Property(x => x.DataJson).HasColumnName("data_json").HasColumnType("jsonb");
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+
+            entity.HasIndex(x => new { x.SessionId, x.CreatedAt })
+                .HasDatabaseName("ix_content_workflow_events_session_created");
+
+            entity.HasOne<ContentWorkflowSessionData>()
+                .WithMany()
+                .HasForeignKey(x => x.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 

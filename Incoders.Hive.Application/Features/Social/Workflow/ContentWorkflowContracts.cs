@@ -88,35 +88,28 @@ public sealed record ContentWorkflowResultResponse(
     int Comments,
     bool IsSelected);
 
-public sealed record ContentWorkflowPreviewResponse(
-    Guid WorkflowId,
-    Guid ResultId,
-    string ResultTitle,
-    string VideoAnalysis,
-    string ScriptDraft);
-
 public sealed record ContentWorkflowSelectionResponse(
     Guid WorkflowId,
     int SelectedCount,
     IReadOnlyList<Guid> SelectedResultIds,
     DateTime UpdatedAtUtc);
 
-public sealed record ContentWorkflowActionResponse(
-    Guid ActionId,
-    Guid WorkflowId,
-    string Action,
+/// <summary>
+/// Per-candidate enqueue-sequence status, surfaced on the workflow history detail so the operator can
+/// see analysis/batch progress without polling. Backed by the persisted
+/// <see cref="Incoders.Hive.Domain.Social.Workflow.WorkflowCandidateStatus"/> transitions already written
+/// by <c>UpdateCandidateStatusAsync</c> — this is a pure read surface, no new write path.
+/// </summary>
+/// <param name="Status">
+/// One of <c>Queued</c>, <c>Analyzing</c>, <c>AnalysisFailed</c>, <c>BatchQueued</c>, <c>BatchFailed</c> or
+/// <c>BatchStarted</c> (see <see cref="Incoders.Hive.Domain.Social.Workflow.WorkflowCandidateStatus"/>).
+/// </param>
+/// <param name="FailureCode">Set only for <c>AnalysisFailed</c>/<c>BatchFailed</c>; otherwise <c>null</c>.</param>
+public sealed record ContentWorkflowCandidateStatusResponse(
+    Guid CandidateId,
+    string Title,
     string Status,
-    IReadOnlyList<Guid> ResultIds,
-    string Message,
-    DateTime ExecutedAtUtc);
-
-public sealed record ContentWorkflowPackageResponse(
-    Guid WorkflowId,
-    string PackageFileName,
-    string DownloadUrl,
-    string Status,
-    int ItemCount,
-    DateTime GeneratedAtUtc);
+    string? FailureCode);
 
 public sealed record ContentWorkflowHistoryItemResponse(
     Guid WorkflowId,
@@ -131,6 +124,10 @@ public sealed record ContentWorkflowHistoryItemResponse(
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc);
 
+/// <param name="Candidates">
+/// Per-candidate enqueue-sequence status (see <see cref="ContentWorkflowCandidateStatusResponse"/>). Empty
+/// until the operator composes and enqueues at least one candidate for this workflow.
+/// </param>
 public sealed record ContentWorkflowHistoryResponse(
     ContentWorkflowHistoryItemResponse Summary,
-    IReadOnlyList<ContentWorkflowActionResponse> Actions);
+    IReadOnlyList<ContentWorkflowCandidateStatusResponse> Candidates);

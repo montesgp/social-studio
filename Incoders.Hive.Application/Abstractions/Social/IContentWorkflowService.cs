@@ -23,28 +23,10 @@ public interface IContentWorkflowService
         int pageSize,
         CancellationToken cancellationToken = default);
 
-    Task<Result<ContentWorkflowPreviewResponse>> GetPreviewAsync(
-        Guid organizationId,
-        Guid workflowId,
-        Guid resultId,
-        CancellationToken cancellationToken = default);
-
     Task<Result<ContentWorkflowSelectionResponse>> SetSelectionAsync(
         Guid organizationId,
         Guid workflowId,
         IReadOnlyList<Guid> resultIds,
-        CancellationToken cancellationToken = default);
-
-    Task<Result<ContentWorkflowActionResponse>> RunActionAsync(
-        Guid organizationId,
-        Guid workflowId,
-        string action,
-        IReadOnlyList<Guid> resultIds,
-        CancellationToken cancellationToken = default);
-
-    Task<Result<ContentWorkflowPackageResponse>> GeneratePackageAsync(
-        Guid organizationId,
-        Guid workflowId,
         CancellationToken cancellationToken = default);
 
     Task<Result<ContentWorkflowHistoryResponse>> GetHistoryAsync(
@@ -55,5 +37,6 @@ public interface IContentWorkflowService
     Task<Result<IReadOnlyList<ContentWorkflowHistoryItemResponse>>> ListHistoryAsync(
         Guid organizationId,
         int limit,
+        Guid? clientId = null,
         CancellationToken cancellationToken = default);
 }

@@ -1,16 +1,15 @@
 import { apiRequest } from "@/lib/api/client";
 import {
-  ContentWorkflowActionResult,
   ContentWorkflowHistory,
   ContentWorkflowHistoryItem,
-  ContentWorkflowPackage,
-  ContentWorkflowPreview,
   ContentWorkflowResult,
   ContentWorkflowSearchCriterion,
   ContentWorkflowSelection,
   ContentWorkflowSession,
   ContentWorkflowStatus,
   ContentWorkflowStrategyMode,
+  EnqueueCandidateCompositionPayload,
+  EnqueueWorkflowCandidatesResponse,
   PageResult,
   SocialClient
 } from "@/lib/api/types";
@@ -96,21 +95,6 @@ export async function listContentWorkflowResults(
   );
 }
 
-export async function getContentWorkflowPreview(
-  organizationId: string,
-  workflowId: string,
-  resultId: string,
-  token?: string
-) {
-  return apiRequest<ContentWorkflowPreview>(
-    `/api/social/workflows/${workflowId}/results/${resultId}/preview`,
-    {
-      headers: organizationHeaders(organizationId)
-    },
-    token
-  );
-}
-
 export async function selectContentWorkflowResults(
   organizationId: string,
   workflowId: string,
@@ -128,48 +112,25 @@ export async function selectContentWorkflowResults(
   );
 }
 
-export async function runContentWorkflowAction(
+/**
+ * `POST /api/social/workflows/{workflowId}/enqueue` — per-candidate format composition submitted in one
+ * call. The backend fans this out into independent analysis-then-batch sequences (one queue item per
+ * candidate); the response is the ONLY feedback the screen renders — no polling. See design decision #3
+ * ("no synchronous poll") and #5 (one endpoint, N candidates).
+ */
+export async function enqueueWorkflowCandidates(
   organizationId: string,
   workflowId: string,
-  resultId: string,
-  action: string,
+  clientId: string,
+  candidates: EnqueueCandidateCompositionPayload[],
   token?: string
 ) {
-  return apiRequest<ContentWorkflowActionResult>(
-    `/api/social/workflows/${workflowId}/results/${resultId}/actions`,
+  return apiRequest<EnqueueWorkflowCandidatesResponse>(
+    `/api/social/workflows/${workflowId}/enqueue`,
     {
       method: "POST",
       headers: organizationHeaders(organizationId),
-      body: JSON.stringify({ action })
-    },
-    token
-  );
-}
-
-export async function runContentWorkflowBulkAction(
-  organizationId: string,
-  workflowId: string,
-  action: string,
-  resultIds: string[],
-  token?: string
-) {
-  return apiRequest<ContentWorkflowActionResult>(
-    `/api/social/workflows/${workflowId}/actions/bulk`,
-    {
-      method: "POST",
-      headers: organizationHeaders(organizationId),
-      body: JSON.stringify({ action, resultIds })
-    },
-    token
-  );
-}
-
-export async function generateContentWorkflowPackage(organizationId: string, workflowId: string, token?: string) {
-  return apiRequest<ContentWorkflowPackage>(
-    `/api/social/workflows/${workflowId}/generate-package`,
-    {
-      method: "POST",
-      headers: organizationHeaders(organizationId)
+      body: JSON.stringify({ clientId, candidates })
     },
     token
   );
@@ -185,8 +146,16 @@ export async function getContentWorkflowHistory(organizationId: string, workflow
   );
 }
 
-export async function listContentWorkflowHistory(organizationId: string, limit = 12, token?: string) {
+export async function listContentWorkflowHistory(
+  organizationId: string,
+  limit = 12,
+  token?: string,
+  clientId?: string
+) {
   const params = new URLSearchParams({ limit: String(limit) });
+  if (clientId) {
+    params.set("clientId", clientId);
+  }
   return apiRequest<ContentWorkflowHistoryItem[]>(
     `/api/social/workflows/history?${params.toString()}`,
     {

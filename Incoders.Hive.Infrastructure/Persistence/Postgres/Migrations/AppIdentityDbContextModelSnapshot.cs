@@ -18,7 +18,7 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.0")
+                .HasAnnotation("ProductVersion", "10.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -1432,6 +1432,179 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                         .HasDatabaseName("ix_content_studio_set_items_set_item");
 
                     b.ToTable("content_studio_set_items", "social");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentWorkflowCandidateData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<Guid?>("BatchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("batch_id");
+
+                    b.Property<string>("CompositionJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("composition_json")
+                        .HasDefaultValueSql("'[]'");
+
+                    b.Property<string>("EnqueueKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("enqueue_key");
+
+                    b.Property<string>("ExternalResultId")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("external_result_id");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<bool>("IsSelected")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_selected");
+
+                    b.Property<string>("PayloadJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload_json");
+
+                    b.Property<DateTime>("QueuedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("queued_at");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_content_workflow_candidates");
+
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("ix_content_workflow_candidates_session_id");
+
+                    b.HasIndex("SessionId", "EnqueueKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_content_workflow_candidates_session_enqueue_key_active")
+                        .HasFilter("status NOT IN ('AnalysisFailed', 'BatchFailed', 'BatchStarted') AND enqueue_key IS NOT NULL");
+
+                    b.ToTable("content_workflow_candidates", "social");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentWorkflowEventData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CandidateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("candidate_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DataJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("data_json");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("MessageKey")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("message_key");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_content_workflow_events");
+
+                    b.HasIndex("SessionId", "CreatedAt")
+                        .HasDatabaseName("ix_content_workflow_events_session_created");
+
+                    b.ToTable("content_workflow_events", "social");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentWorkflowSessionData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_id");
+
+                    b.Property<string>("ClientName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("client_name");
+
+                    b.Property<string>("ConfigJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("config_json");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_content_workflow_sessions");
+
+                    b.HasIndex("ClientId")
+                        .HasDatabaseName("ix_content_workflow_sessions_client_id");
+
+                    b.HasIndex("OrganizationId", "ClientId", "CreatedAt")
+                        .HasDatabaseName("ix_content_workflow_sessions_org_client_created");
+
+                    b.ToTable("content_workflow_sessions", "social");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.DiscoveredCandidateData", b =>
@@ -4040,6 +4213,45 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.Navigation("Set");
                 });
 
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentWorkflowCandidateData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentWorkflowSessionData", "Session")
+                        .WithMany("Candidates")
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_content_workflow_candidates_content_workflow_sessions_sessi~");
+
+                    b.Navigation("Session");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentWorkflowEventData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentWorkflowSessionData", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_content_workflow_events_content_workflow_sessions_session_id");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentWorkflowSessionData", b =>
+                {
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.SocialClientData", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_content_workflow_sessions_clients_client_id");
+
+                    b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_content_workflow_sessions_organizations_organization_id");
+                });
+
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.DiscoveredCandidateData", b =>
                 {
                     b.HasOne("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.TenantData", null)
@@ -4479,6 +4691,11 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentStudioSetData", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.ContentWorkflowSessionData", b =>
+                {
+                    b.Navigation("Candidates");
                 });
 
             modelBuilder.Entity("Incoders.Hive.Infrastructure.Persistence.Postgres.Entities.IntegrationProviderData", b =>

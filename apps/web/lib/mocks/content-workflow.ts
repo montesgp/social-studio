@@ -1,5 +1,4 @@
 import {
-  ContentWorkflowActionResult,
   ContentWorkflowHistory,
   ContentWorkflowHistoryItem,
   ContentWorkflowPackage,
@@ -15,6 +14,24 @@ import {
   PageResult,
   SocialClient
 } from "@/lib/api/types";
+
+/**
+ * Local-only shape for this mock file's internal action trail. The real `ContentWorkflowActionResult`
+ * type was removed from `lib/api/types.ts` (dead contract, replaced by
+ * `ContentWorkflowCandidateStatus` — see verify-report CRITICAL gap fix); this mock simulator predates
+ * the real pipeline and is out of scope for that change (still used by `single-analyzer-client.tsx` for
+ * `getMockClients`/`getMockOrganizations` only), so it keeps its own minimal shape rather than depending
+ * on a since-deleted API type.
+ */
+interface MockWorkflowActionResult {
+  actionId: string;
+  workflowId: string;
+  action: string;
+  status: string;
+  resultIds: string[];
+  message: string;
+  executedAtUtc: string;
+}
 
 interface StartMockWorkflowInput {
   clientId: string;
@@ -37,7 +54,7 @@ interface MockWorkflowSessionState {
   updatedAtUtc: string;
   results: ContentWorkflowResult[];
   selectedResultIds: string[];
-  actions: ContentWorkflowActionResult[];
+  actions: MockWorkflowActionResult[];
 }
 
 const mockOrganizations: Organization[] = [
@@ -292,11 +309,11 @@ export function runMockWorkflowAction(
   workflowId: string,
   action: string,
   resultIds: string[]
-): ContentWorkflowActionResult {
+): MockWorkflowActionResult {
   const session = getOwnedSessionOrThrow(organizationId, workflowId);
   const selected = Array.from(new Set(resultIds));
   const executedAtUtc = new Date().toISOString();
-  const response: ContentWorkflowActionResult = {
+  const response: MockWorkflowActionResult = {
     actionId: `act-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     workflowId,
     action,
@@ -347,9 +364,11 @@ export function generateMockWorkflowPackage(organizationId: string, workflowId: 
 
 export function getMockWorkflowHistory(organizationId: string, workflowId: string): ContentWorkflowHistory {
   const session = getOwnedSessionOrThrow(organizationId, workflowId);
+  // This mock simulator has no per-candidate enqueue-sequence concept (it predates the real pipeline) —
+  // an empty list here is honest, not a stub pretending to have data.
   return {
     summary: toHistoryItem(session),
-    actions: [...session.actions]
+    candidates: []
   };
 }
 

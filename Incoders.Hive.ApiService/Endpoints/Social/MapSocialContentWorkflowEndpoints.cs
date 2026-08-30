@@ -1,7 +1,10 @@
 using Incoders.Hive.ApiService.Endpoints.Common;
+using Incoders.Hive.Application.Abstractions;
 using Incoders.Hive.Application.Abstractions.Tenancy;
 using Incoders.Hive.Application.Common.Pagination;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Batches;
 using Incoders.Hive.Application.Features.Social.Workflow;
+using Incoders.Hive.Application.Features.Social.Workflow.Enqueue;
 using Incoders.Hive.Domain.Social.Workflow;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -38,13 +41,6 @@ public static class SocialContentWorkflowEndpointsExtensions
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status400BadRequest);
 
-        group.MapGet("/{workflowId:guid}/results/{resultId:guid}/preview", GetPreviewAsync)
-            .WithName("GetSocialContentWorkflowResultPreview")
-            .WithSummary("Get analysis/script preview for one workflow result")
-            .Produces<ContentWorkflowPreviewResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status400BadRequest);
-
         group.MapPost("/{workflowId:guid}/select", SetSelectionAsync)
             .WithName("SetSocialContentWorkflowSelection")
             .WithSummary("Persist selected result ids for workflow")
@@ -53,26 +49,11 @@ public static class SocialContentWorkflowEndpointsExtensions
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status400BadRequest);
 
-        group.MapPost("/{workflowId:guid}/results/{resultId:guid}/actions", RunSingleActionAsync)
-            .WithName("RunSocialContentWorkflowSingleAction")
-            .WithSummary("Run one action for a single workflow result")
-            .Produces<ContentWorkflowActionResponse>(StatusCodes.Status200OK)
+        group.MapPost("/{workflowId:guid}/enqueue", EnqueueAsync)
+            .WithName("EnqueueSocialContentWorkflowCandidates")
+            .WithSummary("Enqueue per-candidate analysis-then-batch sequences from the composed formats")
+            .Produces<EnqueueContentWorkflowCandidatesResponse>(StatusCodes.Status202Accepted)
             .ProducesValidationProblem()
-            .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status400BadRequest);
-
-        group.MapPost("/{workflowId:guid}/actions/bulk", RunBulkActionAsync)
-            .WithName("RunSocialContentWorkflowBulkAction")
-            .WithSummary("Run one action over many selected workflow results")
-            .Produces<ContentWorkflowActionResponse>(StatusCodes.Status200OK)
-            .ProducesValidationProblem()
-            .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status400BadRequest);
-
-        group.MapPost("/{workflowId:guid}/generate-package", GeneratePackageAsync)
-            .WithName("GenerateSocialContentWorkflowPackage")
-            .WithSummary("Generate simulated monthly package from selected results")
-            .Produces<ContentWorkflowPackageResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status400BadRequest);
 
@@ -156,25 +137,6 @@ public static class SocialContentWorkflowEndpointsExtensions
         return result.Match(response => (IResult)TypedResults.Ok(response));
     }
 
-    private static async Task<IResult> GetPreviewAsync(
-        Guid workflowId,
-        Guid resultId,
-        ISender sender,
-        ICurrentTenant currentTenant,
-        CancellationToken cancellationToken)
-    {
-        if (currentTenant.TenantId is not { } organizationId)
-        {
-            return ContentWorkflowErrors.OrganizationRequired.ToProblem();
-        }
-
-        var result = await sender.Send(
-            new GetContentWorkflowPreviewQuery(organizationId.Value, workflowId, resultId),
-            cancellationToken);
-
-        return result.Match(response => (IResult)TypedResults.Ok(response));
-    }
-
     private static async Task<IResult> SetSelectionAsync(
         Guid workflowId,
         [FromBody] SelectSocialContentWorkflowRequest body,
@@ -194,12 +156,12 @@ public static class SocialContentWorkflowEndpointsExtensions
         return result.Match(response => (IResult)TypedResults.Ok(response));
     }
 
-    private static async Task<IResult> RunSingleActionAsync(
+    internal static async Task<IResult> EnqueueAsync(
         Guid workflowId,
-        Guid resultId,
-        [FromBody] RunSocialContentWorkflowActionRequest body,
+        [FromBody] EnqueueSocialContentWorkflowRequest body,
         ISender sender,
         ICurrentTenant currentTenant,
+        ICurrentUser currentUser,
         CancellationToken cancellationToken)
     {
         if (currentTenant.TenantId is not { } organizationId)
@@ -207,56 +169,22 @@ public static class SocialContentWorkflowEndpointsExtensions
             return ContentWorkflowErrors.OrganizationRequired.ToProblem();
         }
 
-        var result = await sender.Send(
-            new RunContentWorkflowActionCommand(
-                organizationId.Value,
-                workflowId,
-                body.Action,
-                [resultId]),
-            cancellationToken);
-
-        return result.Match(response => (IResult)TypedResults.Ok(response));
-    }
-
-    private static async Task<IResult> RunBulkActionAsync(
-        Guid workflowId,
-        [FromBody] RunBulkSocialContentWorkflowActionRequest body,
-        ISender sender,
-        ICurrentTenant currentTenant,
-        CancellationToken cancellationToken)
-    {
-        if (currentTenant.TenantId is not { } organizationId)
+        if (currentUser.UserId is not { } userId)
         {
-            return ContentWorkflowErrors.OrganizationRequired.ToProblem();
+            return ContentWorkflowErrors.UserRequired.ToProblem();
         }
 
-        var result = await sender.Send(
-            new RunContentWorkflowActionCommand(
-                organizationId.Value,
-                workflowId,
-                body.Action,
-                body.ResultIds ?? Array.Empty<Guid>()),
-            cancellationToken);
-
-        return result.Match(response => (IResult)TypedResults.Ok(response));
-    }
-
-    private static async Task<IResult> GeneratePackageAsync(
-        Guid workflowId,
-        ISender sender,
-        ICurrentTenant currentTenant,
-        CancellationToken cancellationToken)
-    {
-        if (currentTenant.TenantId is not { } organizationId)
-        {
-            return ContentWorkflowErrors.OrganizationRequired.ToProblem();
-        }
+        var candidates = (body.Candidates ?? [])
+            .Select(c => new WorkflowCandidateComposition(
+                c.CandidateId,
+                (c.Composition ?? []).Select(f => new BatchCompositionItem(f.FormatKey, f.Count)).ToList()))
+            .ToList();
 
         var result = await sender.Send(
-            new GenerateContentWorkflowPackageCommand(organizationId.Value, workflowId),
+            new EnqueueContentWorkflowCandidatesCommand(organizationId.Value, body.ClientId, userId, workflowId, candidates),
             cancellationToken);
 
-        return result.Match(response => (IResult)TypedResults.Ok(response));
+        return result.Match(response => (IResult)TypedResults.Accepted((string?)null, response));
     }
 
     private static async Task<IResult> GetHistoryAsync(
@@ -277,11 +205,12 @@ public static class SocialContentWorkflowEndpointsExtensions
         return result.Match(response => (IResult)TypedResults.Ok(response));
     }
 
-    private static async Task<IResult> ListHistoryAsync(
+    internal static async Task<IResult> ListHistoryAsync(
         ISender sender,
         ICurrentTenant currentTenant,
         CancellationToken cancellationToken,
-        [FromQuery] int limit = 12)
+        [FromQuery] int limit = 12,
+        [FromQuery] Guid? clientId = null)
     {
         if (currentTenant.TenantId is not { } organizationId)
         {
@@ -289,7 +218,7 @@ public static class SocialContentWorkflowEndpointsExtensions
         }
 
         var result = await sender.Send(
-            new ListContentWorkflowHistoryQuery(organizationId.Value, limit),
+            new ListContentWorkflowHistoryQuery(organizationId.Value, limit, clientId),
             cancellationToken);
 
         return result.Match(response => (IResult)TypedResults.Ok(response));
@@ -317,8 +246,12 @@ public sealed record StartSocialContentWorkflowRequest(
 
 public sealed record SelectSocialContentWorkflowRequest(IReadOnlyList<Guid>? ResultIds);
 
-public sealed record RunSocialContentWorkflowActionRequest(string Action);
+public sealed record EnqueueFormatCompositionRequest(string FormatKey, int Count);
 
-public sealed record RunBulkSocialContentWorkflowActionRequest(
-    string Action,
-    IReadOnlyList<Guid>? ResultIds);
+public sealed record EnqueueCandidateCompositionRequest(
+    Guid CandidateId,
+    IReadOnlyList<EnqueueFormatCompositionRequest>? Composition);
+
+public sealed record EnqueueSocialContentWorkflowRequest(
+    Guid ClientId,
+    IReadOnlyList<EnqueueCandidateCompositionRequest>? Candidates);

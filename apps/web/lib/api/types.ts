@@ -35,7 +35,6 @@ export interface Organization {
 export type ContentWorkflowSearchCriterion = "niche" | "references" | "viral" | "competitors" | "own";
 export type ContentWorkflowStrategyMode = "mixed" | "educational" | "informative" | "entertainment";
 export type ContentWorkflowNetworkSource = "tiktok" | "instagram" | "youtube";
-export type ContentWorkflowActionType = "download_audio" | "transcribe_and_build_script" | "build_carousel";
 
 export interface ContentWorkflowSession {
   workflowId: string;
@@ -113,16 +112,6 @@ export interface ContentWorkflowSelection {
   updatedAtUtc: string;
 }
 
-export interface ContentWorkflowActionResult {
-  actionId: string;
-  workflowId: string;
-  action: string;
-  status: string;
-  resultIds: string[];
-  message: string;
-  executedAtUtc: string;
-}
-
 export interface ContentWorkflowPackage {
   workflowId: string;
   packageFileName: string;
@@ -146,9 +135,52 @@ export interface ContentWorkflowHistoryItem {
   updatedAtUtc: string;
 }
 
+/**
+ * Mirrors `ContentWorkflowCandidateStatusResponse` (Application/Features/Social/Workflow). Per-candidate
+ * analysis-then-batch sequence status, durable across reload — replaces the old mock action-trail shape
+ * this history detail used to carry before the real pipeline (verify-report CRITICAL gap fix).
+ */
+export interface ContentWorkflowCandidateStatus {
+  candidateId: string;
+  title: string;
+  status: string;
+  failureCode: string | null;
+}
+
 export interface ContentWorkflowHistory {
   summary: ContentWorkflowHistoryItem;
-  actions: ContentWorkflowActionResult[];
+  candidates: ContentWorkflowCandidateStatus[];
+}
+
+/** Mirrors `EnqueueFormatCompositionRequest` (Api/Endpoints/Social/MapSocialContentWorkflowEndpoints.cs). */
+export interface EnqueueFormatCompositionPayload {
+  formatKey: string;
+  count: number;
+}
+
+/** Mirrors `EnqueueCandidateCompositionRequest`. */
+export interface EnqueueCandidateCompositionPayload {
+  candidateId: string;
+  composition: EnqueueFormatCompositionPayload[];
+}
+
+/** Mirrors `EnqueuedCandidateResult` (Application/Features/Social/Workflow/Enqueue). */
+export interface EnqueuedCandidateResult {
+  candidateId: string;
+  accepted: boolean;
+  rejectionReason: string | null;
+}
+
+/**
+ * Mirrors `EnqueueContentWorkflowCandidatesResponse`. The screen never polls for this: it renders this
+ * response once, right after `POST /workflows/{id}/enqueue` returns 202, then points the operator to
+ * `jobsUrl` for ongoing progress.
+ */
+export interface EnqueueWorkflowCandidatesResponse {
+  workflowId: string;
+  candidates: EnqueuedCandidateResult[];
+  estimatedMinutes: number;
+  jobsUrl: string;
 }
 
 export interface SocialNetwork {
