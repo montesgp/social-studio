@@ -33,19 +33,20 @@ internal sealed class ContentAnalysisPreflight : IContentAnalysisPreflight
         string aiProviderKey,
         CancellationToken cancellationToken = default)
     {
-        // Extraction and AI probes are independent providers — run them concurrently instead of
-        // paying their latency back-to-back. Extraction still takes reporting priority when both
-        // fail, matching the previous sequential short-circuit behavior.
-        var extractionTask = ProbeAsync(organizationId, extractionProviderKey, "extraction", cancellationToken);
-        var aiTask = ProbeAsync(organizationId, aiProviderKey, "ai", cancellationToken);
-        await Task.WhenAll(extractionTask, aiTask);
-
-        if (!extractionTask.Result)
+        // MUST run sequentially: both probes resolve through IIntegrationResolver, which in
+        // production is backed by a single scoped DbContext shared by the whole HTTP request.
+        // Running them concurrently (previously Task.WhenAll) throws "A second operation was
+        // started on this context instance..." under EF Core's concurrency detector — see
+        // logs/hive-api.log 2026-09-09T20:50:17 / 21:50:27. Extraction keeps reporting priority
+        // when both fail, checked first here.
+        var extractionHealthy = await ProbeAsync(organizationId, extractionProviderKey, "extraction", cancellationToken);
+        if (!extractionHealthy)
         {
             return Result.Failure(SingleAnalyzerErrors.ExtractionProviderUnavailable);
         }
 
-        if (!aiTask.Result)
+        var aiHealthy = await ProbeAsync(organizationId, aiProviderKey, "ai", cancellationToken);
+        if (!aiHealthy)
         {
             return Result.Failure(SingleAnalyzerErrors.AiProviderUnavailable);
         }
