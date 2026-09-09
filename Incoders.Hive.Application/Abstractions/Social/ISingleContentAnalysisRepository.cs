@@ -64,6 +64,27 @@ public interface ISingleContentAnalysisRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Finds the newest analysis for the same submitted or normalized URL across the WHOLE
+    /// organization — regardless of which user owns it. Apify (and AI) credits are a
+    /// per-organization resource, not a per-user one: two different users in the same org
+    /// submitting the same URL must not trigger two extraction runs. This is the HARD gate
+    /// <see cref="Features.Social.SingleAnalyzer.Analyze.SingleContentAnalyzer.StartAsync"/>
+    /// checks before doing any preflight/extraction work — unlike
+    /// <see cref="FindLatestByUserAndUrlAsync"/>, which only drives the frontend's advisory
+    /// pre-submit lookup.
+    /// <para>
+    /// Default returns <c>null</c> so existing test fakes compile unchanged; the real EF adapter
+    /// overrides it.
+    /// </para>
+    /// </summary>
+    Task<SingleContentAnalysisRecord?> FindLatestByOrganizationAndUrlAsync(
+        Guid organizationId,
+        string normalizedUrl,
+        string sourceUrl,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<SingleContentAnalysisRecord?>(null);
+
+    /// <summary>
     /// Hard-deletes an analysis owned by the given user. Cascades to:
     /// - integration_execution_attempts (DB-level FK CASCADE on analysis_id)
     /// - content_generation_jobs and their generated_packages (handled here in EF)

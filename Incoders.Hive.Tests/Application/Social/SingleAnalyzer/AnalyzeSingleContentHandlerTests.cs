@@ -248,6 +248,196 @@ public sealed class AnalyzeSingleContentHandlerTests
         Assert.Null(harness.AiGateway.LastRequest);
     }
 
+    [Fact]
+    public async Task Handler_BlocksNewAnalysis_WhenSameOrgUrlAlreadyInProgress()
+    {
+        var organizationId = Guid.NewGuid();
+        var harness = new SingleAnalyzerHarness(Now);
+
+        var inFlight = ExistingRecord(
+            organizationId,
+            Guid.NewGuid(),
+            "https://www.tiktok.com/@brand/video/999",
+            SingleContentAnalysisStatus.Analyzing);
+        await harness.Repository.AddAsync(inFlight, CancellationToken.None);
+
+        // A DIFFERENT user in the SAME org submits the SAME URL — the gate is org-scoped, not
+        // user-scoped, because Apify/AI credits are a per-organization resource (CAP5).
+        var result = await harness.Handler.Handle(
+            new AnalyzeSingleContentCommand(
+                organizationId,
+                Guid.NewGuid(),
+                "https://www.tiktok.com/@brand/video/999",
+                ClientId: null,
+                PreferredExtractionProviderKey: null),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("social.single_analyzer.analysis_already_in_progress", result.Error.Code);
+        Assert.Empty(harness.Queue.Enqueued);
+        Assert.Null(harness.ContentResolver.LastRequest);
+        Assert.Null(harness.AiGateway.LastRequest);
+        // The in-flight record itself must be untouched — no re-scrape, no status churn.
+        Assert.Same(inFlight, harness.Repository.StoredAnalysis);
+    }
+
+    [Fact]
+    public async Task Handler_BlocksNewAnalysis_WhenSameOrgUrlAlreadyAnalyzed()
+    {
+        var organizationId = Guid.NewGuid();
+        var harness = new SingleAnalyzerHarness(Now);
+
+        var completed = ExistingRecord(
+            organizationId,
+            Guid.NewGuid(),
+            "https://www.tiktok.com/@brand/video/999",
+            SingleContentAnalysisStatus.Analyzed);
+        await harness.Repository.AddAsync(completed, CancellationToken.None);
+
+        var result = await harness.Handler.Handle(
+            new AnalyzeSingleContentCommand(
+                organizationId,
+                Guid.NewGuid(),
+                "https://www.tiktok.com/@brand/video/999",
+                ClientId: null,
+                PreferredExtractionProviderKey: null),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("social.single_analyzer.analysis_already_completed", result.Error.Code);
+        Assert.Empty(harness.Queue.Enqueued);
+        Assert.Null(harness.ContentResolver.LastRequest);
+    }
+
+    [Fact]
+    public async Task Handler_ResumesFromPersistedSnapshot_WithoutReScraping_WhenPriorRunFailedAtAiStage()
+    {
+        var organizationId = Guid.NewGuid();
+        var harness = new SingleAnalyzerHarness(Now);
+
+        var failedWithSnapshot = ExistingRecord(
+            organizationId,
+            Guid.NewGuid(),
+            "https://www.tiktok.com/@brand/video/999",
+            SingleContentAnalysisStatus.Failed) with
+        {
+            ContentSnapshotJson = "{\"platformKey\":\"tiktok\"}",
+            FailureCode = "social.single_analyzer.analysis_failed",
+        };
+        await harness.Repository.AddAsync(failedWithSnapshot, CancellationToken.None);
+
+        var result = await harness.Handler.Handle(
+            new AnalyzeSingleContentCommand(
+                organizationId,
+                Guid.NewGuid(),
+                "https://www.tiktok.com/@brand/video/999",
+                ClientId: null,
+                PreferredExtractionProviderKey: null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(failedWithSnapshot.Id, result.Value.Id); // SAME record — no new analysis created.
+        Assert.Equal(SingleContentAnalysisStatus.Analyzing, result.Value.Status);
+
+        var job = Assert.Single(harness.Queue.Enqueued);
+        Assert.Equal(failedWithSnapshot.Id, job.AnalysisId);
+        Assert.Equal(SingleAnalysisJobKind.RetryAi, job.Kind);
+
+        // No extraction call on the request thread — the whole point is to NOT touch Apify again.
+        Assert.Null(harness.ContentResolver.LastRequest);
+    }
+
+    [Fact]
+    public async Task Handler_BlocksResume_WhenAiRetryAlreadyExhausted()
+    {
+        var organizationId = Guid.NewGuid();
+        var harness = new SingleAnalyzerHarness(Now);
+
+        var exhausted = ExistingRecord(
+            organizationId,
+            Guid.NewGuid(),
+            "https://www.tiktok.com/@brand/video/999",
+            SingleContentAnalysisStatus.Failed) with
+        {
+            ContentSnapshotJson = "{\"platformKey\":\"tiktok\"}",
+            AiAnalysisFailedAttemptCount = SingleContentAnalyzer.MaxAiAnalysisFailedAttempts,
+            AiAnalysisRetryBlockedAtUtc = Now,
+        };
+        await harness.Repository.AddAsync(exhausted, CancellationToken.None);
+
+        var result = await harness.Handler.Handle(
+            new AnalyzeSingleContentCommand(
+                organizationId,
+                Guid.NewGuid(),
+                "https://www.tiktok.com/@brand/video/999",
+                ClientId: null,
+                PreferredExtractionProviderKey: null),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("social.single_analyzer.ai_retry_blocked", result.Error.Code);
+        Assert.Empty(harness.Queue.Enqueued);
+    }
+
+    [Fact]
+    public async Task Handler_AllowsFreshStart_WhenPriorFailureHasNoSnapshotToResumeFrom()
+    {
+        var organizationId = Guid.NewGuid();
+        var harness = new SingleAnalyzerHarness(Now)
+        {
+            ContentResult = Result.Success(new SocialContentResolution(Snapshot("tiktok", warnings: []), [])),
+            AiPayload = Analysis("fresh run")
+        };
+
+        var failedBeforeExtraction = ExistingRecord(
+            organizationId,
+            Guid.NewGuid(),
+            "https://www.tiktok.com/@brand/video/999",
+            SingleContentAnalysisStatus.Failed); // ContentSnapshotJson stays null — nothing to resume.
+        await harness.Repository.AddAsync(failedBeforeExtraction, CancellationToken.None);
+
+        var result = await harness.Handler.Handle(
+            new AnalyzeSingleContentCommand(
+                organizationId,
+                Guid.NewGuid(),
+                "https://www.tiktok.com/@brand/video/999",
+                ClientId: null,
+                PreferredExtractionProviderKey: null),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotEqual(failedBeforeExtraction.Id, result.Value.Id); // a brand NEW analysis.
+        Assert.Equal(SingleContentAnalysisStatus.Requested, result.Value.Status);
+
+        var job = Assert.Single(harness.Queue.Enqueued);
+        Assert.Equal(SingleAnalysisJobKind.Full, job.Kind);
+    }
+
+    private static SingleContentAnalysisRecord ExistingRecord(
+        Guid organizationId,
+        Guid userId,
+        string sourceUrl,
+        SingleContentAnalysisStatus status) =>
+        new(
+            Id: Guid.NewGuid(),
+            OrganizationId: organizationId,
+            ClientId: null,
+            UserId: userId,
+            SourceUrl: sourceUrl,
+            NormalizedUrl: sourceUrl,
+            SourcePlatformKey: "tiktok",
+            Status: status,
+            ContentSnapshotJson: null,
+            AnalysisJson: null,
+            ProviderDiagnosticsJson: null,
+            FailureCode: null,
+            FailureMessageKey: null,
+            CreatedAtUtc: Now.AddMinutes(-5),
+            UpdatedAtUtc: Now.AddMinutes(-5),
+            CompletedAtUtc: status is SingleContentAnalysisStatus.Analyzed or SingleContentAnalysisStatus.Failed
+                ? Now.AddMinutes(-5)
+                : null);
+
     private static SocialContentSnapshot Snapshot(
         string platform,
         IReadOnlyList<SocialContentWarning> warnings,
@@ -496,6 +686,25 @@ public sealed class AnalyzeSingleContentHandlerTests
             string sourceUrl,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<SingleContentAnalysisHistoryItem?>(null);
+
+        public Task<SingleContentAnalysisRecord?> FindLatestByOrganizationAndUrlAsync(
+            Guid organizationId,
+            string normalizedUrl,
+            string sourceUrl,
+            CancellationToken cancellationToken = default)
+        {
+            if (StoredAnalysis is null || StoredAnalysis.OrganizationId != organizationId)
+            {
+                return Task.FromResult<SingleContentAnalysisRecord?>(null);
+            }
+
+            var matches = StoredAnalysis.SourceUrl == sourceUrl
+                || StoredAnalysis.SourceUrl == normalizedUrl
+                || StoredAnalysis.NormalizedUrl == normalizedUrl
+                || StoredAnalysis.NormalizedUrl == sourceUrl;
+
+            return Task.FromResult(matches ? StoredAnalysis : null);
+        }
 
         public Task<IReadOnlyList<string>?> DeleteOwnedByUserAsync(
             Guid analysisId,

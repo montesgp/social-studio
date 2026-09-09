@@ -306,6 +306,27 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
         return storageUris;
     }
 
+    public async Task<SingleContentAnalysisRecord?> FindLatestByOrganizationAndUrlAsync(
+        Guid organizationId,
+        string normalizedUrl,
+        string sourceUrl,
+        CancellationToken cancellationToken = default)
+    {
+        var row = await _dbContext.SingleContentAnalyses
+            .AsNoTracking()
+            .Where(x =>
+                x.OrganizationId == organizationId
+                && (
+                    x.SourceUrl == sourceUrl
+                    || x.SourceUrl == normalizedUrl
+                    || x.NormalizedUrl == normalizedUrl
+                    || x.NormalizedUrl == sourceUrl))
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return row is null ? null : ToRecord(row);
+    }
+
     private static SingleContentAnalysisData ToData(SingleContentAnalysisRecord analysis) => new()
     {
         Id = analysis.Id,

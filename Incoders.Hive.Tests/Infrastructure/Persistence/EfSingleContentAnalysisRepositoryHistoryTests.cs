@@ -52,6 +52,72 @@ public sealed class EfSingleContentAnalysisRepositoryHistoryTests
         Assert.Equal(packageJobId, summary.PackageJobId);
     }
 
+    [Fact]
+    public async Task FindLatestByOrganizationAndUrlAsync_FindsAnalysisOwnedByADifferentUser_InTheSameOrg()
+    {
+        // Apify/AI credits are a per-organization resource: the HARD duplicate gate in
+        // SingleContentAnalyzer must see analyses regardless of which user in the org created
+        // them, unlike the per-user advisory lookup (FindLatestByUserAndUrlAsync).
+        await using var db = CreateDbContext();
+        var organizationId = Guid.NewGuid();
+        var creatingUserId = Guid.NewGuid();
+        var requestingUserId = Guid.NewGuid(); // a DIFFERENT user in the same org
+        var analysisId = Guid.NewGuid();
+        var now = new DateTime(2026, 9, 9, 20, 50, 0, DateTimeKind.Utc);
+
+        db.SingleContentAnalyses.Add(new SingleContentAnalysisData
+        {
+            Id = analysisId,
+            OrganizationId = organizationId,
+            UserId = creatingUserId,
+            SourceUrl = "https://www.instagram.com/reel/shared-video",
+            NormalizedUrl = "https://www.instagram.com/reel/shared-video",
+            Status = "Analyzing",
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+        });
+        await db.SaveChangesAsync();
+
+        var repository = new EfSingleContentAnalysisRepository(db);
+        var found = await repository.FindLatestByOrganizationAndUrlAsync(
+            organizationId,
+            "https://www.instagram.com/reel/shared-video",
+            "https://www.instagram.com/reel/shared-video");
+
+        Assert.NotNull(found);
+        Assert.Equal(analysisId, found!.Id);
+        Assert.Equal(creatingUserId, found.UserId); // confirms it's NOT filtered by requestingUserId
+    }
+
+    [Fact]
+    public async Task FindLatestByOrganizationAndUrlAsync_DoesNotLeakAcrossOrganizations()
+    {
+        await using var db = CreateDbContext();
+        var otherOrgId = Guid.NewGuid();
+        var requestingOrgId = Guid.NewGuid();
+
+        db.SingleContentAnalyses.Add(new SingleContentAnalysisData
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = otherOrgId,
+            UserId = Guid.NewGuid(),
+            SourceUrl = "https://www.instagram.com/reel/shared-video",
+            NormalizedUrl = "https://www.instagram.com/reel/shared-video",
+            Status = "Analyzing",
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var repository = new EfSingleContentAnalysisRepository(db);
+        var found = await repository.FindLatestByOrganizationAndUrlAsync(
+            requestingOrgId,
+            "https://www.instagram.com/reel/shared-video",
+            "https://www.instagram.com/reel/shared-video");
+
+        Assert.Null(found);
+    }
+
     private static ContentGenerationJobData BuildJob(
         Guid id, Guid analysisId, Guid organizationId, string status, DateTime createdAt) => new()
     {

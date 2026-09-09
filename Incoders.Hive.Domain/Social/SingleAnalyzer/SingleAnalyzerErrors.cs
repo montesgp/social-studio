@@ -52,4 +52,23 @@ public static class SingleAnalyzerErrors
     public static readonly Error AiRetryBlocked = Error.Conflict(
         "social.single_analyzer.ai_retry_blocked",
         "social.single_analyzer.errors.ai_retry_blocked");
+
+    // Org-scoped duplicate gate (CAP5): blocks a new extraction run when the SAME organization
+    // already has an analysis in flight, or already completed, for the same URL — Apify/AI
+    // credits are a per-organization resource, so this is enforced regardless of which user
+    // submits the URL.
+    public static readonly Error AnalysisAlreadyInProgress = Error.Conflict(
+        "social.single_analyzer.analysis_already_in_progress",
+        "social.single_analyzer.errors.analysis_already_in_progress");
+
+    public static readonly Error AnalysisAlreadyCompleted = Error.Conflict(
+        "social.single_analyzer.analysis_already_completed",
+        "social.single_analyzer.errors.analysis_already_completed");
+
+    // Watchdog: a queued/in-flight analysis whose worker never picked it up or died mid-run
+    // (e.g. an in-memory job queue entry lost to a process restart) is swept and marked Failed
+    // so it stops blocking the org-scoped duplicate gate above and becomes retryable.
+    public static readonly Error WorkflowStalled = Error.Failure(
+        "social.single_analyzer.workflow_stalled",
+        "social.single_analyzer.errors.workflow_stalled");
 }
