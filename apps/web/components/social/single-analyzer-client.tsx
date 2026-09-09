@@ -1645,6 +1645,37 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
       } catch (e) {
         const err = e as { message?: string; problem?: Record<string, unknown> };
         const code = typeof err.problem?.code === "string" ? err.problem.code : undefined;
+
+        if (
+          code === "social.single_analyzer.analysis_already_in_progress" ||
+          code === "social.single_analyzer.analysis_already_completed"
+        ) {
+          // The backend's HARD org-scoped duplicate gate rejected this before touching Apify —
+          // the advisory pre-check above can miss this (another user in the org holds the record,
+          // or a race let two requests through the pre-check at once). Best-effort: look up OUR
+          // OWN saved analysis for this URL so the existing duplicate-prompt UI (Resume / Analyze
+          // again) still drives the next step; if it's someone else's in-flight run we won't find
+          // our own row, so fall back to a plain explanatory message instead.
+          try {
+            const duplicate = await findSingleContentAnalysisByUrl(trimmedUrl, effectiveToken);
+            if (duplicate.item) {
+              setDuplicateAnalysisPrompt(duplicate.item);
+              return;
+            }
+          } catch {
+            // Lookup-only failure — fall through to the generic message below.
+          }
+
+          setError({
+            code,
+            message:
+              code === "social.single_analyzer.analysis_already_in_progress"
+                ? "This video is already being analyzed (by you or a teammate in this organization). Wait for it to finish, then check Saved analyses."
+                : "This video has already been analyzed. Check Saved analyses to view or resume it.",
+          });
+          return;
+        }
+
         setError({
           code,
           message:
