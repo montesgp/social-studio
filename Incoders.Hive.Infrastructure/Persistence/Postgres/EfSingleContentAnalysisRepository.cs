@@ -327,6 +327,17 @@ public sealed class EfSingleContentAnalysisRepository : ISingleContentAnalysisRe
         return row is null ? null : ToRecord(row);
     }
 
+    public async Task<IReadOnlyList<SingleContentAnalysisRecord>> ListNonTerminalAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await _dbContext.SingleContentAnalyses
+            .AsNoTracking()
+            .Where(x => x.Status != "Analyzed" && x.Status != "Failed")
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(ToRecord).ToList();
+    }
+
     private static SingleContentAnalysisData ToData(SingleContentAnalysisRecord analysis) => new()
     {
         Id = analysis.Id,
