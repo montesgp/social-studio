@@ -810,6 +810,18 @@ public sealed class AppIdentityDbContext : IdentityDbContext<ApplicationUser, Ap
             entity.HasIndex(x => new { x.OrganizationId, x.SourcePlatformKey })
                 .HasDatabaseName("ix_single_content_analyses_org_platform");
 
+            // Race-safety backstop for the application-level duplicate gate in
+            // SingleContentAnalyzer.StartAsync: at most one NON-TERMINAL analysis may exist per
+            // (org, normalized URL) at a time. Two truly concurrent requests could both pass the
+            // app-level SELECT-then-decide check before either INSERTs; this constraint makes
+            // Postgres the final authority — the losing INSERT throws a unique-violation, which
+            // EfSingleContentAnalysisRepository.AddAsync translates into AnalysisAlreadyInProgress
+            // instead of letting a raw DbUpdateException reach the client.
+            entity.HasIndex(x => new { x.OrganizationId, x.NormalizedUrl })
+                .HasDatabaseName("ux_single_content_analyses_org_normalized_url_active")
+                .IsUnique()
+                .HasFilter("status NOT IN ('Analyzed', 'Failed')");
+
             entity.HasOne(x => x.Organization)
                 .WithMany()
                 .HasForeignKey(x => x.OrganizationId)

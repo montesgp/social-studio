@@ -3342,6 +3342,11 @@ namespace Incoders.Hive.Infrastructure.Persistence.Postgres.Migrations
                     b.HasKey("Id")
                         .HasName("pk_single_content_analyses");
 
+                    b.HasIndex("OrganizationId", "NormalizedUrl")
+                        .IsUnique()
+                        .HasDatabaseName("ux_single_content_analyses_org_normalized_url_active")
+                        .HasFilter("status NOT IN ('Analyzed', 'Failed')");
+
                     b.HasIndex("OrganizationId", "SourcePlatformKey")
                         .HasDatabaseName("ix_single_content_analyses_org_platform");
 

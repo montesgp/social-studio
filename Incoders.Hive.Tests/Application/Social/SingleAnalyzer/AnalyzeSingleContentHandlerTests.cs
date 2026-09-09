@@ -413,6 +413,29 @@ public sealed class AnalyzeSingleContentHandlerTests
         Assert.Equal(SingleAnalysisJobKind.Full, job.Kind);
     }
 
+    [Fact]
+    public async Task Handler_TranslatesConcurrentDuplicateRace_IntoAlreadyInProgress()
+    {
+        // Two truly concurrent requests can both pass the app-level duplicate check before either
+        // INSERTs — the Postgres partial unique index is the final authority for that race. This
+        // proves the losing request gets a clean AnalysisAlreadyInProgress, not a raw 500.
+        var harness = new SingleAnalyzerHarness(Now);
+        harness.UnitOfWork.ThrowUniqueViolationOnNextSave = true;
+
+        var result = await harness.Handler.Handle(
+            new AnalyzeSingleContentCommand(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "https://www.tiktok.com/@brand/video/999",
+                ClientId: null,
+                PreferredExtractionProviderKey: null),
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("social.single_analyzer.analysis_already_in_progress", result.Error.Code);
+        Assert.Empty(harness.Queue.Enqueued);
+    }
+
     private static SingleContentAnalysisRecord ExistingRecord(
         Guid organizationId,
         Guid userId,
@@ -718,9 +741,25 @@ public sealed class AnalyzeSingleContentHandlerTests
     {
         public int SaveCalls { get; private set; }
 
+        /// <summary>
+        /// Simulates the Postgres partial-unique-index backstop rejecting a concurrent INSERT
+        /// that raced past the app-level duplicate check — see
+        /// ux_single_content_analyses_org_normalized_url_active.
+        /// </summary>
+        public bool ThrowUniqueViolationOnNextSave { get; set; }
+
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             SaveCalls++;
+
+            if (ThrowUniqueViolationOnNextSave)
+            {
+                ThrowUniqueViolationOnNextSave = false;
+                throw new UniqueConstraintViolationException(
+                    "ux_single_content_analyses_org_normalized_url_active",
+                    new InvalidOperationException("simulated Postgres unique-violation"));
+            }
+
             return Task.FromResult(0);
         }
     }

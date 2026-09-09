@@ -18,6 +18,11 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
     private const string FlowKey = "single-analyzer";
     internal const int MaxAiAnalysisFailedAttempts = 2;
 
+    // Must match the partial unique index name in AppIdentityDbContext
+    // (ix on single_content_analyses: organization_id, normalized_url WHERE status NOT IN
+    // ('Analyzed','Failed')) — the DB-level backstop for the app-level duplicate gate above.
+    private const string OrgActiveUrlUniqueIndexName = "ux_single_content_analyses_org_normalized_url_active";
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly ISingleContentAnalysisRepository _analyses;
@@ -101,7 +106,25 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
 
         var analysis = CreateInitialRecord(request, prepared.Value.SourceUrl);
         await _analyses.AddAsync(analysis, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (UniqueConstraintViolationException ex) when (
+            ex.ConstraintName == OrgActiveUrlUniqueIndexName)
+        {
+            // Lost a race: another request for the SAME org+URL committed its INSERT first,
+            // between our app-level CheckOrgDuplicateAsync check and this SaveChanges. The
+            // Postgres partial unique index (ux_single_content_analyses_org_normalized_url_active)
+            // is the final authority here — surface the same clean error the app-level check
+            // would have returned had it seen the winner in time.
+            _logger.LogInformation(
+                "Single Analyzer: lost a concurrent duplicate-create race for org {OrganizationId}, url {Url}.",
+                request.OrganizationId,
+                request.Url);
+            return Result.Failure<SingleAnalyzerStatusResponse>(SingleAnalyzerErrors.AnalysisAlreadyInProgress);
+        }
 
         _logger.LogInformation(
             "Single Analyzer: queued analysis {AnalysisId} for {Url} (org {OrganizationId}, platform {PlatformKey}).",
