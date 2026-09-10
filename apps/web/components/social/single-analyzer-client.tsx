@@ -2697,6 +2697,11 @@ export function SingleAnalyzerClient({ isPlatformAdmin }: SingleAnalyzerClientPr
 
           <AnalyzerToolsToolbar
             showResultActions={shouldShowSavedAnalysisActions}
+            // A failed analysis has nothing to Export, but the user still needs an easy way to
+            // start over next to Help instead of hunting for the URL input — show New whenever
+            // there's a completed OR failed analysis on screen (error is always set on Failed,
+            // both for a live run and one reopened from history).
+            showNewAction={shouldShowSavedAnalysisActions || Boolean(error)}
             onHelp={openAnalyzerHelp}
             onSave={() => void exportCurrentAnalysisPdf()}
             onNew={startNewAnalysis}
