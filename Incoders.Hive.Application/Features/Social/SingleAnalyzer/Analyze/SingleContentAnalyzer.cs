@@ -853,6 +853,20 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
                     return (candidate, ai);
                 }
 
+                // Diagnostic gap fixed 2026-09-10: a validation failure previously left NO trace of
+                // which field the model got wrong or what it actually returned — only the generic
+                // analysis_invalid code reached the logs/DB. Log the raw payload so a real occurrence
+                // (see analysis 09adc484-b600-4431-8bab-0bf678186a64) is debuggable without needing to
+                // re-run the AI step (which the caller can do for free via RetryAiOnlyAsync anyway,
+                // since the content snapshot is already persisted at this point).
+                _logger.LogWarning(
+                    "Single Analyzer: AI response failed validation for analysis {AnalysisId} (provider {ProviderKey}, model {ModelId}): {ErrorCode}. RawPayload={RawPayload}",
+                    analysisId,
+                    candidate.ProviderKey,
+                    candidate.ModelId ?? "(provider default)",
+                    validation.Error.Code,
+                    JsonSerializer.Serialize(ai.Value.Payload, JsonOptions));
+
                 last = Result.Failure<AiJsonCompletionResponse<SingleAnalyzerAnalysis>>(validation.Error);
             }
             else
