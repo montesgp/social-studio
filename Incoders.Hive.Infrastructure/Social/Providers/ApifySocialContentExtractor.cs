@@ -164,7 +164,56 @@ internal sealed class ApifySocialContentExtractor : ISocialContentExtractor
             itemCount);
 
         var firstItem = doc.RootElement[0];
+
+        // Some Apify actors (e.g. apify/instagram-scraper) return a 201 with one dataset item that
+        // carries the actor's own "error"/"errorDescription" instead of content — the request reached
+        // the source, but the source refused full access (private, age-gated, region-locked, etc.).
+        // Detect that before mapping: an adapter has no content-shaped fields to fall back to and would
+        // otherwise silently produce a snapshot of nulls that fails downstream AI validation with no
+        // clue as to why.
+        var providerError = ReadProviderError(firstItem);
+        if (providerError is not null)
+        {
+            _logger.LogWarning(
+                "Apify extraction RESTRICTED ITEM after {ElapsedMs} ms. OrganizationId={OrganizationId} PlatformKey={PlatformKey} ActorId={ActorId} ProviderError={ProviderError} ProviderErrorDescription={ProviderErrorDescription}",
+                stopwatch.ElapsedMilliseconds,
+                request.OrganizationId,
+                request.PlatformKey,
+                actorId,
+                providerError.Value.Error,
+                providerError.Value.Description);
+
+            return Result.Failure<SocialContentSnapshot>(ContentExtractionErrors.RestrictedContent);
+        }
+
         return Result.Success(adapter.MapItem(firstItem, request));
+    }
+
+    /// <summary>
+    /// Recognises a dataset item shaped as an actor-side error — <c>{ "error": "…", "errorDescription": "…" }</c>
+    /// — and returns <c>null</c> for a normal content item, which never carries this pair.
+    /// </summary>
+    private static (string Error, string? Description)? ReadProviderError(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object
+            || !item.TryGetProperty("error", out var errorEl)
+            || errorEl.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        var error = errorEl.GetString();
+        if (string.IsNullOrWhiteSpace(error))
+        {
+            return null;
+        }
+
+        var description = item.TryGetProperty("errorDescription", out var descEl)
+            && descEl.ValueKind == JsonValueKind.String
+                ? descEl.GetString()
+                : null;
+
+        return (error, description);
     }
 
     private static string Preview(string? text, int max)

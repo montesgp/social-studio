@@ -43,6 +43,12 @@ const ERROR_COPY: Record<string, UserFacingError> = {
     message: "The source returned no data. The link may be private, removed, or unsupported.",
     isConfigIssue: false,
   },
+  "content_extraction.restricted_content": {
+    title: "This content can't be accessed",
+    message:
+      "We couldn't retrieve this content because the source restricts access to it (private, age-gated, or region-locked). Try a different link.",
+    isConfigIssue: false,
+  },
   "integrations.provider_timeout": {
     title: "The extraction service took too long",
     message: "The source took too long to respond. Please try again in a moment.",
