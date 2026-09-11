@@ -2722,6 +2722,11 @@ const DesignCanvas = forwardRef<
   // default right dock, computed from the canvas so the column sits beside the slide render.
   const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number } | null>(null);
   const [toolbarPinned, setToolbarPinned] = useState(false);
+  // Whether the floating toolbar is open at all — independent of `toolbarPinned`. Pin/unpin only
+  // locks/unlocks its position; it must never be the thing that opens or closes the panel. It opens
+  // on selection (`positionToolbar`) and closes only on the two explicit user actions that mean
+  // "I'm done with this element": deselecting by clicking empty canvas, and deleting the element.
+  const [toolbarVisible, setToolbarVisible] = useState(false);
   const dragRef = useRef<
     | {
         mode: "move";
@@ -2822,6 +2827,7 @@ const DesignCanvas = forwardRef<
     const r = target.getBoundingClientRect();
     const cr = cont.getBoundingClientRect();
     setSelRect({ top: r.top - cr.top, left: r.left - cr.left, width: r.width, height: r.height });
+    setToolbarVisible(true);
   }, []);
 
   const select = useCallback(
@@ -2862,8 +2868,9 @@ const DesignCanvas = forwardRef<
       const target = pickElement(e.target as Node, root);
       if (!target) {
         // R3.2: an explicit click on the canvas that doesn't hit a selectable element (empty
-        // background/decor space) clears the current selection and hides the toolbar.
+        // background/decor space) clears the current selection and closes the toolbar.
         select(null);
+        setToolbarVisible(false);
         return;
       }
       if (target.isContentEditable) return; // editing text — let the caret work
@@ -3110,6 +3117,7 @@ const DesignCanvas = forwardRef<
     if (!el || isBackgroundLayer(el)) return;
     el.remove();
     select(null);
+    setToolbarVisible(false);
     onDirty();
   };
   deleteSelectedRef.current = deleteSelected;
@@ -3309,10 +3317,12 @@ const DesignCanvas = forwardRef<
         />
       ) : null}
     </div>
-    {/* A PINNED toolbar stays mounted even with nothing selected. It used to render on `selRect`
-        alone, so moving between slides cleared the selection and the pinned panel vanished — the
-        pin only stopped the drag, it never kept the panel alive. */}
-    {selRect || toolbarPinned ? (
+    {/* The toolbar's mount is governed by `toolbarVisible` alone, not by `selRect` or `toolbarPinned`.
+        It used to render on `selRect || toolbarPinned`, which made pin/unpin double as open/close:
+        moving between slides cleared the selection and vanished an unpinned panel, and unpinning
+        while nothing was selected vanished it too — desanclar (unpin) is not remover (close). Pin
+        only locks/unlocks the drag position; opening and closing the panel is a separate concern. */}
+    {toolbarVisible ? (
         <div
           data-cs-toolbar
           className="fixed z-[60] w-max rounded-md border border-border bg-background shadow-2xl"
