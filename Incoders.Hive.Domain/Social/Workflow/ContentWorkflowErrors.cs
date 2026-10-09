@@ -51,4 +51,12 @@ public static class ContentWorkflowErrors
     public static readonly Error PackageSelectionRequired = Error.Validation(
         "social.workflow.package_selection_required",
         "social.workflow.errors.package_selection_required");
+
+    public static readonly Error CandidatesRequired = Error.Validation(
+        "social.workflow.candidates_required",
+        "social.workflow.errors.candidates_required");
+
+    public static readonly Error UserRequired = Error.Validation(
+        "social.workflow.user_required",
+        "social.workflow.errors.user_required");
 }

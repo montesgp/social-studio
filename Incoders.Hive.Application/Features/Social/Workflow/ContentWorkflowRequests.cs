@@ -12,7 +12,8 @@ public sealed record StartContentWorkflowCommand(
     string StrategyMode,
     IReadOnlyList<string> NetworkSources,
     bool ForceRefresh = false,
-    string? OriginMode = null) : IRequest<Result<ContentWorkflowSessionResponse>>;
+    string? OriginMode = null,
+    int? MaxResults = null) : IRequest<Result<ContentWorkflowSessionResponse>>;
 
 public sealed record GetContentWorkflowStatusQuery(
     Guid OrganizationId,
@@ -24,25 +25,10 @@ public sealed record GetContentWorkflowResultsQuery(
     int Page,
     int PageSize) : IRequest<Result<PageResult<ContentWorkflowResultResponse>>>;
 
-public sealed record GetContentWorkflowPreviewQuery(
-    Guid OrganizationId,
-    Guid WorkflowId,
-    Guid ResultId) : IRequest<Result<ContentWorkflowPreviewResponse>>;
-
 public sealed record SelectContentWorkflowResultsCommand(
     Guid OrganizationId,
     Guid WorkflowId,
     IReadOnlyList<Guid> ResultIds) : IRequest<Result<ContentWorkflowSelectionResponse>>;
-
-public sealed record RunContentWorkflowActionCommand(
-    Guid OrganizationId,
-    Guid WorkflowId,
-    string Action,
-    IReadOnlyList<Guid> ResultIds) : IRequest<Result<ContentWorkflowActionResponse>>;
-
-public sealed record GenerateContentWorkflowPackageCommand(
-    Guid OrganizationId,
-    Guid WorkflowId) : IRequest<Result<ContentWorkflowPackageResponse>>;
 
 public sealed record GetContentWorkflowHistoryQuery(
     Guid OrganizationId,
@@ -50,4 +36,17 @@ public sealed record GetContentWorkflowHistoryQuery(
 
 public sealed record ListContentWorkflowHistoryQuery(
     Guid OrganizationId,
-    int Limit) : IRequest<Result<IReadOnlyList<ContentWorkflowHistoryItemResponse>>>;
+    int Limit,
+    Guid? ClientId = null) : IRequest<Result<IReadOnlyList<ContentWorkflowHistoryItemResponse>>>;
+
+/// <summary>
+/// The operator's explicit "bring it back" action on a candidate the Generator screen's candidate grid
+/// moved into its "Processed" section (see <see cref="ContentWorkflowResultResponse.Status"/>). Only
+/// legal from <c>BatchStarted</c> (see <see cref="Incoders.Hive.Domain.Social.Workflow.WorkflowCandidateTransition"/>);
+/// does not undo whatever content generation already happened and does not block re-enqueueing the same
+/// candidate afterwards.
+/// </summary>
+public sealed record RecoverContentWorkflowCandidateCommand(
+    Guid OrganizationId,
+    Guid WorkflowId,
+    Guid CandidateId) : IRequest<Result<ContentWorkflowCandidateStatusResponse>>;

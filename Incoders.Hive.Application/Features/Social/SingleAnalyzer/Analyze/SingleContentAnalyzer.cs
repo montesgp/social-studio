@@ -18,6 +18,11 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
     private const string FlowKey = "single-analyzer";
     internal const int MaxAiAnalysisFailedAttempts = 2;
 
+    // Must match the partial unique index name in AppIdentityDbContext
+    // (ix on single_content_analyses: organization_id, normalized_url WHERE status NOT IN
+    // ('Analyzed','Failed')) — the DB-level backstop for the app-level duplicate gate above.
+    private const string OrgActiveUrlUniqueIndexName = "ux_single_content_analyses_org_normalized_url_active";
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly ISingleContentAnalysisRepository _analyses;
@@ -76,6 +81,23 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
         SingleContentAnalysisRequest request,
         CancellationToken cancellationToken = default)
     {
+        // HARD org-scoped duplicate gate (CAP5) — checked BEFORE preflight/extraction so a
+        // repeated "Analyze" click never reaches Apify a second time. Apify/AI credits are a
+        // per-organization resource, so this looks across ALL users in the org, not just the
+        // requester. Must run before PrepareAsync's preflight call, which is itself an external
+        // provider round-trip we should also skip when we already know we're blocked.
+        var candidateUrl = SingleAnalyzerSourceUrl.Create(request.Url);
+        if (candidateUrl.IsFailure)
+        {
+            return Result.Failure<SingleAnalyzerStatusResponse>(candidateUrl.Error);
+        }
+
+        var duplicate = await CheckOrgDuplicateAsync(request.OrganizationId, candidateUrl.Value, cancellationToken);
+        if (duplicate is not null)
+        {
+            return duplicate.Value;
+        }
+
         var prepared = await PrepareAsync(request, runPreflight: true, cancellationToken);
         if (prepared.IsFailure)
         {
@@ -84,7 +106,25 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
 
         var analysis = CreateInitialRecord(request, prepared.Value.SourceUrl);
         await _analyses.AddAsync(analysis, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (UniqueConstraintViolationException ex) when (
+            ex.ConstraintName == OrgActiveUrlUniqueIndexName)
+        {
+            // Lost a race: another request for the SAME org+URL committed its INSERT first,
+            // between our app-level CheckOrgDuplicateAsync check and this SaveChanges. The
+            // Postgres partial unique index (ux_single_content_analyses_org_normalized_url_active)
+            // is the final authority here — surface the same clean error the app-level check
+            // would have returned had it seen the winner in time.
+            _logger.LogInformation(
+                "Single Analyzer: lost a concurrent duplicate-create race for org {OrganizationId}, url {Url}.",
+                request.OrganizationId,
+                request.Url);
+            return Result.Failure<SingleAnalyzerStatusResponse>(SingleAnalyzerErrors.AnalysisAlreadyInProgress);
+        }
 
         _logger.LogInformation(
             "Single Analyzer: queued analysis {AnalysisId} for {Url} (org {OrganizationId}, platform {PlatformKey}).",
@@ -94,6 +134,92 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
             prepared.Value.PlatformKey);
 
         return Result.Success(SingleAnalyzerStatusResponse.FromRecord(analysis));
+    }
+
+    /// <summary>
+    /// Org-scoped duplicate/in-flight check. Returns <c>null</c> when the caller should proceed
+    /// with a normal fresh start (no prior analysis for this URL, or the prior one failed before
+    /// any content snapshot was captured — nothing usable to resume). Otherwise returns the
+    /// <see cref="Result{TValue}"/> the caller must return immediately:
+    /// <list type="bullet">
+    /// <item>an existing non-terminal analysis → <see cref="SingleAnalyzerErrors.AnalysisAlreadyInProgress"/> (blocked, no DB write)</item>
+    /// <item>an existing <c>Analyzed</c> analysis → <see cref="SingleAnalyzerErrors.AnalysisAlreadyCompleted"/> (blocked, no DB write)</item>
+    /// <item>an existing <c>Failed</c> analysis WITH a persisted snapshot → flips it back to
+    /// <c>Analyzing</c> and returns success on the SAME record. The caller (<see cref="AnalyzeSingleContentHandler"/>)
+    /// enqueues a <see cref="SingleAnalysisJobKind.RetryAi"/> job instead of a full run, so no
+    /// second extraction call is made — this is the "resume from where it failed" behavior.</item>
+    /// <item>an existing <c>Failed</c> analysis WITH no snapshot and an exhausted AI-retry budget →
+    /// <see cref="SingleAnalyzerErrors.AiRetryBlocked"/>, mirroring <see cref="RetryAiOnlyAsync"/>'s own guard.</item>
+    /// </list>
+    /// </summary>
+    private async Task<Result<SingleAnalyzerStatusResponse>?> CheckOrgDuplicateAsync(
+        Guid organizationId,
+        SingleAnalyzerSourceUrl sourceUrl,
+        CancellationToken cancellationToken)
+    {
+        var existing = await _analyses.FindLatestByOrganizationAndUrlAsync(
+            organizationId,
+            sourceUrl.NormalizedUrl,
+            sourceUrl.OriginalUrl,
+            cancellationToken);
+
+        if (existing is null)
+        {
+            return null;
+        }
+
+        switch (existing.Status)
+        {
+            case SingleContentAnalysisStatus.Analyzed:
+                _logger.LogInformation(
+                    "Single Analyzer: blocked duplicate analyze for org {OrganizationId} — {Url} already Analyzed as {AnalysisId}.",
+                    organizationId,
+                    sourceUrl.OriginalUrl,
+                    existing.Id);
+                return Result.Failure<SingleAnalyzerStatusResponse>(SingleAnalyzerErrors.AnalysisAlreadyCompleted);
+
+            case SingleContentAnalysisStatus.Failed:
+                if (string.IsNullOrWhiteSpace(existing.ContentSnapshotJson))
+                {
+                    // Failed before extraction completed — nothing persisted to resume from.
+                    // Let the caller proceed with a normal fresh start.
+                    return null;
+                }
+
+                if (existing.AiAnalysisFailedAttemptCount >= MaxAiAnalysisFailedAttempts)
+                {
+                    return Result.Failure<SingleAnalyzerStatusResponse>(SingleAnalyzerErrors.AiRetryBlocked);
+                }
+
+                var resumed = existing with
+                {
+                    Status = SingleContentAnalysisStatus.Analyzing,
+                    FailureCode = null,
+                    FailureMessageKey = null,
+                    UpdatedAtUtc = _clock.UtcNow,
+                    CompletedAtUtc = null
+                };
+                await _analyses.UpdateAsync(resumed, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+                _logger.LogInformation(
+                    "Single Analyzer: resuming analysis {AnalysisId} for org {OrganizationId} from its persisted snapshot — NO re-scrape.",
+                    resumed.Id,
+                    organizationId);
+
+                return Result.Success(SingleAnalyzerStatusResponse.FromRecord(resumed));
+
+            default:
+                // Any non-terminal status (Requested, ResolvingContent, ContentResolved,
+                // ContentResolvedPartial, Analyzing) — a run is already in flight for this URL.
+                _logger.LogInformation(
+                    "Single Analyzer: blocked duplicate analyze for org {OrganizationId} — {Url} already in flight as {AnalysisId} ({Status}).",
+                    organizationId,
+                    sourceUrl.OriginalUrl,
+                    existing.Id,
+                    existing.Status);
+                return Result.Failure<SingleAnalyzerStatusResponse>(SingleAnalyzerErrors.AnalysisAlreadyInProgress);
+        }
     }
 
     public async Task RunQueuedAsync(
@@ -726,6 +852,20 @@ public sealed class SingleContentAnalyzer : ISingleContentAnalyzer
 
                     return (candidate, ai);
                 }
+
+                // Diagnostic gap fixed 2026-09-10: a validation failure previously left NO trace of
+                // which field the model got wrong or what it actually returned — only the generic
+                // analysis_invalid code reached the logs/DB. Log the raw payload so a real occurrence
+                // (see analysis 09adc484-b600-4431-8bab-0bf678186a64) is debuggable without needing to
+                // re-run the AI step (which the caller can do for free via RetryAiOnlyAsync anyway,
+                // since the content snapshot is already persisted at this point).
+                _logger.LogWarning(
+                    "Single Analyzer: AI response failed validation for analysis {AnalysisId} (provider {ProviderKey}, model {ModelId}): {ErrorCode}. RawPayload={RawPayload}",
+                    analysisId,
+                    candidate.ProviderKey,
+                    candidate.ModelId ?? "(provider default)",
+                    validation.Error.Code,
+                    JsonSerializer.Serialize(ai.Value.Payload, JsonOptions));
 
                 last = Result.Failure<AiJsonCompletionResponse<SingleAnalyzerAnalysis>>(validation.Error);
             }

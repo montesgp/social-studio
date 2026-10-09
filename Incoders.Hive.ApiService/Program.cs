@@ -82,6 +82,10 @@ builder.Services.AddHostedService<ProfileAnalysisBackgroundWorker>();
 // Consumes queued content-generation jobs (async multi-step orchestration pipeline).
 builder.Services.AddHostedService<ContentGenerationBackgroundWorker>();
 
+// Consumes queued content-workflow enqueue items — one candidate's independent analysis-then-batch
+// sequence per item (Phase 6.1, mirrors SingleAnalysisBackgroundWorker's queue+worker pattern).
+builder.Services.AddHostedService<ContentWorkflowEnqueueBackgroundWorker>();
+
 // Consumes queued niche-discovery runs (async sourcing + analytics + semantics + scoring pipeline).
 builder.Services.AddHostedService<Incoders.Hive.Infrastructure.Social.NicheDiscovery.NicheDiscoveryRunBackgroundService>();
 

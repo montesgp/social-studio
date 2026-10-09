@@ -27,4 +27,13 @@ public static class ContentExtractionErrors
     public static readonly Error PartialData = Error.Failure(
         "Snapshot.PartialData",
         "snapshot.partial_data");
+
+    /// <summary>
+    /// The provider returned a dataset item flagged with its own "error"/"errorDescription"
+    /// (e.g. Apify's <c>restricted_page</c> for a private/age-gated/region-locked post) instead of
+    /// content. The URL is reachable but the source itself refused full access.
+    /// </summary>
+    public static readonly Error RestrictedContent = Error.Failure(
+        "ContentExtraction.RestrictedContent",
+        "content_extraction.restricted_content");
 }

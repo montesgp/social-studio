@@ -28,7 +28,8 @@ public sealed class StartContentWorkflowHandler
                 request.StrategyMode,
                 request.NetworkSources,
                 request.ForceRefresh,
-                request.OriginMode),
+                request.OriginMode,
+                request.MaxResults),
             cancellationToken);
     }
 }
@@ -70,26 +71,6 @@ public sealed class GetContentWorkflowResultsHandler
             cancellationToken);
 }
 
-public sealed class GetContentWorkflowPreviewHandler
-    : IRequestHandler<GetContentWorkflowPreviewQuery, Result<ContentWorkflowPreviewResponse>>
-{
-    private readonly IContentWorkflowService _service;
-
-    public GetContentWorkflowPreviewHandler(IContentWorkflowService service)
-    {
-        _service = service;
-    }
-
-    public Task<Result<ContentWorkflowPreviewResponse>> Handle(
-        GetContentWorkflowPreviewQuery request,
-        CancellationToken cancellationToken) =>
-        _service.GetPreviewAsync(
-            request.OrganizationId,
-            request.WorkflowId,
-            request.ResultId,
-            cancellationToken);
-}
-
 public sealed class SelectContentWorkflowResultsHandler
     : IRequestHandler<SelectContentWorkflowResultsCommand, Result<ContentWorkflowSelectionResponse>>
 {
@@ -108,43 +89,6 @@ public sealed class SelectContentWorkflowResultsHandler
             request.WorkflowId,
             request.ResultIds,
             cancellationToken);
-}
-
-public sealed class RunContentWorkflowActionHandler
-    : IRequestHandler<RunContentWorkflowActionCommand, Result<ContentWorkflowActionResponse>>
-{
-    private readonly IContentWorkflowService _service;
-
-    public RunContentWorkflowActionHandler(IContentWorkflowService service)
-    {
-        _service = service;
-    }
-
-    public Task<Result<ContentWorkflowActionResponse>> Handle(
-        RunContentWorkflowActionCommand request,
-        CancellationToken cancellationToken) =>
-        _service.RunActionAsync(
-            request.OrganizationId,
-            request.WorkflowId,
-            request.Action,
-            request.ResultIds,
-            cancellationToken);
-}
-
-public sealed class GenerateContentWorkflowPackageHandler
-    : IRequestHandler<GenerateContentWorkflowPackageCommand, Result<ContentWorkflowPackageResponse>>
-{
-    private readonly IContentWorkflowService _service;
-
-    public GenerateContentWorkflowPackageHandler(IContentWorkflowService service)
-    {
-        _service = service;
-    }
-
-    public Task<Result<ContentWorkflowPackageResponse>> Handle(
-        GenerateContentWorkflowPackageCommand request,
-        CancellationToken cancellationToken) =>
-        _service.GeneratePackageAsync(request.OrganizationId, request.WorkflowId, cancellationToken);
 }
 
 public sealed class GetContentWorkflowHistoryHandler
@@ -176,5 +120,21 @@ public sealed class ListContentWorkflowHistoryHandler
     public Task<Result<IReadOnlyList<ContentWorkflowHistoryItemResponse>>> Handle(
         ListContentWorkflowHistoryQuery request,
         CancellationToken cancellationToken) =>
-        _service.ListHistoryAsync(request.OrganizationId, request.Limit, cancellationToken);
+        _service.ListHistoryAsync(request.OrganizationId, request.Limit, request.ClientId, cancellationToken);
+}
+
+public sealed class RecoverContentWorkflowCandidateHandler
+    : IRequestHandler<RecoverContentWorkflowCandidateCommand, Result<ContentWorkflowCandidateStatusResponse>>
+{
+    private readonly IContentWorkflowService _service;
+
+    public RecoverContentWorkflowCandidateHandler(IContentWorkflowService service)
+    {
+        _service = service;
+    }
+
+    public Task<Result<ContentWorkflowCandidateStatusResponse>> Handle(
+        RecoverContentWorkflowCandidateCommand request,
+        CancellationToken cancellationToken) =>
+        _service.RecoverCandidateAsync(request.OrganizationId, request.WorkflowId, request.CandidateId, cancellationToken);
 }

@@ -5,31 +5,38 @@ using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Ideas;
 using Incoders.Hive.Application.Features.Social.Workflow;
 using Incoders.Hive.Domain.Social.Workflow;
+using Incoders.Hive.Infrastructure.Identity;
+using Incoders.Hive.Infrastructure.Persistence.Postgres.Repositories;
 using Incoders.Hive.Infrastructure.Social.Workflow;
 using Incoders.Hive.Tests.Common;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Incoders.Hive.Tests.Application.Social.Workflow;
 
+/// <summary>
+/// Approval/behavior tests for <see cref="EfContentWorkflowService"/> (Phase 5.9 facade rewrite): same
+/// discovery orchestration and progress-ramp behavior as the deleted <c>InMemoryContentWorkflowService</c>,
+/// now persisting through <see cref="EfContentWorkflowSessionRepository"/> (EF InMemory provider, same
+/// harness convention as this repo's other repository tests) instead of a
+/// <see cref="System.Collections.Concurrent.ConcurrentDictionary{TKey,TValue}"/>. The mock generation
+/// paths the old service exposed (preview / actions / package) are gone from the interface — spec removes
+/// them, not ported here.
+/// </summary>
 public sealed class ContentWorkflowServiceTests
 {
     [Fact]
     public async Task Start_ThenGetResults_ReturnsPaginatedEnvelope()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var service = CreateService(clock, ScopeFactoryWith(Discovered(30)));
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
             organizationId,
-            new ContentWorkflowStartInput(
-                Guid.NewGuid(),
-                "CM Team",
-                "viral",
-                "mixed",
-                ["tiktok", "instagram"]));
+            new ContentWorkflowStartInput(Guid.NewGuid(), "CM Team", "viral", "mixed", ["tiktok", "instagram"]));
 
         Assert.True(started.IsSuccess);
         await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
@@ -48,20 +55,15 @@ public sealed class ContentWorkflowServiceTests
     }
 
     [Fact]
-    public async Task Select_Action_AndPackage_WorksForChosenItems()
+    public async Task SetSelection_PersistsSelectedResultIds()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
-        var service = CreateService(clock, ScopeFactoryWith(Discovered(30)));
+        var clock = new TestClock(DateTime.UtcNow);
+        var service = CreateService(clock, ScopeFactoryWith(Discovered(5)));
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
             organizationId,
-            new ContentWorkflowStartInput(
-                Guid.NewGuid(),
-                "Acme Social",
-                "niche",
-                "educational",
-                ["tiktok"]));
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme Social", "niche", "educational", ["tiktok"]));
 
         await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
 
@@ -69,28 +71,36 @@ public sealed class ContentWorkflowServiceTests
         var selectedIds = results.Value.Items.Take(2).Select(x => x.Id).ToList();
 
         var selection = await service.SetSelectionAsync(organizationId, started.Value.WorkflowId, selectedIds);
-        var action = await service.RunActionAsync(
-            organizationId,
-            started.Value.WorkflowId,
-            "download_audio",
-            selectedIds);
-        var package = await service.GeneratePackageAsync(organizationId, started.Value.WorkflowId);
+        var refreshed = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 5);
 
         Assert.True(selection.IsSuccess);
         Assert.Equal(2, selection.Value.SelectedCount);
-        Assert.True(action.IsSuccess);
-        Assert.Equal("completed", action.Value.Status);
-        Assert.True(package.IsSuccess);
-        // Two selected proposals x the default two formats = four queued pieces.
-        Assert.Equal(4, package.Value.ItemCount);
-        // Queued, not ready: the pieces drain through the worker into the content bank.
-        Assert.Equal("generation_queued", package.Value.Status);
+        Assert.Equal(2, refreshed.Value.Items.Count(x => x.IsSelected));
+    }
+
+    [Fact]
+    public async Task SetSelection_WithUnknownResultId_IsRejected()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        var selection = await service.SetSelectionAsync(organizationId, started.Value.WorkflowId, [Guid.NewGuid()]);
+
+        Assert.True(selection.IsFailure);
+        Assert.Equal(ContentWorkflowErrors.ResultNotFound, selection.Error);
     }
 
     [Fact]
     public async Task History_IsScopedByOrganization()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var service = CreateService(clock, ScopeFactoryWith(Discovered(30)));
         var organizationA = Guid.NewGuid();
         var organizationB = Guid.NewGuid();
@@ -118,22 +128,123 @@ public sealed class ContentWorkflowServiceTests
     }
 
     [Fact]
+    public async Task ListHistory_WithClientId_ReturnsOnlyThatClientsEntries()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
+        var organizationId = Guid.NewGuid();
+        var clientA = Guid.NewGuid();
+        var clientB = Guid.NewGuid();
+
+        var startedA = await service.StartAsync(
+            organizationId, new ContentWorkflowStartInput(clientA, "Client A", "references", "mixed", ["instagram"]));
+        var startedB = await service.StartAsync(
+            organizationId, new ContentWorkflowStartInput(clientB, "Client B", "competitors", "informative", ["youtube"]));
+
+        await WaitForTerminalAsync(service, organizationId, startedA.Value.WorkflowId);
+        await WaitForTerminalAsync(service, organizationId, startedB.Value.WorkflowId);
+
+        var filtered = await service.ListHistoryAsync(organizationId, 20, clientA);
+        var unfiltered = await service.ListHistoryAsync(organizationId, 20);
+
+        Assert.True(filtered.IsSuccess);
+        Assert.Single(filtered.Value);
+        Assert.Equal("Client A", filtered.Value[0].ClientName);
+        Assert.True(unfiltered.IsSuccess);
+        Assert.Equal(2, unfiltered.Value.Count);
+    }
+
+    [Fact]
+    public async Task GetHistory_ExposesPerCandidateEnqueueStatus()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var (service, repository) = CreateServiceWithRepository(clock, ScopeFactoryWith(Discovered(2)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+        var candidateId = results.Value.Items[0].Id;
+
+        await repository.UpdateCandidateStatusAsync(
+            candidateId, WorkflowCandidateStatus.Analyzing, analysisId: Guid.NewGuid(), batchId: null, failureCode: null, CancellationToken.None);
+
+        var history = await service.GetHistoryAsync(organizationId, started.Value.WorkflowId);
+
+        Assert.True(history.IsSuccess);
+        var candidateStatus = Assert.Single(history.Value.Candidates, c => c.CandidateId == candidateId);
+        Assert.Equal("Analyzing", candidateStatus.Status);
+        Assert.Null(candidateStatus.FailureCode);
+    }
+
+    [Fact]
+    public async Task GetHistory_SurfacesFailureCodeWhenACandidatesAnalysisFails()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var (service, repository) = CreateServiceWithRepository(clock, ScopeFactoryWith(Discovered(1)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+        var candidateId = results.Value.Items[0].Id;
+
+        await repository.UpdateCandidateStatusAsync(
+            candidateId, WorkflowCandidateStatus.AnalysisFailed, analysisId: null, batchId: null,
+            failureCode: "analysis_timeout", CancellationToken.None);
+
+        var history = await service.GetHistoryAsync(organizationId, started.Value.WorkflowId);
+
+        var candidateStatus = Assert.Single(history.Value.Candidates, c => c.CandidateId == candidateId);
+        Assert.Equal("AnalysisFailed", candidateStatus.Status);
+        Assert.Equal("analysis_timeout", candidateStatus.FailureCode);
+    }
+
+    [Fact]
+    public async Task GetHistory_BeforeAnyEnqueue_ExcludesUnsubmittedCandidates()
+    {
+        // Corrects the prior bug this test used to encode: discovery persists candidate rows so the
+        // operator can select/compose them, but a candidate that was only discovered — never composed
+        // and enqueued — must NOT appear as "Queued" on the history read surface (that falsely implies
+        // it was submitted to the real analysis-then-batch pipeline). See
+        // ContentWorkflowContracts.ContentWorkflowHistoryResponse.Candidates docstring: "Empty until the
+        // operator composes and enqueues at least one candidate for this workflow."
+        var clock = new TestClock(DateTime.UtcNow);
+        var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+        var history = await service.GetHistoryAsync(organizationId, started.Value.WorkflowId);
+
+        Assert.True(history.IsSuccess);
+        // Discovery still persisted all 3 candidates — selection/composition still has something to work
+        // with — but none of them were ever composed and enqueued, so none belong on the history surface.
+        Assert.Equal(3, results.Value.TotalCount);
+        Assert.Empty(history.Value.Candidates);
+    }
+
+    [Fact]
     public async Task Start_WithNothingDiscovered_ReturnsAnEmptyProposal()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var service = CreateService(clock, ScopeFactoryWith([]));
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Sin referentes", "viral", "mixed", ["instagram"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Sin referentes", "viral", "mixed", ["instagram"]));
 
         await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
 
         var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
 
-        // A client with no reference accounts, or an unconfigured scraping route, must surface as an
-        // honestly empty proposal — never as invented rows that look real.
         Assert.True(started.IsSuccess);
         Assert.Empty(results.Value.Items);
         Assert.Equal(0, results.Value.TotalCount);
@@ -142,7 +253,7 @@ public sealed class ContentWorkflowServiceTests
     [Fact]
     public async Task Start_ProjectsDiscoveredMetricsOntoTheProposal()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var discovered = new DiscoveredContent(
             "Un reel ganador", "resumen", "instagram", "https://ig.com/p/1", "https://ig.com/t.jpg",
             Views: 120_000, Likes: 4_000, Comments: 210, Shares: null, Saves: null,
@@ -152,8 +263,7 @@ public sealed class ContentWorkflowServiceTests
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "viral", "mixed", ["instagram"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "viral", "mixed", ["instagram"]));
 
         await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
 
@@ -169,15 +279,12 @@ public sealed class ContentWorkflowServiceTests
     [Fact]
     public async Task Start_WithOwnCriterion_NoLongerReturnsSearchCriterionInvalid()
     {
-        // CR-DISC-02 scenario 1: selecting "own" used to fail validation because
-        // ContentWorkflowCatalog.SearchCriterionAliases had no "own" entry.
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "own", "mixed", ["instagram"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "own", "mixed", ["instagram"]));
 
         Assert.True(started.IsSuccess);
         Assert.Equal("own", started.Value.SearchCriterion);
@@ -186,42 +293,29 @@ public sealed class ContentWorkflowServiceTests
     [Fact]
     public async Task Start_WithOwnCriterion_PassesTheNormalizedCriterionIntoTheDiscoveryRequest()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var spy = new SpyDiscovery(Discovered(3));
-        var services = new ServiceCollection();
-        services.AddScoped<IContentDiscoveryService>(_ => spy);
-        services.AddScoped<IProposalGenerationStarter, StubStarter>();
-        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
-
-        var service = CreateService(clock, scopeFactory);
+        var service = CreateService(clock, ScopeFactoryWith(spy));
         var organizationId = Guid.NewGuid();
 
-        // "propios" is the Spanish-language alias for the same canonical "own" criterion.
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "propios", "mixed", ["instagram"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "propios", "mixed", ["instagram"]));
 
         await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
 
         Assert.Equal("own", spy.LastRequest?.SearchCriterion);
     }
 
-    // ── candidate bank: origin and the explicit refresh ──────────────────────
-    // Discovery serves from the stored bank by default. A paid run happens only when the bank is empty
-    // or the operator explicitly asked for a refresh, so the flag has to survive the whole way down to
-    // the discovery request and the origin has to survive the whole way back up to the operator.
-
     [Fact]
     public async Task Start_WithoutRefresh_AsksDiscoveryNotToRescrape()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var spy = new SpyDiscovery(Discovered(3));
         var service = CreateService(clock, ScopeFactoryWith(spy));
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
 
         await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
 
@@ -231,7 +325,7 @@ public sealed class ContentWorkflowServiceTests
     [Fact]
     public async Task Start_WithExplicitRefresh_CarriesTheOperatorsOptInIntoTheDiscoveryRequest()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var spy = new SpyDiscovery(Discovered(3));
         var service = CreateService(clock, ScopeFactoryWith(spy));
         var organizationId = Guid.NewGuid();
@@ -246,17 +340,49 @@ public sealed class ContentWorkflowServiceTests
     }
 
     [Fact]
+    public async Task Start_WithExplicitMaxResults_CapsTheDiscoveryRequest()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var spy = new SpyDiscovery(Discovered(3));
+        var service = CreateService(clock, ScopeFactoryWith(spy));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], MaxResults: 25));
+
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        Assert.Equal(25, spy.LastRequest?.MaxResults);
+    }
+
+    [Fact]
+    public async Task Start_WithoutMaxResults_FallsBackToTheDefaultResultCount()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var spy = new SpyDiscovery(Discovered(3));
+        var service = CreateService(clock, ScopeFactoryWith(spy));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        Assert.Equal(72, spy.LastRequest?.MaxResults);
+    }
+
+    [Fact]
     public async Task Status_ReportsWhereTheCandidatesCameFromAndHowOldTheStoredOnesAre()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var observedAt = new DateTimeOffset(2026, 5, 10, 8, 0, 0, TimeSpan.Zero);
         var plan = new ContentDiscoveryPlan(Discovered(3), 0, [], [], DiscoveryOrigin.Bank, observedAt);
         var service = CreateService(clock, ScopeFactoryWith(new PlanDiscovery(plan)));
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
 
         var terminal = await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
 
@@ -267,13 +393,12 @@ public sealed class ContentWorkflowServiceTests
     [Fact]
     public async Task Status_AfterAFreshRun_ReportsAFreshOrigin_WithNoStoredAge()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
 
         var terminal = await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
 
@@ -281,26 +406,17 @@ public sealed class ContentWorkflowServiceTests
         Assert.Null(terminal.BankObservedAtUtc);
     }
 
-    // ── start + poll execution model ─────────────────────────────────────────
-    // A real scrape does not fit inside one HTTP request: production runs were aborted by the browser
-    // or proxy at ~30 s ("CANCELLED BY THE CALLER after 29965 ms"), leaving the Apify run billing.
-    // StartAsync therefore only opens the session; discovery runs in the background and the operator
-    // polls the status endpoint.
-
     [Fact]
     public async Task Start_ReturnsWithoutWaitingForDiscoveryToFinish()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var gate = new TaskCompletionSource();
         var discovery = new GatedDiscovery(gate.Task, Discovered(4));
         var service = CreateService(clock, ScopeFactoryWith(discovery));
         var organizationId = Guid.NewGuid();
 
-        // If StartAsync still awaited discovery inline, this call could never return: the stub is
-        // blocked on a gate nobody has released yet.
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
 
         Assert.True(started.IsSuccess);
         Assert.Equal("in_progress", started.Value.Status);
@@ -321,7 +437,7 @@ public sealed class ContentWorkflowServiceTests
     [Fact]
     public async Task BackgroundDiscovery_SurvivesCancellationOfTheRequestToken()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var gate = new TaskCompletionSource();
         var discovery = new GatedDiscovery(gate.Task, Discovered(2));
         var service = CreateService(clock, ScopeFactoryWith(discovery));
@@ -334,8 +450,6 @@ public sealed class ContentWorkflowServiceTests
             new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]),
             requestCts.Token);
 
-        // The operator navigates away / the proxy aborts: exactly the abort that used to kill the run
-        // and orphan a billing Apify actor.
         await requestCts.CancelAsync();
         gate.SetResult();
 
@@ -351,17 +465,15 @@ public sealed class ContentWorkflowServiceTests
     [Fact]
     public async Task Status_ReachesCompletedEmpty_WhenTheChainFoundNothing()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var service = CreateService(clock, ScopeFactoryWith([]));
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
 
         var terminal = await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
 
-        // Empty is a SUCCESS outcome: the chain ran and genuinely found nothing.
         Assert.Equal("completed", terminal.Status);
         Assert.Equal(0, terminal.TotalResults);
         Assert.Equal(100, terminal.ProgressPercentage);
@@ -370,17 +482,15 @@ public sealed class ContentWorkflowServiceTests
     [Fact]
     public async Task Status_ReachesFailed_WhenDiscoveryThrows()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var service = CreateService(clock, ScopeFactoryWith(new ThrowingDiscovery()));
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
 
         var terminal = await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
 
-        // A provider failure must never read as "found nothing".
         Assert.Equal("failed", terminal.Status);
         Assert.Equal(0, terminal.TotalResults);
     }
@@ -388,14 +498,13 @@ public sealed class ContentWorkflowServiceTests
     [Fact]
     public async Task Status_ReachesFailed_WhenEverySourceErrored()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var plan = new ContentDiscoveryPlan([], 72, ["tiktok-niche"], []);
         var service = CreateService(clock, ScopeFactoryWith(new PlanDiscovery(plan)));
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
 
         var terminal = await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
 
@@ -405,37 +514,32 @@ public sealed class ContentWorkflowServiceTests
     [Fact]
     public async Task Status_ReachesUnconfigured_WhenNoSourceHadAnEnabledActor()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var plan = new ContentDiscoveryPlan([], 72, [], ["tiktok-niche"]);
         var service = CreateService(clock, ScopeFactoryWith(new PlanDiscovery(plan)));
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
 
         var terminal = await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
 
-        // "Configure this stage" is a different answer from "the provider is down" and from
-        // "it ran and found nothing" (CD-13 / D12).
         Assert.Equal("unconfigured", terminal.Status);
     }
 
     [Fact]
     public async Task Status_StaysCompleted_WhenSomeSourcesFailedButCandidatesCameBack()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var plan = new ContentDiscoveryPlan(Discovered(3), 69, ["instagram-niche"], ["youtube-niche"]);
         var service = CreateService(clock, ScopeFactoryWith(new PlanDiscovery(plan)));
         var organizationId = Guid.NewGuid();
 
         var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+            organizationId, new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
 
         var terminal = await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
 
-        // One failing source never voids a run that produced candidates.
         Assert.Equal("completed", terminal.Status);
         Assert.Equal(3, terminal.TotalResults);
     }
@@ -443,36 +547,235 @@ public sealed class ContentWorkflowServiceTests
     [Fact]
     public async Task Status_ForAnUnknownWorkflowId_IsACleanNotFound()
     {
-        var clock = new TestClock(new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var clock = new TestClock(DateTime.UtcNow);
         var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
 
-        // Sessions live in memory and are lost on restart; a status poll for an id this process never
-        // saw must answer not-found rather than throw.
         var status = await service.GetStatusAsync(Guid.NewGuid(), Guid.NewGuid());
 
         Assert.True(status.IsFailure);
         Assert.Equal("social.workflow.not_found", status.Error.Code);
     }
 
+    [Fact]
+    public async Task Start_WithAiIdeasOrigin_NeverCallsDiscovery()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var spy = new SpyDiscovery(Discovered(3));
+        var service = CreateService(clock, IdeaScopeFactory(spy, new SpyIdeaSource(3)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
+
+        Assert.True(started.IsSuccess);
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        Assert.Null(spy.LastRequest);
+    }
+
+    [Fact]
+    public async Task Start_WithAiIdeasOrigin_FillsTheSessionFromTheIdeaChain()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var source = new SpyIdeaSource(4);
+        var service = CreateService(clock, IdeaScopeFactory(new SpyDiscovery([]), source));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
+
+        var terminal = await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+        var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+
+        Assert.Equal("completed", terminal.Status);
+        Assert.Equal(4, results.Value.TotalCount);
+        Assert.Equal("idea-1", results.Value.Items[0].Title);
+        Assert.All(results.Value.Items, item => Assert.Equal(0, item.Views));
+        Assert.All(results.Value.Items, item => Assert.Equal(string.Empty, item.VideoUrl));
+    }
+
+    [Fact]
+    public async Task Start_WithAiIdeasOrigin_AsksOnlyForInventedIdeas()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var source = new SpyIdeaSource(2);
+        var service = CreateService(clock, IdeaScopeFactory(new SpyDiscovery([]), source));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
+
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        Assert.Equal(IdeaOrigin.Invented, source.LastRequest?.OriginFilter);
+    }
+
+    [Fact]
+    public async Task Start_WithAiIdeasOrigin_GivesEveryRunItsOwnVariationSeed()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var source = new SpyIdeaSource(2);
+        var service = CreateService(clock, IdeaScopeFactory(new SpyDiscovery([]), source));
+        var organizationId = Guid.NewGuid();
+        var clientId = Guid.NewGuid();
+
+        var first = await service.StartAsync(
+            organizationId, new ContentWorkflowStartInput(clientId, "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
+        await WaitForTerminalAsync(service, organizationId, first.Value.WorkflowId);
+        var firstSeed = source.LastRequest?.VariationSeed;
+
+        var second = await service.StartAsync(
+            organizationId, new ContentWorkflowStartInput(clientId, "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
+        await WaitForTerminalAsync(service, organizationId, second.Value.WorkflowId);
+
+        Assert.False(string.IsNullOrWhiteSpace(firstSeed));
+        Assert.NotEqual(firstSeed, source.LastRequest?.VariationSeed);
+    }
+
+    [Fact]
+    public async Task Start_WithAiIdeasOrigin_DoesNotRequireANetwork()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var service = CreateService(clock, IdeaScopeFactory(new SpyDiscovery([]), new SpyIdeaSource(2)));
+
+        var started = await service.StartAsync(
+            Guid.NewGuid(),
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", [], OriginMode: "ai-ideas"));
+
+        Assert.True(started.IsSuccess);
+    }
+
+    [Fact]
+    public async Task Start_WithDiscoveryOrigin_StillRequiresANetwork()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
+
+        var started = await service.StartAsync(
+            Guid.NewGuid(), new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", []));
+
+        Assert.True(started.IsFailure);
+        Assert.Equal(ContentWorkflowErrors.NetworkSourcesRequired, started.Error);
+    }
+
+    [Fact]
+    public async Task Start_WithAnUnknownOrigin_IsRejected()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
+
+        var started = await service.StartAsync(
+            Guid.NewGuid(),
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], OriginMode: "telepatia"));
+
+        Assert.True(started.IsFailure);
+        Assert.Equal(ContentWorkflowErrors.OriginModeInvalid, started.Error);
+    }
+
+    [Fact]
+    public async Task GetResults_ExposesDiscoveredStatus_UntilComposedAndEnqueued()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+
+        Assert.True(results.IsSuccess);
+        Assert.All(results.Value.Items, item => Assert.Equal(WorkflowCandidateStatus.Discovered.ToString(), item.Status));
+    }
+
+    [Fact]
+    public async Task RecoverCandidate_FromBatchStarted_MovesToRecovered_AndIsReflectedInResults()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var (service, repository) = CreateServiceWithRepository(clock, ScopeFactoryWith(Discovered(1)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+        var candidateId = results.Value.Items[0].Id;
+
+        // Simulate the sequencer having already driven this candidate to the "processed" terminal state.
+        await repository.UpdateCandidateStatusAsync(candidateId, WorkflowCandidateStatus.BatchStarted, null, null, null);
+
+        var recovered = await service.RecoverCandidateAsync(organizationId, started.Value.WorkflowId, candidateId);
+        var refreshed = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+
+        Assert.True(recovered.IsSuccess);
+        Assert.Equal(WorkflowCandidateStatus.Recovered.ToString(), recovered.Value.Status);
+        Assert.Equal(WorkflowCandidateStatus.Recovered.ToString(), refreshed.Value.Items[0].Status);
+    }
+
+    [Fact]
+    public async Task RecoverCandidate_WhenNotBatchStarted_IsRejected()
+    {
+        var clock = new TestClock(DateTime.UtcNow);
+        var service = CreateService(clock, ScopeFactoryWith(Discovered(1)));
+        var organizationId = Guid.NewGuid();
+
+        var started = await service.StartAsync(
+            organizationId,
+            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"]));
+        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
+
+        var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
+        var candidateId = results.Value.Items[0].Id;
+
+        var recovered = await service.RecoverCandidateAsync(organizationId, started.Value.WorkflowId, candidateId);
+
+        Assert.True(recovered.IsFailure);
+        Assert.Equal(WorkflowCandidateErrors.InvalidTransition, recovered.Error);
+    }
+
     // ── harness ──────────────────────────────────────────────────────────────
 
-    private static InMemoryContentWorkflowService CreateService(
+    private static EfContentWorkflowService CreateService(
         IClock clock,
-        IServiceScopeFactory scopeFactory,
+        Action<IServiceCollection> configure,
         IHostApplicationLifetime? applicationLifetime = null) =>
-        new(
+        CreateServiceWithRepository(clock, configure, applicationLifetime).Service;
+
+    private static (EfContentWorkflowService Service, IContentWorkflowSessionRepository Repository) CreateServiceWithRepository(
+        IClock clock,
+        Action<IServiceCollection> configure,
+        IHostApplicationLifetime? applicationLifetime = null)
+    {
+        var dbName = $"content-workflow-service-{Guid.NewGuid():N}";
+        var services = new ServiceCollection();
+        services.AddDbContext<AppIdentityDbContext>(o => o.UseInMemoryDatabase(dbName));
+        services.AddScoped<IContentWorkflowSessionRepository, EfContentWorkflowSessionRepository>();
+        configure(services);
+
+        var provider = services.BuildServiceProvider();
+        var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
+        var rootScope = provider.CreateScope();
+        var repository = rootScope.ServiceProvider.GetRequiredService<IContentWorkflowSessionRepository>();
+
+        var service = new EfContentWorkflowService(
+            repository,
             clock,
             scopeFactory,
             applicationLifetime ?? new TestApplicationLifetime(),
-            NullLogger<InMemoryContentWorkflowService>.Instance);
+            NullLogger<EfContentWorkflowService>.Instance);
 
-    /// <summary>
-    /// Polls the status endpoint the way the browser does, until the session leaves "in_progress".
-    /// </summary>
+        return (service, repository);
+    }
+
     private static async Task<ContentWorkflowStatusResponse> WaitForTerminalAsync(
-        InMemoryContentWorkflowService service,
-        Guid organizationId,
-        Guid workflowId)
+        EfContentWorkflowService service, Guid organizationId, Guid workflowId)
     {
         var deadline = DateTime.UtcNow.AddSeconds(15);
 
@@ -490,158 +793,6 @@ public sealed class ContentWorkflowServiceTests
         }
 
         throw new TimeoutException("The workflow session never reached a terminal state.");
-    }
-
-    // ── ai-ideas origin: spontaneous topics, nothing scraped ─────────────────
-    // The operator working locally must be able to run the pipeline WITHOUT any actor: the ideas come
-    // from the model riffing on the client's own context, so no provider is called and nothing is
-    // billed. The client's aesthetic is untouched by this — it is applied later, at generation.
-
-    [Fact]
-    public async Task Start_WithAiIdeasOrigin_NeverCallsDiscovery()
-    {
-        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
-        var spy = new SpyDiscovery(Discovered(3));
-        var service = CreateService(clock, IdeaScopeFactory(spy, new SpyIdeaSource(3)));
-        var organizationId = Guid.NewGuid();
-
-        var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(
-                Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
-
-        Assert.True(started.IsSuccess);
-        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
-
-        // Not "called and ignored" — never called. An Apify actor that starts is an actor that bills.
-        Assert.Null(spy.LastRequest);
-    }
-
-    [Fact]
-    public async Task Start_WithAiIdeasOrigin_FillsTheSessionFromTheIdeaChain()
-    {
-        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
-        var source = new SpyIdeaSource(4);
-        var service = CreateService(clock, IdeaScopeFactory(new SpyDiscovery([]), source));
-        var organizationId = Guid.NewGuid();
-
-        var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(
-                Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
-
-        var terminal = await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
-        var results = await service.GetResultsAsync(organizationId, started.Value.WorkflowId, 1, 10);
-
-        Assert.Equal("completed", terminal.Status);
-        Assert.Equal(4, results.Value.TotalCount);
-        Assert.Equal("idea-1", results.Value.Items[0].Title);
-        // An invented topic has no audience behind it. Showing a view count here would be a number we
-        // made up, and the operator would rank on it.
-        Assert.All(results.Value.Items, item => Assert.Equal(0, item.Views));
-        Assert.All(results.Value.Items, item => Assert.Equal(string.Empty, item.VideoUrl));
-    }
-
-    [Fact]
-    public async Task Start_WithAiIdeasOrigin_AsksOnlyForInventedIdeas()
-    {
-        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
-        var source = new SpyIdeaSource(2);
-        var service = CreateService(clock, IdeaScopeFactory(new SpyDiscovery([]), source));
-        var organizationId = Guid.NewGuid();
-
-        var started = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(
-                Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
-
-        await WaitForTerminalAsync(service, organizationId, started.Value.WorkflowId);
-
-        Assert.Equal(IdeaOrigin.Invented, source.LastRequest?.OriginFilter);
-    }
-
-    [Fact]
-    public async Task Start_WithAiIdeasOrigin_GivesEveryRunItsOwnVariationSeed()
-    {
-        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
-        var source = new SpyIdeaSource(2);
-        var service = CreateService(clock, IdeaScopeFactory(new SpyDiscovery([]), source));
-        var organizationId = Guid.NewGuid();
-        var clientId = Guid.NewGuid();
-
-        var first = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(clientId, "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
-        await WaitForTerminalAsync(service, organizationId, first.Value.WorkflowId);
-        var firstSeed = source.LastRequest?.VariationSeed;
-
-        var second = await service.StartAsync(
-            organizationId,
-            new ContentWorkflowStartInput(clientId, "Acme", "niche", "mixed", ["tiktok"], OriginMode: "ai-ideas"));
-        await WaitForTerminalAsync(service, organizationId, second.Value.WorkflowId);
-
-        // Same client, same filters, run twice: the operator asked for spontaneous ideas, so the second
-        // run must not be free to return the first run's list.
-        Assert.False(string.IsNullOrWhiteSpace(firstSeed));
-        Assert.NotEqual(firstSeed, source.LastRequest?.VariationSeed);
-    }
-
-    [Fact]
-    public async Task Start_WithAiIdeasOrigin_DoesNotRequireANetwork()
-    {
-        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
-        var service = CreateService(clock, IdeaScopeFactory(new SpyDiscovery([]), new SpyIdeaSource(2)));
-
-        var started = await service.StartAsync(
-            Guid.NewGuid(),
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", [], OriginMode: "ai-ideas"));
-
-        // Nothing is scraped, so demanding a network to scrape from would be a lie the form tells the
-        // operator. The discovery mode keeps requiring one.
-        Assert.True(started.IsSuccess);
-    }
-
-    [Fact]
-    public async Task Start_WithDiscoveryOrigin_StillRequiresANetwork()
-    {
-        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
-        var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
-
-        var started = await service.StartAsync(
-            Guid.NewGuid(),
-            new ContentWorkflowStartInput(Guid.NewGuid(), "Acme", "niche", "mixed", []));
-
-        Assert.True(started.IsFailure);
-        Assert.Equal(ContentWorkflowErrors.NetworkSourcesRequired, started.Error);
-    }
-
-    [Fact]
-    public async Task Start_WithAnUnknownOrigin_IsRejected()
-    {
-        var clock = new TestClock(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
-        var service = CreateService(clock, ScopeFactoryWith(Discovered(3)));
-
-        var started = await service.StartAsync(
-            Guid.NewGuid(),
-            new ContentWorkflowStartInput(
-                Guid.NewGuid(), "Acme", "niche", "mixed", ["tiktok"], OriginMode: "telepatia"));
-
-        // Silently falling back to discovery would let a typo start a billed scrape the operator
-        // explicitly tried to avoid.
-        Assert.True(started.IsFailure);
-        Assert.Equal(ContentWorkflowErrors.OriginModeInvalid, started.Error);
-    }
-
-    private static IServiceScopeFactory IdeaScopeFactory(
-        IContentDiscoveryService discovery,
-        IContentIdeaSource ideaSource)
-    {
-        var services = new ServiceCollection();
-        services.AddScoped(_ => discovery);
-        services.AddScoped<IProposalGenerationStarter, StubStarter>();
-        services.AddScoped(_ => ideaSource);
-        services.AddScoped<ContentIdeaChain>();
-        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
     }
 
     private sealed class SpyIdeaSource(int count) : IContentIdeaSource
@@ -671,16 +822,19 @@ public sealed class ContentWorkflowServiceTests
                 PublishedAtUtc: DateTimeOffset.UtcNow, SourceHandle: "@ref", SourceKey: "references"))
             .ToList();
 
-    private static IServiceScopeFactory ScopeFactoryWith(IReadOnlyList<DiscoveredContent> discovered) =>
+    private static Action<IServiceCollection> ScopeFactoryWith(IReadOnlyList<DiscoveredContent> discovered) =>
         ScopeFactoryWith(new StubDiscovery(discovered));
 
-    private static IServiceScopeFactory ScopeFactoryWith(IContentDiscoveryService discovery)
-    {
-        var services = new ServiceCollection();
-        services.AddScoped<IContentDiscoveryService>(_ => discovery);
-        services.AddScoped<IProposalGenerationStarter, StubStarter>();
-        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
-    }
+    private static Action<IServiceCollection> ScopeFactoryWith(IContentDiscoveryService discovery) =>
+        services => services.AddScoped(_ => discovery);
+
+    private static Action<IServiceCollection> IdeaScopeFactory(IContentDiscoveryService discovery, IContentIdeaSource ideaSource) =>
+        services =>
+        {
+            services.AddScoped(_ => discovery);
+            services.AddScoped(_ => ideaSource);
+            services.AddScoped<ContentIdeaChain>();
+        };
 
     private sealed class TestApplicationLifetime : IHostApplicationLifetime
     {
@@ -695,48 +849,29 @@ public sealed class ContentWorkflowServiceTests
         public void StopApplication() => _stopping.Cancel();
     }
 
-    private sealed class StubStarter : IProposalGenerationStarter
-    {
-        public Task<ProposalGenerationStarted> StartAsync(
-            ProposalGenerationRequest request, CancellationToken ct = default) =>
-            Task.FromResult(new ProposalGenerationStarted(
-                Guid.NewGuid(),
-                request.Proposals.Count * request.Formats.Count));
-    }
-
     private sealed class StubDiscovery(IReadOnlyList<DiscoveredContent> discovered) : IContentDiscoveryService
     {
-        public Task<ContentDiscoveryPlan> DiscoverAsync(
-            ContentDiscoveryRequest request, CancellationToken ct = default) =>
+        public Task<ContentDiscoveryPlan> DiscoverAsync(ContentDiscoveryRequest request, CancellationToken ct = default) =>
             Task.FromResult(new ContentDiscoveryPlan(discovered, 0, [], []));
     }
 
     private sealed class PlanDiscovery(ContentDiscoveryPlan plan) : IContentDiscoveryService
     {
-        public Task<ContentDiscoveryPlan> DiscoverAsync(
-            ContentDiscoveryRequest request, CancellationToken ct = default) =>
+        public Task<ContentDiscoveryPlan> DiscoverAsync(ContentDiscoveryRequest request, CancellationToken ct = default) =>
             Task.FromResult(plan);
     }
 
     private sealed class ThrowingDiscovery : IContentDiscoveryService
     {
-        public Task<ContentDiscoveryPlan> DiscoverAsync(
-            ContentDiscoveryRequest request, CancellationToken ct = default) =>
+        public Task<ContentDiscoveryPlan> DiscoverAsync(ContentDiscoveryRequest request, CancellationToken ct = default) =>
             throw new InvalidOperationException("the provider is down");
     }
 
-    /// <summary>
-    /// Stands in for a scrape that outlives the HTTP request. It records the token it was handed so a
-    /// test can prove the background work is NOT wired to the aborted request token, and it waits on a
-    /// gate the test releases explicitly.
-    /// </summary>
-    private sealed class GatedDiscovery(Task gate, IReadOnlyList<DiscoveredContent> discovered)
-        : IContentDiscoveryService
+    private sealed class GatedDiscovery(Task gate, IReadOnlyList<DiscoveredContent> discovered) : IContentDiscoveryService
     {
         public CancellationToken ObservedToken { get; private set; }
 
-        public async Task<ContentDiscoveryPlan> DiscoverAsync(
-            ContentDiscoveryRequest request, CancellationToken ct = default)
+        public async Task<ContentDiscoveryPlan> DiscoverAsync(ContentDiscoveryRequest request, CancellationToken ct = default)
         {
             ObservedToken = ct;
             await gate;
@@ -748,8 +883,7 @@ public sealed class ContentWorkflowServiceTests
     {
         public ContentDiscoveryRequest? LastRequest { get; private set; }
 
-        public Task<ContentDiscoveryPlan> DiscoverAsync(
-            ContentDiscoveryRequest request, CancellationToken ct = default)
+        public Task<ContentDiscoveryPlan> DiscoverAsync(ContentDiscoveryRequest request, CancellationToken ct = default)
         {
             LastRequest = request;
             return Task.FromResult(new ContentDiscoveryPlan(discovered, 0, [], []));

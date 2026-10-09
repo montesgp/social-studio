@@ -14,6 +14,8 @@ using Incoders.Hive.Application.Features.Social.ContentGeneration.Discovery;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Ideas;
 using Incoders.Hive.Application.Features.Social.DiscoveryBankIntelligence;
 using Incoders.Hive.Application.Features.Social.ProfileAnalyzer.Analyze;
+using Incoders.Hive.Application.Features.Social.Workflow;
+using Incoders.Hive.Application.Features.Social.Workflow.Sequencing;
 using Incoders.Hive.Infrastructure.Ai;
 using Incoders.Hive.Infrastructure.Packaging;
 using Incoders.Hive.Infrastructure.Rendering;
@@ -62,6 +64,7 @@ public static class DependencyInjection
 
         services.AddSingleton<ICacheStore, InMemoryCacheStore>();
         services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<IAsyncDelay, SystemAsyncDelay>();
         services.AddHttpClient();
         services.AddSingleton<IProcessRunner, SystemProcessRunner>();
 
@@ -99,7 +102,12 @@ public static class DependencyInjection
         services.AddScoped<CurrentTenant>();
         services.AddScoped<ICurrentTenant>(sp => sp.GetRequiredService<CurrentTenant>());
         services.AddScoped<ITenantResolver, HeaderTenantResolver>();
-        services.AddSingleton<IContentWorkflowService, InMemoryContentWorkflowService>();
+
+        // Scoped, not singleton (Phase 5.9): EfContentWorkflowService depends on
+        // IContentWorkflowSessionRepository, which is itself scoped to the request's DbContext. The
+        // background discovery task it schedules resolves its OWN scope (see EfContentWorkflowService),
+        // so nothing here captures a scoped service across the fire-and-forget boundary.
+        services.AddScoped<IContentWorkflowService, EfContentWorkflowService>();
 
         return services;
     }
@@ -194,6 +202,18 @@ public static class DependencyInjection
         services.AddScoped<IClientBrandSnapshotLoader, EfClientBrandSnapshotLoader>();
         services.AddScoped<IContentGenerationJobRepository, EfContentGenerationJobRepository>();
         services.AddScoped<IContentGenerationBatchRepository, EfContentGenerationBatchRepository>();
+
+        // Content workflow persistence port (design decision #1 — normalized tables replace the prior
+        // InMemoryContentWorkflowService ConcurrentDictionary). IContentWorkflowService resolves to
+        // EfContentWorkflowService (registered in AddMultiTenancy, scoped) since Phase 5.9; this
+        // repository is also consumed directly by EnqueueContentWorkflowCandidatesCommandHandler and
+        // ContentWorkflowEnqueueSequencer.
+        services.AddScoped<IContentWorkflowSessionRepository, EfContentWorkflowSessionRepository>();
+        services.AddScoped<ContentWorkflowEnqueueSequencer>();
+        services.Configure<ContentWorkflowEtaOptions>(configuration.GetSection(ContentWorkflowEtaOptions.SectionName));
+        services.AddScoped(sp => sp.GetRequiredService<IOptions<ContentWorkflowEtaOptions>>().Value);
+        services.Configure<ContentWorkflowEnqueueOptions>(configuration.GetSection(ContentWorkflowEnqueueOptions.SectionName));
+        services.AddScoped(sp => sp.GetRequiredService<IOptions<ContentWorkflowEnqueueOptions>>().Value);
 
         // Batch composition: narrow read ports adapted over the existing repositories, plus the
         // platform piece ceiling. The cap lookup is the seam that later becomes billing-aware.
@@ -443,6 +463,10 @@ public static class DependencyInjection
 
         // Background job queue for the async content-generation pipeline.
         services.AddSingleton<IContentGenerationJobQueue, ChannelContentGenerationJobQueue>();
+
+        // Background job queue for the async content-workflow enqueue pipeline (one item per
+        // candidate — design decision #4, sibling failure isolation via fan-out).
+        services.AddSingleton<IContentWorkflowEnqueueQueue, ChannelContentWorkflowEnqueueQueue>();
         services.AddScoped<IntegrationCatalogSeeder>();
         services.AddScoped<ClaudePromptCliOrganizationSeeder>();
         services.AddScoped<ComfyUiOrganizationSeeder>();

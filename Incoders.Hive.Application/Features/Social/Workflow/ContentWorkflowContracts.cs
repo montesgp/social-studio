@@ -12,6 +12,11 @@ namespace Incoders.Hive.Application.Features.Social.Workflow;
 /// later, at generation, and is unaffected by this choice. <see cref="NetworkSources"/> and
 /// <see cref="ForceRefresh"/> are meaningless under <c>ai-ideas</c> and are ignored.
 /// </param>
+/// <param name="MaxResults">
+/// The operator's cap on how many candidates a single discovery/idea-draw run collects. Null or absent
+/// falls back to the service's default pool size (today's unchanged behaviour) — this stays an operator
+/// opt-in, never a silent narrowing of existing callers.
+/// </param>
 public sealed record ContentWorkflowStartInput(
     Guid ClientId,
     string ClientName,
@@ -19,7 +24,8 @@ public sealed record ContentWorkflowStartInput(
     string StrategyMode,
     IReadOnlyList<string> NetworkSources,
     bool ForceRefresh = false,
-    string? OriginMode = null);
+    string? OriginMode = null,
+    int? MaxResults = null);
 
 public sealed record ContentWorkflowSessionResponse(
     Guid WorkflowId,
@@ -74,6 +80,12 @@ public sealed record ContentWorkflowStatusResponse(
     string ResultOrigin = "",
     DateTimeOffset? BankObservedAtUtc = null);
 
+/// <param name="Status">
+/// The candidate's <see cref="Incoders.Hive.Domain.Social.Workflow.WorkflowCandidateStatus"/>. <c>Discovered</c>
+/// until the operator composes and enqueues it; <c>BatchStarted</c> once at least one content piece has
+/// genuinely been launched for it (the Generator screen's "Processed" signal); <c>Recovered</c> after the
+/// operator explicitly brings a processed candidate back into the active pool.
+/// </param>
 public sealed record ContentWorkflowResultResponse(
     Guid Id,
     string Title,
@@ -86,14 +98,8 @@ public sealed record ContentWorkflowResultResponse(
     int Views,
     int Likes,
     int Comments,
-    bool IsSelected);
-
-public sealed record ContentWorkflowPreviewResponse(
-    Guid WorkflowId,
-    Guid ResultId,
-    string ResultTitle,
-    string VideoAnalysis,
-    string ScriptDraft);
+    bool IsSelected,
+    string Status);
 
 public sealed record ContentWorkflowSelectionResponse(
     Guid WorkflowId,
@@ -101,22 +107,22 @@ public sealed record ContentWorkflowSelectionResponse(
     IReadOnlyList<Guid> SelectedResultIds,
     DateTime UpdatedAtUtc);
 
-public sealed record ContentWorkflowActionResponse(
-    Guid ActionId,
-    Guid WorkflowId,
-    string Action,
+/// <summary>
+/// Per-candidate enqueue-sequence status, surfaced on the workflow history detail so the operator can
+/// see analysis/batch progress without polling. Backed by the persisted
+/// <see cref="Incoders.Hive.Domain.Social.Workflow.WorkflowCandidateStatus"/> transitions already written
+/// by <c>UpdateCandidateStatusAsync</c> — this is a pure read surface, no new write path.
+/// </summary>
+/// <param name="Status">
+/// One of <c>Queued</c>, <c>Analyzing</c>, <c>AnalysisFailed</c>, <c>BatchQueued</c>, <c>BatchFailed</c> or
+/// <c>BatchStarted</c> (see <see cref="Incoders.Hive.Domain.Social.Workflow.WorkflowCandidateStatus"/>).
+/// </param>
+/// <param name="FailureCode">Set only for <c>AnalysisFailed</c>/<c>BatchFailed</c>; otherwise <c>null</c>.</param>
+public sealed record ContentWorkflowCandidateStatusResponse(
+    Guid CandidateId,
+    string Title,
     string Status,
-    IReadOnlyList<Guid> ResultIds,
-    string Message,
-    DateTime ExecutedAtUtc);
-
-public sealed record ContentWorkflowPackageResponse(
-    Guid WorkflowId,
-    string PackageFileName,
-    string DownloadUrl,
-    string Status,
-    int ItemCount,
-    DateTime GeneratedAtUtc);
+    string? FailureCode);
 
 public sealed record ContentWorkflowHistoryItemResponse(
     Guid WorkflowId,
@@ -131,6 +137,10 @@ public sealed record ContentWorkflowHistoryItemResponse(
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc);
 
+/// <param name="Candidates">
+/// Per-candidate enqueue-sequence status (see <see cref="ContentWorkflowCandidateStatusResponse"/>). Empty
+/// until the operator composes and enqueues at least one candidate for this workflow.
+/// </param>
 public sealed record ContentWorkflowHistoryResponse(
     ContentWorkflowHistoryItemResponse Summary,
-    IReadOnlyList<ContentWorkflowActionResponse> Actions);
+    IReadOnlyList<ContentWorkflowCandidateStatusResponse> Candidates);

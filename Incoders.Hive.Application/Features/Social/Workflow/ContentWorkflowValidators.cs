@@ -28,6 +28,10 @@ public sealed class StartContentWorkflowValidator : AbstractValidator<StartConte
             .NotEmpty().WithMessage("social.workflow.errors.network_sources_required")
             .Must(values => values is not null && values.All(ContentWorkflowCatalog.IsValidNetworkSource))
             .WithMessage("social.workflow.errors.network_source_invalid");
+
+        RuleFor(x => x.MaxResults!.Value)
+            .InclusiveBetween(1, 100).WithMessage("social.workflow.errors.max_results_invalid")
+            .When(x => x.MaxResults.HasValue);
     }
 }
 
@@ -61,21 +65,6 @@ public sealed class GetContentWorkflowResultsValidator : AbstractValidator<GetCo
     }
 }
 
-public sealed class GetContentWorkflowPreviewValidator : AbstractValidator<GetContentWorkflowPreviewQuery>
-{
-    public GetContentWorkflowPreviewValidator()
-    {
-        RuleFor(x => x.OrganizationId)
-            .NotEmpty().WithMessage("social.workflow.errors.organization_required");
-
-        RuleFor(x => x.WorkflowId)
-            .NotEmpty().WithMessage("social.workflow.errors.not_found");
-
-        RuleFor(x => x.ResultId)
-            .NotEmpty().WithMessage("social.workflow.errors.result_not_found");
-    }
-}
-
 public sealed class SelectContentWorkflowResultsValidator : AbstractValidator<SelectContentWorkflowResultsCommand>
 {
     public SelectContentWorkflowResultsValidator()
@@ -88,37 +77,6 @@ public sealed class SelectContentWorkflowResultsValidator : AbstractValidator<Se
 
         RuleFor(x => x.ResultIds)
             .NotEmpty().WithMessage("social.workflow.errors.selection_required");
-    }
-}
-
-public sealed class RunContentWorkflowActionValidator : AbstractValidator<RunContentWorkflowActionCommand>
-{
-    public RunContentWorkflowActionValidator()
-    {
-        RuleFor(x => x.OrganizationId)
-            .NotEmpty().WithMessage("social.workflow.errors.organization_required");
-
-        RuleFor(x => x.WorkflowId)
-            .NotEmpty().WithMessage("social.workflow.errors.not_found");
-
-        RuleFor(x => x.Action)
-            .Must(ContentWorkflowCatalog.IsValidActionType)
-            .WithMessage("social.workflow.errors.action_invalid");
-
-        RuleFor(x => x.ResultIds)
-            .NotEmpty().WithMessage("social.workflow.errors.selection_required");
-    }
-}
-
-public sealed class GenerateContentWorkflowPackageValidator : AbstractValidator<GenerateContentWorkflowPackageCommand>
-{
-    public GenerateContentWorkflowPackageValidator()
-    {
-        RuleFor(x => x.OrganizationId)
-            .NotEmpty().WithMessage("social.workflow.errors.organization_required");
-
-        RuleFor(x => x.WorkflowId)
-            .NotEmpty().WithMessage("social.workflow.errors.not_found");
     }
 }
 

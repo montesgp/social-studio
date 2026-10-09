@@ -42,8 +42,16 @@ public sealed class AnalyzeSingleContentHandler
             return started;
         }
 
+        // StartAsync's org-scoped duplicate gate (SingleContentAnalyzer.CheckOrgDuplicateAsync) may
+        // have resumed an existing Failed-with-snapshot analysis instead of creating a new one — it
+        // signals that by returning the record already flipped to Analyzing. In that case we must
+        // enqueue RetryAi (reuse the persisted snapshot, no extraction call) instead of a full run.
+        var kind = started.Value.Status == SingleContentAnalysisStatus.Analyzing
+            ? SingleAnalysisJobKind.RetryAi
+            : SingleAnalysisJobKind.Full;
+
         await _queue.EnqueueAsync(
-            new SingleAnalysisJob(started.Value.Id, started.Value.OrganizationId),
+            new SingleAnalysisJob(started.Value.Id, started.Value.OrganizationId, kind),
             cancellationToken);
 
         return started;

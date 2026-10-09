@@ -33,7 +33,12 @@ export async function apiRequest<T>(path: string, init?: RequestInit, token?: st
   const isBrowser = typeof window !== "undefined";
   const baseUrl = isBrowser ? BROWSER_API_BASE_URL : getServerApiBaseUrl();
 
-  if (isBrowser) {
+  if (isBrowser && !headers.has("X-Tenant-Id")) {
+    // Only fall back to the globally "active" org (localStorage) when the caller did not already put
+    // an explicit X-Tenant-Id on the request (e.g. via `organizationHeaders(organizationId)`). An
+    // explicit header always wins — callers that resolve their own org (a platform-admin org picker,
+    // a resumed workflow scoped to a specific org) must not be silently redirected to whatever org
+    // happens to be "active" elsewhere in the app.
     const orgId = tenantId ?? window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
     if (orgId) headers.set("X-Tenant-Id", orgId);
   }

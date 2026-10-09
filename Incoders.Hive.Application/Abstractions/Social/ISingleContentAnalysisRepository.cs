@@ -64,6 +64,43 @@ public interface ISingleContentAnalysisRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Finds the newest analysis for the same submitted or normalized URL across the WHOLE
+    /// organization — regardless of which user owns it. Apify (and AI) credits are a
+    /// per-organization resource, not a per-user one: two different users in the same org
+    /// submitting the same URL must not trigger two extraction runs. This is the HARD gate
+    /// <see cref="Features.Social.SingleAnalyzer.Analyze.SingleContentAnalyzer.StartAsync"/>
+    /// checks before doing any preflight/extraction work — unlike
+    /// <see cref="FindLatestByUserAndUrlAsync"/>, which only drives the frontend's advisory
+    /// pre-submit lookup.
+    /// <para>
+    /// Default returns <c>null</c> so existing test fakes compile unchanged; the real EF adapter
+    /// overrides it.
+    /// </para>
+    /// </summary>
+    Task<SingleContentAnalysisRecord?> FindLatestByOrganizationAndUrlAsync(
+        Guid organizationId,
+        string normalizedUrl,
+        string sourceUrl,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<SingleContentAnalysisRecord?>(null);
+
+    /// <summary>
+    /// Lists every analysis, across ALL organizations, currently in a non-terminal status
+    /// (anything other than <see cref="SingleContentAnalysisStatus.Analyzed"/> or
+    /// <see cref="SingleContentAnalysisStatus.Failed"/>). Used exclusively by
+    /// <c>SingleAnalysisJobWatchdog</c> to sweep analyses whose background job was lost (e.g. the
+    /// in-memory <c>ChannelSingleAnalysisJobQueue</c> entry dropped on a process restart) — without
+    /// this sweep such a record blocks the org-scoped duplicate gate forever with no way to retry.
+    /// <para>
+    /// Default returns an empty list so existing test fakes compile unchanged; the real EF adapter
+    /// overrides it.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<SingleContentAnalysisRecord>> ListNonTerminalAsync(
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<SingleContentAnalysisRecord>>([]);
+
+    /// <summary>
     /// Hard-deletes an analysis owned by the given user. Cascades to:
     /// - integration_execution_attempts (DB-level FK CASCADE on analysis_id)
     /// - content_generation_jobs and their generated_packages (handled here in EF)
