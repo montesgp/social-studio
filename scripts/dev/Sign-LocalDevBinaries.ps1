@@ -7,6 +7,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# MSBuild runs this script with Windows PowerShell. When the build was started from a
+# PowerShell 7 session, the inherited PSModulePath lists the PowerShell 7 module folders first,
+# so Windows PowerShell picks up the incompatible 7.x Microsoft.PowerShell.Security module and
+# the Cert: drive never appears. Drop those folders and load the built-in module explicitly.
+if ($PSVersionTable.PSEdition -eq "Desktop") {
+    $env:PSModulePath = (($env:PSModulePath -split ';') |
+        Where-Object { $_ -and $_ -notmatch '\\PowerShell\\|powershell_7' }) -join ';'
+    Import-Module (Join-Path $PSHOME "Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1") -Force
+}
+
 $OutputDir = $OutputDir.Trim('"')
 if ($OutputDir.EndsWith("\")) {
     $OutputDir = $OutputDir.TrimEnd("\")
