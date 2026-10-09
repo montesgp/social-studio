@@ -46,6 +46,48 @@ Host=YOUR_SUPABASE_HOST;Port=5432;Database=postgres;Username=postgres;Password=Y
 
 ---
 
+## Local Stack: One-Click Launcher
+
+Start everything the product needs locally with one command:
+
+```powershell
+pwsh -File scripts/dev/Start-Hive.ps1
+```
+
+Or double-click `scripts/dev/start-hive.bat`. The launcher skips anything already running, so it
+is safe to run again.
+
+| Step | What it does |
+| --- | --- |
+| Tooling | Checks the .NET 10 SDK, Node.js + pnpm (activates the fnm default when available), Docker |
+| Docker | Starts Docker Desktop when the engine is down |
+| Postgres | `docker-compose.dev.yml` on `127.0.0.1:5433` via `scripts/dev/Start-LocalDb.ps1` (refuses non-local user-secrets) |
+| Chromium | Installs the Playwright Chromium used by the slide renderer when it is missing |
+| ComfyUI | Starts the local image backend on `127.0.0.1:8188` with flags chosen from the GPU |
+| Backend | Aspire AppHost (`http-fast`) -> API on `http://localhost:5336`, dashboard on `http://localhost:15161` |
+| Frontend | Next.js `dev:fast` on `http://localhost:3000`, running `pnpm install` first when the lockfile changed |
+
+Supabase is not started locally: development uses the Docker Postgres and
+`Storage:AssetProvider=Local`.
+
+Useful switches: `-FullStartup` (seed data + file logging), `-SkipComfyUI`, `-SkipBackend`,
+`-SkipFrontend`, `-RecreateDb`, `-NoBrowser`. Backend output is also written to
+`logs/launcher-backend.log`.
+
+ComfyUI is found through `-ComfyUIRoot`, the `HIVE_COMFYUI_ROOT` environment variable, or a
+portable install under the user profile. Override its launch flags with `HIVE_COMFYUI_ARGS`.
+Install guide: `docs/infrastructure/comfyui/setup.md`.
+
+A desktop shortcut only needs to forward to the repository launcher, for example
+`C:\shortcuts\run-incoders-hive-all.bat`:
+
+```bat
+@echo off
+call "C:\repositories\incoders\incoders-hive\scripts\dev\start-hive.bat" %*
+```
+
+---
+
 ## Backend: Migrations & Run
 
 From repository root:
