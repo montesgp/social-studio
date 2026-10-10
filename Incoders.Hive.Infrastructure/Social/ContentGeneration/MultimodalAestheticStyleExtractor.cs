@@ -340,13 +340,23 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         if (_fontMatcher is not null && extraction.Typography is { Count: > 0 } typography)
         {
             var requests = BuildFontMatchRequests(
-                result.Value.Payload.Typography, loadedPairs.Select(lp => lp.Bytes).ToArray());
+                result.Value.Payload.Typography, loadedPairs.Select(lp => lp.Bytes).ToArray(), out var skipped);
+            _logger.LogInformation(
+                "AestheticExtractor: typography {Families} for org {OrganizationId}; visual font comparison for {Compared} role(s), skipped {Skipped}.",
+                string.Join(", ", typography.Select(t => $"{t.Role}={t.FontFamily}")),
+                organizationId,
+                requests.Count,
+                skipped.Count == 0 ? "none" : string.Join("; ", skipped));
             if (requests.Count > 0)
             {
                 var chosen = await _fontMatcher.MatchAsync(
                     organizationId, candidate.ProviderKey, candidate.ModelId, requests, ct);
                 if (chosen.Count > 0)
                 {
+                    _logger.LogInformation(
+                        "AestheticExtractor: visual font comparison chose {Chosen} for org {OrganizationId}.",
+                        string.Join(", ", chosen.Select(c => $"{c.Key}={c.Value}")),
+                        organizationId);
                     extraction = extraction with
                     {
                         Typography = typography
@@ -549,8 +559,12 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
 
     // CSF-PA-02: a role is comparable when it names at least two catalog families and locates a
     // readable sample of the client's text.
-    private static IReadOnlyList<FontMatchRequest> BuildFontMatchRequests(TypographyDto? typography, IReadOnlyList<byte[]> images)
+    private static IReadOnlyList<FontMatchRequest> BuildFontMatchRequests(
+        TypographyDto? typography,
+        IReadOnlyList<byte[]> images,
+        out List<string> skipped)
     {
+        skipped = [];
         if (typography is null)
         {
             return [];
@@ -564,11 +578,16 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
                      (TypographyRoles.Caption, typography.Caption),
                  })
         {
-            if (dto is null
-                || string.IsNullOrWhiteSpace(dto.SampleText)
+            if (dto is null)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(dto.SampleText)
                 || dto.SourceImageIndex is not { } index || index < 0 || index >= images.Count
                 || dto.BoundingBox is not { } box)
             {
+                skipped.Add($"{role}: no located sample");
                 continue;
             }
 
@@ -583,6 +602,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
                 .ToArray();
             if (validBox is null || candidates.Length < 2)
             {
+                skipped.Add(validBox is null ? $"{role}: unusable sample box" : $"{role}: fewer than two catalog candidates");
                 continue;
             }
 
