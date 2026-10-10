@@ -653,15 +653,9 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             {
                 skipped.Add($"{role}: sample box [{box.Keys}] unusable, comparing against the whole slide");
             }
-            var candidates = new[] { dto.Family }
-                .Concat(dto.Candidates ?? [])
-                .Select(BundledFontCatalog.Find)
-                .Where(f => f is not null)
-                .Select(f => f!.Name)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Take(5)
-                .ToArray();
-            if (candidates.Length < 2)
+            var candidates = ComparisonCandidates(dto.Family, dto.Candidates);
+            skipped.Add($"{role} candidates: {string.Join(", ", candidates)}");
+            if (candidates.Count < 2)
             {
                 skipped.Add($"{role}: fewer than two catalog candidates");
                 continue;
@@ -674,6 +668,40 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     }
 
     private static readonly BrandMarkBoundingBox WholeImage = new(0, 0, 1, 1);
+
+    /// <summary>Most faces one comparison shows; a 3-column sheet of 3 rows (reference + 8).</summary>
+    private const int MaxComparisonCandidates = 8;
+
+    /// <summary>
+    /// CSF-PA-02: the faces to compare. The comparison can only pick among the faces it is shown, and
+    /// the model's own short list tends to repeat its first guess — it never offered the narrower face
+    /// Demo Roasters actually uses. The list is therefore completed with every catalog family of the
+    /// same width and class as the model's pick: the model narrows the field, the pixels decide.
+    /// </summary>
+    internal static IReadOnlyList<string> ComparisonCandidates(string? family, IReadOnlyList<string>? modelCandidates)
+    {
+        var named = new[] { family }
+            .Concat(modelCandidates ?? [])
+            .Select(BundledFontCatalog.Find)
+            .Where(f => f is not null)
+            .Select(f => f!)
+            .DistinctBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (named.Count == 0)
+        {
+            return [];
+        }
+
+        var anchor = named[0];
+        var siblings = BundledFontCatalog.Families
+            .Where(f => f.Width == anchor.Width && f.Classification == anchor.Classification)
+            .Where(f => named.All(n => !string.Equals(n.Name, f.Name, StringComparison.OrdinalIgnoreCase)));
+
+        return named.Concat(siblings)
+            .Take(MaxComparisonCandidates)
+            .Select(f => f.Name)
+            .ToArray();
+    }
 
     /// <summary>
     /// CSF-PA-02: a text sample's location only has to be good enough to crop the words, so it is read

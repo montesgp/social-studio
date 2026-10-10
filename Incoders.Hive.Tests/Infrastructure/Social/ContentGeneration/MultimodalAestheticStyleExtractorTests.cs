@@ -1302,7 +1302,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         Assert.Equal("League Gothic", Assert.Single(result.Typography!).FontFamily);
         var request = Assert.Single(matcher.Requests);
-        Assert.Equal(["Anton", "League Gothic", "Antonio"], request.Candidates);
+        Assert.Equal(["Anton", "League Gothic", "Antonio"], request.Candidates.Take(3));
     }
 
     [Fact]
@@ -1414,6 +1414,26 @@ public sealed class MultimodalAestheticStyleExtractorTests
         Assert.Equal(expectedX, request.Box.X, precision: 5);
         Assert.Equal(expectedWidth, request.Box.Width, precision: 5);
         Assert.Equal("League Gothic", Assert.Single(result.Typography!).FontFamily);
+    }
+
+    [Fact]
+    public void ComparisonCandidates_AddEveryCatalogFaceOfTheSameWidthAndClass()
+    {
+        // The model offered only its own guesses; the client's real face must still be in the field.
+        var candidates = MultimodalAestheticStyleExtractor.ComparisonCandidates("Anton", ["Anton", "Oswald"]);
+
+        Assert.Equal("Anton", candidates[0]);
+        Assert.Contains("League Gothic", candidates);
+        Assert.Contains("Antonio", candidates);
+        Assert.DoesNotContain("Poppins", candidates);
+        Assert.True(candidates.Count <= 8);
+        Assert.Equal(candidates.Count, candidates.Distinct().Count());
+    }
+
+    [Fact]
+    public void ComparisonCandidates_IgnoreNamesOutsideTheCatalog()
+    {
+        Assert.Empty(MultimodalAestheticStyleExtractor.ComparisonCandidates("Gotham", ["Helvetica"]));
     }
 
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);
