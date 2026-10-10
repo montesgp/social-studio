@@ -6,9 +6,10 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fon
 /// <para>
 /// Fonts are embedded resources (Decision A1 — the render host's font state is unknown, so nothing
 /// may depend on host-provisioned fonts), and Arial/Helvetica are Monotype-licensed and must never
-/// be aliased to (Decision #1169). A detected family is therefore only renderable when a binary for
-/// it is bundled; anything else has to fall back to the closest bundled OFL family with the same
-/// classification, so a serif headline never silently becomes a sans one.
+/// be aliased to (Decision #1169). A detected family is renderable when a binary for it is bundled —
+/// the fallback families or the curated client catalog (<see cref="BundledFontCatalog"/>). Anything
+/// else maps to the closest catalog family by classification and width, so a condensed headline
+/// stays condensed and a serif headline never silently becomes a sans one.
 /// </para>
 ///
 /// <para>
@@ -18,31 +19,46 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fon
 /// </summary>
 public static class FontFamilyResolution
 {
-    private const string BundledSans = "Liberation Sans";
-    private const string BundledSerif = "Liberation Serif";
-    private const string BundledMono = "Liberation Mono";
+    private const string LegacyDefault = "Liberation Sans";
+
+    private static readonly string[] TokenSeparators = ["/", ",", "(", ")", "|", " or ", ";"];
 
     /// <summary>
-    /// Families whose names contain these tokens are serif designs. Checked before the sans tokens
-    /// because "sans serif" contains "serif" — order matters, see <see cref="Classify"/>.
+    /// Catalog names, longest first, so "Roboto Condensed" is found before "Roboto" when both are
+    /// contained in a description.
     /// </summary>
-    private static readonly string[] SerifTokens =
+    private static readonly string[] NamesLongestFirst = FontCatalog.SystemSafeList
+        .OrderByDescending(n => n.Length)
+        .ToArray();
+
+    /// <summary>
+    /// Descriptor rules, checked in order. Each maps words a vision model uses to describe a face onto
+    /// the bundled family that best represents that description. Order matters: "sans serif" contains
+    /// "serif", and "condensed" must beat the generic sans rule.
+    /// </summary>
+    private static readonly (string[] Tokens, string Family)[] DescriptorRules =
     [
-        "serif", "georgia", "garamond", "playfair", "merriweather", "lora", "times",
-        "baskerville", "didot", "bodoni", "cormorant", "libre caslon", "spectral", "tinos",
+        (["typewriter", "courier"], "Courier Prime"),
+        (["mono"], "Space Mono"),
+        (["handwrit", "brush", "marker", "hand-drawn", "hand drawn"], "Caveat"),
+        (["script", "cursive", "calligraph"], "Dancing Script"),
+        (["sans"], string.Empty),
+        (["didone", "high-contrast serif", "display serif", "fashion serif"], "Playfair Display"),
+        (["garamond", "old-style", "oldstyle"], "EB Garamond"),
+        (["serif", "georgia", "times", "baskerville", "bodoni", "didot", "merriweather"], "Lora"),
     ];
 
-    private static readonly string[] MonoTokens =
-    [
-        "mono", "courier", "consolas", "menlo", "jetbrains", "source code", "ibm plex mono",
-    ];
+    private static readonly string[] CondensedTokens =
+        ["condensed", "compressed", "narrow", "gothic", "impact", "tall", "extra-condensed"];
+
+    private static readonly string[] HeavyTokens = ["heavy", "black", "ultra", "extra bold", "extrabold"];
 
     /// <summary>
     /// Resolves a detected family to a renderable one.
     /// </summary>
     /// <returns>
     /// <c>Requested</c> is the detected family, trimmed. <c>Renderable</c> is the family the renderer
-    /// will draw with. <c>IsExact</c> is true only when the detected family is itself bundled — when
+    /// will draw with. <c>IsExact</c> is true when the detected text names a bundled family — when
     /// false, the caller is looking at a substitute and should say so rather than claim fidelity.
     /// </returns>
     public static (string Requested, string Renderable, bool IsExact) Resolve(string? detectedFamily)
@@ -50,48 +66,97 @@ public static class FontFamilyResolution
         var requested = (detectedFamily ?? string.Empty).Trim();
         if (requested.Length == 0)
         {
-            return (string.Empty, BundledSans, false);
+            return (string.Empty, LegacyDefault, false);
         }
 
-        // A bundled family resolves to itself — that is the only exact case.
-        var bundled = FontCatalog.SystemSafeList
-            .FirstOrDefault(f => string.Equals(f, requested, StringComparison.OrdinalIgnoreCase));
-
-        if (bundled is not null)
+        var named = FindNamedFamily(requested);
+        if (named is not null)
         {
-            return (requested, bundled, true);
+            return (requested, named, true);
         }
 
-        return (requested, Classify(requested), false);
+        return (requested, ClosestByDescription(requested), false);
     }
 
     /// <summary>
-    /// Picks the bundled family whose classification matches the detected one. Serif is tested first
-    /// because every "sans serif" name also contains "serif"; testing sans first would misclassify
-    /// every serif family in the list.
+    /// A bundled family named by the detected text: the whole string, any single token of a
+    /// "Name / description" answer, or a bundled name contained in it ("Poppins SemiBold").
     /// </summary>
-    private static string Classify(string family)
+    private static string? FindNamedFamily(string requested)
+    {
+        var whole = ExactName(requested);
+        if (whole is not null)
+        {
+            return whole;
+        }
+
+        foreach (var token in requested.Split(TokenSeparators, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            var match = ExactName(token);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return NamesLongestFirst.FirstOrDefault(name =>
+            ContainsWord(requested, name));
+    }
+
+    private static string? ExactName(string candidate) =>
+        FontCatalog.SystemSafeList.FirstOrDefault(f => string.Equals(f, candidate, StringComparison.OrdinalIgnoreCase));
+
+    private static bool ContainsWord(string text, string name)
+    {
+        var index = text.IndexOf(name, StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        var end = index + name.Length;
+        var startsClean = index == 0 || !char.IsLetterOrDigit(text[index - 1]);
+        var endsClean = end == text.Length || !char.IsLetterOrDigit(text[end]);
+        return startsClean && endsClean;
+    }
+
+    private static string ClosestByDescription(string family)
     {
         var lower = family.ToLowerInvariant();
 
-        if (MonoTokens.Any(t => lower.Contains(t, StringComparison.Ordinal)))
+        foreach (var (tokens, target) in DescriptorRules)
         {
-            return BundledMono;
+            if (!tokens.Any(t => lower.Contains(t, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            // An explicit "sans" stops the serif rules below from matching "sans serif".
+            if (target.Length == 0)
+            {
+                break;
+            }
+
+            return target;
         }
 
-        // "sans" wins over "serif" when both appear, which is exactly the "sans serif" case.
-        if (lower.Contains("sans", StringComparison.Ordinal))
+        if (CondensedTokens.Any(t => lower.Contains(t, StringComparison.Ordinal)))
         {
-            return BundledSans;
+            return HeavyTokens.Any(t => lower.Contains(t, StringComparison.Ordinal)) ? "Anton" : "Oswald";
         }
 
-        if (SerifTokens.Any(t => lower.Contains(t, StringComparison.Ordinal)))
+        if (lower.Contains("geometric", StringComparison.Ordinal))
         {
-            return BundledSerif;
+            return "Poppins";
         }
 
-        // Unknown families are overwhelmingly sans in social design; default there rather than
-        // guessing serif and changing the whole feel of a deck.
-        return BundledSans;
+        if (lower.Contains("rounded", StringComparison.Ordinal))
+        {
+            return "Nunito";
+        }
+
+        // Unknown families are overwhelmingly sans in social design; a neutral grotesque keeps the
+        // deck's feel instead of guessing serif.
+        return "Inter";
     }
 }

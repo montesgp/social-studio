@@ -107,4 +107,76 @@ public sealed class EmbeddedFontProviderTests
             Assert.NotNull(provider.Resolve(family));
         }
     }
+
+    // -----------------------------------------------------------------------
+    // client-style-fidelity D1: the curated catalog ships every declared face, and each embedded
+    // file is a real typeface covering the weight range the metadata claims.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void ResolveFaces_EveryCatalogFamily_ReturnsEveryDeclaredFace()
+    {
+        IFontProvider provider = new EmbeddedFontProvider();
+
+        foreach (var family in BundledFontCatalog.Families)
+        {
+            var faces = provider.ResolveFaces(family.Name);
+
+            Assert.True(
+                faces.Count == family.Faces.Count,
+                $"'{family.Name}' declares {family.Faces.Count} face(s) but {faces.Count} are embedded.");
+            Assert.All(faces, f => Assert.True(f.Bytes.Length > 1000, $"'{family.Name}' face is empty."));
+        }
+    }
+
+    [Fact]
+    public void ResolveFaces_CatalogFile_IsAParseableTypefaceOfThatFamily()
+    {
+        IFontProvider provider = new EmbeddedFontProvider();
+
+        foreach (var family in BundledFontCatalog.Families)
+        {
+            foreach (var face in provider.ResolveFaces(family.Name))
+            {
+                using var typeface = SkiaSharp.SKTypeface.FromData(SkiaSharp.SKData.CreateCopy(face.Bytes));
+                Assert.NotNull(typeface);
+                // Some static cuts report their base family in the table Skia reads (Barlow Condensed
+                // reports "Barlow"), so compare the leading word rather than the full name.
+                Assert.StartsWith(
+                    typeface!.FamilyName.Split(' ')[0],
+                    family.Name,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+        }
+    }
+
+    [Fact]
+    public void ResolveFaces_VariableFamily_DeclaresItsFullWeightRange()
+    {
+        IFontProvider provider = new EmbeddedFontProvider();
+
+        var oswald = Assert.Single(provider.ResolveFaces("oswald"));
+
+        Assert.Equal(200, oswald.MinWeight);
+        Assert.Equal(700, oswald.MaxWeight);
+    }
+
+    [Fact]
+    public void ResolveFaces_LegacyFamily_IsOneRegularFace()
+    {
+        IFontProvider provider = new EmbeddedFontProvider();
+
+        var face = Assert.Single(provider.ResolveFaces("Liberation Sans"));
+
+        Assert.Equal(400, face.MinWeight);
+        Assert.Equal(400, face.MaxWeight);
+    }
+
+    [Fact]
+    public void ResolveFaces_UnknownFamily_IsEmpty()
+    {
+        IFontProvider provider = new EmbeddedFontProvider();
+
+        Assert.Empty(provider.ResolveFaces("Comic Sans MS"));
+    }
 }

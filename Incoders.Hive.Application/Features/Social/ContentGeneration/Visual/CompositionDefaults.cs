@@ -267,20 +267,31 @@ internal static class CompositionDefaults
             headingSize = ApplyCopyLengthAutoFit(headingSize, headlineCopy.Length);
         }
 
+        var headingFamily = heading is null ? fallback.HeadingFamily : headingResolved.Renderable;
+        var bodyFamily = body is null ? fallback.BodyFamily : bodyResolved.Renderable;
+        var captionFamily = caption is null ? null : captionResolved.Renderable;
+
+        // client-style-fidelity (CSF-CG-04): every observed weight is clamped to what the resolved
+        // family actually ships. Requesting 800 from a single-weight condensed face makes Chromium
+        // synthesise a fake bold — the wide, heavy headline the client never uses.
+        int? Clamp(string? family, int? weight) =>
+            weight is null ? null : BundledFontCatalog.ClampWeight(family, weight.Value);
+
         return new CompositionTypography(
-            HeadingFamily: heading is null ? fallback.HeadingFamily : headingResolved.Renderable,
+            HeadingFamily: headingFamily,
             HeadingSize: headingSize,
-            BodyFamily: body is null ? fallback.BodyFamily : bodyResolved.Renderable,
+            BodyFamily: bodyFamily,
             BodySize: SizeFor(body, canvasHeight, fallback.BodySize))
         {
-            HeadingWeight = heading?.Weight ?? 700,
-            BodyWeight = body?.Weight ?? 400,
+            HeadingWeight = Clamp(headingFamily, heading?.Weight) ?? 700,
+            BodyWeight = Clamp(bodyFamily, body?.Weight) ?? 400,
+            MeasuredBodyWeight = Clamp(bodyFamily, body?.Weight),
             BodyItalic = body?.Italic ?? false,
             RequestedHeadingFamily = heading is not null && !headingResolved.IsExact ? headingResolved.Requested : null,
             RequestedBodyFamily = body is not null && !bodyResolved.IsExact ? bodyResolved.Requested : null,
-            CaptionFamily = caption is null ? null : captionResolved.Renderable,
+            CaptionFamily = captionFamily,
             CaptionSize = SizeForCaption(caption, canvasHeight),
-            CaptionWeight = caption?.Weight ?? 800,
+            CaptionWeight = Clamp(captionFamily ?? bodyFamily, caption?.Weight) ?? 800,
             CaptionItalic = caption?.Italic ?? false,
             RequestedCaptionFamily = caption is not null && !captionResolved.IsExact ? captionResolved.Requested : null,
             // D1: nullable measured sizes for the markup builders' own hardcoded literals. Resolved the
@@ -292,7 +303,7 @@ internal static class CompositionDefaults
             // exact-client-typography follow-up: the client's REAL observed heading weight, so the
             // rendered markup can use it instead of each builder's own hardcoded font-weight literal.
             // Null (heading absent) keeps every builder's cold-start literal unchanged.
-            MeasuredHeadingWeight = heading?.Weight,
+            MeasuredHeadingWeight = Clamp(headingFamily, heading?.Weight),
         };
     }
 

@@ -141,6 +141,18 @@ public sealed record CompositionTypography(
 
     /// <summary>Body counterpart of <see cref="MeasuredHeadingSize"/> (D1).</summary>
     public int? MeasuredBodySize { get; init; }
+
+    /// <summary>
+    /// client-style-fidelity (CSF-CG-04): the client's observed body weight, clamped to the resolved
+    /// family. Null keeps each builder's own body weight literal (cold-start parity).
+    /// </summary>
+    public int? MeasuredBodyWeight { get; init; }
+
+    /// <summary>
+    /// client-style-fidelity (CSF-CG-05): headline block width in pixels, measured from the client's
+    /// slides. Null keeps each builder's own width literal (cold-start parity).
+    /// </summary>
+    public int? MeasuredHeadingBlockWidth { get; init; }
 }
 
 /// <summary>

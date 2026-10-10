@@ -138,9 +138,9 @@ public sealed class AiVisualDesignerAestheticTests
 
         Assert.NotNull(gateway.CapturedInput);
         var allowedFonts = ExtractAllowedFonts(gateway.CapturedInput!);
-        // Client-first ordering: resolved client classes (Playfair -> Liberation Serif,
-        // Poppins -> Liberation Sans), deduped case-insensitively, THEN the brand kit appended.
-        Assert.Equal(["Liberation Serif", "Liberation Sans", "Inter"], allowedFonts);
+        // Client-first ordering: the client's own (bundled) families, deduped case-insensitively,
+        // THEN the brand kit appended.
+        Assert.Equal(["Playfair Display", "Poppins", "Inter"], allowedFonts);
     }
 
     [Fact]

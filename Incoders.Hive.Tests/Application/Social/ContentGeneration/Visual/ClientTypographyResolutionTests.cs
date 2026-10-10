@@ -55,20 +55,20 @@ public sealed class ClientTypographyResolutionTests
     [Fact]
     public void AnUnbundledFamilySubstitutesByClassification_AndReportsTheSubstitution()
     {
-        // Playfair Display is a serif the renderer has no binary for. It must fall back to a SERIF,
+        // Merriweather is a serif the renderer has no binary for. It must fall back to a SERIF,
         // never to the sans default, or the slide changes character entirely.
         var profile = ProfileWith(
-            new AestheticTypography(TypographyRoles.Heading, "Playfair Display", 700, false, 0.08),
-            new AestheticTypography(TypographyRoles.Body, "Poppins", 400, false, 0.03));
+            new AestheticTypography(TypographyRoles.Heading, "Merriweather", 700, false, 0.08),
+            new AestheticTypography(TypographyRoles.Body, "Gotham", 400, false, 0.03));
 
         var typography = Resolve(profile, CarouselHeight);
 
-        Assert.Equal("Liberation Serif", typography.HeadingFamily);
-        Assert.Equal("Liberation Sans", typography.BodyFamily);
+        Assert.Equal("Lora", typography.HeadingFamily);
+        Assert.Equal("Inter", typography.BodyFamily);
 
         // The gap is reported rather than hidden.
-        Assert.Equal("Playfair Display", typography.RequestedHeadingFamily);
-        Assert.Equal("Poppins", typography.RequestedBodyFamily);
+        Assert.Equal("Merriweather", typography.RequestedHeadingFamily);
+        Assert.Equal("Gotham", typography.RequestedBodyFamily);
     }
 
     [Fact]
@@ -249,13 +249,47 @@ public sealed class ClientTypographyResolutionTests
     // ── FontFamilyResolution ─────────────────────────────────────────────────
 
     [Theory]
-    [InlineData("Playfair Display", "Liberation Serif")]
-    [InlineData("Merriweather", "Liberation Serif")]
-    [InlineData("Poppins", "Liberation Sans")]
-    [InlineData("Open Sans", "Liberation Sans")]
-    [InlineData("JetBrains Mono", "Liberation Mono")]
-    [InlineData("", "Liberation Sans")]
-    public void ClassificationPicksALikeForLikeSubstitute(string detected, string expected)
+    [InlineData("Playfair Display", "Playfair Display", true)]
+    [InlineData("Poppins", "Poppins", true)]
+    [InlineData("Open Sans", "Open Sans", true)]
+    [InlineData("JetBrains Mono", "JetBrains Mono", true)]
+    [InlineData("league gothic", "League Gothic", true)]
+    [InlineData("", "Liberation Sans", false)]
+    public void BundledCatalogFamiliesRenderAsThemselves(string detected, string expected, bool exact)
+    {
+        var resolved = FontFamilyResolution.Resolve(detected);
+
+        Assert.Equal(expected, resolved.Renderable);
+        Assert.Equal(exact, resolved.IsExact);
+    }
+
+    [Theory]
+    // A "Name / description" answer names the family in its first token.
+    [InlineData("Anton / heavy condensed grotesque", "Anton")]
+    [InlineData("Poppins / geometric sans", "Poppins")]
+    // A bundled name inside a longer style name.
+    [InlineData("Poppins SemiBold", "Poppins")]
+    // The longest bundled name wins, so the condensed cut is not mistaken for the regular one.
+    [InlineData("Roboto Condensed Bold", "Roboto Condensed")]
+    public void NamedFamiliesAreFoundInsideDescriptiveAnswers(string detected, string expected)
+    {
+        var resolved = FontFamilyResolution.Resolve(detected);
+
+        Assert.Equal(expected, resolved.Renderable);
+        Assert.True(resolved.IsExact);
+    }
+
+    [Theory]
+    [InlineData("Merriweather", "Lora")]
+    [InlineData("monospace (typewriter)", "Courier Prime")]
+    [InlineData("some mono font", "Space Mono")]
+    [InlineData("Bebas Neue Pro condensed", "Bebas Neue")]
+    [InlineData("tall condensed grotesque", "Oswald")]
+    [InlineData("heavy condensed grotesque", "Anton")]
+    [InlineData("Gotham geometric", "Poppins")]
+    [InlineData("handwritten marker", "Caveat")]
+    [InlineData("Didone display serif", "Playfair Display")]
+    public void UnbundledFamiliesSubstituteLikeForLike(string detected, string expected)
     {
         Assert.Equal(expected, FontFamilyResolution.Resolve(detected).Renderable);
     }
@@ -264,7 +298,25 @@ public sealed class ClientTypographyResolutionTests
     public void SansSerifNamesResolveToSans_NotSerif()
     {
         // "sans serif" contains "serif"; a naive token check sends every sans family to a serif.
-        Assert.Equal("Liberation Sans", FontFamilyResolution.Resolve("Helvetica Sans Serif").Renderable);
+        Assert.Equal("Inter", FontFamilyResolution.Resolve("Helvetica Sans Serif").Renderable);
+    }
+
+    [Fact]
+    public void ObservedWeightIsClampedToTheWeightsTheFamilyShips()
+    {
+        // League Gothic ships a single 400 face: asking for the extractor's 800 would make Chromium
+        // synthesise a fake bold, which is how a condensed headline rendered wide and heavy.
+        var profile = ProfileWith(
+            new AestheticTypography(TypographyRoles.Heading, "League Gothic", 800, false, 0.08),
+            new AestheticTypography(TypographyRoles.Body, "Poppins", 350, false, 0.03));
+
+        var typography = Resolve(profile, CarouselHeight);
+
+        Assert.Equal("League Gothic", typography.HeadingFamily);
+        Assert.Equal(400, typography.MeasuredHeadingWeight);
+        Assert.Equal(400, typography.HeadingWeight);
+        // Poppins ships static 300/400/...: 350 snaps to the nearest real face.
+        Assert.Contains(typography.MeasuredBodyWeight, new int?[] { 300, 400 });
     }
 
     [Fact]
