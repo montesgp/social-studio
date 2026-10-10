@@ -527,7 +527,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v9", gateway.CapturedPromptVersionKey);
+        Assert.Equal("aesthetic-extractor/v10", gateway.CapturedPromptVersionKey);
         Assert.Equal(AestheticFreshness.CurrentSchemaVersion, gateway.CapturedPromptVersionKey);
     }
 
@@ -544,7 +544,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v9", result.SchemaVersion);
+        Assert.Equal("aesthetic-extractor/v10", result.SchemaVersion);
         Assert.Equal(gateway.CapturedPromptVersionKey, result.SchemaVersion);
     }
 
@@ -1318,6 +1318,42 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         Assert.Equal("Anton", Assert.Single(result.Typography!).FontFamily);
         Assert.Empty(matcher.Requests);
+    }
+
+    // ── client-style-fidelity (v10): a subject on a solid backdrop is an image slide ────────────
+
+    [Fact]
+    public async Task FlatSlideWithAPhotographicSubject_IsPlannedAsAPhotoSlide()
+    {
+        var gateway = new CaptureGateway(
+            slideMixPattern: """["photo","flat","flat"]""",
+            imageTypeCountsJson: """{"photo":1,"flat":2,"decorator":0}""",
+            transparencyJson: """
+                [{"blended":false,"descriptor":"documentary photo","photographicSubject":true},
+                 {"blended":true,"descriptor":"product cut-out on seamless black backdrop","photographicSubject":true},
+                 {"blended":false,"descriptor":"text-only card","photographicSubject":false}]
+                """);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Equal(
+            [SlideBackgroundKind.Photo, SlideBackgroundKind.Photo, SlideBackgroundKind.FlatColor],
+            result.BackgroundPattern);
+        Assert.Equal(2.0 / 3, result.ImageTypeRatio!.Photo, precision: 5);
+        Assert.True(result.BackgroundTransparency![1]!.HasPhotographicSubject);
+    }
+
+    [Fact]
+    public async Task Prompt_DefinesFlatAsHavingNoPhotographicElement()
+    {
+        var gateway = new CaptureGateway();
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Contains("NO photographic element at all", gateway.CapturedInstruction);
+        Assert.Contains("photographicSubject", gateway.CapturedInstruction);
     }
 
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);

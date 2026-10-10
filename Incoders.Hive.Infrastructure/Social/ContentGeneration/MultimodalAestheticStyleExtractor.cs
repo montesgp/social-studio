@@ -60,6 +60,9 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     // family with ranked candidates, a located sample and the heading block width; the model reports
     // the text colour combinations it observes (with slide counts), which are then grounded in the
     // reference pixels; a divider must recur on a third of the text slides.
+    // aesthetic-extractor/v10 (client-style-fidelity, CSF-PA-06): strict photo/flat definitions — a
+    // subject on a solid backdrop is a photo slide — and a per-slide `photographicSubject` flag that
+    // promotes a FlatColor slide carrying a subject to Photo.
     // aesthetic-freshness-versioning: MUST stay equal to AestheticFreshness.CurrentSchemaVersion —
     // referencing the constant directly (both are compile-time consts) guarantees they never drift.
     private const string PromptVersion = AestheticFreshness.CurrentSchemaVersion;
@@ -193,10 +196,16 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "Each image is tagged above with the caption (message) of its post; use these captions to " +
             "infer HOW the client translates a message into a visual concept. " +
             // CACD-PA-02 (OQ-2): corpus-grounded image-type count.
-            "Count, across ALL attached posts, how many slides are photographic (real photos or staged " +
-            "photography), flat-color (solid background with template/text overlays), or decorator " +
-            "(purely decorative / graphic dividers) and return `imageTypeCounts` " +
-            "with fields `photo`, `flat`, and `decorator` (integer counts, not proportions). " +
+            "Count, across ALL attached posts, how many slides are photographic, flat-color, or " +
+            "decorator and return `imageTypeCounts` with fields `photo`, `flat`, and `decorator` " +
+            "(integer counts, not proportions). STRICT DEFINITIONS: a slide is `photo` when it carries " +
+            "ANY photographic or rendered subject — a real photo, staged photography, OR a product, " +
+            "object, person or cut-out placed on a solid/dark backdrop (a bag of coffee on seamless " +
+            "black is a photo slide, not a flat one). A slide is `flat` ONLY when it has NO " +
+            "photographic element at all: solid colour or gradient with text and simple vector " +
+            "shapes. `decorator` is purely decorative graphics. Also return `slideMixPattern`, one entry " +
+            "per attached image in the order attached, each EXACTLY one of \"photo\", \"flat\" or " +
+            "\"decorator\" under the same strict definitions. " +
             // measured-typical-slide-count: corpus-grounded slide-count measurement, replacing the
             // pattern-length proxy. MEDIAN (not mean) so a single outlier post cannot skew the count.
             "Also count how many slides EACH attached post has, and return `typicalSlideCount` as the " +
@@ -278,9 +287,12 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "solid colour rather than a fully opaque photo). Return `slideBackgroundTransparency` as an " +
             "array, one entry per slide, aligned index-for-index with `slideMixPattern`. Each entry is " +
             "either an object with `blended` (boolean — true only when that slide clearly shows the " +
-            "faded/blended treatment) and `descriptor` (a short qualitative phrase describing the " +
-            "treatment, e.g. \"faded overlay\", \"soft blend\" — null when not applicable or not " +
-            "describable), or `null` when you cannot reliably tell for that slide. NEVER return a " +
+            "faded/blended treatment), `descriptor` (a short qualitative phrase describing how the " +
+            "slide's image is treated, e.g. \"faded overlay\", \"product cut-out on seamless black " +
+            "backdrop\" — null when not applicable or not describable) and `photographicSubject` " +
+            "(boolean — true when the slide shows ANY photographic or rendered subject: photo, product, " +
+            "object, person or cut-out, even on a solid backdrop; false only for pure text/vector " +
+            "slides), or `null` when you cannot reliably tell for that slide. NEVER return a " +
             "numeric opacity or alpha value for this signal — boolean + qualitative descriptor only. " +
             // CAVS-PA-01/02/03 (client-aesthetic-visual-sophistication, WU-2): recurring decoration
             // signals — a divider-rule style and a composition-archetype classification. Both are
@@ -449,9 +461,18 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         IReadOnlyList<SlideBackgroundTransparency?>? backgroundTransparency = dto.SlideBackgroundTransparency is null
             ? null
             : dto.SlideBackgroundTransparency
-                .Select(t => t is null ? null : new SlideBackgroundTransparency(t.Blended ?? false, t.Descriptor))
+                .Select(t => t is null ? null : new SlideBackgroundTransparency(t.Blended ?? false, t.Descriptor, t.PhotographicSubject))
                 .ToArray();
         backgroundTransparency = BackgroundTransparencyReconciler.Align(backgroundPattern, backgroundTransparency);
+
+        // CSF-PA-06: a "flat" slide the model itself saw a photographic subject on (a product on a
+        // seamless backdrop) needs a generated image. When that changes the pattern, the ratio is
+        // recomputed from it so image planning and the slides it plans for agree.
+        backgroundPattern = SlideKindReconciler.Reclassify(backgroundPattern, backgroundTransparency, out var kindsChanged);
+        if (kindsChanged)
+        {
+            imageTypeRatio = SlideKindReconciler.RatioOf(backgroundPattern) ?? imageTypeRatio;
+        }
 
         // FFS-PA-01: map brandMark DTO → BrandMarkDetection VO. `Present: false` is a valid,
         // non-fabricated "no recurring mark" result — mapped whenever the model returns the
@@ -818,7 +839,9 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     // the model can mark a specific slide as "cannot tell" without invalidating the whole array.
     private sealed record SlideTransparencyDto(
         [property: JsonPropertyName("blended")] bool? Blended = null,
-        [property: JsonPropertyName("descriptor")] string? Descriptor = null);
+        [property: JsonPropertyName("descriptor")] string? Descriptor = null,
+        // CSF-PA-06 (v10): additive; absent on older responses → null (no reclassification).
+        [property: JsonPropertyName("photographicSubject")] bool? PhotographicSubject = null);
 
     // CAVS-PA-01/02/03: recurring decoration signals sub-DTO — dividerRule maps through the closed
     // DividerRuleStyle enum (defensive: unrecognised/malformed → null); compositionArchetype is an

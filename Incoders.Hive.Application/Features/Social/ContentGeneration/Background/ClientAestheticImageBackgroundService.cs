@@ -4,6 +4,7 @@ using System.Text.Json;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Domain.Common;
 using Incoders.Hive.Domain.Social.ContentGeneration;
@@ -258,12 +259,23 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
         {
             // 1. Write the image prompt for this slide.
             var copySummary = GetCopySummary(request, slideIndex);
+            // client-style-fidelity CSF-CG-08: the client's own treatment at this slide position (the
+            // same proportional mapping the render loop uses), so the generated image reproduces it
+            // instead of a generic photo in the client's colours.
+            var slideKind = CreativeSlideIndexResolver.ResolveKindForSlide(
+                request.Aesthetic.BackgroundPattern, request.SlideCount, slideIndex);
+            var treatment = CreativeSlideIndexResolver.ResolveTransparencyForSlide(
+                request.Aesthetic.BackgroundTransparency, request.SlideCount, slideIndex);
+            var pairing = CompositionDefaults.SelectPairing(request.Aesthetic, slideIndex, request.SlideCount, slideKind);
             var promptRequest = new ImagePromptRequest(
                 request.OrganizationId,
                 request.ClientId,
                 slideIndex,
                 copySummary,
-                request.Aesthetic);
+                request.Aesthetic,
+                slideKind,
+                string.IsNullOrWhiteSpace(treatment?.Descriptor) ? null : treatment.Descriptor,
+                pairing is { IsObserved: true } ? pairing.BackgroundHex : null);
 
             var promptResult = await _promptWriter.WriteAsync(promptRequest, ct);
             if (promptResult.IsFailure)

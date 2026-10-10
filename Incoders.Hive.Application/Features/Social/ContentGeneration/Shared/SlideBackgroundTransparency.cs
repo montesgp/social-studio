@@ -19,4 +19,8 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 /// Optional qualitative description of the treatment (e.g. "faded overlay"). Null when the client's
 /// habit doesn't warrant a description, or when only the boolean was determinable.
 /// </param>
-public sealed record SlideBackgroundTransparency(bool Blended, string? Descriptor);
+/// <param name="HasPhotographicSubject">
+/// client-style-fidelity (CSF-PA-06): whether the slide carries ANY photographic or rendered subject
+/// (a product, object, person, cut-out or photo), even on a solid backdrop. Null when unmeasured.
+/// </param>
+public sealed record SlideBackgroundTransparency(bool Blended, string? Descriptor, bool? HasPhotographicSubject = null);
