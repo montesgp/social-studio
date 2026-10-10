@@ -38,6 +38,19 @@ public sealed class FontCandidateVisualMatcherTests
         Assert.True(height > 0);
     }
 
+    [Fact]
+    public void Sheet_DrawsCandidatesAtTheReferencesScale()
+    {
+        // A wide, short crop (three lines of body copy) is displayed small; the candidates must be too.
+        var request = Request(["Poppins", "Inter"]) with { SampleText = "Probá distintos\nperfiles y encontrá el\ntuyo." };
+
+        var (markup, _) = FontCandidateVisualMatcher.BuildSheet(
+            [(request, new FontCandidateVisualMatcher.SampleCrop("data:image/png;base64,AAAA", IsDark: true, Aspect: 3.0))]);
+
+        // 300 px inner tile / aspect 3 = 100 px reference height, over 3 lines.
+        Assert.Contains("font-size:33px", markup);
+    }
+
     [Theory]
     [InlineData("uno\ndos\ntres", 3)]
     [InlineData("uno\\ndos", 2)]          // an escaped newline the model left in the JSON string

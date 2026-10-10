@@ -259,7 +259,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "looks), `italic` (boolean), and `sizeRatio` — the distance between two consecutive " +
             "baselines of that text divided by the slide's total height (for a single line, cap height " +
             "plus descender over slide height); MEASURE it on the pixels, do not estimate from " +
-            "impression. `sampleText` — the EXACT words of the clearest occurrence of this role, " +
+            "impression. `sampleText` — the EXACT words of the occurrence of this role that best reveals " +
+            "the typeface: the LONGEST one in lower or mixed case, at least three words, ideally with " +
+            "letters such as a, e, g, s and punctuation such as ¿? — never a single word or an " +
+            "all-caps label, whose capitals look alike in most condensed faces. Copy it " +
             "keeping accents, with a newline (\\n) exactly where the client breaks each line; `sourceImageIndex` — the integer index (matching the " +
             "\"Image {i}\" numbering above) of the image holding that occurrence; and `boundingBox` — " +
             "a normalised region tight around that text block as " +
@@ -352,7 +355,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         if (_fontMatcher is not null && extraction.Typography is { Count: > 0 } typography)
         {
             var requests = BuildFontMatchRequests(
-                result.Value.Payload.Typography, loadedPairs.Select(lp => lp.Bytes).ToArray(), out var skipped);
+                result.Value.Payload.Typography, loadedPairs.Select(lp => lp.Bytes).ToArray(), storagePaths, out var skipped);
             _logger.LogInformation(
                 "AestheticExtractor: typography {Families} for org {OrganizationId}; visual font comparison for {Compared} role(s); notes: {Skipped}.",
                 string.Join(", ", typography.Select(t => $"{t.Role}={t.FontFamily}")),
@@ -616,6 +619,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     private static IReadOnlyList<FontMatchRequest> BuildFontMatchRequests(
         TypographyDto? typography,
         IReadOnlyList<byte[]> images,
+        IReadOnlyList<string> sources,
         out List<string> skipped)
     {
         skipped = [];
@@ -661,7 +665,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
                 continue;
             }
 
-            requests.Add(new FontMatchRequest(role, candidates, dto.SampleText, images[index], validBox));
+            requests.Add(new FontMatchRequest(role, candidates, dto.SampleText, images[index], validBox, sources[index]));
         }
 
         return requests;

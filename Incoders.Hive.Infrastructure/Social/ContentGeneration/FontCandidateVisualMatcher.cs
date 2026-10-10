@@ -17,12 +17,14 @@ namespace Incoders.Hive.Infrastructure.Social.ContentGeneration;
 /// <param name="SampleText">The exact words of the client's sample, rendered in every candidate face.</param>
 /// <param name="ImageBytes">The reference image holding the sample.</param>
 /// <param name="Box">Normalised region of the sample inside <paramref name="ImageBytes"/>.</param>
+/// <param name="SourceLabel">Where <paramref name="ImageBytes"/> came from (storage path), for diagnostics.</param>
 public sealed record FontMatchRequest(
     string Role,
     IReadOnlyList<string> Candidates,
     string SampleText,
     byte[] ImageBytes,
-    BrandMarkBoundingBox Box);
+    BrandMarkBoundingBox Box,
+    string? SourceLabel = null);
 
 /// <summary>
 /// Picks, per typography role, the catalog family whose letterforms match the client's real text
@@ -117,6 +119,16 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
                 return new Dictionary<string, string>();
             }
 
+            foreach (var (r, crop) in sections)
+            {
+                _logger.LogInformation(
+                    "FontVisualMatch: {Role} from {Source} box=({X:0.###},{Y:0.###},{W:0.###},{H:0.###}) dark={Dark} lines=[{Lines}] candidates=[{Candidates}].",
+                    r.Role, r.SourceLabel ?? "?", r.Box.X, r.Box.Y, r.Box.Width, r.Box.Height, crop!.IsDark,
+                    string.Join(" | ", SampleLines(r.SampleText)), string.Join(", ", r.Candidates));
+            }
+
+            var sheetPath = SaveDiagnosticSheet(rendered.Value.GetBytes());
+
             // The sheet first, then each role's original slide at full resolution: a crop located by
             // the model can be loose or missing, and the original keeps the reference legible.
             var images = new List<AiImageInput>
@@ -142,6 +154,11 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
                 return new Dictionary<string, string>();
             }
 
+            _logger.LogInformation(
+                "FontVisualMatch: answer heading={Heading} body={Body} caption={Caption}{Sheet}.",
+                answer.Value.Payload.Heading, answer.Value.Payload.Body, answer.Value.Payload.Caption,
+                sheetPath is null ? string.Empty : $" sheet={sheetPath}");
+
             var chosen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (sectionRequest, _) in sections)
             {
@@ -158,6 +175,34 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
         {
             _logger.LogWarning(ex, "FontVisualMatch: comparison failed; keeping extracted fonts.");
             return new Dictionary<string, string>();
+        }
+    }
+
+    /// <summary>
+    /// Directory where comparison sheets are written for inspection, from the
+    /// <c>HIVE_FONT_MATCH_DIAGNOSTICS_DIR</c> environment variable. Unset (the default) writes nothing.
+    /// </summary>
+    private const string DiagnosticsDirVariable = "HIVE_FONT_MATCH_DIAGNOSTICS_DIR";
+
+    private string? SaveDiagnosticSheet(byte[] png)
+    {
+        var dir = Environment.GetEnvironmentVariable(DiagnosticsDirVariable);
+        if (string.IsNullOrWhiteSpace(dir))
+        {
+            return null;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, $"font-match-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}.png");
+            File.WriteAllBytes(path, png);
+            return path;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "FontVisualMatch: could not write the diagnostic sheet to {Dir}.", dir);
+            return null;
         }
     }
 
@@ -190,7 +235,11 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
             }
 
             var box = answer.Value.Payload;
-            return BrandMarkDetection.TryValidateBoundingBox(box.X, box.Y, box.Width, box.Height);
+            var valid = BrandMarkDetection.TryValidateBoundingBox(box.X, box.Y, box.Width, box.Height);
+            _logger.LogInformation(
+                "FontVisualMatch: located {Role} sample at ({X},{Y},{W},{H}) -> {Outcome}.",
+                r.Role, box.X, box.Y, box.Width, box.Height, valid is null ? "unusable" : "used");
+            return valid;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -262,7 +311,12 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
             var (background, foreground) = crop.IsDark ? ("#111111", "#F2EDE2") : ("#F5F5F5", "#111111");
             var lines = SampleLines(request.SampleText);
             var text = string.Join("<br>", lines.Select(WebUtility.HtmlEncode));
-            var fontSize = Math.Min(110, (Tile - (2 * TilePadding)) / lines.Count);
+            // Same scale as the reference: the crop is drawn with object-fit:contain in the tile, so
+            // its displayed height is known from its aspect; the candidate block gets that height.
+            // Drawn bigger, the candidates overflowed and stopped looking like the reference at all.
+            var inner = Tile - (2 * TilePadding);
+            var referenceHeight = crop.Aspect >= 1 ? inner / crop.Aspect : inner;
+            var fontSize = (int)Math.Clamp(referenceHeight / lines.Count, 14, 110);
 
             var tiles = new List<string>
             {
@@ -313,7 +367,7 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
     }
 
     /// <summary>A cropped text sample and whether its ground is dark.</summary>
-    internal sealed record SampleCrop(string DataUri, bool IsDark);
+    internal sealed record SampleCrop(string DataUri, bool IsDark, double Aspect = 1);
 
     /// <summary>
     /// Crops the sample (with a small margin) to a PNG data URI and measures whether its ground is dark,
@@ -353,7 +407,10 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
 
             using var image = SKImage.FromBitmap(cropped);
             using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-            return new SampleCrop("data:image/png;base64," + Convert.ToBase64String(data.ToArray()), IsDark(cropped));
+            return new SampleCrop(
+                "data:image/png;base64," + Convert.ToBase64String(data.ToArray()),
+                IsDark(cropped),
+                (double)cropped.Width / cropped.Height);
         }
         catch (Exception)
         {
