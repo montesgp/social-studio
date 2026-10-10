@@ -582,7 +582,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     /// Longest the optional font comparison may take. It is a second vision call made after the
     /// extraction, so it gets its own slice instead of whatever is left of the caller's budget.
     /// </summary>
-    private static readonly TimeSpan FontMatchBudget = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan FontMatchBudget = TimeSpan.FromSeconds(150);
 
     /// <summary>
     /// CSF-PA-02: runs the optional comparison without ever losing the extraction already completed.
@@ -669,8 +669,11 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
 
     private static readonly BrandMarkBoundingBox WholeImage = new(0, 0, 1, 1);
 
-    /// <summary>Most faces one comparison shows; a 3-column sheet of 3 rows (reference + 8).</summary>
-    private const int MaxComparisonCandidates = 8;
+    /// <summary>
+    /// Most faces one comparison shows (reference + 6 = a 3-column sheet of 3 rows). Eight made the
+    /// call slower without improving the pick.
+    /// </summary>
+    private const int MaxComparisonCandidates = 6;
 
     /// <summary>
     /// CSF-PA-02: the faces to compare. The comparison can only pick among the faces it is shown, and

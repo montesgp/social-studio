@@ -1426,7 +1426,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
         Assert.Contains("League Gothic", candidates);
         Assert.Contains("Antonio", candidates);
         Assert.DoesNotContain("Poppins", candidates);
-        Assert.True(candidates.Count <= 8);
+        Assert.True(candidates.Count <= 6);
         Assert.Equal(candidates.Count, candidates.Distinct().Count());
     }
 

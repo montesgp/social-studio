@@ -103,6 +103,32 @@ public sealed class FontCandidateVisualMatcherTests
     }
 
     [Fact]
+    public async Task UnlocatedSample_IsLocatedOnItsSlide_BeforeComparing()
+    {
+        var gateway = new ScriptedGateway(
+            locate: """{"x":0.1,"y":0.2,"width":0.5,"height":0.3}""",
+            compare: """{"heading": 2}""");
+        var matcher = new FontCandidateVisualMatcher(new PngRenderer(), gateway);
+        var unlocated = Request(["Anton", "League Gothic"]) with { Box = new BrandMarkBoundingBox(0, 0, 1, 1) };
+
+        var chosen = await matcher.MatchAsync(Guid.NewGuid(), "openai", "gpt", [unlocated], CancellationToken.None);
+
+        Assert.Equal("League Gothic", chosen[TypographyRoles.Heading]);
+        Assert.Equal(["font-sample-locate/v1", "font-visual-match/v2"], gateway.PromptVersions);
+    }
+
+    [Fact]
+    public async Task LocatedSample_SkipsTheLocateCall()
+    {
+        var gateway = new ScriptedGateway(locate: "{}", compare: """{"heading": 1}""");
+        var matcher = new FontCandidateVisualMatcher(new PngRenderer(), gateway);
+
+        await matcher.MatchAsync(Guid.NewGuid(), "openai", "gpt", [Request(["Anton", "League Gothic"])], CancellationToken.None);
+
+        Assert.Equal(["font-visual-match/v2"], gateway.PromptVersions);
+    }
+
+    [Fact]
     public void Crop_ReturnsAPngDataUri_DetectsTheGround_AndRejectsADegenerateBox()
     {
         var image = Png(400, 500);
@@ -142,6 +168,23 @@ file sealed class FailingRenderer : IContentRenderer
 {
     public Task<Result<RenderedAsset>> RenderAsync(VisualCompositionSpec spec, RenderOptions opts, CancellationToken ct) =>
         Task.FromResult(Result.Failure<RenderedAsset>(RenderErrors.RenderFailure));
+}
+
+/// <summary>Answers the locate call and the comparison call differently, recording the order.</summary>
+file sealed class ScriptedGateway(string locate, string compare) : IAiCompletionGateway
+{
+    public List<string> PromptVersions { get; } = [];
+
+    public Task<Result<AiJsonCompletionResponse<TResponse>>> CompleteJsonAsync<TResponse>(
+        AiJsonCompletionRequest request,
+        CancellationToken cancellationToken = default)
+        where TResponse : notnull
+    {
+        PromptVersions.Add(request.PromptVersionKey);
+        var json = request.PromptVersionKey.StartsWith("font-sample-locate", StringComparison.Ordinal) ? locate : compare;
+        var payload = JsonSerializer.Deserialize<TResponse>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        return Task.FromResult(Result.Success(new AiJsonCompletionResponse<TResponse>(payload, "openai", "gpt", [], null)));
+    }
 }
 
 file sealed class AnswerGateway(string answerJson) : IAiCompletionGateway

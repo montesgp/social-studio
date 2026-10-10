@@ -49,7 +49,8 @@ public interface IFontVisualMatcher
 public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
 {
     private const string CapabilityKey = "ai-aesthetic";
-    private const string PromptVersion = "font-visual-match/v1";
+    private const string PromptVersion = "font-visual-match/v2";
+    private const string LocatePromptVersion = "font-sample-locate/v1";
     private const int SheetWidth = 1080;
     private const int MaxLineLength = 24;
 
@@ -74,7 +75,17 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
         IReadOnlyList<FontMatchRequest> requests,
         CancellationToken ct)
     {
-        var sections = requests
+        // A sample located inside the big extraction call often comes back without a box. A dedicated
+        // single-slide question finds it reliably, so unlocated samples are located first.
+        var located = new List<FontMatchRequest>(requests.Count);
+        foreach (var r in requests)
+        {
+            located.Add(IsWholeImage(r.Box)
+                ? r with { Box = await LocateSampleAsync(organizationId, providerKey, modelId, r, ct) ?? r.Box }
+                : r);
+        }
+
+        var sections = located
             .Select(r => (Request: r, Crop: CropSample(r.ImageBytes, r.Box)))
             .Where(s => s.Crop is not null && s.Request.Candidates.Count >= 2)
             .ToArray();
@@ -149,6 +160,55 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
             return new Dictionary<string, string>();
         }
     }
+
+    private static bool IsWholeImage(BrandMarkBoundingBox box) =>
+        box.X <= 0 && box.Y <= 0 && box.Width >= 1 && box.Height >= 1;
+
+    /// <summary>
+    /// Asks the vision route where <see cref="FontMatchRequest.SampleText"/> sits on its one slide.
+    /// Null when it cannot say; the caller then compares against the whole slide.
+    /// </summary>
+    private async Task<BrandMarkBoundingBox?> LocateSampleAsync(
+        Guid organizationId, string providerKey, string? modelId, FontMatchRequest r, CancellationToken ct)
+    {
+        try
+        {
+            var answer = await _gateway.CompleteJsonAsync<LocatedBox>(
+                new AiJsonCompletionRequest(
+                    OrganizationId: organizationId,
+                    AnalysisId: null,
+                    CapabilityKey: CapabilityKey,
+                    PromptVersionKey: LocatePromptVersion,
+                    InputJson: BuildLocateInstruction(r.SampleText),
+                    PreferredProviderKey: providerKey,
+                    PreferredModel: modelId,
+                    Images: [new AiImageInput(MimeOf(r.ImageBytes), Convert.ToBase64String(r.ImageBytes))]),
+                ct);
+            if (answer.IsFailure)
+            {
+                return null;
+            }
+
+            var box = answer.Value.Payload;
+            return BrandMarkDetection.TryValidateBoundingBox(box.X, box.Y, box.Width, box.Height);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "FontVisualMatch: locating the {Role} sample failed; comparing against the whole slide.", r.Role);
+            return null;
+        }
+    }
+
+    internal static string BuildLocateInstruction(string sampleText) =>
+        "Locate the text block \"" + Flatten(sampleText) + "\" in the attached image and return ONLY JSON " +
+        "{\"x\":0..1,\"y\":0..1,\"width\":0..1,\"height\":0..1} as fractions of the image width and " +
+        "height, origin top-left, tight around the whole block.";
+
+    private sealed record LocatedBox(
+        [property: JsonPropertyName("x")] double? X = null,
+        [property: JsonPropertyName("y")] double? Y = null,
+        [property: JsonPropertyName("width")] double? Width = null,
+        [property: JsonPropertyName("height")] double? Height = null);
 
     internal static string BuildInstruction(IEnumerable<(string Role, string SampleText)> sections)
     {
