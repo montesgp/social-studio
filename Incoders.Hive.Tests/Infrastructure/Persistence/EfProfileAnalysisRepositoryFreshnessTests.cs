@@ -82,6 +82,21 @@ public sealed class EfProfileAnalysisRepositoryFreshnessTests
     }
 
     [Fact]
+    public async Task HasNonTerminalAnalysisForClientAsync_AbandonedRow_IsNotInFlight()
+    {
+        // A restart or a suspended host leaves the row "Analyzing" with nothing running it; it must
+        // not keep debouncing every future refresh for the client.
+        await using var db = CreateDb();
+        Seed(db, _orgId, _clientId, "Analyzing", null, updatedAt: DateTime.UtcNow.AddHours(-11));
+        await db.SaveChangesAsync();
+
+        var repo = new EfProfileAnalysisRepository(db);
+        var result = await repo.HasNonTerminalAnalysisForClientAsync(_orgId, _clientId, CancellationToken.None);
+
+        Assert.False(result);
+    }
+
+    [Fact]
     public async Task HasNonTerminalAnalysisForClientAsync_WithScrapingRow_ReturnsTrue()
     {
         await using var db = CreateDb();
@@ -324,7 +339,8 @@ public sealed class EfProfileAnalysisRepositoryFreshnessTests
         Guid orgId,
         Guid clientId,
         string status,
-        DateTime? completedAt)
+        DateTime? completedAt,
+        DateTime? updatedAt = null)
     {
         db.ProfileAnalyses.Add(new ProfileAnalysisData
         {
@@ -334,8 +350,9 @@ public sealed class EfProfileAnalysisRepositoryFreshnessTests
             ProfileUrlOrHandle = "@handle",
             Status = status,
             CompletedAtUtc = completedAt,
-            CreatedAtUtc = completedAt?.AddHours(-2) ?? DateTime.UtcNow.AddHours(-3),
-            UpdatedAtUtc = completedAt ?? DateTime.UtcNow.AddHours(-2),
+            CreatedAtUtc = completedAt?.AddHours(-2) ?? DateTime.UtcNow.AddMinutes(-5),
+            // An in-flight analysis was touched moments ago; a finished one when it completed.
+            UpdatedAtUtc = updatedAt ?? completedAt ?? DateTime.UtcNow.AddMinutes(-2),
         });
     }
 
