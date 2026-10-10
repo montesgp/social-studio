@@ -6,6 +6,7 @@ import {
   fontStackFor,
   isLocallyResolvableFont,
   webFontUrl,
+  ensureFontsLoaded,
 } from "./fonts.ts";
 
 /** Exactly what `FontCatalog.SystemSafeList` returns from the API. */
@@ -63,4 +64,51 @@ test("webFontUrl requests ONE family per stylesheet", () => {
   const url = webFontUrl("Open Sans");
   assert.equal(url.split("family=").length - 1, 1);
   assert.ok(url.includes("family=Open+Sans"));
+});
+
+/** Minimal `document` stand-in: the repo runs these tests without jsdom. */
+type FakeLink = { rel?: string; href?: string; dataset: { studioFont?: string }; attributes: Set<string> };
+
+function withFakeDocument(run: (links: FakeLink[]) => void): void {
+  const links: FakeLink[] = [];
+  const fake = {
+    head: {
+      querySelector: (selector: string) =>
+        links.find((l) =>
+          selector.includes("data-studio-render-fonts")
+            ? l.attributes.has("data-studio-render-fonts")
+            : l.dataset.studioFont !== undefined && selector.includes(`"${l.dataset.studioFont}"`),
+        ) ?? null,
+      appendChild: (link: FakeLink) => links.push(link),
+    },
+    createElement: (): FakeLink & { setAttribute: (name: string) => void } => {
+      const link: FakeLink = { dataset: {}, attributes: new Set() };
+      return Object.assign(link, { setAttribute: (name: string) => link.attributes.add(name) });
+    },
+  };
+  const globals = globalThis as Record<string, unknown>;
+  const previousDocument = globals.document;
+  const previousCss = globals.CSS;
+  globals.document = fake;
+  globals.CSS = { escape: (value: string) => value };
+  try {
+    run(links);
+  } finally {
+    globals.document = previousDocument;
+    globals.CSS = previousCss;
+  }
+}
+
+test("bundled families load from the render-font stylesheet once, never from the CDN", () => {
+  withFakeDocument((links) => {
+    const bundled = new Set(["League Gothic", "Poppins"]);
+    ensureFontsLoaded(["League Gothic", "Poppins", "Source Sans 3"], bundled, "/hive-api/fonts.css");
+    ensureFontsLoaded(["League Gothic"], bundled, "/hive-api/fonts.css");
+
+    const renderLinks = links.filter((l) => l.attributes.has("data-studio-render-fonts"));
+    const cdnLinks = links.filter((l) => l.href?.startsWith("https://fonts.googleapis.com"));
+    assert.equal(renderLinks.length, 1);
+    assert.equal(renderLinks[0].href, "/hive-api/fonts.css");
+    assert.deepEqual(cdnLinks.map((l) => l.href), [webFontUrl("Source Sans 3")]);
+  });
 });

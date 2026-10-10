@@ -1,9 +1,13 @@
 namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fonts;
 
-/// <summary>Wire shape for one <see cref="FontEntry"/> — the picker/render font contract (R2.3).</summary>
-public sealed record FontEntryDto(string Family, bool IsBrand)
+/// <summary>
+/// Wire shape for one <see cref="FontEntry"/> — the picker/render font contract (R2.3).
+/// <see cref="IsBundled"/> tells Content Studio the API serves the family's files itself
+/// (client-style-fidelity CSF-CS-01), so it must not be fetched from a webfont CDN.
+/// </summary>
+public sealed record FontEntryDto(string Family, bool IsBrand, bool IsBundled = false)
 {
-    public static FontEntryDto FromDomain(FontEntry entry) => new(entry.Family, entry.IsBrand);
+    public static FontEntryDto FromDomain(FontEntry entry) => new(entry.Family, entry.IsBrand, entry.IsBundled);
 }
 
 /// <summary>
