@@ -85,7 +85,9 @@ public sealed class ProfileAnalyzerOrchestrator : IProfileAnalyzer
     // creative-vs-flat-template mix within a post is visible to the model.
     private const int MaxImagesPerPost = 7;
     // Hard wall-clock budget for the whole enrichment so it can never hang the analysis worker.
-    private const int EnrichmentBudgetSeconds = 240;
+    // client-style-fidelity: two vision calls now (extraction ~150 s + font comparison <= 90 s) plus
+    // the image archive, so 240 s cut the comparison short on every run.
+    private const int EnrichmentBudgetSeconds = 360;
 
     public async Task RunQueuedAsync(
         Guid analysisId,

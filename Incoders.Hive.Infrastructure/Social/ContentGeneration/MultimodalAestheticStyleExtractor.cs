@@ -361,7 +361,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
                 skipped.Count == 0 ? "none" : string.Join("; ", skipped));
             if (requests.Count > 0)
             {
-                var chosen = await _fontMatcher.MatchAsync(
+                var chosen = await MatchFontsWithinBudgetAsync(
                     organizationId, candidate.ProviderKey, candidate.ModelId, requests, ct);
                 if (chosen.Count > 0)
                 {
@@ -576,6 +576,39 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
                     ? ColorPairingKinds.Photo
                     : ColorPairingKinds.Flat))
             .ToArray();
+    }
+
+    /// <summary>
+    /// Longest the optional font comparison may take. It is a second vision call made after the
+    /// extraction, so it gets its own slice instead of whatever is left of the caller's budget.
+    /// </summary>
+    private static readonly TimeSpan FontMatchBudget = TimeSpan.FromSeconds(90);
+
+    /// <summary>
+    /// CSF-PA-02: runs the optional comparison without ever losing the extraction already completed.
+    /// A cancellation — its own time slice or the caller's budget running out — yields "no change",
+    /// so the model's own catalog pick stands; the caller still sees its own cancellation afterwards.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>> MatchFontsWithinBudgetAsync(
+        Guid organizationId,
+        string providerKey,
+        string? modelId,
+        IReadOnlyList<FontMatchRequest> requests,
+        CancellationToken ct)
+    {
+        using var slice = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        slice.CancelAfter(FontMatchBudget);
+        try
+        {
+            return await _fontMatcher!.MatchAsync(organizationId, providerKey, modelId, requests, slice.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "AestheticExtractor: visual font comparison ran out of time for org {OrganizationId}; keeping the extracted fonts.",
+                organizationId);
+            return new Dictionary<string, string>();
+        }
     }
 
     // CSF-PA-02: a role is comparable when it names at least two catalog families and locates a

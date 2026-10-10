@@ -1376,6 +1376,25 @@ public sealed class MultimodalAestheticStyleExtractorTests
         Assert.Equal("League Gothic", Assert.Single(result.Typography!).FontFamily);
     }
 
+    [Fact]
+    public async Task VisualMatchRunningOutOfTime_KeepsTheCompletedExtraction()
+    {
+        // The comparison is a second vision call; when the enrichment budget expires during it, the
+        // extraction already finished must survive with the model's own font pick.
+        var gateway = new CaptureGateway(
+            paletteJson: """[{"hex":"#0D0D0D","role":"background","rank":1}]""",
+            typographyJson: "{\"heading\":{\"family\":\"Anton\",\"candidates\":[\"Anton\",\"League Gothic\"]," +
+                            "\"sampleText\":\"tus clientes\",\"sourceImageIndex\":0," +
+                            "\"boundingBox\":{\"x\":0.1,\"y\":0.2,\"width\":0.5,\"height\":0.3}}}");
+        var extractor = new MultimodalAestheticStyleExtractor(
+            gateway, CandidateResolver(), new PngStorage(SkiaSharp.SKColors.Black), fontMatcher: new CancelledFontMatcher());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Equal("Anton", Assert.Single(result.Typography!).FontFamily);
+        Assert.NotEmpty(result.Palette);
+    }
+
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);
     private static IWorkflowConfigurationResolver CandidateResolver() => new StubResolver(candidate: true);
 }
@@ -1431,6 +1450,14 @@ file sealed class FakeFontMatcher(IReadOnlyDictionary<string, string> choice) : 
         Requests.AddRange(requests);
         return Task.FromResult(choice);
     }
+}
+
+/// <summary>client-style-fidelity: a comparison that runs out of time.</summary>
+file sealed class CancelledFontMatcher : IFontVisualMatcher
+{
+    public Task<IReadOnlyDictionary<string, string>> MatchAsync(
+        Guid organizationId, string providerKey, string? modelId, IReadOnlyList<FontMatchRequest> requests, CancellationToken ct) =>
+        throw new OperationCanceledException();
 }
 
 file sealed class OneImageStorage : IGeneratedAssetStorage
