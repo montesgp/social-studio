@@ -65,6 +65,15 @@ public sealed class EfContentGenerationJobRepository : IContentGenerationJobRepo
         entity.ErrorCode = StringColumn.Truncate(errorCode, StringColumn.JobErrorCode);
         entity.UpdatedAt = DateTime.UtcNow;
 
+        // Re-queueing (format regeneration) starts a NEW run on the same row. Its timestamps must
+        // start over: a StartedAt left over from the first run made the watchdog judge the new run
+        // by the old start time and fail it as stuck within one sweep ("watchdog-timeout").
+        if (status == "Queued")
+        {
+            entity.StartedAt = null;
+            entity.CompletedAt = null;
+        }
+
         if (status == "Running" && entity.StartedAt is null)
         {
             entity.StartedAt = DateTime.UtcNow;

@@ -32,6 +32,21 @@ public sealed class EmbeddedFontProvider : IFontProvider
             ["DejaVu Serif"] = $"{AssetsNamespace}.DejaVuSerif-Regular.ttf",
         };
 
+    /// <summary>
+    /// Prefix of the curated client-typography catalog resources (client-style-fidelity D1). The
+    /// csproj embeds them as <c>{prefix}{dir}/{file}</c>, where MSBuild's RecursiveDir may use either
+    /// path separator depending on the build OS — <see cref="CatalogResourceNames"/> normalises that.
+    /// </summary>
+    private const string CatalogPrefix = $"{AssetsNamespace}.Catalog/";
+
+    private static readonly Lazy<IReadOnlyDictionary<string, string>> CatalogResourceNames = new(() =>
+        typeof(EmbeddedFontProvider).Assembly.GetManifestResourceNames()
+            .Where(n => n.StartsWith(CatalogPrefix, StringComparison.Ordinal))
+            .ToDictionary(
+                n => n[CatalogPrefix.Length..].Replace('\\', '/'),
+                n => n,
+                StringComparer.OrdinalIgnoreCase));
+
     private readonly Lazy<byte[]?> _emojiBytes = new(() =>
         ReadEmbeddedResource(ResourceNamesByFamily[NotoColorEmojiFamily]));
 
@@ -50,9 +65,54 @@ public sealed class EmbeddedFontProvider : IFontProvider
             return null;
         }
 
-        return ResourceNamesByFamily.TryGetValue(family, out var resourceName)
-            ? ReadEmbeddedResource(resourceName)
-            : null;
+        if (ResourceNamesByFamily.TryGetValue(family, out var resourceName))
+        {
+            return ReadEmbeddedResource(resourceName);
+        }
+
+        // A catalog family's "default" file is the face closest to regular weight.
+        return ResolveFaces(family)
+            .OrderBy(f => Math.Abs(Math.Clamp(400, f.MinWeight, f.MaxWeight) - 400))
+            .Select(f => f.Bytes)
+            .FirstOrDefault();
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<EmbeddedFontFace> ResolveFaces(string family)
+    {
+        if (string.IsNullOrWhiteSpace(family))
+        {
+            return [];
+        }
+
+        if (ResourceNamesByFamily.TryGetValue(family, out var legacyResource))
+        {
+            var legacyBytes = ReadEmbeddedResource(legacyResource);
+            return legacyBytes is { Length: > 0 } ? [new EmbeddedFontFace(legacyBytes, 400, 400)] : [];
+        }
+
+        var catalogFamily = BundledFontCatalog.Find(family);
+        if (catalogFamily is null)
+        {
+            return [];
+        }
+
+        var faces = new List<EmbeddedFontFace>(catalogFamily.Faces.Count);
+        foreach (var face in catalogFamily.Faces)
+        {
+            if (!CatalogResourceNames.Value.TryGetValue($"{catalogFamily.Directory}/{face.File}", out var name))
+            {
+                continue;
+            }
+
+            var bytes = ReadEmbeddedResource(name);
+            if (bytes is { Length: > 0 })
+            {
+                faces.Add(new EmbeddedFontFace(bytes, face.MinWeight, face.MaxWeight));
+            }
+        }
+
+        return faces;
     }
 
     /// <inheritdoc />

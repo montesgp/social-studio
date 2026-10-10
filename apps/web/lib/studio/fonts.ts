@@ -102,9 +102,16 @@ export function webFontUrl(family: string): string {
   return `https://fonts.googleapis.com/css2?family=${family.trim().replace(/\s+/g, "+")}:wght@400;600;700&display=swap`;
 }
 
+/** Marks the single `<link>` that loads the server renderer's own font files. */
+const RENDER_FONTS_LINK_ATTRIBUTE = "data-studio-render-fonts";
+
 /**
  * Ensures the given families are available to the document (and therefore to any shadow root inside
  * it — `@font-face` is document-scoped, not tree-scoped).
+ *
+ * Families in `bundled` are embedded by the server renderer and served by the API through
+ * `renderFontStylesheetUrl`: they load from there, once, so the editor draws the exact faces the
+ * rendered slide uses. Only the remaining families are requested from Google Fonts.
  *
  * ONE `<link>` PER FAMILY, deliberately. The Google Fonts CSS2 endpoint answers 400 for the WHOLE
  * request when any single family is unknown to it, so batching meant one unrecognized brand font
@@ -113,13 +120,25 @@ export function webFontUrl(family: string): string {
  *
  * Idempotent: a family already linked is skipped, so re-renders never re-fetch.
  */
-export function ensureFontsLoaded(families: string[]): void {
+export function ensureFontsLoaded(
+  families: string[],
+  bundled: ReadonlySet<string> = new Set(),
+  renderFontStylesheetUrl?: string,
+): void {
   if (typeof document === "undefined") {
     return;
   }
 
+  if (bundled.size > 0 && renderFontStylesheetUrl && !document.head.querySelector(`link[${RENDER_FONTS_LINK_ATTRIBUTE}]`)) {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.setAttribute(RENDER_FONTS_LINK_ATTRIBUTE, "");
+    link.href = renderFontStylesheetUrl;
+    document.head.appendChild(link);
+  }
+
   for (const family of new Set(families.map((f) => f.trim()).filter(Boolean))) {
-    if (isLocallyResolvableFont(family)) {
+    if (isLocallyResolvableFont(family) || bundled.has(family)) {
       continue;
     }
 

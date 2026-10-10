@@ -178,7 +178,15 @@ export function editItemCaption(itemId: string, caption: string, token?: string)
 export interface FontEntryDto {
   family: string;
   isBrand: boolean;
+  /** The API serves this family's files itself (see `RENDER_FONT_STYLESHEET_URL`). */
+  isBundled?: boolean;
 }
+
+/**
+ * `@font-face` rules for every font the server renderer embeds, served by the API so Content Studio
+ * draws slide text with the exact faces the rendered PNG uses (client-style-fidelity CSF-CS-01).
+ */
+export const RENDER_FONT_STYLESHEET_URL = "/hive-api/api/social/content-studio/fonts.css";
 
 /** The picker/render font contract (R2.3) plus the color-emoji render-capability signal (F3). */
 export interface RenderCapabilities {

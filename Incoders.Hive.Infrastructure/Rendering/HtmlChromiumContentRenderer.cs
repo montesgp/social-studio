@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fonts;
@@ -114,6 +115,8 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
     /// fonts available to inject" (still cached, so we don't retry every render).
     /// </summary>
     private string? _cachedFontFaceStyle;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _catalogFaceRules =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly object _fontFaceStyleLock = new();
 
     /// <summary>
@@ -345,8 +348,80 @@ public sealed class HtmlChromiumContentRenderer : IContentRendererWithGeometry
     /// </remarks>
     internal string InjectFontFaceStyle(string markup)
     {
-        var style = GetOrBuildFontFaceStyle();
+        var style = GetOrBuildFontFaceStyle() + BuildCatalogFontFaceStyle(markup);
         return string.IsNullOrEmpty(style) ? markup : style + markup;
+    }
+
+    /// <summary>
+    /// client-style-fidelity D2: <c>@font-face</c> rules for every bundled client-typography family the
+    /// markup names in a <c>font-family</c> declaration. Without them Chromium silently draws the
+    /// host's fallback font, which is how a client's condensed headline rendered as a wide system
+    /// sans. Only catalog families are injected; the legacy Liberation/DejaVu fallbacks keep today's
+    /// behaviour so cold-start output does not change. Per-family CSS is cached because each family
+    /// is base64 of a few hundred KB.
+    /// </summary>
+    private string BuildCatalogFontFaceStyle(string markup)
+    {
+        var families = ReferencedCatalogFamilies(markup);
+        if (families.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var style = new StringBuilder("<style>");
+        foreach (var family in families)
+        {
+            style.Append(_catalogFaceRules.GetOrAdd(family.Name, _ => BuildFamilyFaceRules(family.Name)));
+        }
+
+        return style.Append("</style>").ToString();
+    }
+
+    private string BuildFamilyFaceRules(string family)
+    {
+        var rules = new StringBuilder();
+        foreach (var face in _fonts.ResolveFaces(family))
+        {
+            rules.Append("@font-face{font-family:'")
+                .Append(family)
+                .Append("';src:url(data:font/ttf;base64,")
+                .Append(Convert.ToBase64String(face.Bytes))
+                .Append(");font-weight:")
+                .Append(face.MinWeight)
+                .Append(' ')
+                .Append(face.MaxWeight)
+                .Append(";}");
+        }
+
+        return rules.ToString();
+    }
+
+    private static readonly Regex FontFamilyDeclaration = new(
+        @"font-family\s*:\s*(?<value>[^;}""]+)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Catalog families named in any <c>font-family</c> declaration of <paramref name="markup"/>,
+    /// in first-seen order. Values may be HTML-encoded inside a <c>style</c> attribute.
+    /// </summary>
+    internal static IReadOnlyList<BundledFontFamily> ReferencedCatalogFamilies(string markup)
+    {
+        var found = new List<BundledFontFamily>();
+        // Decode first: an encoded quote (&#39;) carries a ';' that would otherwise end the match early.
+        var decoded = System.Net.WebUtility.HtmlDecode(markup);
+        foreach (Match match in FontFamilyDeclaration.Matches(decoded))
+        {
+            foreach (var raw in match.Groups["value"].Value.Split(','))
+            {
+                var family = BundledFontCatalog.Find(raw.Trim().Trim('\'', '"').Trim());
+                if (family is not null && !found.Contains(family))
+                {
+                    found.Add(family);
+                }
+            }
+        }
+
+        return found;
     }
 
     private string GetOrBuildFontFaceStyle()

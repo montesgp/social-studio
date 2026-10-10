@@ -232,3 +232,16 @@ content-box extent, falling back to the CSS box when the range yields zero width
 guide divs from `setGuides` (CLIF-CS-04). Item 8b.6 (owner manual drag/Alt-bypass verification) is a
 pending human action, not an implementation gap — no automated component-render harness exists in
 this repo for `apps/web`.*
+
+---
+
+## Client Style Fidelity Requirements
+
+### Requirement: CSF-CS-01 — Studio Loads the Bundled Font Catalog
+
+The API MUST serve the bundled catalog as `GET /api/content-studio/fonts.css` (`@font-face` rules)
+and `GET /api/content-studio/fonts/{dir}/{file}` (font files), without authentication, since the
+fonts are OFL-licensed. The Studio canvas MUST load the stylesheet once into `document.head`, so
+edited text uses the same faces as the rendered slide.
+
+*Merged from `openspec/changes/client-style-fidelity/specs/content-studio/spec-delta.md` — change applied 2026-10-10.*

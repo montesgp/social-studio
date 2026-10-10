@@ -19,7 +19,7 @@ public sealed class PromptVersionBumpTests
     public void ContentGenerationPromptVersions_Carousel_IsV3()
     {
         // Latest: in-call post caption — mandatory publicationDescription + hashtags[].
-        Assert.Equal("carousel.v7", ContentGenerationPromptVersions.Carousel);
+        Assert.Equal("carousel.v8", ContentGenerationPromptVersions.Carousel);
     }
 
     [Fact]

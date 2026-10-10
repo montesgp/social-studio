@@ -36,11 +36,11 @@ public static class AestheticProfilePersistence
             // deriving from the pattern length exactly as before (cold-start parity).
             TypicalSlideCount: extraction.TypicalSlideCount ?? extraction.BackgroundPattern?.Count,
             ColorPairings: extraction.ColorPairings?
-                .Select(p => new StoredColorPairing(p.BackgroundHex, p.TextHex, p.Rank, p.AccentTextHex))
+                .Select(p => new StoredColorPairing(p.BackgroundHex, p.TextHex, p.Rank, p.AccentTextHex, p.SlideCount, p.Kind))
                 .ToArray(),
             // exact-client-typography: additive key; absent on older blobs -> null on Read.
             Typography: extraction.Typography?
-                .Select(t => new StoredTypography(t.Role, t.FontFamily, t.Weight, t.Italic, t.SizeRatio))
+                .Select(t => new StoredTypography(t.Role, t.FontFamily, t.Weight, t.Italic, t.SizeRatio, t.BlockWidthRatio))
                 .ToArray(),
             // client-aesthetic-fidelity-fixes (WU-3a, D3): additive key; absent on older blobs -> null
             // on Read. Entries are independently nullable — an unmeasured slide stays null.
@@ -158,13 +158,13 @@ public static class AestheticProfilePersistence
             var colorPairings = dto.ColorPairings is null
                 ? null
                 : (IReadOnlyList<ColorPairing>?)dto.ColorPairings
-                    .Select(p => new ColorPairing(p.BackgroundHex, p.TextHex, p.Rank, p.AccentTextHex))
+                    .Select(p => new ColorPairing(p.BackgroundHex, p.TextHex, p.Rank, p.AccentTextHex, p.SlideCount, p.Kind))
                     .ToArray();
 
             var typography = dto.Typography is null
                 ? null
                 : (IReadOnlyList<AestheticTypography>?)dto.Typography
-                    .Select(t => new AestheticTypography(t.Role, t.FontFamily, t.Weight, t.Italic, t.SizeRatio))
+                    .Select(t => new AestheticTypography(t.Role, t.FontFamily, t.Weight, t.Italic, t.SizeRatio, t.BlockWidthRatio))
                     .ToArray();
 
             // client-aesthetic-conceptual-detection additive fields (absent on old blobs → null; CACD-PA-05-b)
@@ -297,10 +297,13 @@ public static class AestheticProfilePersistence
 
     // three-colour-slide-combinations: AccentTextHex is an additive trailing nullable, so blobs written
     // before it existed deserialize with a null accent and read back as plain two-colour pairings.
-    private sealed record StoredColorPairing(string BackgroundHex, string TextHex, int Rank, string? AccentTextHex = null);
+    // client-style-fidelity: SlideCount/Kind are additive trailing nullables too — older blobs read back
+    // as derived pairings, which keep the legacy rotation.
+    private sealed record StoredColorPairing(
+        string BackgroundHex, string TextHex, int Rank, string? AccentTextHex = null, int? SlideCount = null, string? Kind = null);
 
     private sealed record StoredTypography(
-        string Role, string FontFamily, int Weight = 400, bool Italic = false, double SizeRatio = 0);
+        string Role, string FontFamily, int Weight = 400, bool Italic = false, double SizeRatio = 0, double? BlockWidthRatio = null);
 
     /// <summary>Stored shape for ConceptualMethod; method serialized as its enum name string.</summary>
     private sealed record StoredConceptualMethod(

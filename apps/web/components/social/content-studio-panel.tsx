@@ -115,6 +115,7 @@ import {
   fetchContentItemAsset,
   getContentSet,
   getRenderCapabilities,
+  RENDER_FONT_STYLESHEET_URL,
   linkItemToPlan,
   listContentItems,
   listContentItemsByIds,
@@ -710,7 +711,11 @@ export function ContentStudioPanel({
         setRenderCapabilities(capabilities);
         // Without this, every family the host does not already have falls back to the SAME default,
         // so changing font looked like it only ever worked once.
-        ensureFontsLoaded(capabilities.fonts.map((f) => f.family));
+        ensureFontsLoaded(
+          capabilities.fonts.map((f) => f.family),
+          new Set(capabilities.fonts.filter((f) => f.isBundled).map((f) => f.family)),
+          RENDER_FONT_STYLESHEET_URL,
+        );
       })
       .catch(() => {
         /* picker degrades to "no fonts / no emoji" until this resolves */

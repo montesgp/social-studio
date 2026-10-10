@@ -73,6 +73,28 @@ public sealed class EfContentGenerationJobRepositoryUpdateStatusTests
         Assert.Equal(manifestCompletedAt, entity.CompletedAt);
     }
 
+    [Fact]
+    public async Task Requeue_StartsTheNewRunsClockOver_SoTheWatchdogDoesNotReapIt()
+    {
+        // Regenerating a format re-queues the SAME job row hours after its first run. The new run
+        // must be timed from its own start, not the first run's, or the watchdog fails it at once.
+        await using var db = CreateDb();
+        Seed(db, "Completed");
+        await db.SaveChangesAsync();
+        var firstRun = await db.ContentGenerationJobs.SingleAsync(j => j.Id == _jobId);
+        firstRun.StartedAt = DateTime.UtcNow.AddHours(-6);
+        firstRun.CompletedAt = DateTime.UtcNow.AddHours(-5);
+        await db.SaveChangesAsync();
+
+        var repo = new EfContentGenerationJobRepository(db);
+        await repo.UpdateStatusAsync(_jobId, "Queued", null, null, CancellationToken.None);
+        await repo.UpdateStatusAsync(_jobId, "Running", null, null, CancellationToken.None);
+
+        var entity = await db.ContentGenerationJobs.AsNoTracking().SingleAsync(j => j.Id == _jobId);
+        Assert.True(DateTime.UtcNow - entity.StartedAt!.Value < TimeSpan.FromMinutes(1));
+        Assert.Null(entity.CompletedAt);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static AppIdentityDbContext CreateDb()

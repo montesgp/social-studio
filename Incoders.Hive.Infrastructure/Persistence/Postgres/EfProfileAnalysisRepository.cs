@@ -158,6 +158,12 @@ public sealed class EfProfileAnalysisRepository : IProfileAnalysisRepository
             .MaxAsync(x => (DateTime?)x.CompletedAtUtc, cancellationToken);
     }
 
+    /// <summary>
+    /// A real analysis (scrape + AI stages) finishes in minutes; one untouched for this long was
+    /// abandoned and must not keep debouncing refreshes.
+    /// </summary>
+    internal static readonly TimeSpan InFlightAnalysisStaleAfter = TimeSpan.FromMinutes(30);
+
     /// <inheritdoc />
     public async Task<bool> HasNonTerminalAnalysisForClientAsync(
         Guid orgId,
@@ -166,13 +172,20 @@ public sealed class EfProfileAnalysisRepository : IProfileAnalysisRepository
     {
         // Non-terminal statuses: Requested, Scraping, ProfileScraped, Analyzing.
         // Terminal statuses: Analyzed, Failed.
+        //
+        // Only a RECENTLY-touched non-terminal analysis is in flight. Nothing sweeps profile analyses
+        // orphaned by a restart or a suspended host, and the in-memory job queue does not survive
+        // either, so an abandoned "Analyzing" row would otherwise suppress every future refresh for
+        // the client forever.
+        var inFlightSince = DateTime.UtcNow - InFlightAnalysisStaleAfter;
         return await _dbContext.ProfileAnalyses
             .AsNoTracking()
             .AnyAsync(x =>
                 x.OrganizationId == orgId &&
                 x.ClientId == clientId &&
                 x.Status != "Analyzed" &&
-                x.Status != "Failed",
+                x.Status != "Failed" &&
+                x.UpdatedAtUtc >= inFlightSince,
                 cancellationToken);
     }
 

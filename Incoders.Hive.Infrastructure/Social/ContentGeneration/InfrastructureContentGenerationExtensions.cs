@@ -176,6 +176,8 @@ public static class InfrastructureContentGenerationExtensions
         // Injected (optionally) into ProfileAnalyzerOrchestrator to enrich ClientAesthetic clients.
         services.AddScoped<IClientPostMediaArchiver, SupabasePostMediaArchiver>();
         services.AddScoped<IClientAestheticStyleExtractor, MultimodalAestheticStyleExtractor>();
+        // client-style-fidelity CSF-PA-02: compares the client's real text against catalog candidates.
+        services.AddScoped<IFontVisualMatcher, FontCandidateVisualMatcher>();
 
         // CAC-IMG-03: production image guardrail. Registered so ClientAestheticImageBackgroundService
         // resolves a real validator (its ctor param is optional/null by default) and the retry/degrade

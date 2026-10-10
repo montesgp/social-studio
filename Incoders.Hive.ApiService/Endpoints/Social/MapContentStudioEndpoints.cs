@@ -29,6 +29,9 @@ public static class ContentStudioEndpointsExtensions
             .WithTags("Social ContentStudio")
             .RequireAuthorization();
 
+        // client-style-fidelity CSF-CS-01: the bundled font catalog, anonymous (OFL files).
+        app.MapContentStudioFontEndpoints();
+
         group.MapPost("/runs/{jobId:guid}/materialize", MaterializeAsync)
             .WithName("MaterializeContentStudioRun")
             .WithSummary("Lazily (idempotently) materialize the Content Studio set for a completed generation run")

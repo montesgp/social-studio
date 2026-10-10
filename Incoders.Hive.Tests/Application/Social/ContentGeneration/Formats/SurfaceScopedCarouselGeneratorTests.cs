@@ -38,7 +38,7 @@ public sealed class SurfaceScopedCarouselGeneratorTests
         var decorator = new SurfaceScopedCarouselGenerator("story-carousel", inner);
 
         Assert.Equal(inner.PromptVersion, decorator.PromptVersion);
-        Assert.Equal("carousel.v7", decorator.PromptVersion);
+        Assert.Equal("carousel.v8", decorator.PromptVersion);
     }
 
     [Fact]

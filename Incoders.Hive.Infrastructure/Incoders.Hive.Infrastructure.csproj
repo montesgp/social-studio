@@ -94,6 +94,8 @@
     <EmbeddedResource Include="Rendering\Fonts\Assets\LiberationMono-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.LiberationMono-Regular.ttf" />
     <EmbeddedResource Include="Rendering\Fonts\Assets\DejaVuSans-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.DejaVuSans-Regular.ttf" />
     <EmbeddedResource Include="Rendering\Fonts\Assets\DejaVuSerif-Regular.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.DejaVuSerif-Regular.ttf" />
+    <!-- client-style-fidelity D1: curated OFL client-typography catalog (see BundledFontCatalog). -->
+    <EmbeddedResource Include="Rendering\Fonts\Assets\Catalog\**\*.ttf" LogicalName="Incoders.Hive.Infrastructure.Rendering.Fonts.Assets.Catalog/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

@@ -60,6 +60,19 @@ public sealed record VisualCompositionSpec(
     /// Null for raster/text/markdown formats. (Design Decision 12 — additive, default null.)
     /// </summary>
     public string? DesignerMarkup { get; init; }
+
+    /// <summary>
+    /// client-style-fidelity (CSF-CG-06): copy-slot name → the exact substring of that slot's text the
+    /// client would emphasise in <see cref="HighlightColor"/>. Null when nothing is highlighted.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? TextHighlights { get; init; }
+
+    /// <summary>
+    /// client-style-fidelity (CSF-CG-06): the highlight colour OBSERVED in the client's posts for this
+    /// slide's colour pairing. Null when the client does not highlight words, which disables
+    /// <see cref="TextHighlights"/>.
+    /// </summary>
+    public string? HighlightColor { get; init; }
 }
 
 /// <summary>Brand-derived or default colour palette.</summary>
@@ -141,6 +154,18 @@ public sealed record CompositionTypography(
 
     /// <summary>Body counterpart of <see cref="MeasuredHeadingSize"/> (D1).</summary>
     public int? MeasuredBodySize { get; init; }
+
+    /// <summary>
+    /// client-style-fidelity (CSF-CG-04): the client's observed body weight, clamped to the resolved
+    /// family. Null keeps each builder's own body weight literal (cold-start parity).
+    /// </summary>
+    public int? MeasuredBodyWeight { get; init; }
+
+    /// <summary>
+    /// client-style-fidelity (CSF-CG-05): headline block width in pixels, measured from the client's
+    /// slides. Null keeps each builder's own width literal (cold-start parity).
+    /// </summary>
+    public int? MeasuredHeadingBlockWidth { get; init; }
 }
 
 /// <summary>

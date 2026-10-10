@@ -10,18 +10,25 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fon
 public static class FontCatalog
 {
     /// <summary>
-    /// Short, fixed, safe system font list (Decision Q5 + F1). Real OFL substitute names — never
-    /// aliased to Arial/Helvetica, which are Monotype-licensed and cannot be legally embedded
-    /// (Decision #1169). Every entry here MUST be resolvable by <see cref="IFontProvider"/>.
+    /// The legacy fallback families (Decision Q5 + F1). Real OFL substitute names — never aliased to
+    /// Arial/Helvetica, which are Monotype-licensed and cannot be legally embedded (Decision #1169).
     /// </summary>
-    public static readonly IReadOnlyList<string> SystemSafeList = new[]
-    {
+    private static readonly string[] FallbackFamilies =
+    [
         "Liberation Sans",
         "Liberation Serif",
         "Liberation Mono",
         "DejaVu Sans",
         "DejaVu Serif",
-    };
+    ];
+
+    /// <summary>
+    /// Every family the render host bundles: the fallback families plus the curated client
+    /// typography catalog (<see cref="BundledFontCatalog"/>, client-style-fidelity D1). Every entry
+    /// here MUST be resolvable by <see cref="IFontProvider"/>.
+    /// </summary>
+    public static readonly IReadOnlyList<string> SystemSafeList =
+        [.. FallbackFamilies, .. BundledFontCatalog.Families.Select(f => f.Name)];
 
     /// <summary>
     /// Builds the font catalog for a client: brand fonts first (in manual order), then the system

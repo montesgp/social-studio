@@ -290,6 +290,67 @@ public sealed class HtmlChromiumContentRendererTests
         var secondStyleBlock = second[..second.IndexOf("</style>", StringComparison.Ordinal)];
         Assert.Equal(firstStyleBlock, secondStyleBlock);
     }
+
+    // -----------------------------------------------------------------------
+    // client-style-fidelity D2 — catalog families named by the markup are embedded with their real
+    // weight range, so Chromium never falls back to a host font or synthesises bold.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void InjectFontFaceStyle_EmbedsReferencedCatalogFamilyWithItsWeightRange()
+    {
+        var renderer = NewRenderer();
+        const string markup =
+            "<h1 style=\"font-family:'Oswald',system-ui,sans-serif;font-weight:500\">Hola</h1>";
+
+        var injected = renderer.InjectFontFaceStyle(markup);
+
+        Assert.Contains("@font-face{font-family:'Oswald'", injected, StringComparison.Ordinal);
+        Assert.Contains("font-weight:200 700;", injected, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InjectFontFaceStyle_DecodesHtmlEncodedFamilyNames()
+    {
+        var renderer = NewRenderer();
+        const string markup = "<p style=\"font-family:&#39;League Gothic&#39;,sans-serif\">x</p>";
+
+        var injected = renderer.InjectFontFaceStyle(markup);
+
+        Assert.Contains("@font-face{font-family:'League Gothic'", injected, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InjectFontFaceStyle_DoesNotEmbedUnreferencedOrLegacyFamilies()
+    {
+        var renderer = NewRenderer();
+        const string markup = "<p style=\"font-family:'Liberation Sans',system-ui,sans-serif\">x</p>";
+
+        var injected = renderer.InjectFontFaceStyle(markup);
+
+        // Cold-start markup keeps today's output: only the emoji face is declared.
+        Assert.DoesNotContain("font-family:'Liberation Sans';src", injected, StringComparison.Ordinal);
+        Assert.DoesNotContain("font-family:'Oswald'", injected, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReferencedCatalogFamilies_ListsEachFamilyOnceInFirstSeenOrder()
+    {
+        const string markup =
+            "<h1 style=\"font-family:'Anton',sans-serif\">a</h1>" +
+            "<p style=\"font-family:Poppins, system-ui\">b</p>" +
+            "<p style=\"font-family:'Anton'\">c</p>";
+
+        var families = HtmlChromiumContentRenderer.ReferencedCatalogFamilies(markup);
+
+        Assert.Equal(["Anton", "Poppins"], families.Select(f => f.Name));
+    }
+
+    private static HtmlChromiumContentRenderer NewRenderer() =>
+        new(
+            browserPool: null,
+            fallbackRenderer: new SpyFallbackRenderer(),
+            options: new RenderingOptions { Engine = RenderingEngine.Chromium });
 }
 
 // -----------------------------------------------------------------------

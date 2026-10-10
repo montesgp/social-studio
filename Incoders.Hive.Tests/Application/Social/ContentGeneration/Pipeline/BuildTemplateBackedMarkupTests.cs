@@ -425,3 +425,126 @@ file static class BuildTemplateBackedMarkupAccessor
         SlideBackgroundTransparency? transparency) =>
         (string)Method.Invoke(null, [spec, background, aesthetic, transparency])!;
 }
+
+/// <summary>
+/// client-style-fidelity CSF-CG-01/02/04/05: the template is chosen by layout, a ClientAesthetic
+/// slide draws no decoration the client was not measured to use, and measured typography keeps the
+/// typeface's own spacing and the client's headline width.
+/// </summary>
+public sealed class BuildTemplateBackedMarkupClientStyleTests
+{
+    private static readonly CompositionPalette Palette = new(
+        Primary: "#333333", Secondary: "#666666", Accent: "#A6CE3C", Text: "#FFFFFF", Background: "#0E0E0E");
+
+    private static readonly ClientAestheticDesignContext Aesthetic = new(
+        ReferenceImages: [],
+        Palette: [new AestheticPaletteEntry("#A6CE3C", "accent", 1)],
+        StyleDescriptors: [],
+        Motifs: [],
+        VariationSeed: "seed");
+
+    [Fact]
+    public void FeedCarousel_UsesTheCarouselTemplate_NotTheStoryTemplate()
+    {
+        // The bug behind the stray bar on photo slides: "feed-carousel" was compared against the
+        // legacy "carousel" key only, so real carousels rendered with the Story template and its pill.
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(
+            BuildSpec("feed-carousel", new CompositionTypography("Inter", 24, "Inter", 14)),
+            Photo(), aesthetic: null, transparency: null);
+
+        Assert.Contains("data-slot=\"title\"", markup);
+        Assert.DoesNotContain("data-slot=\"headline\"", markup);
+        Assert.DoesNotContain("data-slot=\"accent\"", markup);
+    }
+
+    [Theory]
+    [InlineData("feed-carousel")]
+    [InlineData("story")]
+    public void ClientAestheticSlide_DrawsNoPillAndNoBar(string formatKey)
+    {
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(
+            BuildSpec(formatKey, new CompositionTypography("Inter", 24, "Inter", 14)),
+            Photo(), Aesthetic, transparency: null);
+
+        Assert.DoesNotContain("data-slot=\"accent\"", markup);
+        Assert.DoesNotContain("border-radius:999px", markup);
+    }
+
+    [Fact]
+    public void ColdStartCarousel_KeepsItsDecorationUnchanged()
+    {
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(
+            BuildSpec("feed-carousel", new CompositionTypography("Inter", 24, "Inter", 14)),
+            Photo(), aesthetic: null, transparency: null);
+
+        Assert.Contains("bottom:140px;height:10px;border-radius:999px", markup);
+        Assert.Contains("letter-spacing:-1.8px;", markup);
+        Assert.Contains("width:872px;", markup);
+    }
+
+    [Fact]
+    public void MeasuredTypography_UsesNeutralTracking_MeasuredWidth_AndBodyWeight()
+    {
+        var typography = new CompositionTypography("League Gothic", 24, "Poppins", 14)
+        {
+            MeasuredHeadingSize = 122,
+            MeasuredHeadingWeight = 400,
+            MeasuredHeadingBlockWidth = 540,
+            MeasuredBodyWeight = 300,
+        };
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(
+            BuildSpec("feed-carousel", typography), Photo(), Aesthetic, transparency: null);
+
+        Assert.Contains("width:540px;text-wrap:balance;", markup);
+        Assert.Contains("letter-spacing:0;", markup);
+        Assert.DoesNotContain("letter-spacing:-1.8px", markup);
+        Assert.Contains("font-weight:300;", markup);
+    }
+
+    [Fact]
+    public void Highlight_WrapsTheChosenWords_InTheObservedColour()
+    {
+        var spec = BuildSpec("feed-carousel", new CompositionTypography("Inter", 24, "Inter", 14)) with
+        {
+            CopySlots = new Dictionary<string, string> { ["title"] = "¿Sabés qué toman tus clientes en tu local?" },
+            TextHighlights = new Dictionary<string, string> { ["title"] = "Tus Clientes" },
+            HighlightColor = "#A6CE3C",
+        };
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, Photo(), Aesthetic, transparency: null);
+
+        Assert.Contains("<span data-highlight=\"true\" style=\"color:#A6CE3C;\">tus clientes</span>", markup);
+    }
+
+    [Theory]
+    [InlineData("no aparece", "#A6CE3C")]          // not part of the title
+    [InlineData("tus clientes", null)]              // the client does not highlight
+    [InlineData("tus clientes", "red;background:x")] // unsafe colour
+    public void Highlight_IsIgnored_WhenItCannotBeAppliedSafely(string highlight, string? colour)
+    {
+        var spec = BuildSpec("feed-carousel", new CompositionTypography("Inter", 24, "Inter", 14)) with
+        {
+            CopySlots = new Dictionary<string, string> { ["title"] = "¿Sabés qué toman tus clientes?" },
+            TextHighlights = new Dictionary<string, string> { ["title"] = highlight },
+            HighlightColor = colour,
+        };
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, Photo(), Aesthetic, transparency: null);
+
+        Assert.DoesNotContain("data-highlight", markup);
+    }
+
+    private static object Photo() =>
+        BuildTemplateBackedMarkupAccessor.BuildEnforcedBackground(
+            "https://cdn/photo.jpg", "Client photo", "brand-manual-forced-default");
+
+    private static VisualCompositionSpec BuildSpec(string formatKey, CompositionTypography typography) => new(
+        FormatKey: formatKey,
+        LayoutType: "grid",
+        Palette: Palette,
+        Typography: typography,
+        AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+        CopySlots: new Dictionary<string, string> { ["title"] = "Title", ["headline"] = "Title", ["subtitle"] = "Sub" },
+        Dimensions: new CompositionDimensions(1080, 1350, 96));
+}

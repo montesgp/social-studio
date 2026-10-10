@@ -124,12 +124,15 @@ internal static class CompositionDefaults
         BrandSnapshot brand,
         ClientAestheticProfile? profile,
         int slideIndex,
-        InferenceAccumulator inferred)
+        InferenceAccumulator inferred,
+        // client-style-fidelity CSF-CG-03: carousel length and this slide's background kind, so
+        // observed pairings can be allocated by how often the client really uses each one.
+        int? totalSlides = null,
+        SlideBackgroundKind? slideKind = null)
     {
-        var pairings = profile?.ColorPairings;
-        if (pairings is { Count: > 0 })
+        var p = SelectPairing(profile, slideIndex, totalSlides, slideKind);
+        if (p is not null)
         {
-            var p = pairings[(slideIndex - 1) % pairings.Count];
             var basePalette = ResolvePalette(brand, inferred);
             return basePalette with
             {
@@ -143,6 +146,106 @@ internal static class CompositionDefaults
         }
 
         return ResolvePalette(brand, inferred);
+    }
+
+    /// <summary>
+    /// The colour pairing a slide uses, or null when the profile has none. Observed pairings follow
+    /// frequency and slide kind (CSF-CG-03); derived pairings keep the legacy rotation.
+    /// </summary>
+    internal static ColorPairing? SelectPairing(
+        ClientAestheticProfile? profile,
+        int slideIndex,
+        int? totalSlides = null,
+        SlideBackgroundKind? slideKind = null)
+    {
+        var pairings = profile?.ColorPairings;
+        if (pairings is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        return pairings.Any(x => x.IsObserved)
+            ? SelectObservedPairing(pairings, slideIndex, totalSlides ?? slideIndex, slideKind)
+            : pairings[(slideIndex - 1) % pairings.Count];
+    }
+
+    /// <summary>
+    /// CSF-CG-03: picks an OBSERVED pairing for one slide.
+    /// <list type="bullet">
+    /// <item>A photo slide takes the client's photo pairing (text over their photos), falling back to
+    /// the dominant flat pairing's colours when none was observed.</item>
+    /// <item>Other slides take flat pairings allocated in proportion to their observed slide counts
+    /// (largest remainder, dominant first). A client who used one combination on 10 slides and another
+    /// on 1 gets the dominant one on every slide of a short carousel — never a 50/50 alternation.</item>
+    /// </list>
+    /// </summary>
+    private static ColorPairing SelectObservedPairing(
+        IReadOnlyList<ColorPairing> pairings,
+        int slideIndex,
+        int totalSlides,
+        SlideBackgroundKind? slideKind)
+    {
+        var flat = pairings
+            .Where(p => p.IsObserved && !IsPhotoPairing(p))
+            .OrderByDescending(p => p.SlideCount)
+            .ThenBy(p => p.Rank)
+            .ToArray();
+
+        if (slideKind == SlideBackgroundKind.Photo)
+        {
+            var photo = pairings
+                .Where(p => p.IsObserved && IsPhotoPairing(p))
+                .OrderByDescending(p => p.SlideCount)
+                .FirstOrDefault();
+            if (photo is not null)
+            {
+                return photo;
+            }
+        }
+
+        if (flat.Length == 0)
+        {
+            return pairings.Where(p => p.IsObserved).OrderByDescending(p => p.SlideCount).First();
+        }
+
+        var allocation = AllocateByFrequency(flat.Select(p => p.SlideCount!.Value).ToArray(), Math.Max(1, totalSlides));
+        var position = Math.Clamp(slideIndex - 1, 0, allocation.Count - 1);
+        return flat[allocation[position]];
+    }
+
+    private static bool IsPhotoPairing(ColorPairing pairing) =>
+        string.Equals(pairing.Kind, ColorPairingKinds.Photo, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Largest-remainder allocation of <paramref name="slots"/> slides across pairings weighted by
+    /// <paramref name="counts"/> (already sorted, dominant first). Returns, for each slide position, the
+    /// index of its pairing — dominant pairing's slides first, so the cover carries the client's most
+    /// typical look.
+    /// </summary>
+    private static IReadOnlyList<int> AllocateByFrequency(IReadOnlyList<int> counts, int slots)
+    {
+        var total = counts.Sum();
+        var quotas = counts.Select(c => (double)c * slots / total).ToArray();
+        var assigned = quotas.Select(q => (int)Math.Floor(q)).ToArray();
+
+        var remaining = slots - assigned.Sum();
+        foreach (var index in quotas
+                     .Select((q, i) => (Remainder: q - Math.Floor(q), Index: i))
+                     .OrderByDescending(x => x.Remainder)
+                     .ThenBy(x => x.Index)
+                     .Take(remaining)
+                     .Select(x => x.Index))
+        {
+            assigned[index]++;
+        }
+
+        var sequence = new List<int>(slots);
+        for (var i = 0; i < assigned.Length; i++)
+        {
+            sequence.AddRange(Enumerable.Repeat(i, assigned[i]));
+        }
+
+        return sequence;
     }
 
     /// <summary>
@@ -226,7 +329,8 @@ internal static class CompositionDefaults
         ClientAestheticProfile? profile,
         int canvasHeight,
         InferenceAccumulator inferred,
-        string? headlineCopy = null)
+        string? headlineCopy = null,
+        int? canvasWidth = null)
     {
         var observed = profile?.Typography;
         if (observed is not { Count: > 0 })
@@ -267,20 +371,31 @@ internal static class CompositionDefaults
             headingSize = ApplyCopyLengthAutoFit(headingSize, headlineCopy.Length);
         }
 
+        var headingFamily = heading is null ? fallback.HeadingFamily : headingResolved.Renderable;
+        var bodyFamily = body is null ? fallback.BodyFamily : bodyResolved.Renderable;
+        var captionFamily = caption is null ? null : captionResolved.Renderable;
+
+        // client-style-fidelity (CSF-CG-04): every observed weight is clamped to what the resolved
+        // family actually ships. Requesting 800 from a single-weight condensed face makes Chromium
+        // synthesise a fake bold — the wide, heavy headline the client never uses.
+        int? Clamp(string? family, int? weight) =>
+            weight is null ? null : BundledFontCatalog.ClampWeight(family, weight.Value);
+
         return new CompositionTypography(
-            HeadingFamily: heading is null ? fallback.HeadingFamily : headingResolved.Renderable,
+            HeadingFamily: headingFamily,
             HeadingSize: headingSize,
-            BodyFamily: body is null ? fallback.BodyFamily : bodyResolved.Renderable,
+            BodyFamily: bodyFamily,
             BodySize: SizeFor(body, canvasHeight, fallback.BodySize))
         {
-            HeadingWeight = heading?.Weight ?? 700,
-            BodyWeight = body?.Weight ?? 400,
+            HeadingWeight = Clamp(headingFamily, heading?.Weight) ?? 700,
+            BodyWeight = Clamp(bodyFamily, body?.Weight) ?? 400,
+            MeasuredBodyWeight = Clamp(bodyFamily, body?.Weight),
             BodyItalic = body?.Italic ?? false,
             RequestedHeadingFamily = heading is not null && !headingResolved.IsExact ? headingResolved.Requested : null,
             RequestedBodyFamily = body is not null && !bodyResolved.IsExact ? bodyResolved.Requested : null,
-            CaptionFamily = caption is null ? null : captionResolved.Renderable,
+            CaptionFamily = captionFamily,
             CaptionSize = SizeForCaption(caption, canvasHeight),
-            CaptionWeight = caption?.Weight ?? 800,
+            CaptionWeight = Clamp(captionFamily ?? bodyFamily, caption?.Weight) ?? 800,
             CaptionItalic = caption?.Italic ?? false,
             RequestedCaptionFamily = caption is not null && !captionResolved.IsExact ? captionResolved.Requested : null,
             // D1: nullable measured sizes for the markup builders' own hardcoded literals. Resolved the
@@ -292,8 +407,32 @@ internal static class CompositionDefaults
             // exact-client-typography follow-up: the client's REAL observed heading weight, so the
             // rendered markup can use it instead of each builder's own hardcoded font-weight literal.
             // Null (heading absent) keeps every builder's cold-start literal unchanged.
-            MeasuredHeadingWeight = heading?.Weight,
+            MeasuredHeadingWeight = Clamp(headingFamily, heading?.Weight),
+            MeasuredHeadingBlockWidth = BlockWidthFor(heading, canvasWidth),
         };
+    }
+
+    /// <summary>
+    /// Narrowest and widest headline block we will honour, as a fraction of canvas width. Outside this
+    /// range the measurement is an error: a 10 % block cannot hold a word, a 100 % block bleeds off
+    /// the safe area.
+    /// </summary>
+    private const double MinBlockWidthRatio = 0.30;
+    private const double MaxBlockWidthRatio = 0.90;
+
+    /// <summary>
+    /// Converts an observed block-width ratio into pixels (CSF-CG-05), clamped to
+    /// <see cref="MinBlockWidthRatio"/>..<see cref="MaxBlockWidthRatio"/>. Null when unmeasured.
+    /// </summary>
+    private static int? BlockWidthFor(AestheticTypography? entry, int? canvasWidth)
+    {
+        if (entry?.BlockWidthRatio is not { } ratio || ratio <= 0 || ratio > 1 || canvasWidth is not > 0)
+        {
+            return null;
+        }
+
+        var clamped = Math.Clamp(ratio, MinBlockWidthRatio, MaxBlockWidthRatio);
+        return (int)Math.Round(clamped * canvasWidth.Value, MidpointRounding.AwayFromZero);
     }
 
     private static AestheticTypography? FindRole(IReadOnlyList<AestheticTypography> entries, string role) =>

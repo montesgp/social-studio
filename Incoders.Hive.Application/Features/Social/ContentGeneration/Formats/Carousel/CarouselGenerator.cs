@@ -20,6 +20,14 @@ public sealed class CarouselGenerator : FormatContentGeneratorBase<CarouselConte
         ILogger<CarouselGenerator>? logger = null)
         : base(aiGateway, providerCallContext, logger) { }
 
+    private const string CtaTextShape =
+        "string|null - ONLY when explicitly requested by the user or defined by a brand-manual directive; null otherwise — never inferred or invented";
+    private const string CtaLinkShape = "string|null - optional URL for the CTA";
+    private const string PublicationDescriptionShape =
+        "string - ready-to-publish caption/post copy for this carousel; ALWAYS provide it, never null";
+    private const string HashtagsShape =
+        "array of string - relevant hashtags for the post caption (without duplicates); [] if none apply";
+
     /// <inheritdoc />
     public override string FormatKey => "carousel";
 
@@ -64,6 +72,16 @@ public sealed class CarouselGenerator : FormatContentGeneratorBase<CarouselConte
             ? $"~{effectiveSlideCount} slides"
             : "~3-5 slides";
 
+        // client-style-fidelity CSF-CG-06: only a client OBSERVED highlighting words gets highlights.
+        var highlightsWords = ClientHighlightsWords(ctx.AestheticProfile);
+        var highlightRule = highlightsWords
+            ? "HIGHLIGHT RULE: this client emphasises ONE key phrase of each headline in a contrasting colour. " +
+              "For coverTitle and every slide title, return in coverTitleHighlight / titleHighlight the exact " +
+              "1-3 consecutive words to emphasise, copied verbatim from that title (same spelling, accents and " +
+              "case) - the words carrying the message, e.g. \"tus clientes\" in \"¿Sabés qué toman tus " +
+              "clientes en tu local?\". "
+            : string.Empty;
+
         var input = new
         {
             instruction = "Generate a branded carousel post with a cover slide and content slides. " +
@@ -84,21 +102,42 @@ public sealed class CarouselGenerator : FormatContentGeneratorBase<CarouselConte
                           "infer or invent a CTA from the analysis or the client's style — when it is not explicitly asked " +
                           "for, return ctaText = null. " +
                           aestheticSuffix +
+                          highlightRule +
                           "Respond with ONLY the raw JSON matching the expected structure.",
             format = "carousel",
             analysis = GenerationPromptContext.FromAnalysis(ctx.Analysis, ctx.RegenerationObjection),
             clientContext = GenerationPromptContext.FromBrand(ctx.BrandSnapshot),
-            expectedOutput = new
-            {
-                coverTitle = "string - max ~6 words, punchy headline",
-                slides = "array of {title: string - max ~6 words, body: string|null - max ~2 short lines, imagePromptHint: string|null}",
-                ctaText = "string|null - ONLY when explicitly requested by the user or defined by a brand-manual directive; null otherwise — never inferred or invented",
-                ctaLink = "string|null - optional URL for the CTA",
-                publicationDescription = "string - ready-to-publish caption/post copy for this carousel; ALWAYS provide it, never null",
-                hashtags = "array of string - relevant hashtags for the post caption (without duplicates); [] if none apply"
-            }
+            // client-style-fidelity CSF-CG-06: the highlight fields exist only for clients who highlight,
+            // so every other client's prompt stays exactly as before.
+            expectedOutput = highlightsWords
+                ? (object)new
+                {
+                    coverTitle = "string - max ~6 words, punchy headline",
+                    coverTitleHighlight = "string - exact words of coverTitle to emphasise",
+                    slides = "array of {title: string - max ~6 words, titleHighlight: string - exact words of title to emphasise, body: string|null - max ~2 short lines, imagePromptHint: string|null}",
+                    ctaText = CtaTextShape,
+                    ctaLink = CtaLinkShape,
+                    publicationDescription = PublicationDescriptionShape,
+                    hashtags = HashtagsShape,
+                }
+                : new
+                {
+                    coverTitle = "string - max ~6 words, punchy headline",
+                    slides = "array of {title: string - max ~6 words, body: string|null - max ~2 short lines, imagePromptHint: string|null}",
+                    ctaText = CtaTextShape,
+                    ctaLink = CtaLinkShape,
+                    publicationDescription = PublicationDescriptionShape,
+                    hashtags = HashtagsShape,
+                }
         };
 
         return JsonSerializer.Serialize(input, JsonOptions);
     }
+
+    /// <summary>
+    /// True when the client was observed emphasising words in a highlight colour (an observed pairing
+    /// carrying one). A colour derived from the palette is not evidence of that habit.
+    /// </summary>
+    internal static bool ClientHighlightsWords(ClientAestheticProfile? profile) =>
+        profile?.ColorPairings?.Any(p => p.IsObserved && !string.IsNullOrWhiteSpace(p.AccentTextHex)) == true;
 }
