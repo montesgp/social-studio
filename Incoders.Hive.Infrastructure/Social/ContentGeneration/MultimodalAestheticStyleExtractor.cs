@@ -612,7 +612,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
                 continue;
             }
 
-            var validBox = BrandMarkDetection.TryValidateBoundingBox(box.X_, box.Y_, box.Width_, box.Height_);
+            var validBox = NormalizeSampleBox(box, images[index]);
             var candidates = new[] { dto.Family }
                 .Concat(dto.Candidates ?? [])
                 .Select(BundledFontCatalog.Find)
@@ -623,7 +623,9 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
                 .ToArray();
             if (validBox is null || candidates.Length < 2)
             {
-                skipped.Add(validBox is null ? $"{role}: unusable sample box" : $"{role}: fewer than two catalog candidates");
+                skipped.Add(validBox is null
+                    ? $"{role}: unusable sample box ({box.X_}, {box.Y_}, {box.Width_}, {box.Height_})"
+                    : $"{role}: fewer than two catalog candidates");
                 continue;
             }
 
@@ -631,6 +633,39 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         }
 
         return requests;
+    }
+
+    /// <summary>
+    /// CSF-PA-02: a text sample's location only has to be good enough to crop the words, so it is read
+    /// leniently — unlike a brand-mark crop. Pixel coordinates (any value above 1) are converted with
+    /// the image's real size, and a box spilling past an edge is trimmed to the image.
+    /// </summary>
+    private static BrandMarkBoundingBox? NormalizeSampleBox(BoundingBoxDto box, byte[] image)
+    {
+        if (box.X_ is not { } x || box.Y_ is not { } y || box.Width_ is not { } w || box.Height_ is not { } h)
+        {
+            return null;
+        }
+
+        if (x > 1 || y > 1 || w > 1 || h > 1)
+        {
+            using var codec = SkiaSharp.SKCodec.Create(new MemoryStream(image));
+            if (codec is null || codec.Info.Width <= 0 || codec.Info.Height <= 0)
+            {
+                return null;
+            }
+
+            x /= codec.Info.Width;
+            w /= codec.Info.Width;
+            y /= codec.Info.Height;
+            h /= codec.Info.Height;
+        }
+
+        x = Math.Clamp(x, 0, 1);
+        y = Math.Clamp(y, 0, 1);
+        w = Math.Min(w, 1 - x);
+        h = Math.Min(h, 1 - y);
+        return BrandMarkDetection.TryValidateBoundingBox(x, y, w, h);
     }
 
     private static string NormalizeHex(string hex) => "#" + hex.Trim().TrimStart('#').ToUpperInvariant();

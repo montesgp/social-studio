@@ -1356,6 +1356,26 @@ public sealed class MultimodalAestheticStyleExtractorTests
         Assert.Contains("photographicSubject", gateway.CapturedInstruction);
     }
 
+    [Theory]
+    // Pixel coordinates on the 60x75 reference image the storage fake serves.
+    [InlineData("""{"x":6,"y":15,"width":30,"height":40}""")]
+    // A normalised box spilling just past the right edge.
+    [InlineData("""{"x":0.05,"y":0.2,"width":0.98,"height":0.4}""")]
+    public async Task VisualMatch_AcceptsPixelAndEdgeSpillingSampleBoxes(string boxJson)
+    {
+        var gateway = new CaptureGateway(
+            typographyJson: "{\"heading\":{\"family\":\"Anton\",\"candidates\":[\"Anton\",\"League Gothic\"]," +
+                            "\"sampleText\":\"tus clientes\",\"sourceImageIndex\":0,\"boundingBox\":" + boxJson + "}}");
+        var matcher = new FakeFontMatcher(new Dictionary<string, string> { ["heading"] = "League Gothic" });
+        var extractor = new MultimodalAestheticStyleExtractor(
+            gateway, CandidateResolver(), new PngStorage(SkiaSharp.SKColors.Black), fontMatcher: matcher);
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Single(matcher.Requests);
+        Assert.Equal("League Gothic", Assert.Single(result.Typography!).FontFamily);
+    }
+
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);
     private static IWorkflowConfigurationResolver CandidateResolver() => new StubResolver(candidate: true);
 }
