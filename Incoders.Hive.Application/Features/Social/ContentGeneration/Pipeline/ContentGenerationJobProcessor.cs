@@ -2442,7 +2442,8 @@ public sealed class ContentGenerationJobProcessor
         var measuredStyle = MeasuredTextStyle.From(spec.Typography);
 
         var content = isCarousel
-            ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize, measuredHeadingWeight, measuredStyle)
+            ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize, measuredHeadingWeight, measuredStyle,
+                TitleHighlight(spec), spec.HighlightColor)
             : BuildStoryTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize, measuredHeadingWeight, measuredStyle,
                 // CSF-CG-02: the accent pill is a cold-start default, never applied to a client
                 // whose own decoration vocabulary was measured.
@@ -2643,15 +2644,18 @@ public sealed class ContentGenerationJobProcessor
         // Issue #81: the client's REAL observed heading weight. Null keeps the pre-change 900 literal
         // (cold-start / non-ClientAesthetic parity).
         int? measuredHeadingWeight = null,
-        MeasuredTextStyle? measuredStyle = null)
+        MeasuredTextStyle? measuredStyle = null,
+        // client-style-fidelity CSF-CG-06: words to emphasise and the client's observed highlight colour.
+        string? titleHighlight = null,
+        string? highlightColor = null)
     {
         var style = measuredStyle ?? MeasuredTextStyle.None;
         var slots = new List<string>
         {
-            Slot(
+            SlotHtml(
                 "h1",
                 "title",
-                title,
+                HighlightedHtml(title, titleHighlight, highlightColor),
                 $"position:absolute;left:104px;top:235px;{style.HeadingWidth(872)}min-height:230px;" +
                 $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 74}px;line-height:1.02;" +
                 $"font-weight:{measuredHeadingWeight ?? 900};{style.HeadingTracking("letter-spacing:-1.8px;")}color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
@@ -2717,7 +2721,8 @@ public sealed class ContentGenerationJobProcessor
         var content = BuildFlatCarouselSlots(
             title, subtitle, cta, headingFont, bodyFont, safeText, safeAccent, captionFont, captionWeight, captionSize,
             measuredHeadingSize, measuredBodySize, measuredHeadingWeight, aesthetic?.DecorationMotifs?.DividerRule,
-            aesthetic?.DecorationMotifs?.CompositionArchetype, MeasuredTextStyle.From(spec.Typography));
+            aesthetic?.DecorationMotifs?.CompositionArchetype, MeasuredTextStyle.From(spec.Typography),
+            TitleHighlight(spec), spec.HighlightColor);
 
         return $$"""
             <div class="composition" data-format="{{Html(spec.FormatKey)}}" style="position:relative;width:{{width}}px;height:{{height}}px;overflow:hidden;background:{{safeBackground}};">
@@ -2762,7 +2767,9 @@ public sealed class ContentGenerationJobProcessor
         // arm returns the left-aligned identity preset for null/unrecognised tokens — required for the
         // DecorationMotifs=null byte-identity cold-start guarantee (CAVS-CG-03).
         string? compositionArchetype = null,
-        MeasuredTextStyle? measuredStyle = null)
+        MeasuredTextStyle? measuredStyle = null,
+        string? titleHighlight = null,
+        string? highlightColor = null)
     {
         var geometry = FlatGeometryPresets.Resolve(compositionArchetype);
         var style = measuredStyle ?? MeasuredTextStyle.None;
@@ -2772,10 +2779,10 @@ public sealed class ContentGenerationJobProcessor
         // job, and the only rule it may draw is the client's measured divider (BuildDividerSlot below),
         // which still uses accentColor.
 
-        slots.Add(Slot(
+        slots.Add(SlotHtml(
             "h1",
             "title",
-            title,
+            HighlightedHtml(title, titleHighlight, highlightColor),
             $"position:absolute;left:{geometry.TitleLeft}px;top:{geometry.TitleTop}px;{style.HeadingWidth(geometry.TitleWidth)}min-height:230px;" +
             $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 74}px;line-height:1.02;" +
             $"font-weight:{measuredHeadingWeight ?? 900};{style.HeadingTracking("letter-spacing:-1.8px;")}color:{textColor};text-align:{geometry.TitleAlign};",
@@ -3077,7 +3084,42 @@ public sealed class ContentGenerationJobProcessor
     }
 
     private static string Slot(string tag, string slotName, string value, string style, int maxLines) =>
-        $"<{tag} class=\"slot\" data-slot=\"{Html(slotName)}\" data-max-lines=\"{maxLines}\" style=\"{style}\">{Html(value)}</{tag}>";
+        SlotHtml(tag, slotName, Html(value), style, maxLines);
+
+    /// <summary><see cref="Slot"/> for content that is already safe HTML (see <see cref="HighlightedHtml"/>).</summary>
+    private static string SlotHtml(string tag, string slotName, string innerHtml, string style, int maxLines) =>
+        $"<{tag} class=\"slot\" data-slot=\"{Html(slotName)}\" data-max-lines=\"{maxLines}\" style=\"{style}\">{innerHtml}</{tag}>";
+
+    private static string? TitleHighlight(VisualCompositionSpec spec) =>
+        spec.TextHighlights is { } highlights
+        && (highlights.TryGetValue("title", out var value) || highlights.TryGetValue("headline", out value))
+            ? value
+            : null;
+
+    /// <summary>
+    /// client-style-fidelity CSF-CG-06: HTML for <paramref name="text"/> with the first
+    /// case-insensitive occurrence of <paramref name="highlight"/> wrapped in a span coloured with the
+    /// client's observed highlight colour. Everything is HTML-encoded; a highlight that is not part of
+    /// the text, or an unsafe colour, yields the plain encoded text — byte-identical to <see cref="Slot"/>.
+    /// </summary>
+    internal static string HighlightedHtml(string text, string? highlight, string? color)
+    {
+        var target = highlight?.Trim();
+        if (string.IsNullOrEmpty(target) || !IsSafeCssColor(color))
+        {
+            return Html(text);
+        }
+
+        var index = text.IndexOf(target, StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+        {
+            return Html(text);
+        }
+
+        return Html(text[..index])
+            + $"<span data-highlight=\"true\" style=\"color:{color!.Trim()};\">{Html(text.Substring(index, target.Length))}</span>"
+            + Html(text[(index + target.Length)..]);
+    }
 
     private static string? FirstSlot(IReadOnlyDictionary<string, string> slots, IReadOnlyList<string> names)
     {

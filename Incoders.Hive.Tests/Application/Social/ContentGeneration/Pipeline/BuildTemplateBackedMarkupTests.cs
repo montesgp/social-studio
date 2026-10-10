@@ -502,6 +502,39 @@ public sealed class BuildTemplateBackedMarkupClientStyleTests
         Assert.Contains("font-weight:300;", markup);
     }
 
+    [Fact]
+    public void Highlight_WrapsTheChosenWords_InTheObservedColour()
+    {
+        var spec = BuildSpec("feed-carousel", new CompositionTypography("Inter", 24, "Inter", 14)) with
+        {
+            CopySlots = new Dictionary<string, string> { ["title"] = "¿Sabés qué toman tus clientes en tu local?" },
+            TextHighlights = new Dictionary<string, string> { ["title"] = "Tus Clientes" },
+            HighlightColor = "#A6CE3C",
+        };
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, Photo(), Aesthetic, transparency: null);
+
+        Assert.Contains("<span data-highlight=\"true\" style=\"color:#A6CE3C;\">tus clientes</span>", markup);
+    }
+
+    [Theory]
+    [InlineData("no aparece", "#A6CE3C")]          // not part of the title
+    [InlineData("tus clientes", null)]              // the client does not highlight
+    [InlineData("tus clientes", "red;background:x")] // unsafe colour
+    public void Highlight_IsIgnored_WhenItCannotBeAppliedSafely(string highlight, string? colour)
+    {
+        var spec = BuildSpec("feed-carousel", new CompositionTypography("Inter", 24, "Inter", 14)) with
+        {
+            CopySlots = new Dictionary<string, string> { ["title"] = "¿Sabés qué toman tus clientes?" },
+            TextHighlights = new Dictionary<string, string> { ["title"] = highlight },
+            HighlightColor = colour,
+        };
+
+        var markup = BuildTemplateBackedMarkupAccessor.Invoke(spec, Photo(), Aesthetic, transparency: null);
+
+        Assert.DoesNotContain("data-highlight", markup);
+    }
+
     private static object Photo() =>
         BuildTemplateBackedMarkupAccessor.BuildEnforcedBackground(
             "https://cdn/photo.jpg", "Client photo", "brand-manual-forced-default");

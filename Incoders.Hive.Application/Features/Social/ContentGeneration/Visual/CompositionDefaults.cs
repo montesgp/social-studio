@@ -130,12 +130,9 @@ internal static class CompositionDefaults
         int? totalSlides = null,
         SlideBackgroundKind? slideKind = null)
     {
-        var pairings = profile?.ColorPairings;
-        if (pairings is { Count: > 0 })
+        var p = SelectPairing(profile, slideIndex, totalSlides, slideKind);
+        if (p is not null)
         {
-            var p = pairings.Any(x => x.IsObserved)
-                ? SelectObservedPairing(pairings, slideIndex, totalSlides ?? slideIndex, slideKind)
-                : pairings[(slideIndex - 1) % pairings.Count];
             var basePalette = ResolvePalette(brand, inferred);
             return basePalette with
             {
@@ -149,6 +146,27 @@ internal static class CompositionDefaults
         }
 
         return ResolvePalette(brand, inferred);
+    }
+
+    /// <summary>
+    /// The colour pairing a slide uses, or null when the profile has none. Observed pairings follow
+    /// frequency and slide kind (CSF-CG-03); derived pairings keep the legacy rotation.
+    /// </summary>
+    internal static ColorPairing? SelectPairing(
+        ClientAestheticProfile? profile,
+        int slideIndex,
+        int? totalSlides = null,
+        SlideBackgroundKind? slideKind = null)
+    {
+        var pairings = profile?.ColorPairings;
+        if (pairings is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        return pairings.Any(x => x.IsObserved)
+            ? SelectObservedPairing(pairings, slideIndex, totalSlides ?? slideIndex, slideKind)
+            : pairings[(slideIndex - 1) % pairings.Count];
     }
 
     /// <summary>

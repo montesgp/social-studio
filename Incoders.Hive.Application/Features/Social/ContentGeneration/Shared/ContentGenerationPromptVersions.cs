@@ -17,7 +17,9 @@ public static class ContentGenerationPromptVersions
     // v7/v5/v6: post caption bundled in-call — publicationDescription is now mandatory (never null) and a
     //           hashtags[] array was added to the visual generators, so the studio post carries its caption
     //           without a separate caption call.
-    public const string Carousel = "carousel.v7";
+    // v8 (carousel): optional titleHighlight / coverTitleHighlight for clients observed highlighting
+    //           one key phrase per headline (client-style-fidelity CSF-CG-06).
+    public const string Carousel = "carousel.v8";
     public const string Story = "story-single.v5";
     public const string FeedPost = "feed-single.v6";
     public const string ReelScript = "reel-script.v2";

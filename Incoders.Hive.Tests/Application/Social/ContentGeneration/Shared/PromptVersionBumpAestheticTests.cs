@@ -22,7 +22,7 @@ public sealed class PromptVersionBumpAestheticTests
     public void CarouselPromptVersion_BumpedAfterAestheticGuidanceAdded()
     {
         // Bumped through: aesthetic (v4), CTA (v5), client-directive precedence (v6), in-call caption (v7).
-        Assert.Equal("carousel.v7", ContentGenerationPromptVersions.Carousel);
+        Assert.Equal("carousel.v8", ContentGenerationPromptVersions.Carousel);
     }
 
     [Fact]

@@ -122,7 +122,7 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
                 ? plan.ForSlide(slideIndex)
                 : null;
 
-            specs.Add(BuildSlideSpec(brand, inferred, slide, slideIndex, payload.CoverTitle, payload.CtaText, backgroundSelection, profile, payload.Slides.Count));
+            specs.Add(BuildSlideSpec(brand, inferred, slide, slideIndex, payload.CoverTitle, payload.CtaText, backgroundSelection, profile, payload.Slides.Count, payload.CoverTitleHighlight));
         }
 
         return specs;
@@ -137,7 +137,8 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
         string ctaText,
         BackgroundSelection? backgroundSelection,
         ClientAestheticProfile? profile = null,
-        int? totalSlides = null)
+        int? totalSlides = null,
+        string? coverTitleHighlight = null)
     {
         // WU-3: use the pairing/slide-index overload so rotating colour pairings are applied
         // when profile.ColorPairings is non-empty; null profile or empty pairings delegates
@@ -169,6 +170,12 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
         // WU-5: @handle slot — mirrors StoryVisualComposer via AttributionPolicy.ResolveSignature.
         // Populated only when the client has an explicit own-account handle (CAC-CG-03).
         // Slot is omitted (not empty) when Handle is null so the slide renders without it.
+        var titleHighlight = slideIndex == 1 ? coverTitleHighlight : slide?.TitleHighlight;
+        if (string.IsNullOrWhiteSpace(titleHighlight))
+        {
+            titleHighlight = null;
+        }
+
         var copySlots = new Dictionary<string, string>
         {
             ["title"] = slideIndex == 1 ? coverTitle : (slide?.Title ?? $"Slide {slideIndex}"),
@@ -196,7 +203,18 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
                 ["logo"] = new AssetSlotSpec(brand.Brand?.Logos.FirstOrDefault(), "Brand logo"),
             },
             CopySlots: copySlots,
-            Dimensions: CompositionDefaults.CarouselDimensions);
+            Dimensions: CompositionDefaults.CarouselDimensions)
+        {
+            // client-style-fidelity CSF-CG-06: emphasised words render in the highlight colour the
+            // client was OBSERVED using with this slide's pairing — never a derived accent.
+            TextHighlights = titleHighlight is null
+                ? null
+                : new Dictionary<string, string> { ["title"] = titleHighlight },
+            HighlightColor = CompositionDefaults.SelectPairing(profile, slideIndex, slideCount, slideKind) is
+                { IsObserved: true, AccentTextHex: { } observedHighlight }
+                ? observedHighlight
+                : null,
+        };
     }
 
     /// <summary>

@@ -143,6 +143,40 @@ public sealed class ConcisionDirectiveTests
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
+    // ─── client-style-fidelity CSF-CG-06: keyword highlight ──────────────────
+
+    [Fact]
+    public async Task CarouselGenerator_ClientObservedHighlighting_AsksForTitleHighlights()
+    {
+        var gateway = new CapturingGateway<CarouselContent>(BuildValidCarousel());
+        var generator = new CarouselGenerator(gateway, BuildProviderCallContext());
+        var profile = new ClientAestheticProfile([], null, null, null,
+            ColorPairings: [new ColorPairing("#0E0E0E", "#FFFFFF", 1, "#A6CE3C", SlideCount: 10, Kind: ColorPairingKinds.Flat)]);
+
+        await generator.GenerateAsync(BuildContext() with { AestheticProfile = profile }, CancellationToken.None);
+
+        var prompt = gateway.LastRequest!.InputJson;
+        Assert.Contains("HIGHLIGHT RULE", prompt);
+        Assert.Contains("coverTitleHighlight", prompt);
+        Assert.Contains("titleHighlight", prompt);
+    }
+
+    [Fact]
+    public async Task CarouselGenerator_DerivedAccentOnly_DoesNotAskForHighlights()
+    {
+        // An accent derived from the palette is not evidence the client highlights words.
+        var gateway = new CapturingGateway<CarouselContent>(BuildValidCarousel());
+        var generator = new CarouselGenerator(gateway, BuildProviderCallContext());
+        var profile = new ClientAestheticProfile([], null, null, null,
+            ColorPairings: [new ColorPairing("#0E0E0E", "#FFFFFF", 1, "#A6CE3C")]);
+
+        await generator.GenerateAsync(BuildContext() with { AestheticProfile = profile }, CancellationToken.None);
+
+        var prompt = gateway.LastRequest!.InputJson;
+        Assert.DoesNotContain("HIGHLIGHT RULE", prompt);
+        Assert.DoesNotContain("titleHighlight", prompt);
+    }
+
     private static CarouselContent BuildValidCarousel() => new(
         CoverTitle: "Grow Your Brand",
         Slides: [new CarouselSlide("Slide 1", "Body", null)],

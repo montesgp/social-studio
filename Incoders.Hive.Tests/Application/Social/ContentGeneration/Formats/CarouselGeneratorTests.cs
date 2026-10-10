@@ -39,7 +39,7 @@ public sealed class CarouselGeneratorTests
         Assert.NotNull(result.Payload);
         Assert.Equal(carousel.CoverTitle, result.Payload.CoverTitle);
         // Latest: in-call post caption — mandatory publicationDescription + hashtags[].
-        Assert.Equal("carousel.v7", result.PromptVersion);
+        Assert.Equal("carousel.v8", result.PromptVersion);
         Assert.Empty(result.InferredFields);
     }
 

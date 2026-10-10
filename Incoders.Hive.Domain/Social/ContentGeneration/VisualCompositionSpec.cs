@@ -60,6 +60,19 @@ public sealed record VisualCompositionSpec(
     /// Null for raster/text/markdown formats. (Design Decision 12 — additive, default null.)
     /// </summary>
     public string? DesignerMarkup { get; init; }
+
+    /// <summary>
+    /// client-style-fidelity (CSF-CG-06): copy-slot name → the exact substring of that slot's text the
+    /// client would emphasise in <see cref="HighlightColor"/>. Null when nothing is highlighted.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? TextHighlights { get; init; }
+
+    /// <summary>
+    /// client-style-fidelity (CSF-CG-06): the highlight colour OBSERVED in the client's posts for this
+    /// slide's colour pairing. Null when the client does not highlight words, which disables
+    /// <see cref="TextHighlights"/>.
+    /// </summary>
+    public string? HighlightColor { get; init; }
 }
 
 /// <summary>Brand-derived or default colour palette.</summary>
