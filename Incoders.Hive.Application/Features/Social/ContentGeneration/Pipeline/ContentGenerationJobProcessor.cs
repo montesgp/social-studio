@@ -791,11 +791,12 @@ public sealed class ContentGenerationJobProcessor
                     CompositionDimensions? capturedDimensions = null;
                     IReadOnlyList<SlotGeometryEntry> capturedGeometry = [];
                     string? capturedBackgroundDataUri = null;
-                    // WU-4 (CLIF-CG-03/04/05, design.md D-C/D-D): true only when validatedMarkup was
-                    // produced by BuildTemplateBackedMarkup (enforced-background OR the legacy
-                    // resilience backstop) — the two-pass reflow loop is scoped to the template-backed
-                    // carousel/story builders ONLY. AI-designer markup and the deterministic flat path
-                    // (RenderFaithfulFlat / BuildFlatColorMarkup) MUST NEVER be reflowed (CLIF-CG-06).
+                    // WU-4 (CLIF-CG-03/04/05, design.md D-C/D-D): true only for markup produced by the
+                    // deterministic builders — BuildTemplateBackedMarkup (enforced-background OR the
+                    // legacy resilience backstop) and, since client-style-fidelity (CSF-CG-07), the flat
+                    // path too: a client's measured headline (size, condensed face, narrow block) has no
+                    // fixed height, so the subtitle's literal top can land on it. AI-designer markup is
+                    // still never reflowed.
                     var templateBackedForReflow = false;
                     // CAFF-CG-04 (D2): set only when trigger A or trigger B fired for THIS slide.
                     // Null for every other slide, including the pre-existing FlatColor short-circuit
@@ -887,6 +888,8 @@ public sealed class ContentGenerationJobProcessor
                             capturedMarkup = flatMarkup;
                             capturedDimensions = spec.Dimensions;
                             slideTextColorHex = CssColor(flatPalette.Text, CompositionDefaults.Palette.Text);
+                            // CSF-CG-07: measured headline height varies; push the subtitle below it.
+                            templateBackedForReflow = true;
                         }
 
                         // A slide that received a generated image background must keep it: the ratio floor
@@ -1218,13 +1221,12 @@ public sealed class ContentGenerationJobProcessor
                         Result<RenderedAssetWithGeometry> renderedWithGeo;
 
                         // WU-4 (CLIF-CG-03/04/05, design.md D-C/D-D): the bounded two-pass reflow
-                        // loop applies ONLY to the template-backed carousel/story builders — never
-                        // to AI-designer markup and never to the deterministic flat path
-                        // (RenderFaithfulFlat / BuildFlatColorMarkup never sets this flag; CLIF-CG-06).
+                        // loop applies to the deterministic builders (template-backed and, per
+                        // CSF-CG-07, flat) — never to AI-designer markup.
                         if (templateBackedForReflow && renderSpec.DesignerMarkup is not null)
                         {
-                            var isCarouselFormat = string.Equals(
-                                spec.FormatKey, "carousel", StringComparison.OrdinalIgnoreCase);
+                            // CSF-CG-01: by layout, so "feed-carousel" reflows its carousel slots.
+                            var isCarouselFormat = UsesCarouselTemplate(spec.FormatKey);
                             var reflowSlotOrder = isCarouselFormat
                                 ? ReflowSlotOrderCarousel
                                 : ReflowSlotOrderStory;
@@ -2085,7 +2087,8 @@ public sealed class ContentGenerationJobProcessor
     /// <summary>WU-4 (design.md): the reflowable, stacked, top-anchored slot sets — bottom-anchored
     /// and decorative slots are excluded by construction (a slot's declared style using
     /// <c>bottom:</c> never participates).</summary>
-    private static readonly IReadOnlyList<string> ReflowSlotOrderCarousel = ["title", "subtitle"];
+    // The flat path's measured divider sits between title and subtitle, so it moves with the title.
+    private static readonly IReadOnlyList<string> ReflowSlotOrderCarousel = ["title", "divider", "subtitle"];
 
     private static readonly IReadOnlyList<string> ReflowSlotOrderStory = ["headline", "subtitle", "body"];
 

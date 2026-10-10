@@ -5,6 +5,7 @@ using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Orchestration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Pipeline;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Layout;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual;
 using Incoders.Hive.Domain.Common;
@@ -1162,6 +1163,30 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     }
 
     [Fact]
+    public async Task FlatColorSlide_TallMeasuredHeadline_PushesTheSubtitleBelowIt_CSF_CG_07()
+    {
+        // A client's measured headline (big condensed type in a narrow block) can wrap to more lines
+        // than the subtitle's literal top:540 leaves room for. The flat path now reflows.
+        var rendererSpy = new FC_TallTitleRenderer();
+
+        var profile = FC_Profile(
+            backgroundPattern: [SlideBackgroundKind.FlatColor],
+            colorPairings: [new ColorPairing("#0D0D0D", "#FFFFFF", 1)]);
+
+        var processor = FC_BuildProcessor(
+            slideCount: 1,
+            profile: profile,
+            renderer: rendererSpy,
+            designer: new FC_NeverCalledDesigner());
+
+        await processor.ProcessAsync(JobId, CancellationToken.None);
+
+        Assert.True(rendererSpy.RenderCount >= 2, "The flat slide must be re-rendered after measuring.");
+        var subtitle = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "subtitle");
+        Assert.DoesNotContain("top:540px", subtitle, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task FlatColorSlide_AccentRoleSignaled_DrawsNoAccentPill()
     {
         // client-style-fidelity CSF-CG-02: an accent COLOUR is not evidence the client draws an accent
@@ -2100,6 +2125,37 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
 // -----------------------------------------------------------------------
 // FlatColor test doubles — file-scoped with FC_ prefix to avoid collision
 // -----------------------------------------------------------------------
+
+/// <summary>
+/// client-style-fidelity CSF-CG-07: reports a title tall enough to overlap the subtitle's literal top,
+/// then the true extent of every slot once they have been moved.
+/// </summary>
+file sealed class FC_TallTitleRenderer : IContentRendererWithGeometry
+{
+    public string? ReceivedMarkup { get; private set; }
+    public int RenderCount { get; private set; }
+
+    public Task<Result<RenderedAsset>> RenderAsync(VisualCompositionSpec spec, RenderOptions opts, CancellationToken ct) =>
+        Task.FromResult(Result<RenderedAsset>.Success(Asset(spec)));
+
+    public Task<Result<RenderedAssetWithGeometry>> RenderWithGeometryAsync(
+        VisualCompositionSpec spec, RenderOptions opts, CancellationToken ct)
+    {
+        ReceivedMarkup = spec.DesignerMarkup;
+        RenderCount++;
+        var boxes = MarkupSlotBoxParser.ParseDeclaredSlotBoxes(spec.DesignerMarkup ?? string.Empty);
+        var geometry = boxes
+            .Select(b => new SlotGeometryEntry(
+                b.Slot, b.Left, b.Top, b.Width,
+                b.Slot == "title" ? 420 : b.Height,
+                "Inter", 60, "#FFFFFF", "left"))
+            .ToList();
+        return Task.FromResult(Result.Success(new RenderedAssetWithGeometry(Asset(spec), geometry, null)));
+    }
+
+    private static RenderedAsset Asset(VisualCompositionSpec spec) =>
+        RenderedAsset.Create(spec.FormatKey, "image/png", $"{spec.FormatKey}.png", [1, 2, 3]);
+}
 
 file sealed class FC_CapturingRenderer : IContentRendererWithGeometry
 {

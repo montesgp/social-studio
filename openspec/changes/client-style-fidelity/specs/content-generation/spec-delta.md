@@ -84,3 +84,24 @@ a substring of the title is ignored. Titles persist as plain text.
 - AND an observed pairing with highlight `#A6CE3C`
 - WHEN the title slot is built
 - THEN "tus clientes" is wrapped in a span coloured `#A6CE3C`
+
+### Requirement: CSF-CG-07 — Flat Slides Reflow Around the Measured Headline
+
+The deterministic flat path MUST run the bounded measure-then-render reflow (ADR 0016) over
+`title → divider → subtitle`, like the template-backed path. A client's measured headline (larger
+size, condensed face, narrow block) has no fixed height, so the subtitle's literal top can land on
+it. Supersedes `CLIF-CG-06` for the flat path; AI-designer markup is still never reflowed. The
+reflow slot order is chosen by layout (CSF-CG-01), so `feed-carousel` reflows its carousel slots.
+
+#### Scenario: tall measured headline pushes the subtitle down (CSF-CG-07-a)
+
+- GIVEN a flat slide whose rendered title is taller than the gap above the subtitle
+- WHEN the slide renders
+- THEN the subtitle is moved below the title's measured extent before the final render
+
+## Known Follow-up (not in scope)
+
+`DecorationMotifs` (divider rule, composition archetype) is never threaded into
+`ClientAestheticDesignContext`, so `CAVS-CG-01/02` never reach production markup. Wiring it is
+deferred: the extractor still reports a `Line` divider for clients that do not use one, so enabling it
+today would reintroduce stray bars.
