@@ -1284,6 +1284,42 @@ public sealed class MultimodalAestheticStyleExtractorTests
         Assert.Equal(0.48, heading.BlockWidthRatio!.Value, precision: 5);
     }
 
+    [Fact]
+    public async Task VisualMatch_ReplacesTheModelsNamedFamily()
+    {
+        // The model named Anton from memory; the side-by-side comparison picks League Gothic.
+        var gateway = new CaptureGateway(
+            typographyJson: """
+                {"heading":{"family":"Anton","weight":800,"sizeRatio":0.075,"candidates":["Anton","League Gothic","Antonio"],
+                 "sampleText":"¿Sabés qué toman tus clientes en tu local?","sourceImageIndex":0,
+                 "boundingBox":{"x":0.05,"y":0.2,"width":0.45,"height":0.4}}}
+                """);
+        var matcher = new FakeFontMatcher(new Dictionary<string, string> { ["heading"] = "League Gothic" });
+        var extractor = new MultimodalAestheticStyleExtractor(
+            gateway, CandidateResolver(), new PngStorage(SkiaSharp.SKColors.Black), fontMatcher: matcher);
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Equal("League Gothic", Assert.Single(result.Typography!).FontFamily);
+        var request = Assert.Single(matcher.Requests);
+        Assert.Equal(["Anton", "League Gothic", "Antonio"], request.Candidates);
+    }
+
+    [Fact]
+    public async Task VisualMatch_IsSkippedWithoutALocatedSample()
+    {
+        var gateway = new CaptureGateway(
+            typographyJson: """{"heading":{"family":"Anton","candidates":["Anton","League Gothic"]}}""");
+        var matcher = new FakeFontMatcher(new Dictionary<string, string> { ["heading"] = "League Gothic" });
+        var extractor = new MultimodalAestheticStyleExtractor(
+            gateway, CandidateResolver(), new PngStorage(SkiaSharp.SKColors.Black), fontMatcher: matcher);
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Equal("Anton", Assert.Single(result.Typography!).FontFamily);
+        Assert.Empty(matcher.Requests);
+    }
+
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);
     private static IWorkflowConfigurationResolver CandidateResolver() => new StubResolver(candidate: true);
 }
@@ -1326,6 +1362,19 @@ file sealed class PngStorage(SkiaSharp.SKColor fill) : IGeneratedAssetStorage
         return Task.FromResult(Result.Success(new StoredAssetStream(stream, "image/png", stream.Length)));
     }
     public Task DeleteAsync(string storagePath, CancellationToken ct) => Task.CompletedTask;
+}
+
+/// <summary>client-style-fidelity: records the comparison requests and returns a fixed choice.</summary>
+file sealed class FakeFontMatcher(IReadOnlyDictionary<string, string> choice) : IFontVisualMatcher
+{
+    public List<FontMatchRequest> Requests { get; } = [];
+
+    public Task<IReadOnlyDictionary<string, string>> MatchAsync(
+        Guid organizationId, string providerKey, string? modelId, IReadOnlyList<FontMatchRequest> requests, CancellationToken ct)
+    {
+        Requests.AddRange(requests);
+        return Task.FromResult(choice);
+    }
 }
 
 file sealed class OneImageStorage : IGeneratedAssetStorage

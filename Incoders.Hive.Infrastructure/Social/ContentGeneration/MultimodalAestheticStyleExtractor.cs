@@ -68,12 +68,15 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     private readonly IWorkflowConfigurationResolver _workflowResolver;
     private readonly IGeneratedAssetStorage _storage;
     private readonly ILogger<MultimodalAestheticStyleExtractor> _logger;
+    private readonly IFontVisualMatcher? _fontMatcher;
 
     public MultimodalAestheticStyleExtractor(
         IAiCompletionGateway gateway,
         IWorkflowConfigurationResolver workflowResolver,
         IGeneratedAssetStorage storage,
-        ILogger<MultimodalAestheticStyleExtractor>? logger = null)
+        ILogger<MultimodalAestheticStyleExtractor>? logger = null,
+        // CSF-PA-02: optional — without it the model's own catalog pick stands.
+        IFontVisualMatcher? fontMatcher = null)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(workflowResolver);
@@ -82,6 +85,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         _workflowResolver = workflowResolver;
         _storage = storage;
         _logger = logger ?? NullLogger<MultimodalAestheticStyleExtractor>.Instance;
+        _fontMatcher = fontMatcher;
     }
 
     public async Task<AestheticExtraction> ExtractAsync(
@@ -329,7 +333,31 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         // the model's sourceImageIndex without depending on prompt ordering elsewhere.
         var storagePaths = loadedPairs.Select(lp => lp.StoragePath).ToArray();
         var sampler = SkiaColorCoverageSampler.FromImages(loadedPairs.Select(lp => lp.Bytes));
-        return Map(result.Value.Payload, storagePaths, sampler.ImageCount > 0 ? sampler.MaxCoverage : null);
+        var extraction = Map(result.Value.Payload, storagePaths, sampler.ImageCount > 0 ? sampler.MaxCoverage : null);
+
+        // CSF-PA-02: confirm each role's family by comparing the client's real text against the
+        // catalog candidates rendered side by side. Never fails the extraction.
+        if (_fontMatcher is not null && extraction.Typography is { Count: > 0 } typography)
+        {
+            var requests = BuildFontMatchRequests(
+                result.Value.Payload.Typography, loadedPairs.Select(lp => lp.Bytes).ToArray());
+            if (requests.Count > 0)
+            {
+                var chosen = await _fontMatcher.MatchAsync(
+                    organizationId, candidate.ProviderKey, candidate.ModelId, requests, ct);
+                if (chosen.Count > 0)
+                {
+                    extraction = extraction with
+                    {
+                        Typography = typography
+                            .Select(t => chosen.TryGetValue(t.Role, out var family) ? t with { FontFamily = family } : t)
+                            .ToArray(),
+                    };
+                }
+            }
+        }
+
+        return extraction;
     }
 
     // Default background-candidate roles used when calling ColorPairingDerivation from the extractor.
@@ -517,6 +545,51 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
                     ? ColorPairingKinds.Photo
                     : ColorPairingKinds.Flat))
             .ToArray();
+    }
+
+    // CSF-PA-02: a role is comparable when it names at least two catalog families and locates a
+    // readable sample of the client's text.
+    private static IReadOnlyList<FontMatchRequest> BuildFontMatchRequests(TypographyDto? typography, IReadOnlyList<byte[]> images)
+    {
+        if (typography is null)
+        {
+            return [];
+        }
+
+        var requests = new List<FontMatchRequest>(3);
+        foreach (var (role, dto) in new[]
+                 {
+                     (TypographyRoles.Heading, typography.Heading),
+                     (TypographyRoles.Body, typography.Body),
+                     (TypographyRoles.Caption, typography.Caption),
+                 })
+        {
+            if (dto is null
+                || string.IsNullOrWhiteSpace(dto.SampleText)
+                || dto.SourceImageIndex is not { } index || index < 0 || index >= images.Count
+                || dto.BoundingBox is not { } box)
+            {
+                continue;
+            }
+
+            var validBox = BrandMarkDetection.TryValidateBoundingBox(box.X_, box.Y_, box.Width_, box.Height_);
+            var candidates = new[] { dto.Family }
+                .Concat(dto.Candidates ?? [])
+                .Select(BundledFontCatalog.Find)
+                .Where(f => f is not null)
+                .Select(f => f!.Name)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(5)
+                .ToArray();
+            if (validBox is null || candidates.Length < 2)
+            {
+                continue;
+            }
+
+            requests.Add(new FontMatchRequest(role, candidates, dto.SampleText, images[index], validBox));
+        }
+
+        return requests;
     }
 
     private static string NormalizeHex(string hex) => "#" + hex.Trim().TrimStart('#').ToUpperInvariant();
