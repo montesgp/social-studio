@@ -14,6 +14,11 @@ namespace Incoders.Hive.Tests.Application.Social.ContentGeneration.Pipeline;
 /// (WU-4/WU-5/WU-8) MUST keep this test GREEN for a <c>DecorationMotifs = null</c>
 /// (cold-start / non-ClientAesthetic) profile — that is the verified byte-identity contract, not
 /// an assertion added after the fact.
+/// <para>
+/// Re-baselined once by client-style-fidelity (CSF-CG-02/04), deliberately and only in two places:
+/// the accent pill is gone (a ClientAesthetic flat slide draws no decoration the client was not
+/// measured to use) and measured headline type uses neutral tracking.
+/// </para>
 /// </summary>
 public sealed class FlatCarouselMarkupGoldenTests
 {
@@ -148,7 +153,8 @@ public sealed class FlatCarouselMarkupGoldenTests
         var centeredMarkup = InvokeBuildFlatColorMarkup(spec, palette, centered);
 
         Assert.NotEqual(leftMarkup, centeredMarkup);
-        Assert.Contains("left:456px", centeredMarkup, StringComparison.Ordinal);
+        // The centred preset moves the title alignment; the accent pill that used to carry a distinct
+        // left offset no longer exists (CSF-CG-02).
         Assert.Contains("text-align:center", ExtractTitleElement(centeredMarkup), StringComparison.Ordinal);
     }
 
@@ -181,11 +187,10 @@ public sealed class FlatCarouselMarkupGoldenTests
     [InlineData("left-aligned")]
     [InlineData("centered")]
     [InlineData("lower-third")]
-    public void AccentPillMarkup_WidthHeightAndBorderRadius_AreUnchangedAcrossEveryArchetype(string archetype)
+    public void AccentPill_IsNeverEmitted_InAnyArchetype(string archetype)
     {
-        // CAVS-CG-03-b: an archetype changes the accent pill's position (left/top) only — its own
-        // markup (width/height/border-radius) is a literal in BuildFlatCarouselSlots, never
-        // parameterised by geometry.
+        // client-style-fidelity CSF-CG-02: the pill was a fixed decoration applied to every client,
+        // whether or not their feed uses one. A flat slide now draws only the measured divider.
         var spec = BuildRepresentativeSpec();
         var palette = new CompositionPalette("#1A2B3C", "#334455", "#66AACC", "#F8FAFC", "#0B1220");
         var aesthetic = new ClientAestheticDesignContext(
@@ -197,19 +202,9 @@ public sealed class FlatCarouselMarkupGoldenTests
             DecorationMotifs: new DecorationMotifs(CompositionArchetype: archetype));
 
         var actual = InvokeBuildFlatColorMarkup(spec, palette, aesthetic);
-        var accentElement = ExtractAccentElement(actual);
 
-        Assert.Contains("width:168px;height:10px;border-radius:999px;", accentElement, StringComparison.Ordinal);
-    }
-
-    private static string ExtractAccentElement(string markup)
-    {
-        var start = markup.IndexOf("data-slot=\"accent\"", StringComparison.Ordinal);
-        Assert.True(start >= 0, "Expected a data-slot=\"accent\" element in the markup.");
-        var tagStart = markup.LastIndexOf('<', start);
-        var lineEnd = markup.IndexOf('\n', tagStart);
-        var end = lineEnd >= 0 ? lineEnd : markup.Length;
-        return markup[tagStart..end];
+        Assert.DoesNotContain("data-slot=\"accent\"", actual, StringComparison.Ordinal);
+        Assert.DoesNotContain("border-radius:999px", actual, StringComparison.Ordinal);
     }
 
     private static string ExtractTitleElement(string markup)

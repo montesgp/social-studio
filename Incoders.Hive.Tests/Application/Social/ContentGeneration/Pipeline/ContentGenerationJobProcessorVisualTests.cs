@@ -1162,8 +1162,10 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     }
 
     [Fact]
-    public async Task FlatColorSlide_AccentRoleSignaled_EmitsEditableAccentSlot()
+    public async Task FlatColorSlide_AccentRoleSignaled_DrawsNoAccentPill()
     {
+        // client-style-fidelity CSF-CG-02: an accent COLOUR is not evidence the client draws an accent
+        // BAR. The pill used to appear for every client with an accent role; it is gone.
         var rendererSpy = new FC_CapturingRenderer();
 
         var profile = FC_Profile(
@@ -1180,16 +1182,8 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
         Assert.NotNull(rendererSpy.ReceivedMarkup);
-        Assert.Contains("data-slot=\"accent\"", rendererSpy.ReceivedMarkup);
-        Assert.Contains("#FF00AA", rendererSpy.ReceivedMarkup);
-
-        // The accent slot lives in the editable content layer, never in the rasterized
-        // background layer — assert the background layer div does not carry the accent color.
-        var backgroundLayerStart = rendererSpy.ReceivedMarkup!.IndexOf("data-layer=\"background\"", StringComparison.Ordinal);
-        var contentLayerStart = rendererSpy.ReceivedMarkup!.IndexOf("data-layer=\"content\"", StringComparison.Ordinal);
-        var accentSlotIndex = rendererSpy.ReceivedMarkup!.IndexOf("data-slot=\"accent\"", StringComparison.Ordinal);
-        Assert.True(accentSlotIndex > contentLayerStart && contentLayerStart > backgroundLayerStart,
-            "Accent slot must appear inside the content layer, after the background layer.");
+        Assert.DoesNotContain("data-slot=\"accent\"", rendererSpy.ReceivedMarkup);
+        Assert.DoesNotContain("border-radius:999px", rendererSpy.ReceivedMarkup);
     }
 
     [Fact]
@@ -1355,7 +1349,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         var profile = FC_Profile(
             backgroundPattern: [SlideBackgroundKind.FlatColor],
             colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
-            brandMark: new BrandMarkDetection(Present: true, PositionHint: "top-center", ColorHex: "#445566"));
+            brandMark: new BrandMarkDetection(Present: true, PositionHint: "top-center", ColorHex: "#445566", MarkType: "text", Text: "Studio Marisol"));
 
         var processor = FC_BuildProcessor(
             slideCount: 1,
@@ -1379,7 +1373,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         var profile = FC_Profile(
             backgroundPattern: [SlideBackgroundKind.FlatColor],
             colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
-            brandMark: new BrandMarkDetection(Present: true, PositionHint: "bottom-right", ColorHex: "#445566"));
+            brandMark: new BrandMarkDetection(Present: true, PositionHint: "bottom-right", ColorHex: "#445566", MarkType: "text", Text: "Studio Marisol"));
 
         var processor = FC_BuildProcessor(
             slideCount: 1,
@@ -1403,7 +1397,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         var profile = FC_Profile(
             backgroundPattern: [SlideBackgroundKind.FlatColor],
             colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
-            brandMark: new BrandMarkDetection(Present: true, PositionHint: "bottom-right", ColorHex: "#445566"));
+            brandMark: new BrandMarkDetection(Present: true, PositionHint: "bottom-right", ColorHex: "#445566", MarkType: "text", Text: "Studio Marisol"));
 
         var processor = FC_BuildProcessor(
             slideCount: 1,
@@ -1415,7 +1409,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
 
         Assert.NotNull(rendererSpy.ReceivedMarkup);
         Assert.Contains("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
-        Assert.Contains("#445566", rendererSpy.ReceivedMarkup);
+        Assert.Contains("Studio Marisol", ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark"));
     }
 
     [Fact]
@@ -1545,7 +1539,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         var profile = FC_Profile(
             backgroundPattern: [SlideBackgroundKind.FlatColor],
             colorPairings: [new ColorPairing("#112233", "#EEEEEE", 1)],
-            brandMark: new BrandMarkDetection(Present: true, PositionHint: "bottom-left", ColorHex: null));
+            brandMark: new BrandMarkDetection(Present: true, PositionHint: "bottom-left", ColorHex: null, MarkType: "text", Text: "Studio Marisol"));
 
         var processor = FC_BuildProcessor(
             slideCount: 1,
@@ -1566,8 +1560,8 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
 
     // -----------------------------------------------------------------------
     // WU-7a (CAGH-CG-04/07): text-mark rendering via the client's resolved caption typography.
-    // Icon/unknown/null MarkType and blank Text keep the EXACT pre-existing empty-chip behaviour —
-    // regression-critical, icon rendering is WU-7b/7c, not this batch.
+    // client-style-fidelity CSF-CG-02-b: icon/unknown/null MarkType and blank Text render NO mark;
+    // the former empty coloured chip was a placeholder the client never uses.
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -1634,16 +1628,13 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
         Assert.NotNull(rendererSpy.ReceivedMarkup);
-        // Falls through to the pre-existing empty-chip behaviour: the slot renders, but with no
-        // fabricated text content, and no exception is thrown reaching this point.
-        Assert.Contains("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
-        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
-        Assert.DoesNotContain("Studio Marisol", brandMarkSlot);
-        Assert.Contains("#445566", brandMarkSlot);
+        // client-style-fidelity CSF-CG-02-b: nothing legible to render, so no mark at all — never
+        // fabricated text and never the former placeholder chip, and no exception reaching this point.
+        Assert.DoesNotContain("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
     }
 
     [Fact]
-    public async Task UnknownMarkType_RendersPreExistingChip_Unchanged_CAGH_CG_07_a()
+    public async Task UnknownMarkType_RendersNoMark_CSF_CG_02_b()
     {
         var rendererSpy = new FC_CapturingRenderer();
 
@@ -1665,10 +1656,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
         await processor.ProcessAsync(JobId, CancellationToken.None);
 
         Assert.NotNull(rendererSpy.ReceivedMarkup);
-        Assert.Contains("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
-        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
-        Assert.Contains("#445566", brandMarkSlot);
-        Assert.DoesNotContain("<img", brandMarkSlot);
+        Assert.DoesNotContain("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
     }
 
     // -----------------------------------------------------------------------
@@ -1761,7 +1749,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
     }
 
     [Fact]
-    public async Task IconMarkType_ExtractionFails_DegradesToChip_NeverThrows_CAGH_CG_06_a()
+    public async Task IconMarkType_ExtractionFails_RendersNoMark_NeverThrows_CSF_CG_02_b()
     {
         var rendererSpy = new FC_CapturingRenderer();
         var extractorSpy = new FC_SpyBrandMarkAssetExtractor(
@@ -1789,13 +1777,11 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
 
         Assert.Equal(1, extractorSpy.CallCount);
         Assert.NotNull(rendererSpy.ReceivedMarkup);
-        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
-        Assert.Contains("#445566", brandMarkSlot);
-        Assert.DoesNotContain("<img", brandMarkSlot);
+        Assert.DoesNotContain("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
     }
 
     [Fact]
-    public async Task IconMarkType_NoBoundingBox_ExtractorNeverCalled_DegradesToChip_CAGH_CG_06_a()
+    public async Task IconMarkType_NoBoundingBox_ExtractorNeverCalled_RendersNoMark_CSF_CG_02_b()
     {
         var rendererSpy = new FC_CapturingRenderer();
         var extractorSpy = new FC_SpyBrandMarkAssetExtractor(
@@ -1823,8 +1809,7 @@ public sealed class ContentGenerationJobProcessorFlatColorTests
 
         Assert.Equal(0, extractorSpy.CallCount);
         Assert.NotNull(rendererSpy.ReceivedMarkup);
-        var brandMarkSlot = ExtractSlotElement(rendererSpy.ReceivedMarkup!, "brand-mark");
-        Assert.Contains("#445566", brandMarkSlot);
+        Assert.DoesNotContain("data-slot=\"brand-mark\"", rendererSpy.ReceivedMarkup);
     }
 
     // -----------------------------------------------------------------------

@@ -2395,7 +2395,7 @@ public sealed class ContentGenerationJobProcessor
         // today's unconditional object-fit:cover byte-identically (cold-start parity).
         SlideBackgroundTransparency? transparency = null)
     {
-        var isCarousel = string.Equals(spec.FormatKey, "carousel", StringComparison.OrdinalIgnoreCase);
+        var isCarousel = UsesCarouselTemplate(spec.FormatKey);
         var width = spec.Dimensions.Width;
         var height = spec.Dimensions.Height;
         var headingFont = CssString(spec.Typography.HeadingFamily);
@@ -2436,9 +2436,16 @@ public sealed class ContentGenerationJobProcessor
             ? spec.Palette.Text
             : null;
 
+        // client-style-fidelity CSF-CG-04/05: tracking, headline width and body weight follow the
+        // client's measured typography; null keeps every builder's own literal (cold-start parity).
+        var measuredStyle = MeasuredTextStyle.From(spec.Typography);
+
         var content = isCarousel
-            ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize, measuredHeadingWeight)
-            : BuildStoryTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize, measuredHeadingWeight);
+            ? BuildCarouselTemplateSlots(title, subtitle, cta, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize, measuredHeadingWeight, measuredStyle)
+            : BuildStoryTemplateSlots(title, subtitle, body, cta, signature, headingFont, bodyFont, captionFont, textColor, captionWeight, captionSize, measuredHeadingSize, measuredBodySize, measuredHeadingWeight, measuredStyle,
+                // CSF-CG-02: the accent pill is a cold-start default, never applied to a client
+                // whose own decoration vocabulary was measured.
+                emitAccentPill: aesthetic is null);
 
         // No-scrim fix: the full-bleed dark box below ("scrimBox") is ONLY safe over a synthesized
         // CSS/gradient background, which has no inherent contrast guarantee. An ENFORCED background
@@ -2459,7 +2466,9 @@ public sealed class ContentGenerationJobProcessor
             : """
               <div style="position:absolute;left:56px;right:56px;top:170px;bottom:150px;border-radius:56px;background:rgba(0,0,0,0.50);box-shadow:0 32px 90px rgba(0,0,0,0.34);"></div>
               """;
-        var accentDecor = isCarousel
+        // CSF-CG-02: the full-width bar is a cold-start default only; a ClientAesthetic slide draws
+        // no decoration the client was not measured to use.
+        var accentDecor = isCarousel && aesthetic is null
             ? """
               <div style="position:absolute;left:64px;right:64px;bottom:140px;height:10px;border-radius:999px;background:rgba(255,255,255,0.82);"></div>
               """
@@ -2553,39 +2562,46 @@ public sealed class ContentGenerationJobProcessor
         int? measuredBodySize = null,
         // Issue #81: the client's REAL observed heading weight. Null keeps the pre-change 900 literal
         // (cold-start / non-ClientAesthetic parity).
-        int? measuredHeadingWeight = null)
+        int? measuredHeadingWeight = null,
+        MeasuredTextStyle? measuredStyle = null,
+        // CSF-CG-02: false for a ClientAesthetic slide — the pill is a cold-start default only.
+        bool emitAccentPill = true)
     {
-        var slots = new List<string>
+        var style = measuredStyle ?? MeasuredTextStyle.None;
+        var slots = new List<string>();
+
+        if (emitAccentPill)
         {
             // Decorative accent pill — moved out of the background raster so it becomes an
             // editable shape in Content Studio. Positioned identically to the former background div.
-            Slot(
+            slots.Add(Slot(
                 "div",
                 "accent",
                 string.Empty,
                 "position:absolute;left:88px;top:205px;width:168px;height:10px;" +
                 "border-radius:999px;background:rgba(255,255,255,0.86);",
-                1),
-            Slot(
-                "h1",
-                "headline",
-                title,
-                "position:absolute;left:96px;top:255px;width:888px;min-height:260px;" +
-                $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 88}px;line-height:0.98;" +
-                $"font-weight:{measuredHeadingWeight ?? 900};letter-spacing:-2.5px;color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
-                3)
-        };
+                1));
+        }
+
+        slots.Add(Slot(
+            "h1",
+            "headline",
+            title,
+            $"position:absolute;left:96px;top:255px;{style.HeadingWidth(888)}min-height:260px;" +
+            $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 88}px;line-height:0.98;" +
+            $"font-weight:{measuredHeadingWeight ?? 900};{style.HeadingTracking("letter-spacing:-2.5px;")}color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
+            3));
 
         AddSlot(slots, "p", "subtitle", subtitle,
             "position:absolute;left:100px;top:575px;width:825px;min-height:122px;" +
             $"font-family:{bodyFont},system-ui,sans-serif;font-size:{measuredBodySize ?? 36}px;line-height:1.16;" +
-            $"font-weight:600;color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
+            $"font-weight:{style.BodyWeightOr(600)};color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
             3);
 
         AddSlot(slots, "p", "body", body,
             "position:absolute;left:100px;top:745px;width:825px;min-height:210px;" +
             $"font-family:{bodyFont},system-ui,sans-serif;font-size:{measuredBodySize ?? 30}px;line-height:1.24;" +
-            $"font-weight:400;color:{textColor ?? "#F8FAFC"};text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
+            $"font-weight:{style.BodyWeightOr(400)};color:{textColor ?? "#F8FAFC"};text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.60);",
             5);
 
         AddSlot(slots, "p", "cta", cta,
@@ -2625,24 +2641,26 @@ public sealed class ContentGenerationJobProcessor
         int? measuredBodySize = null,
         // Issue #81: the client's REAL observed heading weight. Null keeps the pre-change 900 literal
         // (cold-start / non-ClientAesthetic parity).
-        int? measuredHeadingWeight = null)
+        int? measuredHeadingWeight = null,
+        MeasuredTextStyle? measuredStyle = null)
     {
+        var style = measuredStyle ?? MeasuredTextStyle.None;
         var slots = new List<string>
         {
             Slot(
                 "h1",
                 "title",
                 title,
-                "position:absolute;left:104px;top:235px;width:872px;min-height:230px;" +
+                $"position:absolute;left:104px;top:235px;{style.HeadingWidth(872)}min-height:230px;" +
                 $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 74}px;line-height:1.02;" +
-                $"font-weight:{measuredHeadingWeight ?? 900};letter-spacing:-1.8px;color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
+                $"font-weight:{measuredHeadingWeight ?? 900};{style.HeadingTracking("letter-spacing:-1.8px;")}color:{textColor ?? "#FFFFFF"};text-align:left;text-shadow:0 4px 24px rgba(0,0,0,0.58);",
                 3)
         };
 
         AddSlot(slots, "p", "subtitle", subtitle,
             "position:absolute;left:108px;top:540px;width:815px;min-height:310px;" +
             $"font-family:{bodyFont},system-ui,sans-serif;font-size:{measuredBodySize ?? 38}px;line-height:1.22;" +
-            $"font-weight:500;color:{textColor ?? "#F8FAFC"};text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.62);",
+            $"font-weight:{style.BodyWeightOr(500)};color:{textColor ?? "#F8FAFC"};text-align:left;text-shadow:0 3px 18px rgba(0,0,0,0.62);",
             6);
 
         AddSlot(slots, "p", "cta", cta,
@@ -2698,7 +2716,7 @@ public sealed class ContentGenerationJobProcessor
         var content = BuildFlatCarouselSlots(
             title, subtitle, cta, headingFont, bodyFont, safeText, safeAccent, captionFont, captionWeight, captionSize,
             measuredHeadingSize, measuredBodySize, measuredHeadingWeight, aesthetic?.DecorationMotifs?.DividerRule,
-            aesthetic?.DecorationMotifs?.CompositionArchetype);
+            aesthetic?.DecorationMotifs?.CompositionArchetype, MeasuredTextStyle.From(spec.Typography));
 
         return $$"""
             <div class="composition" data-format="{{Html(spec.FormatKey)}}" style="position:relative;width:{{width}}px;height:{{height}}px;overflow:hidden;background:{{safeBackground}};">
@@ -2742,29 +2760,24 @@ public sealed class ContentGenerationJobProcessor
         // composition-archetype token. Resolved through FlatGeometryPresets.Resolve, whose catch-all
         // arm returns the left-aligned identity preset for null/unrecognised tokens — required for the
         // DecorationMotifs=null byte-identity cold-start guarantee (CAVS-CG-03).
-        string? compositionArchetype = null)
+        string? compositionArchetype = null,
+        MeasuredTextStyle? measuredStyle = null)
     {
         var geometry = FlatGeometryPresets.Resolve(compositionArchetype);
+        var style = measuredStyle ?? MeasuredTextStyle.None;
         var slots = new List<string>();
 
-        if (accentColor is not null)
-        {
-            slots.Add(Slot(
-                "div",
-                "accent",
-                string.Empty,
-                $"position:absolute;left:{geometry.AccentLeft}px;top:{geometry.AccentTop}px;width:168px;height:10px;" +
-                $"border-radius:999px;background:{accentColor};",
-                1));
-        }
+        // client-style-fidelity CSF-CG-02: no accent pill. Every flat slide belongs to a ClientAesthetic
+        // job, and the only rule it may draw is the client's measured divider (BuildDividerSlot below),
+        // which still uses accentColor.
 
         slots.Add(Slot(
             "h1",
             "title",
             title,
-            $"position:absolute;left:{geometry.TitleLeft}px;top:{geometry.TitleTop}px;width:{geometry.TitleWidth}px;min-height:230px;" +
+            $"position:absolute;left:{geometry.TitleLeft}px;top:{geometry.TitleTop}px;{style.HeadingWidth(geometry.TitleWidth)}min-height:230px;" +
             $"font-family:{headingFont},system-ui,sans-serif;font-size:{measuredHeadingSize ?? 74}px;line-height:1.02;" +
-            $"font-weight:{measuredHeadingWeight ?? 900};letter-spacing:-1.8px;color:{textColor};text-align:{geometry.TitleAlign};",
+            $"font-weight:{measuredHeadingWeight ?? 900};{style.HeadingTracking("letter-spacing:-1.8px;")}color:{textColor};text-align:{geometry.TitleAlign};",
             3));
 
         var dividerElement = BuildDividerSlot(dividerRule, accentColor, textColor, geometry);
@@ -2776,7 +2789,7 @@ public sealed class ContentGenerationJobProcessor
         AddSlot(slots, "p", "subtitle", subtitle,
             $"position:absolute;left:{geometry.SubtitleLeft}px;top:{geometry.SubtitleTop}px;width:{geometry.SubtitleWidth}px;min-height:310px;" +
             $"font-family:{bodyFont},system-ui,sans-serif;font-size:{measuredBodySize ?? 38}px;line-height:1.22;" +
-            $"font-weight:500;color:{textColor};text-align:{geometry.SubtitleAlign};",
+            $"font-weight:{style.BodyWeightOr(500)};color:{textColor};text-align:{geometry.SubtitleAlign};",
             6);
 
         // The pre-change literal never emitted text-align on the cta slot (it was implicitly
@@ -2870,29 +2883,10 @@ public sealed class ContentGenerationJobProcessor
                 "object-fit:cover;border-radius:8px;\" />";
         }
 
-        string colorHex;
-        if (brandMark.ColorHex is null)
-        {
-            // Color-source: no explicit hex → use the slide's text color.
-            colorHex = defaultColorHex;
-        }
-        else if (IsSafeCssColor(brandMark.ColorHex))
-        {
-            colorHex = brandMark.ColorHex.Trim();
-        }
-        else
-        {
-            // Ambiguous/malformed explicit color — treat the WHOLE mark as absent (FFS-CG-02-c).
-            return null;
-        }
-
-        return Slot(
-            "div",
-            "brand-mark",
-            string.Empty,
-            $"position:absolute;{horizontalCss}{verticalCss}width:112px;height:36px;" +
-            $"border-radius:8px;background:{colorHex};opacity:0.92;",
-            1);
+        // client-style-fidelity CSF-CG-02-b: without the client's real mark (no crop, no legible
+        // text) render nothing. The former coloured 112x36 chip was a placeholder the client never
+        // uses — on a real slide it reads as a stray bar, not as their logo.
+        return null;
     }
 
     /// <summary>
@@ -3041,6 +3035,44 @@ public sealed class ContentGenerationJobProcessor
         return "<div class=\"slot\" data-slot=\"divider\" data-max-lines=\"1\" " +
             $"style=\"position:absolute;left:{geometry.DividerLeft}px;top:{geometry.DividerTop}px;width:{geometry.DividerWidth}px;height:2px;" +
             $"background:{ruleColor};\">{glyph}</div>";
+    }
+
+    /// <summary>
+    /// client-style-fidelity CSF-CG-04/05: overrides the deterministic builders apply when the client's
+    /// typography was measured. A real typeface ships with its designed spacing, so measured type uses
+    /// neutral tracking instead of the tight literal tuned for the old fallback font; the headline
+    /// width follows the client's own block width so lines break where theirs do. <see cref="None"/>
+    /// returns each builder's own literal, keeping cold-start markup byte-identical.
+    /// </summary>
+    private sealed record MeasuredTextStyle(bool IsMeasured, int? HeadingBlockWidth, int? BodyWeight)
+    {
+        public static readonly MeasuredTextStyle None = new(false, null, null);
+
+        public static MeasuredTextStyle From(CompositionTypography typography) => new(
+            typography.MeasuredHeadingSize is not null || typography.MeasuredHeadingWeight is not null,
+            typography.MeasuredHeadingBlockWidth,
+            typography.MeasuredBodyWeight);
+
+        public string HeadingTracking(string legacyDeclaration) =>
+            IsMeasured ? "letter-spacing:0;" : legacyDeclaration;
+
+        public string HeadingWidth(int legacyWidth) =>
+            HeadingBlockWidth is { } width ? $"width:{width}px;text-wrap:balance;" : $"width:{legacyWidth}px;";
+
+        public int BodyWeightOr(int legacyWeight) => BodyWeight ?? legacyWeight;
+    }
+
+    /// <summary>
+    /// client-style-fidelity CSF-CG-01: the carousel template belongs to every feed carousel layout,
+    /// including the canonical <c>feed-carousel</c> key. Comparing against the legacy <c>"carousel"</c>
+    /// key alone sent real carousels through the Story template and its hardcoded accent pill.
+    /// </summary>
+    private static bool UsesCarouselTemplate(string formatKey)
+    {
+        var definition = FormatCatalog.ResolveForAssembly(formatKey);
+        return definition is not null
+            ? definition.Layout == Layout.Carousel && definition.Surface != Surface.Story
+            : string.Equals(formatKey, "carousel", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string Slot(string tag, string slotName, string value, string style, int maxLines) =>

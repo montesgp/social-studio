@@ -32,12 +32,18 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 /// Observed type size as a fraction of canvas height (e.g. 0.075 = 81 px on a 1080x1080 canvas).
 /// Clamped by the resolver; values outside a sane range are treated as unusable.
 /// </param>
+/// <param name="BlockWidthRatio">
+/// client-style-fidelity (CSF-CG-05): width of the client's text block for this role as a fraction of
+/// slide width, measured on the heading. Drives where lines break — a client stacking two or three
+/// words per line keeps doing so. Null when unmeasured (cold-start parity).
+/// </param>
 public sealed record AestheticTypography(
     string Role,
     string FontFamily,
     int Weight = 400,
     bool Italic = false,
-    double SizeRatio = 0);
+    double SizeRatio = 0,
+    double? BlockWidthRatio = null);
 
 /// <summary>The typographic slots a <see cref="AestheticTypography.Role"/> may address.</summary>
 public static class TypographyRoles

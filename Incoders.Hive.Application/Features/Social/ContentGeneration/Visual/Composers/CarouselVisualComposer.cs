@@ -144,7 +144,8 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
         // exact-client-typography: sizes are a ratio of canvas height, so the resolver needs the canvas
         // it is composing for. Falls back to the brand/default typography when the profile has none.
         var typography = CompositionDefaults.ResolveTypography(
-            brand, profile, CompositionDefaults.CarouselDimensions.Height, inferred);
+            brand, profile, CompositionDefaults.CarouselDimensions.Height, inferred,
+            canvasWidth: CompositionDefaults.CarouselDimensions.Width);
 
         // WU-4 C5: use the pre-resolved selection when provided; fall back to the
         // legacy 3-tier selector (BG-03) when null (no plan supplied by the processor).

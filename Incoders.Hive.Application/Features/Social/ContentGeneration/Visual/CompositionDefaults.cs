@@ -226,7 +226,8 @@ internal static class CompositionDefaults
         ClientAestheticProfile? profile,
         int canvasHeight,
         InferenceAccumulator inferred,
-        string? headlineCopy = null)
+        string? headlineCopy = null,
+        int? canvasWidth = null)
     {
         var observed = profile?.Typography;
         if (observed is not { Count: > 0 })
@@ -304,7 +305,31 @@ internal static class CompositionDefaults
             // rendered markup can use it instead of each builder's own hardcoded font-weight literal.
             // Null (heading absent) keeps every builder's cold-start literal unchanged.
             MeasuredHeadingWeight = Clamp(headingFamily, heading?.Weight),
+            MeasuredHeadingBlockWidth = BlockWidthFor(heading, canvasWidth),
         };
+    }
+
+    /// <summary>
+    /// Narrowest and widest headline block we will honour, as a fraction of canvas width. Outside this
+    /// range the measurement is an error: a 10 % block cannot hold a word, a 100 % block bleeds off
+    /// the safe area.
+    /// </summary>
+    private const double MinBlockWidthRatio = 0.30;
+    private const double MaxBlockWidthRatio = 0.90;
+
+    /// <summary>
+    /// Converts an observed block-width ratio into pixels (CSF-CG-05), clamped to
+    /// <see cref="MinBlockWidthRatio"/>..<see cref="MaxBlockWidthRatio"/>. Null when unmeasured.
+    /// </summary>
+    private static int? BlockWidthFor(AestheticTypography? entry, int? canvasWidth)
+    {
+        if (entry?.BlockWidthRatio is not { } ratio || ratio <= 0 || ratio > 1 || canvasWidth is not > 0)
+        {
+            return null;
+        }
+
+        var clamped = Math.Clamp(ratio, MinBlockWidthRatio, MaxBlockWidthRatio);
+        return (int)Math.Round(clamped * canvasWidth.Value, MidpointRounding.AwayFromZero);
     }
 
     private static AestheticTypography? FindRole(IReadOnlyList<AestheticTypography> entries, string role) =>

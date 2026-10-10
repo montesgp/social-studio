@@ -301,6 +301,33 @@ public sealed class ClientTypographyResolutionTests
         Assert.Equal("Inter", FontFamilyResolution.Resolve("Helvetica Sans Serif").Renderable);
     }
 
+    [Theory]
+    [InlineData(0.5, 540)]     // the client's measured block
+    [InlineData(0.1, 324)]     // implausibly narrow -> clamped to 30 %
+    [InlineData(0.98, 972)]    // edge-to-edge -> clamped to 90 %
+    public void HeadingBlockWidthFollowsTheMeasuredRatio_Clamped(double ratio, int expectedWidth)
+    {
+        var profile = ProfileWith(
+            new AestheticTypography(TypographyRoles.Heading, "League Gothic", 400, false, 0.08, BlockWidthRatio: ratio));
+
+        var typography = CompositionDefaults.ResolveTypography(
+            EmptyBrand(), profile, CarouselHeight, new InferenceAccumulator(), canvasWidth: 1080);
+
+        Assert.Equal(expectedWidth, typography.MeasuredHeadingBlockWidth);
+    }
+
+    [Fact]
+    public void HeadingBlockWidth_Unmeasured_StaysNull()
+    {
+        var profile = ProfileWith(
+            new AestheticTypography(TypographyRoles.Heading, "League Gothic", 400, false, 0.08));
+
+        var typography = CompositionDefaults.ResolveTypography(
+            EmptyBrand(), profile, CarouselHeight, new InferenceAccumulator(), canvasWidth: 1080);
+
+        Assert.Null(typography.MeasuredHeadingBlockWidth);
+    }
+
     [Fact]
     public void ObservedWeightIsClampedToTheWeightsTheFamilyShips()
     {
