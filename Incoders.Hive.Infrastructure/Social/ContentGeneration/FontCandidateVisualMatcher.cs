@@ -106,15 +106,23 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
                 return new Dictionary<string, string>();
             }
 
+            // The sheet first, then each role's original slide at full resolution: a crop located by
+            // the model can be loose or missing, and the original keeps the reference legible.
+            var images = new List<AiImageInput>
+            {
+                new(rendered.Value.Mime, Convert.ToBase64String(rendered.Value.GetBytes())),
+            };
+            images.AddRange(sections.Select(s => new AiImageInput(MimeOf(s.Request.ImageBytes), Convert.ToBase64String(s.Request.ImageBytes))));
+
             var request = new AiJsonCompletionRequest(
                 OrganizationId: organizationId,
                 AnalysisId: null,
                 CapabilityKey: CapabilityKey,
                 PromptVersionKey: PromptVersion,
-                InputJson: BuildInstruction(sections.Select(s => s.Request.Role)),
+                InputJson: BuildInstruction(sections.Select(s => (s.Request.Role, s.Request.SampleText))),
                 PreferredProviderKey: providerKey,
                 PreferredModel: modelId,
-                Images: [new AiImageInput(rendered.Value.Mime, Convert.ToBase64String(rendered.Value.GetBytes()))]);
+                Images: images);
 
             var answer = await _gateway.CompleteJsonAsync<FontMatchAnswer>(request, ct);
             if (answer.IsFailure)
@@ -142,15 +150,32 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
         }
     }
 
-    internal static string BuildInstruction(IEnumerable<string> roles) =>
-        "The attached image is a typeface comparison sheet with one section per role (" +
-        string.Join(", ", roles.Select(r => r.ToUpperInvariant())) +
-        "). In each section the tile labelled REFERENCE is a crop of a client's real slide text; the " +
-        "numbered tiles render the same words, with the same line breaks and colours, in different " +
-        "typefaces. For each section choose the number whose LETTERFORMS match the reference best: " +
-        "compare horizontal condensation and proportions first, then stroke weight and the shapes of " +
-        "letters such as a, e, g, s, S and question marks. Ignore size. Return ONLY JSON like " +
-        "{\"heading\": 2, \"body\": 1, \"caption\": 3}, with one integer per section shown.";
+    internal static string BuildInstruction(IEnumerable<(string Role, string SampleText)> sections)
+    {
+        var list = sections.ToList();
+        var originals = string.Join("; ", list.Select((s, i) =>
+            $"Image {i + 2} is the client's original slide for {s.Role.ToUpperInvariant()}, where the reference text " +
+            $"\"{Flatten(s.SampleText)}\" appears"));
+        return "Image 1 is a typeface comparison sheet with one section per role (" +
+            string.Join(", ", list.Select(s => s.Role.ToUpperInvariant())) +
+            "). In each section the tile labelled REFERENCE is a crop of the client's real text, and the " +
+            "numbered tiles render the same words, with the same line breaks and colours, in different " +
+            "typefaces. " + originals + " — use it to see the reference at full resolution, since the crop " +
+            "may be loose. For each section choose the number whose LETTERFORMS match the client's text " +
+            "best: compare horizontal condensation and proportions first, then letter case, stroke weight " +
+            "and the shapes of letters such as a, e, g, s, S and question marks. Ignore size and colour. " +
+            "Return ONLY JSON like {\"heading\": 2, \"body\": 1, \"caption\": 3}, with one integer per " +
+            "section shown.";
+    }
+
+    private static string Flatten(string text) =>
+        string.Join(' ', SampleLines(text)).Replace("\"", "'", StringComparison.Ordinal);
+
+    /// <summary>JPEG unless the bytes carry the PNG signature (reference images are archived JPEGs).</summary>
+    private static string MimeOf(byte[] bytes) =>
+        bytes.Length > 4 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47
+            ? "image/png"
+            : "image/jpeg";
 
     private const int Tile = 340;
     private const int Gap = 12;

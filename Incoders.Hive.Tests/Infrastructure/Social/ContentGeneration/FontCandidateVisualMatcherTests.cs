@@ -57,7 +57,9 @@ public sealed class FontCandidateVisualMatcherTests
             Guid.NewGuid(), "openai", "gpt", [Request(["Anton", "League Gothic", "Oswald"])], CancellationToken.None);
 
         Assert.Equal("League Gothic", chosen[TypographyRoles.Heading]);
-        Assert.Single(gateway.Images);
+        // The sheet, then the original slide so the reference stays legible even with a loose crop.
+        Assert.Equal(2, gateway.Images.Count);
+        Assert.Equal("image/png", gateway.Images[1].MediaType);
     }
 
     [Theory]
