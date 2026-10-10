@@ -59,8 +59,15 @@ public static class AestheticFreshness
     /// Bumped per the same convention so a v7 profile (which never asked the model for an ornament)
     /// is treated as stale and eligible for re-analysis.
     /// </para>
+    ///
+    /// <para>
+    /// v9 (client-style-fidelity, CSF-PA-01..05): catalog-constrained typography with candidates, a
+    /// located sample and the heading block width; observed text colour combinations with slide
+    /// counts; stricter divider recurrence. A v8 profile named fonts freely and derived its pairings,
+    /// so it is stale.
+    /// </para>
     /// </summary>
-    public const string CurrentSchemaVersion = "aesthetic-extractor/v8";
+    public const string CurrentSchemaVersion = "aesthetic-extractor/v9";
 
     /// <summary>
     /// Parses the trailing integer from an <c>"aesthetic-extractor/vN"</c> schema version string.

@@ -4,6 +4,7 @@ using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Integrations;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fonts;
 using Incoders.Hive.Domain.Integrations;
 using Incoders.Hive.Domain.Social.ClientBrandManuals;
 using Incoders.Hive.Domain.Social.ProfileAnalysis;
@@ -55,6 +56,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     // BrandMarkDetection.TryValidateBoundingBox/MinimumNormalizedArea guard (CAGH-PA-04 precedent).
     // Additive/backward-compatible: absent ornament key, or a malformed/out-of-range/below-minimum-
     // area box, defensively maps to null rather than throwing (CAVS-PA-04-b).
+    // aesthetic-extractor/v9 (client-style-fidelity, CSF-PA-01..05): typography names a bundled catalog
+    // family with ranked candidates, a located sample and the heading block width; the model reports
+    // the text colour combinations it observes (with slide counts), which are then grounded in the
+    // reference pixels; a divider must recur on a third of the text slides.
     // aesthetic-freshness-versioning: MUST stay equal to AestheticFreshness.CurrentSchemaVersion —
     // referencing the constant directly (both are compile-time consts) guarantees they never drift.
     private const string PromptVersion = AestheticFreshness.CurrentSchemaVersion;
@@ -122,7 +127,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         // CAGH-PA-03): also track each pair's StoragePath so the model's Image {i} index — which is
         // the POST-SKIP loadedPairs index, since a failed OpenAsync above is `continue`d — can be
         // resolved to the archived storage path entirely inside this extractor.
-        var loadedPairs = new List<(AiImageInput Image, string? Caption, string StoragePath)>(referenceImages.Count);
+        var loadedPairs = new List<(AiImageInput Image, string? Caption, string StoragePath, byte[] Bytes)>(referenceImages.Count);
         foreach (var pair in referenceImages)
         {
             var opened = await _storage.OpenAsync(pair.Image.StoragePath, ct);
@@ -137,10 +142,12 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             using var stream = opened.Value;
             using var buffer = new MemoryStream();
             await stream.Content.CopyToAsync(buffer, ct);
+            var bytes = buffer.ToArray();
             loadedPairs.Add((
-                new AiImageInput(stream.Mime, Convert.ToBase64String(buffer.ToArray())),
+                new AiImageInput(stream.Mime, Convert.ToBase64String(bytes)),
                 pair.Caption,
-                pair.Image.StoragePath));
+                pair.Image.StoragePath,
+                bytes));
         }
 
         if (loadedPairs.Count == 0)
@@ -229,11 +236,36 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "visible and consistent enough to read off the pixels. Return `typography` with up to " +
             "three optional sub-objects: `heading` (the largest/boldest headline type), `body` (the " +
             "smaller supporting copy), and `caption` (small overline/caption/CTA-scale type, e.g. a " +
-            "signature line or call-to-action). Each present sub-object has `family` (the font family " +
-            "or closest-matching style name, e.g. \"Poppins\"), `weight` (CSS numeric weight 100-900), " +
-            "`italic` (boolean), and `sizeRatio` (the type's height as a fraction of the slide's total " +
-            "height, e.g. 0.08). Omit a sub-object entirely (do not fabricate placeholder values) when " +
-            "that role is not reliably distinguishable in the attached images. " +
+            "signature line or call-to-action). Each present sub-object has: `family` — EXACTLY one " +
+            "name from this bundled font catalog, the one whose letterforms are closest to the " +
+            "client's type: " + FontCatalogPromptList + ". Compare proportions before style: a tall, " +
+            "very narrow headline face is a CONDENSED family, never a regular-width one, and a heavy " +
+            "condensed face is not the same as a medium condensed one. `candidates` — up to 4 catalog " +
+            "names ranked from most to least similar (the first equals `family`). `width` — " +
+            "\"condensed\", \"normal\" or \"wide\". `weight` (CSS numeric weight 100-900, as it " +
+            "looks), `italic` (boolean), and `sizeRatio` — the distance between two consecutive " +
+            "baselines of that text divided by the slide's total height (for a single line, cap height " +
+            "plus descender over slide height); MEASURE it on the pixels, do not estimate from " +
+            "impression. `sampleText` — the EXACT words of the clearest occurrence of this role, " +
+            "keeping accents and line order; `sourceImageIndex` — the integer index (matching the " +
+            "\"Image {i}\" numbering above) of the image holding that occurrence; and `boundingBox` — " +
+            "a normalised region tight around that text block as " +
+            "`{\"x\":0..1,\"y\":0..1,\"width\":0..1,\"height\":0..1}` (origin top-left). For " +
+            "`heading` also return `blockWidthRatio` — the width of the client's typical headline text " +
+            "block divided by the slide width (e.g. 0.5 when headlines stack in the left half). Omit a " +
+            "sub-object entirely (do not fabricate placeholder values) when that role is not reliably " +
+            "distinguishable in the attached images. " +
+            // CSF-PA-03 (client-style-fidelity): observed text colour combinations, with frequency.
+            "Also return `textColorCombinations`: every combination of colours the client uses for " +
+            "TEXT, as observed on the attached slides — one entry per distinct combination with " +
+            "`backgroundKind` (\"flat\" when the text sits on a solid colour background, \"photo\" " +
+            "when it sits over a photograph), `backgroundHex` (the solid background colour for flat; for " +
+            "photo, the dominant tone directly behind the text), `textHex` (the main text colour), " +
+            "`highlightHex` (the colour of emphasised words inside the same text when the client " +
+            "highlights some words in a different colour; null otherwise), and `slideCount` (how many " +
+            "attached slides use this combination). Only report combinations you actually SEE on the " +
+            "slides; never derive one from the palette, and never report an accent colour as a " +
+            "background unless whole slides really use it as their background. " +
             // CAFF-PA-03 (client-aesthetic-fidelity-fixes, WU-3a): per-slide photo-transparency signal,
             // index-aligned with slideMixPattern. Boolean + qualitative descriptor ONLY — never a
             // numeric opacity/alpha value.
@@ -254,7 +286,8 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "`dividerRule` — EXACTLY ONE of \"line\" (a plain horizontal/vertical rule, no glyph), " +
             "\"line-with-diamond\" (a rule with a nested rotated-square glyph), or " +
             "\"line-with-dot\" (a rule with a nested dot glyph) — null when no recurring divider " +
-            "rule is visible. Also return `compositionArchetype`, a short lowercase-hyphenated token " +
+            "rule is visible. Report a divider ONLY when the same rule appears on at least a third of " +
+            "the slides that carry text; a line seen on one or two slides is not the client's style. Also return `compositionArchetype`, a short lowercase-hyphenated token " +
             "describing the client's recurring slide-layout system (e.g. \"left-aligned\", " +
             "\"centered\", \"lower-third\", or another token that best matches an archetype you " +
             "observe — do not force-fit an ill-matching one of those three), null when no consistent " +
@@ -295,7 +328,8 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         // D9 (CAGH-PA-03): pass the post-skip StoragePath list so Map()/MapBrandMark() can resolve
         // the model's sourceImageIndex without depending on prompt ordering elsewhere.
         var storagePaths = loadedPairs.Select(lp => lp.StoragePath).ToArray();
-        return Map(result.Value.Payload, storagePaths);
+        var sampler = SkiaColorCoverageSampler.FromImages(loadedPairs.Select(lp => lp.Bytes));
+        return Map(result.Value.Payload, storagePaths, sampler.ImageCount > 0 ? sampler.MaxCoverage : null);
     }
 
     // Default background-candidate roles used when calling ColorPairingDerivation from the extractor.
@@ -303,7 +337,10 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     private static readonly IReadOnlyList<ColorRole> DefaultBackgroundRoles =
         [ColorRole.Primary, ColorRole.Secondary, ColorRole.Accent];
 
-    private static AestheticExtraction Map(AestheticExtractionDto dto, IReadOnlyList<string> storagePaths)
+    private static AestheticExtraction Map(
+        AestheticExtractionDto dto,
+        IReadOnlyList<string> storagePaths,
+        Func<string, double>? coverage = null)
     {
         var palette = (dto.Palette ?? [])
             .Where(p => !string.IsNullOrWhiteSpace(p.Hex))
@@ -313,9 +350,21 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         // client-aligned-carousel-generation: map slideMixPattern → BackgroundPattern (CAC-BSP-01-a)
         var backgroundPattern = MapSlideMixPattern(dto.SlideMixPattern);
 
-        // client-aligned-carousel-generation: derive color pairings from extracted palette (CAC-BSP-03)
-        // Uses all non-Neutral roles as background candidates since the brand manual is not available here.
-        var colorPairings = ColorPairingDerivation.Derive(DefaultBackgroundRoles, palette);
+        // client-style-fidelity CSF-PA-03: combinations the model OBSERVED on the slides win. Without
+        // them, fall back to deriving pairings from the palette's roles (CAC-BSP-03), which uses all
+        // non-Neutral roles as background candidates since the brand manual is not available here.
+        IReadOnlyList<ColorPairing> colorPairings = MapObservedCombinations(dto.TextColorCombinations);
+        if (colorPairings.Count == 0)
+        {
+            colorPairings = ColorPairingDerivation.Derive(DefaultBackgroundRoles, palette);
+        }
+
+        // CSF-PA-04: a flat background must actually appear in the client's pixels. Skipped when no
+        // reference image could be decoded — no evidence is not evidence of absence.
+        if (coverage is not null)
+        {
+            colorPairings = ColorPairingEvidence.Ground(colorPairings, coverage);
+        }
 
         // CACD-PA-01 (OQ-1): map conceptualMethod DTO → ConceptualMethod value object.
         // Unrecognised method token → Unknown (deterministic; no nullable suppressor).
@@ -435,6 +484,43 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             DecorationMotifs: decorationMotifs);
     }
 
+    /// <summary>
+    /// The catalog the model must pick typography from (CSF-PA-01): every bundled family with its width
+    /// and class, so "League Gothic (condensed display)" and "Oswald (condensed display)" are named,
+    /// not guessed from memory.
+    /// </summary>
+    private static readonly string FontCatalogPromptList = string.Join(", ", BundledFontCatalog.Families.Select(f =>
+        $"{f.Name} ({f.Width.ToString().ToLowerInvariant()} {f.Classification.ToString().ToLowerInvariant()})"));
+
+    // CSF-PA-03: observed combinations → ColorPairing, most-used first. Entries without a valid
+    // background/text hex are dropped; a missing slide count still counts as one observed slide.
+    private static IReadOnlyList<ColorPairing> MapObservedCombinations(ColorCombinationDto?[]? combinations)
+    {
+        if (combinations is null)
+        {
+            return [];
+        }
+
+        return combinations
+            .Where(c => c is not null
+                        && SkiaColorCoverageSampler.TryParseHex(c.BackgroundHex, out _)
+                        && SkiaColorCoverageSampler.TryParseHex(c.TextHex, out _))
+            .Select(c => c!)
+            .OrderByDescending(c => c.SlideCount ?? 1)
+            .Select((c, index) => new ColorPairing(
+                NormalizeHex(c.BackgroundHex!),
+                NormalizeHex(c.TextHex!),
+                index + 1,
+                SkiaColorCoverageSampler.TryParseHex(c.HighlightHex, out _) ? NormalizeHex(c.HighlightHex!) : null,
+                Math.Max(1, c.SlideCount ?? 1),
+                string.Equals(c.BackgroundKind?.Trim(), ColorPairingKinds.Photo, StringComparison.OrdinalIgnoreCase)
+                    ? ColorPairingKinds.Photo
+                    : ColorPairingKinds.Flat))
+            .ToArray();
+    }
+
+    private static string NormalizeHex(string hex) => "#" + hex.Trim().TrimStart('#').ToUpperInvariant();
+
     // CAGH-PA-01/02 (WU-6a, v5): defensive brandMark mapping — markType is normalised through
     // BrandMarkDetection.NormalizeMarkType (never throws; missing/unrecognised → "unknown"); text is
     // kept only when the normalised markType is "text" and the raw value is not blank, so a
@@ -494,7 +580,8 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     {
         if (dto is { Family: { } family } && !string.IsNullOrWhiteSpace(family))
         {
-            roles.Add(new AestheticTypography(role, family, dto.Weight ?? 400, dto.Italic ?? false, dto.SizeRatio ?? 0));
+            roles.Add(new AestheticTypography(
+                role, family, dto.Weight ?? 400, dto.Italic ?? false, dto.SizeRatio ?? 0, dto.BlockWidthRatio));
         }
     }
 
@@ -548,7 +635,18 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         [property: JsonPropertyName("slideBackgroundTransparency")] SlideTransparencyDto?[]? SlideBackgroundTransparency = null,
         // CAVS-PA-01/02/03 (client-aesthetic-visual-sophistication, WU-2): recurring decoration
         // signals (additive nullable; absent on pre-v7 responses → null; cold-start parity).
-        [property: JsonPropertyName("decorationMotifs")] DecorationMotifsDto? DecorationMotifs = null);
+        [property: JsonPropertyName("decorationMotifs")] DecorationMotifsDto? DecorationMotifs = null,
+        // CSF-PA-03 (client-style-fidelity, v9): observed text colour combinations (additive nullable;
+        // absent on pre-v9 responses → null, and the legacy derived pairings apply).
+        [property: JsonPropertyName("textColorCombinations")] ColorCombinationDto?[]? TextColorCombinations = null);
+
+    // CSF-PA-03: one observed text colour combination.
+    private sealed record ColorCombinationDto(
+        [property: JsonPropertyName("backgroundKind")] string? BackgroundKind = null,
+        [property: JsonPropertyName("backgroundHex")] string? BackgroundHex = null,
+        [property: JsonPropertyName("textHex")] string? TextHex = null,
+        [property: JsonPropertyName("highlightHex")] string? HighlightHex = null,
+        [property: JsonPropertyName("slideCount")] int? SlideCount = null);
 
     private sealed record PaletteEntryDto(
         [property: JsonPropertyName("hex")] string? Hex,
@@ -612,7 +710,15 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         [property: JsonPropertyName("family")] string? Family = null,
         [property: JsonPropertyName("weight")] int? Weight = null,
         [property: JsonPropertyName("italic")] bool? Italic = null,
-        [property: JsonPropertyName("sizeRatio")] double? SizeRatio = null);
+        [property: JsonPropertyName("sizeRatio")] double? SizeRatio = null,
+        // CSF-PA-01 (v9): catalog candidates, width class, the clearest sample and the heading's block
+        // width. All additive nullable — absent on pre-v9 responses.
+        [property: JsonPropertyName("candidates")] string[]? Candidates = null,
+        [property: JsonPropertyName("width")] string? Width = null,
+        [property: JsonPropertyName("sampleText")] string? SampleText = null,
+        [property: JsonPropertyName("sourceImageIndex")] int? SourceImageIndex = null,
+        [property: JsonPropertyName("boundingBox")] BoundingBoxDto? BoundingBox = null,
+        [property: JsonPropertyName("blockWidthRatio")] double? BlockWidthRatio = null);
 
     // CAFF-PA-03: per-slide transparency sub-DTO — boolean + qualitative descriptor ONLY, never a
     // numeric opacity/alpha field (settled decision 2). Array elements are independently nullable so

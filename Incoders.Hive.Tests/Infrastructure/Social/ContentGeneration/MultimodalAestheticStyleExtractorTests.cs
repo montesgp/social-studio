@@ -527,7 +527,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v8", gateway.CapturedPromptVersionKey);
+        Assert.Equal("aesthetic-extractor/v9", gateway.CapturedPromptVersionKey);
         Assert.Equal(AestheticFreshness.CurrentSchemaVersion, gateway.CapturedPromptVersionKey);
     }
 
@@ -544,7 +544,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v8", result.SchemaVersion);
+        Assert.Equal("aesthetic-extractor/v9", result.SchemaVersion);
         Assert.Equal(gateway.CapturedPromptVersionKey, result.SchemaVersion);
     }
 
@@ -1204,6 +1204,86 @@ public sealed class MultimodalAestheticStyleExtractorTests
         Assert.True(entry.Descriptor is null || entry.Descriptor is string);
     }
 
+    // ── client-style-fidelity (v9): catalog typography, observed colours, pixel grounding ───────
+
+    [Fact]
+    public async Task Prompt_ListsTheBundledCatalogAndAsksForObservedColourCombinations()
+    {
+        var gateway = new CaptureGateway();
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Contains("League Gothic (condensed display)", gateway.CapturedInstruction);
+        Assert.Contains("textColorCombinations", gateway.CapturedInstruction);
+        Assert.Contains("blockWidthRatio", gateway.CapturedInstruction);
+        Assert.Contains("at least a third", gateway.CapturedInstruction);
+    }
+
+    [Fact]
+    public async Task ObservedCombinations_BecomePairings_MostUsedFirst_WithKindAndCount()
+    {
+        var gateway = new CaptureGateway(
+            paletteJson: """[{"hex":"#A6CE3C","role":"accent","rank":1}]""",
+            textColorCombinationsJson: """
+                [
+                  {"backgroundKind":"photo","backgroundHex":"#1a1a1a","textHex":"#FFFFFF","highlightHex":"#A6CE3C","slideCount":6},
+                  {"backgroundKind":"flat","backgroundHex":"#0E0E0E","textHex":"#F2EDE2","highlightHex":"#A6CE3C","slideCount":10},
+                  {"backgroundKind":"flat","backgroundHex":"not-a-colour","textHex":"#FFFFFF","slideCount":3}
+                ]
+                """);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.ColorPairings);
+        Assert.Collection(
+            result.ColorPairings!,
+            flat =>
+            {
+                Assert.Equal("#0E0E0E", flat.BackgroundHex);
+                Assert.Equal("#A6CE3C", flat.AccentTextHex);
+                Assert.Equal(10, flat.SlideCount);
+                Assert.Equal(ColorPairingKinds.Flat, flat.Kind);
+            },
+            photo =>
+            {
+                Assert.Equal("#1A1A1A", photo.BackgroundHex);
+                Assert.Equal(ColorPairingKinds.Photo, photo.Kind);
+            });
+    }
+
+    [Fact]
+    public async Task DerivedPairings_AreGroundedInTheReferencePixels()
+    {
+        // The Demo Roasters case: the accent green becomes a derived background candidate, but no
+        // reference slide is a lime background, so that pairing is dropped.
+        var gateway = new CaptureGateway(
+            paletteJson: """[{"hex":"#0E0E0E","role":"background","rank":1},{"hex":"#A6CE3C","role":"accent","rank":1},{"hex":"#FFFFFF","role":"text-primary","rank":2}]""");
+        var storage = new PngStorage(new SkiaSharp.SKColor(0x0E, 0x0E, 0x0E));
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), storage);
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.NotNull(result.ColorPairings);
+        Assert.DoesNotContain(result.ColorPairings!, p => p.BackgroundHex == "#A6CE3C");
+        Assert.Contains(result.ColorPairings!, p => p.BackgroundHex == "#0E0E0E");
+    }
+
+    [Fact]
+    public async Task HeadingBlockWidthRatio_IsMapped()
+    {
+        var gateway = new CaptureGateway(
+            typographyJson: """{"heading":{"family":"League Gothic","weight":400,"sizeRatio":0.075,"blockWidthRatio":0.48,"candidates":["League Gothic","Antonio"]}}""");
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        var heading = Assert.Single(result.Typography!);
+        Assert.Equal("League Gothic", heading.FontFamily);
+        Assert.Equal(0.48, heading.BlockWidthRatio!.Value, precision: 5);
+    }
+
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);
     private static IWorkflowConfigurationResolver CandidateResolver() => new StubResolver(candidate: true);
 }
@@ -1222,6 +1302,30 @@ file sealed class StubResolver(bool candidate) : IWorkflowConfigurationResolver
             : [];
         return Task.FromResult(Result.Success(list));
     }
+}
+
+/// <summary>client-style-fidelity: storage that returns a real PNG filled with one colour.</summary>
+file sealed class PngStorage(SkiaSharp.SKColor fill) : IGeneratedAssetStorage
+{
+    public Task<StoredAssetRef> PutAssetAsync(StoredAssetKey key, StoredAssetContent content, CancellationToken ct) =>
+        throw new NotSupportedException();
+    public Task PutFolderPlaceholderAsync(string folderPath, CancellationToken ct) => Task.CompletedTask;
+    public Task<IReadOnlyList<StoredAssetEntry>> ListAsync(string prefix, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<StoredAssetEntry>>([]);
+    public Task<Result<StoredAssetStream>> OpenAsync(string storagePath, CancellationToken ct)
+    {
+        using var bitmap = new SkiaSharp.SKBitmap(60, 75);
+        using (var canvas = new SkiaSharp.SKCanvas(bitmap))
+        {
+            canvas.Clear(fill);
+        }
+
+        using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+        var stream = new MemoryStream(data.ToArray());
+        return Task.FromResult(Result.Success(new StoredAssetStream(stream, "image/png", stream.Length)));
+    }
+    public Task DeleteAsync(string storagePath, CancellationToken ct) => Task.CompletedTask;
 }
 
 file sealed class OneImageStorage : IGeneratedAssetStorage
@@ -1275,7 +1379,8 @@ file sealed class CaptureGateway(
     int? typicalSlideCount = null,
     string? typographyJson = null,
     string? transparencyJson = null,
-    string? decorationMotifsJson = null)
+    string? decorationMotifsJson = null,
+    string? textColorCombinationsJson = null)
     : IAiCompletionGateway
 {
     public bool WasCalled { get; private set; }
@@ -1322,8 +1427,11 @@ file sealed class CaptureGateway(
         var decorationMotifsPart = decorationMotifsJson is null
             ? string.Empty
             : $",\"decorationMotifs\":{decorationMotifsJson}";
+        var combinationsPart = textColorCombinationsJson is null
+            ? string.Empty
+            : $",\"textColorCombinations\":{textColorCombinationsJson}";
         var json =
-            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}{{brandMarkPart}}{{typicalSlideCountPart}}{{typographyPart}}{{transparencyPart}}{{decorationMotifsPart}}}""";
+            $$"""{"palette":{{paletteJson}},"styleDescriptors":{{descriptors}},"motifs":[],"captionVoice":{{voice}}{{patternPart}}{{conceptualPart}}{{countsPart}}{{brandMarkPart}}{{typicalSlideCountPart}}{{typographyPart}}{{transparencyPart}}{{decorationMotifsPart}}{{combinationsPart}}}""";
         var payload = JsonSerializer.Deserialize<TResponse>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         return Task.FromResult(Result.Success(new AiJsonCompletionResponse<TResponse>(payload, "claude", "claude-opus-4-8", [], null)));
     }
