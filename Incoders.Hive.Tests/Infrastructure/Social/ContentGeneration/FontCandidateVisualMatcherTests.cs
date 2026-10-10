@@ -18,18 +18,33 @@ public sealed class FontCandidateVisualMatcherTests
     private static readonly BrandMarkBoundingBox Box = new(0.1, 0.2, 0.5, 0.3);
 
     [Fact]
-    public void Sheet_RendersTheSampleInEveryCandidateFace_UnderTheReferenceCrop()
+    public void Sheet_RendersEveryCandidateWithTheClientsLineBreaks_BesideTheReference()
     {
-        var request = Request(["League Gothic", "Antonio", "Anton"]);
+        var request = Request(["League Gothic", "Antonio", "Anton"]) with
+        {
+            SampleText = "¿Sabés qué\ntoman\ntus clientes\nen tu local?",
+        };
 
-        var (markup, height) = FontCandidateVisualMatcher.BuildSheet([(request, "data:image/png;base64,AAAA")]);
+        var (markup, height) = FontCandidateVisualMatcher.BuildSheet(
+            [(request, new FontCandidateVisualMatcher.SampleCrop("data:image/png;base64,AAAA", IsDark: true))]);
 
         Assert.Contains("data:image/png;base64,AAAA", markup);
+        Assert.Contains("REFERENCE", markup);
         Assert.Contains("font-family:'League Gothic'", markup);
-        Assert.Contains("font-family:'Antonio'", markup);
         Assert.Contains("font-family:'Anton'", markup);
-        Assert.Contains("toman tus clientes", markup);
+        // Same line breaks, same light-on-dark scheme as the reference.
+        Assert.Contains("toman<br>tus clientes", markup);
+        Assert.Contains("color:#F2EDE2", markup);
         Assert.True(height > 0);
+    }
+
+    [Theory]
+    [InlineData("uno\ndos\ntres", 3)]
+    [InlineData("uno\\ndos", 2)]          // an escaped newline the model left in the JSON string
+    [InlineData("una sola línea", 1)]
+    public void SampleLines_FollowTheClientsBreaks(string sample, int expectedLines)
+    {
+        Assert.Equal(expectedLines, FontCandidateVisualMatcher.SampleLines(sample).Count);
     }
 
     [Fact]
@@ -86,13 +101,15 @@ public sealed class FontCandidateVisualMatcherTests
     }
 
     [Fact]
-    public void Crop_ReturnsAPngDataUri_AndRejectsADegenerateBox()
+    public void Crop_ReturnsAPngDataUri_DetectsTheGround_AndRejectsADegenerateBox()
     {
         var image = Png(400, 500);
 
-        Assert.StartsWith("data:image/png;base64,", FontCandidateVisualMatcher.CropToDataUri(image, Box));
-        Assert.Null(FontCandidateVisualMatcher.CropToDataUri(image, new BrandMarkBoundingBox(0.99, 0.99, 0.001, 0.001)));
-        Assert.Null(FontCandidateVisualMatcher.CropToDataUri([1, 2, 3], Box));
+        var crop = FontCandidateVisualMatcher.CropSample(image, Box);
+        Assert.StartsWith("data:image/png;base64,", crop!.DataUri);
+        Assert.True(crop.IsDark);
+        Assert.Null(FontCandidateVisualMatcher.CropSample(image, new BrandMarkBoundingBox(0.99, 0.99, 0.001, 0.001)));
+        Assert.Null(FontCandidateVisualMatcher.CropSample([1, 2, 3], Box));
     }
 
     private static FontMatchRequest Request(IReadOnlyList<string> candidates) =>

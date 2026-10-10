@@ -51,7 +51,7 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
     private const string CapabilityKey = "ai-aesthetic";
     private const string PromptVersion = "font-visual-match/v1";
     private const int SheetWidth = 1080;
-    private const int MaxSampleLength = 40;
+    private const int MaxLineLength = 24;
 
     private readonly IContentRenderer _renderer;
     private readonly IAiCompletionGateway _gateway;
@@ -75,7 +75,7 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
         CancellationToken ct)
     {
         var sections = requests
-            .Select(r => (Request: r, Crop: CropToDataUri(r.ImageBytes, r.Box)))
+            .Select(r => (Request: r, Crop: CropSample(r.ImageBytes, r.Box)))
             .Where(s => s.Crop is not null && s.Request.Candidates.Count >= 2)
             .ToArray();
         if (sections.Length == 0)
@@ -143,61 +143,98 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
     }
 
     internal static string BuildInstruction(IEnumerable<string> roles) =>
-        "The attached image is a typeface comparison sheet. Each section (" +
+        "The attached image is a typeface comparison sheet with one section per role (" +
         string.Join(", ", roles.Select(r => r.ToUpperInvariant())) +
-        ") starts with a REFERENCE crop of a client's real slide text, followed by numbered candidate " +
-        "rows that render the same words in different typefaces. For each section choose the number of " +
-        "the candidate whose LETTERFORMS match the reference best: compare horizontal condensation and " +
-        "proportions first, then x-height, stroke weight and contrast, and the shapes of letters such as " +
-        "a, e, g, s, S, Q and question marks. Ignore colour, size and background. Return ONLY JSON like " +
+        "). In each section the tile labelled REFERENCE is a crop of a client's real slide text; the " +
+        "numbered tiles render the same words, with the same line breaks and colours, in different " +
+        "typefaces. For each section choose the number whose LETTERFORMS match the reference best: " +
+        "compare horizontal condensation and proportions first, then stroke weight and the shapes of " +
+        "letters such as a, e, g, s, S and question marks. Ignore size. Return ONLY JSON like " +
         "{\"heading\": 2, \"body\": 1, \"caption\": 3}, with one integer per section shown.";
 
-    /// <summary>
-    /// One section per role: the reference crop, then every candidate drawing the sample in its own
-    /// face. Candidate families are bundled, so the renderer embeds each one (D2).
-    /// </summary>
-    internal static (string Markup, int Height) BuildSheet(IReadOnlyList<(FontMatchRequest Request, string CropDataUri)> sections)
-    {
-        const int sectionHeader = 56;
-        const int referenceHeight = 240;
-        const int rowHeight = 112;
+    private const int Tile = 340;
+    private const int Gap = 12;
+    private const int TilePadding = 20;
+    private const int SectionHeader = 48;
+    private const int Columns = 3;
 
+    /// <summary>
+    /// One section per role, laid out as a grid of equal tiles: the reference crop first, then every
+    /// candidate drawing the sample in its own face with the client's line breaks and the reference's
+    /// light/dark scheme. Rendering candidates at another scale, on one line and in other colours made
+    /// the comparison unstable — the same client came back as League Gothic on one run and Anton on
+    /// the next. Candidate families are bundled, so the renderer embeds each one (D2).
+    /// </summary>
+    internal static (string Markup, int Height) BuildSheet(IReadOnlyList<(FontMatchRequest Request, SampleCrop Crop)> sections)
+    {
         var html = new StringBuilder();
         var top = 0;
         foreach (var (request, crop) in sections)
         {
-            html.Append(CultureFormat($"<div style=\"position:absolute;left:24px;top:{top + 12}px;font:600 28px 'Inter',sans-serif;color:#111;\">{WebUtility.HtmlEncode(request.Role.ToUpperInvariant())}</div>"));
-            top += sectionHeader;
-            html.Append(CultureFormat($"<img src=\"{crop}\" style=\"position:absolute;left:24px;top:{top}px;max-width:{SheetWidth - 48}px;height:{referenceHeight - 16}px;object-fit:contain;object-position:left center;\" />"));
-            top += referenceHeight;
+            html.Append(CultureFormat($"<div style=\"position:absolute;left:{Gap}px;top:{top + 8}px;font:600 26px 'Inter',sans-serif;color:#111;\">{WebUtility.HtmlEncode(request.Role.ToUpperInvariant())}</div>"));
+            top += SectionHeader;
 
-            var sample = WebUtility.HtmlEncode(Sample(request.SampleText));
+            var (background, foreground) = crop.IsDark ? ("#111111", "#F2EDE2") : ("#F5F5F5", "#111111");
+            var lines = SampleLines(request.SampleText);
+            var text = string.Join("<br>", lines.Select(WebUtility.HtmlEncode));
+            var fontSize = Math.Min(110, (Tile - (2 * TilePadding)) / lines.Count);
+
+            var tiles = new List<string>
+            {
+                TileHtml(background, "REFERENCE",
+                    CultureFormat($"<img src=\"{crop.DataUri}\" style=\"position:absolute;left:{TilePadding}px;top:{TilePadding}px;width:{Tile - (2 * TilePadding)}px;height:{Tile - (2 * TilePadding)}px;object-fit:contain;object-position:left top;\" />")),
+            };
             for (var i = 0; i < request.Candidates.Count; i++)
             {
                 var family = request.Candidates[i].Replace("'", string.Empty, StringComparison.Ordinal);
-                html.Append(CultureFormat($"<div style=\"position:absolute;left:24px;top:{top}px;width:64px;font:700 40px 'Inter',sans-serif;color:#C00;\">{i + 1}</div>"));
-                html.Append(CultureFormat($"<div style=\"position:absolute;left:96px;top:{top}px;width:{SheetWidth - 120}px;white-space:nowrap;overflow:hidden;font-family:'{family}',sans-serif;font-size:76px;line-height:1.2;color:#111;\">{sample}</div>"));
-                top += rowHeight;
+                tiles.Add(TileHtml(background, (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    CultureFormat($"<div style=\"position:absolute;left:{TilePadding}px;top:{TilePadding}px;white-space:nowrap;font-family:'{family}',sans-serif;font-size:{fontSize}px;line-height:1;color:{foreground};\">{text}</div>")));
             }
 
-            html.Append(CultureFormat($"<div style=\"position:absolute;left:0;top:{top + 8}px;width:{SheetWidth}px;height:2px;background:#888;\"></div>"));
-            top += 24;
+            for (var t = 0; t < tiles.Count; t++)
+            {
+                var left = Gap + ((t % Columns) * (Tile + Gap));
+                var tileTop = top + ((t / Columns) * (Tile + Gap));
+                html.Append(CultureFormat($"<div style=\"position:absolute;left:{left}px;top:{tileTop}px;\">{tiles[t]}</div>"));
+            }
+
+            var rows = (tiles.Count + Columns - 1) / Columns;
+            top += (rows * (Tile + Gap)) + Gap;
         }
 
         var markup = CultureFormat($"<div style=\"position:relative;width:{SheetWidth}px;height:{top}px;background:#FFFFFF;overflow:hidden;\">{html}</div>");
         return (markup, top);
     }
 
+    private static string TileHtml(string background, string label, string content) =>
+        CultureFormat($"<div style=\"position:relative;width:{Tile}px;height:{Tile}px;background:{background};overflow:hidden;\">{content}<div style=\"position:absolute;right:8px;top:4px;font:700 26px 'Inter',sans-serif;color:#E33;\">{WebUtility.HtmlEncode(label)}</div></div>");
+
     private static string CultureFormat(FormattableString value) => FormattableString.Invariant(value);
 
-    private static string Sample(string text)
+    /// <summary>
+    /// The sample's lines as the client breaks them (the extractor reports them separated by
+    /// newlines), at most five, each trimmed to a length a tile can hold.
+    /// </summary>
+    internal static IReadOnlyList<string> SampleLines(string text)
     {
-        var collapsed = string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        return collapsed.Length <= MaxSampleLength ? collapsed : collapsed[..MaxSampleLength];
+        var lines = text
+            .Replace("\\n", "\n", StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => string.Join(' ', l.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)))
+            .Select(l => l.Length <= MaxLineLength ? l : l[..MaxLineLength])
+            .Take(5)
+            .ToList();
+        return lines.Count > 0 ? lines : [text.Length <= MaxLineLength ? text : text[..MaxLineLength]];
     }
 
-    /// <summary>Crops the sample (with a small margin) and returns it as a PNG data URI, or null.</summary>
-    internal static string? CropToDataUri(byte[] imageBytes, BrandMarkBoundingBox box)
+    /// <summary>A cropped text sample and whether its ground is dark.</summary>
+    internal sealed record SampleCrop(string DataUri, bool IsDark);
+
+    /// <summary>
+    /// Crops the sample (with a small margin) to a PNG data URI and measures whether its ground is dark,
+    /// so the candidate tiles use the same light/dark scheme. Null when the sample cannot be cropped.
+    /// </summary>
+    internal static SampleCrop? CropSample(byte[] imageBytes, BrandMarkBoundingBox box)
     {
         try
         {
@@ -231,12 +268,31 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
 
             using var image = SKImage.FromBitmap(cropped);
             using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-            return "data:image/png;base64," + Convert.ToBase64String(data.ToArray());
+            return new SampleCrop("data:image/png;base64," + Convert.ToBase64String(data.ToArray()), IsDark(cropped));
         }
         catch (Exception)
         {
             return null;
         }
+    }
+
+    /// <summary>Mean luminance below the midpoint: most of a text block's pixels are its ground.</summary>
+    private static bool IsDark(SKBitmap bitmap)
+    {
+        double sum = 0;
+        var count = 0;
+        var step = Math.Max(1, Math.Min(bitmap.Width, bitmap.Height) / 32);
+        for (var y = 0; y < bitmap.Height; y += step)
+        {
+            for (var x = 0; x < bitmap.Width; x += step)
+            {
+                var c = bitmap.GetPixel(x, y);
+                sum += (0.2126 * c.Red) + (0.7152 * c.Green) + (0.0722 * c.Blue);
+                count++;
+            }
+        }
+
+        return count > 0 && sum / count < 128;
     }
 
     private sealed record FontMatchAnswer(

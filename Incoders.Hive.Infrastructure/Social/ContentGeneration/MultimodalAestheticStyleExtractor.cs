@@ -260,7 +260,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "baselines of that text divided by the slide's total height (for a single line, cap height " +
             "plus descender over slide height); MEASURE it on the pixels, do not estimate from " +
             "impression. `sampleText` — the EXACT words of the clearest occurrence of this role, " +
-            "keeping accents and line order; `sourceImageIndex` — the integer index (matching the " +
+            "keeping accents, with a newline (\\n) exactly where the client breaks each line; `sourceImageIndex` — the integer index (matching the " +
             "\"Image {i}\" numbering above) of the image holding that occurrence; and `boundingBox` — " +
             "a normalised region tight around that text block as " +
             "`{\"x\":0..1,\"y\":0..1,\"width\":0..1,\"height\":0..1}` (origin top-left). For " +
