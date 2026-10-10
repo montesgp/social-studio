@@ -1,3 +1,4 @@
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Background;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Formats.Carousel;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 using Incoders.Hive.Domain.Social.ContentGeneration;
@@ -121,7 +122,7 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
                 ? plan.ForSlide(slideIndex)
                 : null;
 
-            specs.Add(BuildSlideSpec(brand, inferred, slide, slideIndex, payload.CoverTitle, payload.CtaText, backgroundSelection, profile));
+            specs.Add(BuildSlideSpec(brand, inferred, slide, slideIndex, payload.CoverTitle, payload.CtaText, backgroundSelection, profile, payload.Slides.Count));
         }
 
         return specs;
@@ -135,12 +136,17 @@ internal sealed class CarouselVisualComposer : IFormatVisualComposer, IMultiAsse
         string coverTitle,
         string ctaText,
         BackgroundSelection? backgroundSelection,
-        ClientAestheticProfile? profile = null)
+        ClientAestheticProfile? profile = null,
+        int? totalSlides = null)
     {
         // WU-3: use the pairing/slide-index overload so rotating colour pairings are applied
         // when profile.ColorPairings is non-empty; null profile or empty pairings delegates
         // to the existing positional palette (cold-start parity — CAC-BSP-04-a).
-        var palette = CompositionDefaults.ResolvePalette(brand, profile, slideIndex, inferred);
+        // client-style-fidelity CSF-CG-03: observed pairings are allocated by frequency and by slide
+        // kind, so a photo slide gets the client's text-over-photo colours.
+        var slideCount = totalSlides ?? slideIndex;
+        var slideKind = CreativeSlideIndexResolver.ResolveKindForSlide(profile?.BackgroundPattern, slideCount, slideIndex);
+        var palette = CompositionDefaults.ResolvePalette(brand, profile, slideIndex, inferred, slideCount, slideKind);
         // exact-client-typography: sizes are a ratio of canvas height, so the resolver needs the canvas
         // it is composing for. Falls back to the brand/default typography when the profile has none.
         var typography = CompositionDefaults.ResolveTypography(

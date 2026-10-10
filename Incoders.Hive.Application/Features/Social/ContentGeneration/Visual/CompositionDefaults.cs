@@ -124,12 +124,18 @@ internal static class CompositionDefaults
         BrandSnapshot brand,
         ClientAestheticProfile? profile,
         int slideIndex,
-        InferenceAccumulator inferred)
+        InferenceAccumulator inferred,
+        // client-style-fidelity CSF-CG-03: carousel length and this slide's background kind, so
+        // observed pairings can be allocated by how often the client really uses each one.
+        int? totalSlides = null,
+        SlideBackgroundKind? slideKind = null)
     {
         var pairings = profile?.ColorPairings;
         if (pairings is { Count: > 0 })
         {
-            var p = pairings[(slideIndex - 1) % pairings.Count];
+            var p = pairings.Any(x => x.IsObserved)
+                ? SelectObservedPairing(pairings, slideIndex, totalSlides ?? slideIndex, slideKind)
+                : pairings[(slideIndex - 1) % pairings.Count];
             var basePalette = ResolvePalette(brand, inferred);
             return basePalette with
             {
@@ -143,6 +149,85 @@ internal static class CompositionDefaults
         }
 
         return ResolvePalette(brand, inferred);
+    }
+
+    /// <summary>
+    /// CSF-CG-03: picks an OBSERVED pairing for one slide.
+    /// <list type="bullet">
+    /// <item>A photo slide takes the client's photo pairing (text over their photos), falling back to
+    /// the dominant flat pairing's colours when none was observed.</item>
+    /// <item>Other slides take flat pairings allocated in proportion to their observed slide counts
+    /// (largest remainder, dominant first). A client who used one combination on 10 slides and another
+    /// on 1 gets the dominant one on every slide of a short carousel — never a 50/50 alternation.</item>
+    /// </list>
+    /// </summary>
+    private static ColorPairing SelectObservedPairing(
+        IReadOnlyList<ColorPairing> pairings,
+        int slideIndex,
+        int totalSlides,
+        SlideBackgroundKind? slideKind)
+    {
+        var flat = pairings
+            .Where(p => p.IsObserved && !IsPhotoPairing(p))
+            .OrderByDescending(p => p.SlideCount)
+            .ThenBy(p => p.Rank)
+            .ToArray();
+
+        if (slideKind == SlideBackgroundKind.Photo)
+        {
+            var photo = pairings
+                .Where(p => p.IsObserved && IsPhotoPairing(p))
+                .OrderByDescending(p => p.SlideCount)
+                .FirstOrDefault();
+            if (photo is not null)
+            {
+                return photo;
+            }
+        }
+
+        if (flat.Length == 0)
+        {
+            return pairings.Where(p => p.IsObserved).OrderByDescending(p => p.SlideCount).First();
+        }
+
+        var allocation = AllocateByFrequency(flat.Select(p => p.SlideCount!.Value).ToArray(), Math.Max(1, totalSlides));
+        var position = Math.Clamp(slideIndex - 1, 0, allocation.Count - 1);
+        return flat[allocation[position]];
+    }
+
+    private static bool IsPhotoPairing(ColorPairing pairing) =>
+        string.Equals(pairing.Kind, ColorPairingKinds.Photo, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Largest-remainder allocation of <paramref name="slots"/> slides across pairings weighted by
+    /// <paramref name="counts"/> (already sorted, dominant first). Returns, for each slide position, the
+    /// index of its pairing — dominant pairing's slides first, so the cover carries the client's most
+    /// typical look.
+    /// </summary>
+    private static IReadOnlyList<int> AllocateByFrequency(IReadOnlyList<int> counts, int slots)
+    {
+        var total = counts.Sum();
+        var quotas = counts.Select(c => (double)c * slots / total).ToArray();
+        var assigned = quotas.Select(q => (int)Math.Floor(q)).ToArray();
+
+        var remaining = slots - assigned.Sum();
+        foreach (var index in quotas
+                     .Select((q, i) => (Remainder: q - Math.Floor(q), Index: i))
+                     .OrderByDescending(x => x.Remainder)
+                     .ThenBy(x => x.Index)
+                     .Take(remaining)
+                     .Select(x => x.Index))
+        {
+            assigned[index]++;
+        }
+
+        var sequence = new List<int>(slots);
+        for (var i = 0; i < assigned.Length; i++)
+        {
+            sequence.AddRange(Enumerable.Repeat(i, assigned[i]));
+        }
+
+        return sequence;
     }
 
     /// <summary>

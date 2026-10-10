@@ -869,7 +869,8 @@ public sealed class ContentGenerationJobProcessor
                         {
                             var paletteInferred = new InferenceAccumulator();
                             var flatPalette = CompositionDefaults.ResolvePalette(
-                                brand, aestheticProfile, specIndex + 1, paletteInferred);
+                                brand, aestheticProfile, specIndex + 1, paletteInferred,
+                                totalSlides: specs.Count, slideKind: SlideBackgroundKind.FlatColor);
                             foreach (var f in paletteInferred.Fields)
                             {
                                 inferred.Add(f);

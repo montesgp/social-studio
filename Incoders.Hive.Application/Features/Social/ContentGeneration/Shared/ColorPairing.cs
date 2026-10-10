@@ -18,8 +18,31 @@ namespace Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
 /// equal to <see cref="TextHex"/>. Null when the palette offers no legible third colour, in which case
 /// the slide renders as a plain two-colour pairing exactly as before.
 /// </param>
+/// <param name="SlideCount">
+/// client-style-fidelity (CSF-PA-03): how many of the client's analysed slides use this combination.
+/// Present only for combinations OBSERVED in the client's posts; null for pairings derived from the
+/// palette's role hierarchy, which keep the legacy rotation.
+/// </param>
+/// <param name="Kind">
+/// <see cref="ColorPairingKinds.Flat"/> (text over a solid background) or
+/// <see cref="ColorPairingKinds.Photo"/> (text over a photograph, where <see cref="BackgroundHex"/>
+/// is the tone behind the text). Null for derived pairings.
+/// </param>
 public sealed record ColorPairing(
     string BackgroundHex,
     string TextHex,
     int Rank,
-    string? AccentTextHex = null);
+    string? AccentTextHex = null,
+    int? SlideCount = null,
+    string? Kind = null)
+{
+    /// <summary>True when the pairing was observed in the client's posts rather than derived.</summary>
+    public bool IsObserved => SlideCount is > 0;
+}
+
+/// <summary>Values of <see cref="ColorPairing.Kind"/>.</summary>
+public static class ColorPairingKinds
+{
+    public const string Flat = "flat";
+    public const string Photo = "photo";
+}
