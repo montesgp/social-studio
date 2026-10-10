@@ -1395,6 +1395,27 @@ public sealed class MultimodalAestheticStyleExtractorTests
         Assert.NotEmpty(result.Palette);
     }
 
+    [Theory]
+    [InlineData("{\"heading\":{\"family\":\"Anton\",\"candidates\":[\"Anton\",\"League Gothic\"],\"sampleText\":\"tus clientes\",\"sourceImageIndex\":0,\"boundingBox\":{\"left\":0.1,\"top\":0.2,\"w\":0.5,\"h\":0.3}}}", 0.1, 0.5)]
+    [InlineData("{\"heading\":{\"family\":\"Anton\",\"candidates\":[\"Anton\",\"League Gothic\"],\"sampleText\":\"tus clientes\",\"sourceImageIndex\":0,\"boundingBox\":{\"x1\":0.1,\"y1\":0.2,\"x2\":0.6,\"y2\":0.5}}}", 0.1, 0.5)]
+    [InlineData("{\"heading\":{\"family\":\"Anton\",\"candidates\":[\"Anton\",\"League Gothic\"],\"sampleText\":\"tus clientes\",\"sourceImageIndex\":0}}", 0.0, 1.0)]
+    [InlineData("{\"heading\":{\"family\":\"Anton\",\"candidates\":[\"Anton\",\"League Gothic\"],\"sampleText\":\"tus clientes\",\"sourceImageIndex\":0,\"boundingBox\":{\"region\":\"top-left\"}}}", 0.0, 1.0)]
+    public async Task VisualMatch_ReadsCommonBoxShapes_AndFallsBackToTheWholeSlide(
+        string typographyJson, double expectedX, double expectedWidth)
+    {
+        var gateway = new CaptureGateway(typographyJson: typographyJson);
+        var matcher = new FakeFontMatcher(new Dictionary<string, string> { ["heading"] = "League Gothic" });
+        var extractor = new MultimodalAestheticStyleExtractor(
+            gateway, CandidateResolver(), new PngStorage(SkiaSharp.SKColors.Black), fontMatcher: matcher);
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        var request = Assert.Single(matcher.Requests);
+        Assert.Equal(expectedX, request.Box.X, precision: 5);
+        Assert.Equal(expectedWidth, request.Box.Width, precision: 5);
+        Assert.Equal("League Gothic", Assert.Single(result.Typography!).FontFamily);
+    }
+
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);
     private static IWorkflowConfigurationResolver CandidateResolver() => new StubResolver(candidate: true);
 }

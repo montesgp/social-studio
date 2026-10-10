@@ -354,7 +354,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             var requests = BuildFontMatchRequests(
                 result.Value.Payload.Typography, loadedPairs.Select(lp => lp.Bytes).ToArray(), out var skipped);
             _logger.LogInformation(
-                "AestheticExtractor: typography {Families} for org {OrganizationId}; visual font comparison for {Compared} role(s), skipped {Skipped}.",
+                "AestheticExtractor: typography {Families} for org {OrganizationId}; visual font comparison for {Compared} role(s); notes: {Skipped}.",
                 string.Join(", ", typography.Select(t => $"{t.Role}={t.FontFamily}")),
                 organizationId,
                 requests.Count,
@@ -638,14 +638,21 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             }
 
             if (string.IsNullOrWhiteSpace(dto.SampleText)
-                || dto.SourceImageIndex is not { } index || index < 0 || index >= images.Count
-                || dto.BoundingBox is not { } box)
+                || dto.SourceImageIndex is not { } index || index < 0 || index >= images.Count)
             {
                 skipped.Add($"{role}: no located sample");
                 continue;
             }
 
-            var validBox = NormalizeSampleBox(box, images[index]);
+            // Knowing which slide holds the sample is enough to compare: when its box is missing or
+            // unusable the whole slide becomes the reference, rather than skipping the comparison and
+            // falling back to a font named from memory.
+            var box = dto.BoundingBox;
+            var validBox = (box is null ? null : NormalizeSampleBox(box, images[index])) ?? WholeImage;
+            if (box is not null && ReferenceEquals(validBox, WholeImage))
+            {
+                skipped.Add($"{role}: sample box [{box.Keys}] unusable, comparing against the whole slide");
+            }
             var candidates = new[] { dto.Family }
                 .Concat(dto.Candidates ?? [])
                 .Select(BundledFontCatalog.Find)
@@ -654,11 +661,9 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(5)
                 .ToArray();
-            if (validBox is null || candidates.Length < 2)
+            if (candidates.Length < 2)
             {
-                skipped.Add(validBox is null
-                    ? $"{role}: unusable sample box ({box.X_}, {box.Y_}, {box.Width_}, {box.Height_})"
-                    : $"{role}: fewer than two catalog candidates");
+                skipped.Add($"{role}: fewer than two catalog candidates");
                 continue;
             }
 
@@ -667,6 +672,8 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
 
         return requests;
     }
+
+    private static readonly BrandMarkBoundingBox WholeImage = new(0, 0, 1, 1);
 
     /// <summary>
     /// CSF-PA-02: a text sample's location only has to be good enough to crop the words, so it is read
@@ -864,10 +871,38 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         [property: JsonPropertyName("width")] JsonElement? Width = null,
         [property: JsonPropertyName("height")] JsonElement? Height = null)
     {
-        public double? X_ => ReadDouble(X);
-        public double? Y_ => ReadDouble(Y);
-        public double? Width_ => ReadDouble(Width);
-        public double? Height_ => ReadDouble(Height);
+        /// <summary>
+        /// client-style-fidelity: keys outside the asked-for shape. Vision models often answer with
+        /// left/top, w/h or two corners instead of x/y/width/height; those are read as aliases.
+        /// </summary>
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement>? Extra { get; init; }
+
+        public double? X_ => ReadDouble(X) ?? Alias("left", "xmin", "x1", "x0");
+        public double? Y_ => ReadDouble(Y) ?? Alias("top", "ymin", "y1", "y0");
+        public double? Width_ => ReadDouble(Width) ?? Alias("w") ?? Span(X_, "right", "xmax", "x2");
+        public double? Height_ => ReadDouble(Height) ?? Alias("h") ?? Span(Y_, "bottom", "ymax", "y2");
+
+        /// <summary>The raw keys, for the skip log when nothing usable was found.</summary>
+        public string Keys => string.Join("/", new[] { X is null ? null : "x", Y is null ? null : "y", Width is null ? null : "width", Height is null ? null : "height" }
+            .Where(k => k is not null)
+            .Concat(Extra?.Keys ?? Enumerable.Empty<string>()));
+
+        private double? Alias(params string[] keys)
+        {
+            foreach (var key in keys)
+            {
+                if (Extra is not null && Extra.TryGetValue(key, out var value) && ReadDouble(value) is { } number)
+                {
+                    return number;
+                }
+            }
+
+            return null;
+        }
+
+        private double? Span(double? start, params string[] endKeys) =>
+            start is { } s && Alias(endKeys) is { } end && end > s ? end - s : null;
 
         private static double? ReadDouble(JsonElement? element) =>
             element is { ValueKind: JsonValueKind.Number } el && el.TryGetDouble(out var value)
