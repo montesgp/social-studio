@@ -2680,3 +2680,20 @@ deferred: the extractor still reports a `Line` divider for clients that do not u
 today would reintroduce stray bars.
 
 *Merged from `openspec/changes/client-style-fidelity/specs/content-generation/spec-delta.md` — change applied 2026-10-10.*
+
+---
+
+## Client Style Fidelity — Follow-up (2026-10-11)
+
+### Requirement: CSF-CG-08 — Generated Images Reproduce the Client's Slide Treatment
+
+Each generated image prompt MUST carry the client's treatment observed at that slide position
+(e.g. "product cut-out on seamless black backdrop"), the backdrop tone behind their text when an
+observed pairing provides it, and the headline's reserved area. Product shots MUST ask for plain,
+unbranded packaging, and the image negative prompt MUST suppress printed labels.
+
+### Requirement: CSF-CG-09 — A Failed Prompt Writer Does Not Flatten the Slide
+
+When the image prompt writer fails, the slide's own image description (the carousel generator's
+`imagePromptHint`) plus the treatment cue MUST be used as the prompt. Only a slide with no
+description degrades to the flat treatment.
