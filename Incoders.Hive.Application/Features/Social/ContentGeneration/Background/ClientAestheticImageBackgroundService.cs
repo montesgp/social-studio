@@ -278,7 +278,23 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
                 pairing is { IsObserved: true } ? pairing.BackgroundHex : null);
 
             var promptResult = await _promptWriter.WriteAsync(promptRequest, ct);
-            if (promptResult.IsFailure)
+            string prompt;
+            if (promptResult.IsSuccess)
+            {
+                prompt = promptResult.Value;
+            }
+            else if (!string.IsNullOrWhiteSpace(copySummary))
+            {
+                // client-style-fidelity CSF-CG-09: the slide's copy summary is the image description the
+                // carousel generator already wrote for it, so a failed prompt-writer call (a provider
+                // hiccup, an exhausted quota) still yields the client's image instead of a flat slide.
+                prompt = copySummary.Trim() + ImagePromptWriter.SlideTreatmentCue(promptRequest);
+                _logger.LogWarning(
+                    "ClientAestheticImageBackgroundService: prompt write failed for slide {SlideIndex} " +
+                    "(org {OrgId}): {Code}. Using the slide's own image description.",
+                    slideIndex, request.OrganizationId, promptResult.Error.Code);
+            }
+            else
             {
                 _logger.LogWarning(
                     "ClientAestheticImageBackgroundService: prompt write failed for slide {SlideIndex} " +
@@ -287,8 +303,6 @@ public sealed class ClientAestheticImageBackgroundService : IClientAestheticImag
                 await WriteCssFallbackTelemetryAsync(request, slideIndex, promptResult.Error.Code);
                 return (slideIndex, null);
             }
-
-            var prompt = promptResult.Value;
 
             // 2. OQ-3: check reuse by prompt hash.
             var promptHash = ComputePromptHash(prompt);

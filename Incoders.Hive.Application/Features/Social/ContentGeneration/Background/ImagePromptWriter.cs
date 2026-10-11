@@ -234,7 +234,8 @@ public sealed class ImagePromptWriter : IImagePromptWriter
             cue.Append(" SLIDE TREATMENT: in the client's own carousels this slide position is treated as \"")
                 .Append(request.SlideTreatment.Trim())
                 .Append("\". Reproduce that treatment faithfully — subject placement, backdrop, lighting and how ")
-                .Append("the image blends; a subject isolated on a seamless backdrop stays isolated on a seamless backdrop.");
+                .Append("the image blends; a subject isolated on a seamless backdrop stays isolated on a seamless backdrop. ")
+                .Append("Any product, bag or packaging is plain and unbranded, with no printed text, labels or logos.");
         }
 
         if (!string.IsNullOrWhiteSpace(request.BackdropHex))
