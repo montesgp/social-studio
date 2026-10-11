@@ -113,6 +113,25 @@ public sealed class EfClientAestheticProfileReaderTests : IDisposable
         Assert.Equal(newer, profile.AnalyzedAtUtc);
     }
 
+    [Fact]
+    public async Task GetProfileAsync_LatestAnalysisLostItsAesthetic_KeepsThePreviousAesthetic()
+    {
+        // A transient provider outage completes an analysis with no aesthetic. Generation must keep
+        // the client's last real aesthetic instead of falling back to a generic look.
+        var older = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
+        var newer = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+        SeedAnalysis(_orgId, _clientId, "Analyzed", new[] { "old bg" }, "old tone", null, older,
+            aestheticJson: """{"palette":[{"hex":"#0D0D0D","role":"background","rank":1}],"styleDescriptors":["dark"],"motifs":[],"captionVoice":null,"referenceImages":[]}""");
+        SeedAnalysis(_orgId, _clientId, "Analyzed", new[] { "new bg" }, "new tone", null, newer);
+        await _db.SaveChangesAsync();
+
+        var profile = await _reader.GetProfileAsync(_orgId, _clientId, CancellationToken.None);
+
+        Assert.NotNull(profile);
+        Assert.Equal("new tone", profile!.VoiceTone);
+        Assert.Equal("#0D0D0D", Assert.Single(profile.Palette!).Hex);
+    }
+
     // -----------------------------------------------------------------------
     // Null/absent averageSlidesPerCarousel → null on returned profile
     // -----------------------------------------------------------------------
@@ -182,7 +201,8 @@ public sealed class EfClientAestheticProfileReaderTests : IDisposable
         string[]? backgroundDescriptors,
         string? voiceTone,
         double? avgSlides,
-        DateTime? completedAt)
+        DateTime? completedAt,
+        string? aestheticJson = null)
     {
         // ai_analysis_json holds DetectedBackgroundImages + VoiceTone
         string? aiJson = null;
@@ -214,6 +234,7 @@ public sealed class EfClientAestheticProfileReaderTests : IDisposable
             Status = status,
             AiAnalysisJson = aiJson,
             ServerDerivedStatsJson = statsJson,
+            AestheticProfileJson = aestheticJson,
             CompletedAtUtc = completedAt,
             CreatedAtUtc = completedAt?.AddHours(-1) ?? DateTime.UtcNow.AddDays(-3),
             UpdatedAtUtc = completedAt ?? DateTime.UtcNow.AddDays(-3),

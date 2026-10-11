@@ -68,6 +68,24 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
             return null;
         }
 
+        // An analysis can complete without an aesthetic (the extraction call failed or timed out, which
+        // is non-fatal). Falling back to "no aesthetic" would make the next generation generic, so the
+        // client's most recent real aesthetic is kept until a new extraction succeeds.
+        var aestheticJson = row.AestheticProfileJson;
+        if (string.IsNullOrWhiteSpace(aestheticJson))
+        {
+            aestheticJson = await _db.ProfileAnalyses
+                .AsNoTracking()
+                .Where(x =>
+                    x.OrganizationId == orgId &&
+                    x.ClientId == clientId &&
+                    x.Status == "Analyzed" &&
+                    x.AestheticProfileJson != null)
+                .OrderByDescending(x => x.CompletedAtUtc)
+                .Select(x => x.AestheticProfileJson)
+                .FirstOrDefaultAsync(ct);
+        }
+
         var (descriptors, voiceTone) = DeserializeAiAnalysis(row.AiAnalysisJson);
         var avgSlides = DeserializeAverageSlides(row.ServerDerivedStatsJson);
 
@@ -88,7 +106,7 @@ public sealed class EfClientAestheticProfileReader : IClientAestheticProfileRead
                 backgroundPattern, typicalSlideCount, colorPairings,
                 conceptualMethod, imageTypeRatio, brandMark, _, typography, backgroundTransparency,
                 decorationMotifs) =
-            AestheticProfilePersistence.Read(row.AestheticProfileJson);
+            AestheticProfilePersistence.Read(aestheticJson);
 
         return new ClientAestheticProfile(
             BackgroundDescriptors: descriptors,
