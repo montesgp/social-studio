@@ -46,6 +46,26 @@ public sealed class FontCondensationMeterTests
     }
 
     [Fact]
+    public void BrightPhotoBesideTheText_DoesNotStretchTheLines()
+    {
+        // A chrome espresso machine to the right of the headline lit up as "ink" and made every line
+        // look as wide as the crop, so a wider face scored best.
+        using var slide = Render("League Gothic", Lines, leading: 0.92);
+        using (var canvas = new SKCanvas(slide))
+        using (var chrome = new SKPaint { Color = SKColors.White })
+        {
+            canvas.DrawRect(860, 260, 200, 320, chrome);
+        }
+
+        var reference = FontCondensationMeter.MeasureReference(slide, darkGround: true)!;
+        var best = new[] { "Anton", "League Gothic", "Oswald" }
+            .MinBy(f => FontCondensationMeter.Score(reference, Lines, Face(f)) ?? double.MaxValue);
+
+        Assert.Equal(Lines.Length, reference.Count);
+        Assert.Equal("League Gothic", best);
+    }
+
+    [Fact]
     public void CapsOnlyFace_IsNotScoredForMixedCaseText()
     {
         using var slide = Render("League Gothic", Lines, leading: 0.92);

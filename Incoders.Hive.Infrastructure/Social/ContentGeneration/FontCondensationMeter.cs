@@ -45,10 +45,14 @@ internal static class FontCondensationMeter
             ink[i] = darkGround ? luminance[i] > threshold : luminance[i] < threshold;
         }
 
+        // Isolate the text block horizontally first: its columns form one wide run (word spaces fall at
+        // different places on each line), while a bright photo element beside it is a separate run.
+        var (spanStart, spanEnd) = WidestColumnRun(ink, width, height);
+
         var rowCounts = new int[height];
         for (var y = 0; y < height; y++)
         {
-            for (var x = 0; x < width; x++)
+            for (var x = spanStart; x < spanEnd; x++)
             {
                 if (ink[(y * width) + x])
                 {
@@ -103,24 +107,40 @@ internal static class FontCondensationMeter
         var ratios = new List<double>(merged.Count);
         foreach (var (s, e) in merged.Where(b => b.End - b.Start >= 0.4 * median))
         {
+            // The line ends at the first blank run wider than its x-height. Word spaces are much
+            // narrower, while bright parts of a photo beside the text (chrome, steam, highlights)
+            // would otherwise stretch every line to the crop's edge.
+            var bandHeight = e - s;
             int? left = null;
             var right = 0;
-            for (var x = 0; x < width; x++)
+            var gap = 0;
+            for (var x = spanStart; x < spanEnd; x++)
             {
+                var inked = false;
                 for (var y = s; y < e; y++)
                 {
                     if (ink[(y * width) + x])
                     {
-                        left ??= x;
-                        right = x;
+                        inked = true;
                         break;
                     }
+                }
+
+                if (inked)
+                {
+                    left ??= x;
+                    right = x;
+                    gap = 0;
+                }
+                else if (left is not null && ++gap > bandHeight)
+                {
+                    break;
                 }
             }
 
             if (left is { } l)
             {
-                ratios.Add((right - l + 1) / (double)(e - s));
+                ratios.Add((right - l + 1) / (double)bandHeight);
             }
         }
 
@@ -154,6 +174,11 @@ internal static class FontCondensationMeter
             return null;
         }
 
+        if (reference.Count != lines.Count)
+        {
+            return null;
+        }
+
         double total = 0;
         for (var i = 0; i < lines.Count; i++)
         {
@@ -168,6 +193,52 @@ internal static class FontCondensationMeter
         }
 
         return total / lines.Count;
+    }
+
+    /// <summary>
+    /// The widest run of columns containing ink, where runs are split by blank gaps wider than 3 % of
+    /// the crop. Returns [start, end).
+    /// </summary>
+    private static (int Start, int End) WidestColumnRun(bool[] ink, int width, int height)
+    {
+        var minGap = Math.Max(4, (int)(0.03 * width));
+        var best = (Start: 0, End: width);
+        var bestWidth = -1;
+        int? runStart = null;
+        var lastInk = 0;
+        for (var x = 0; x <= width; x++)
+        {
+            var inked = false;
+            if (x < width)
+            {
+                for (var y = 0; y < height; y++)
+                {
+                    if (ink[(y * width) + x])
+                    {
+                        inked = true;
+                        break;
+                    }
+                }
+            }
+
+            if (inked)
+            {
+                runStart ??= x;
+                lastInk = x;
+            }
+            else if (runStart is { } start && (x == width || x - lastInk > minGap))
+            {
+                if (lastInk + 1 - start > bestWidth)
+                {
+                    bestWidth = lastInk + 1 - start;
+                    best = (start, lastInk + 1);
+                }
+
+                runStart = null;
+            }
+        }
+
+        return bestWidth > 0 ? best : (0, width);
     }
 
     private static int Otsu(byte[] values)
