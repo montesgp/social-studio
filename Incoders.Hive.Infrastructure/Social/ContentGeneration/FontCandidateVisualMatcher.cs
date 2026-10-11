@@ -51,7 +51,7 @@ public interface IFontVisualMatcher
 public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
 {
     private const string CapabilityKey = "ai-aesthetic";
-    private const string PromptVersion = "font-visual-match/v3";
+    private const string PromptVersion = "font-visual-match/v4";
     private const string LocatePromptVersion = "font-sample-locate/v1";
     private const int SheetWidth = 1080;
     private const int MaxLineLength = 24;
@@ -79,13 +79,9 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
     {
         // A sample located inside the big extraction call often comes back without a box. A dedicated
         // single-slide question finds it reliably, so unlocated samples are located first.
-        var located = new List<FontMatchRequest>(requests.Count);
-        foreach (var r in requests)
-        {
-            located.Add(IsWholeImage(r.Box)
-                ? r with { Box = await LocateSampleAsync(organizationId, providerKey, modelId, r, ct) ?? r.Box }
-                : r);
-        }
+        var located = await Task.WhenAll(requests.Select(async r => IsWholeImage(r.Box)
+            ? r with { Box = await LocateSampleAsync(organizationId, providerKey, modelId, r, ct) ?? r.Box }
+            : r));
 
         // Alphabetical order: the first candidate is otherwise always the model's own first guess, and
         // the comparison answered "1" far more often than the pixels justified.
@@ -145,40 +141,24 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
                     string.Join(" | ", SampleLines(r.SampleText)), string.Join(", ", r.Candidates));
             }
 
-            // The sheets first, then each role's original slide at full resolution: a crop located by
-            // the model can be loose or missing, and the original keeps the reference legible.
-            var images = new List<AiImageInput>(sheets);
-            images.AddRange(sections.Select(s => new AiImageInput(MimeOf(s.Request.ImageBytes), Convert.ToBase64String(s.Request.ImageBytes))));
-
-            var request = new AiJsonCompletionRequest(
-                OrganizationId: organizationId,
-                AnalysisId: null,
-                CapabilityKey: CapabilityKey,
-                PromptVersionKey: PromptVersion,
-                InputJson: BuildInstruction(sections.Select(s => (s.Request.Role, s.Request.SampleText))),
-                PreferredProviderKey: providerKey,
-                PreferredModel: modelId,
-                Images: images);
-
-            var answer = await _gateway.CompleteJsonAsync<FontMatchAnswer>(request, ct);
-            if (answer.IsFailure)
-            {
-                _logger.LogWarning("FontVisualMatch: comparison call failed ({Code}); keeping extracted fonts.", answer.Error.Code);
-                return new Dictionary<string, string>();
-            }
+            // One call per role, in parallel: the sheet plus the role's original slide at full resolution
+            // (a crop located by the model can be loose). A single call carrying every role's images took
+            // longer than the whole comparison budget; per-role calls also fail independently.
+            var answers = await Task.WhenAll(sections.Select((section, i) =>
+                CompareRoleAsync(organizationId, providerKey, modelId, section.Request, sheets[i], ct)));
 
             _logger.LogInformation(
-                "FontVisualMatch: answer heading={Heading} body={Body} caption={Caption}{Sheet}.",
-                answer.Value.Payload.Heading, answer.Value.Payload.Body, answer.Value.Payload.Caption,
+                "FontVisualMatch: answers {Answers}{Sheets}.",
+                string.Join(", ", sections.Select((s, i) => $"{s.Request.Role}={answers[i]?.ToString() ?? "none"}")),
                 sheetPaths.Count == 0 ? string.Empty : $" sheets={string.Join(", ", sheetPaths)}");
 
             var chosen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (sectionRequest, _) in sections)
+            for (var i = 0; i < sections.Length; i++)
             {
-                var number = answer.Value.Payload.For(sectionRequest.Role);
-                if (number is { } n && n >= 1 && n <= sectionRequest.Candidates.Count)
+                var candidates = sections[i].Request.Candidates;
+                if (answers[i] is { } n && n >= 1 && n <= candidates.Count)
                 {
-                    chosen[sectionRequest.Role] = sectionRequest.Candidates[n - 1];
+                    chosen[sections[i].Request.Role] = candidates[n - 1];
                 }
             }
 
@@ -189,6 +169,35 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
             _logger.LogWarning(ex, "FontVisualMatch: comparison failed; keeping extracted fonts.");
             return new Dictionary<string, string>();
         }
+    }
+
+    /// <summary>The candidate number chosen for one role, or null when the call failed.</summary>
+    private async Task<int?> CompareRoleAsync(
+        Guid organizationId,
+        string providerKey,
+        string? modelId,
+        FontMatchRequest r,
+        AiImageInput sheet,
+        CancellationToken ct)
+    {
+        var answer = await _gateway.CompleteJsonAsync<FontMatchAnswer>(
+            new AiJsonCompletionRequest(
+                OrganizationId: organizationId,
+                AnalysisId: null,
+                CapabilityKey: CapabilityKey,
+                PromptVersionKey: PromptVersion,
+                InputJson: BuildInstruction([(r.Role, r.SampleText)]),
+                PreferredProviderKey: providerKey,
+                PreferredModel: modelId,
+                Images: [sheet, new AiImageInput(MimeOf(r.ImageBytes), Convert.ToBase64String(r.ImageBytes))]),
+            ct);
+        if (answer.IsFailure)
+        {
+            _logger.LogWarning("FontVisualMatch: {Role} comparison call failed ({Code}).", r.Role, answer.Error.Code);
+            return null;
+        }
+
+        return answer.Value.Payload.For(r.Role);
     }
 
     /// <summary>

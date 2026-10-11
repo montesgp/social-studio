@@ -140,7 +140,7 @@ public sealed class FontCandidateVisualMatcherTests
         var chosen = await matcher.MatchAsync(Guid.NewGuid(), "openai", "gpt", [unlocated], CancellationToken.None);
 
         Assert.Equal("League Gothic", chosen[TypographyRoles.Heading]);
-        Assert.Equal(["font-sample-locate/v1", "font-visual-match/v3"], gateway.PromptVersions);
+        Assert.Equal(["font-sample-locate/v1", "font-visual-match/v4"], gateway.PromptVersions);
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public sealed class FontCandidateVisualMatcherTests
 
         await matcher.MatchAsync(Guid.NewGuid(), "openai", "gpt", [Request(["Anton", "League Gothic"])], CancellationToken.None);
 
-        Assert.Equal(["font-visual-match/v3"], gateway.PromptVersions);
+        Assert.Equal(["font-visual-match/v4"], gateway.PromptVersions);
     }
 
     [Fact]
