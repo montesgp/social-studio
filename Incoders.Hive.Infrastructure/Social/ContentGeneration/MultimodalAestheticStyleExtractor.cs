@@ -60,6 +60,9 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     // family with ranked candidates, a located sample and the heading block width; the model reports
     // the text colour combinations it observes (with slide counts), which are then grounded in the
     // reference pixels; a divider must recur on a third of the text slides.
+    // aesthetic-extractor/v10 (client-style-fidelity, CSF-PA-06): strict photo/flat definitions — a
+    // subject on a solid backdrop is a photo slide — and a per-slide `photographicSubject` flag that
+    // promotes a FlatColor slide carrying a subject to Photo.
     // aesthetic-freshness-versioning: MUST stay equal to AestheticFreshness.CurrentSchemaVersion —
     // referencing the constant directly (both are compile-time consts) guarantees they never drift.
     private const string PromptVersion = AestheticFreshness.CurrentSchemaVersion;
@@ -193,10 +196,16 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "Each image is tagged above with the caption (message) of its post; use these captions to " +
             "infer HOW the client translates a message into a visual concept. " +
             // CACD-PA-02 (OQ-2): corpus-grounded image-type count.
-            "Count, across ALL attached posts, how many slides are photographic (real photos or staged " +
-            "photography), flat-color (solid background with template/text overlays), or decorator " +
-            "(purely decorative / graphic dividers) and return `imageTypeCounts` " +
-            "with fields `photo`, `flat`, and `decorator` (integer counts, not proportions). " +
+            "Count, across ALL attached posts, how many slides are photographic, flat-color, or " +
+            "decorator and return `imageTypeCounts` with fields `photo`, `flat`, and `decorator` " +
+            "(integer counts, not proportions). STRICT DEFINITIONS: a slide is `photo` when it carries " +
+            "ANY photographic or rendered subject — a real photo, staged photography, OR a product, " +
+            "object, person or cut-out placed on a solid/dark backdrop (a bag of coffee on seamless " +
+            "black is a photo slide, not a flat one). A slide is `flat` ONLY when it has NO " +
+            "photographic element at all: solid colour or gradient with text and simple vector " +
+            "shapes. `decorator` is purely decorative graphics. Also return `slideMixPattern`, one entry " +
+            "per attached image in the order attached, each EXACTLY one of \"photo\", \"flat\" or " +
+            "\"decorator\" under the same strict definitions. " +
             // measured-typical-slide-count: corpus-grounded slide-count measurement, replacing the
             // pattern-length proxy. MEDIAN (not mean) so a single outlier post cannot skew the count.
             "Also count how many slides EACH attached post has, and return `typicalSlideCount` as the " +
@@ -250,8 +259,11 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "looks), `italic` (boolean), and `sizeRatio` — the distance between two consecutive " +
             "baselines of that text divided by the slide's total height (for a single line, cap height " +
             "plus descender over slide height); MEASURE it on the pixels, do not estimate from " +
-            "impression. `sampleText` — the EXACT words of the clearest occurrence of this role, " +
-            "keeping accents and line order; `sourceImageIndex` — the integer index (matching the " +
+            "impression. `sampleText` — the EXACT words of the occurrence of this role that best reveals " +
+            "the typeface: the LONGEST one in lower or mixed case, at least three words, ideally with " +
+            "letters such as a, e, g, s and punctuation such as ¿? — never a single word or an " +
+            "all-caps label, whose capitals look alike in most condensed faces. Copy it " +
+            "keeping accents, with a newline (\\n) exactly where the client breaks each line; `sourceImageIndex` — the integer index (matching the " +
             "\"Image {i}\" numbering above) of the image holding that occurrence; and `boundingBox` — " +
             "a normalised region tight around that text block as " +
             "`{\"x\":0..1,\"y\":0..1,\"width\":0..1,\"height\":0..1}` (origin top-left). For " +
@@ -278,9 +290,12 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             "solid colour rather than a fully opaque photo). Return `slideBackgroundTransparency` as an " +
             "array, one entry per slide, aligned index-for-index with `slideMixPattern`. Each entry is " +
             "either an object with `blended` (boolean — true only when that slide clearly shows the " +
-            "faded/blended treatment) and `descriptor` (a short qualitative phrase describing the " +
-            "treatment, e.g. \"faded overlay\", \"soft blend\" — null when not applicable or not " +
-            "describable), or `null` when you cannot reliably tell for that slide. NEVER return a " +
+            "faded/blended treatment), `descriptor` (a short qualitative phrase describing how the " +
+            "slide's image is treated, e.g. \"faded overlay\", \"product cut-out on seamless black " +
+            "backdrop\" — null when not applicable or not describable) and `photographicSubject` " +
+            "(boolean — true when the slide shows ANY photographic or rendered subject: photo, product, " +
+            "object, person or cut-out, even on a solid backdrop; false only for pure text/vector " +
+            "slides), or `null` when you cannot reliably tell for that slide. NEVER return a " +
             "numeric opacity or alpha value for this signal — boolean + qualitative descriptor only. " +
             // CAVS-PA-01/02/03 (client-aesthetic-visual-sophistication, WU-2): recurring decoration
             // signals — a divider-rule style and a composition-archetype classification. Both are
@@ -340,16 +355,16 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         if (_fontMatcher is not null && extraction.Typography is { Count: > 0 } typography)
         {
             var requests = BuildFontMatchRequests(
-                result.Value.Payload.Typography, loadedPairs.Select(lp => lp.Bytes).ToArray(), out var skipped);
+                result.Value.Payload.Typography, loadedPairs.Select(lp => lp.Bytes).ToArray(), storagePaths, out var skipped);
             _logger.LogInformation(
-                "AestheticExtractor: typography {Families} for org {OrganizationId}; visual font comparison for {Compared} role(s), skipped {Skipped}.",
+                "AestheticExtractor: typography {Families} for org {OrganizationId}; visual font comparison for {Compared} role(s); notes: {Skipped}.",
                 string.Join(", ", typography.Select(t => $"{t.Role}={t.FontFamily}")),
                 organizationId,
                 requests.Count,
                 skipped.Count == 0 ? "none" : string.Join("; ", skipped));
             if (requests.Count > 0)
             {
-                var chosen = await _fontMatcher.MatchAsync(
+                var chosen = await MatchFontsWithinBudgetAsync(
                     organizationId, candidate.ProviderKey, candidate.ModelId, requests, ct);
                 if (chosen.Count > 0)
                 {
@@ -449,9 +464,18 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         IReadOnlyList<SlideBackgroundTransparency?>? backgroundTransparency = dto.SlideBackgroundTransparency is null
             ? null
             : dto.SlideBackgroundTransparency
-                .Select(t => t is null ? null : new SlideBackgroundTransparency(t.Blended ?? false, t.Descriptor))
+                .Select(t => t is null ? null : new SlideBackgroundTransparency(t.Blended ?? false, t.Descriptor, t.PhotographicSubject))
                 .ToArray();
         backgroundTransparency = BackgroundTransparencyReconciler.Align(backgroundPattern, backgroundTransparency);
+
+        // CSF-PA-06: a "flat" slide the model itself saw a photographic subject on (a product on a
+        // seamless backdrop) needs a generated image. When that changes the pattern, the ratio is
+        // recomputed from it so image planning and the slides it plans for agree.
+        backgroundPattern = SlideKindReconciler.Reclassify(backgroundPattern, backgroundTransparency, out var kindsChanged);
+        if (kindsChanged)
+        {
+            imageTypeRatio = SlideKindReconciler.RatioOf(backgroundPattern) ?? imageTypeRatio;
+        }
 
         // FFS-PA-01: map brandMark DTO → BrandMarkDetection VO. `Present: false` is a valid,
         // non-fabricated "no recurring mark" result — mapped whenever the model returns the
@@ -557,11 +581,45 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             .ToArray();
     }
 
+    /// <summary>
+    /// Longest the optional font comparison may take. It is a second vision call made after the
+    /// extraction, so it gets its own slice instead of whatever is left of the caller's budget.
+    /// </summary>
+    private static readonly TimeSpan FontMatchBudget = TimeSpan.FromSeconds(180);
+
+    /// <summary>
+    /// CSF-PA-02: runs the optional comparison without ever losing the extraction already completed.
+    /// A cancellation — its own time slice or the caller's budget running out — yields "no change",
+    /// so the model's own catalog pick stands; the caller still sees its own cancellation afterwards.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>> MatchFontsWithinBudgetAsync(
+        Guid organizationId,
+        string providerKey,
+        string? modelId,
+        IReadOnlyList<FontMatchRequest> requests,
+        CancellationToken ct)
+    {
+        using var slice = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        slice.CancelAfter(FontMatchBudget);
+        try
+        {
+            return await _fontMatcher!.MatchAsync(organizationId, providerKey, modelId, requests, slice.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "AestheticExtractor: visual font comparison ran out of time for org {OrganizationId}; keeping the extracted fonts.",
+                organizationId);
+            return new Dictionary<string, string>();
+        }
+    }
+
     // CSF-PA-02: a role is comparable when it names at least two catalog families and locates a
     // readable sample of the client's text.
     private static IReadOnlyList<FontMatchRequest> BuildFontMatchRequests(
         TypographyDto? typography,
         IReadOnlyList<byte[]> images,
+        IReadOnlyList<string> sources,
         out List<string> skipped)
     {
         skipped = [];
@@ -584,32 +642,105 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
             }
 
             if (string.IsNullOrWhiteSpace(dto.SampleText)
-                || dto.SourceImageIndex is not { } index || index < 0 || index >= images.Count
-                || dto.BoundingBox is not { } box)
+                || dto.SourceImageIndex is not { } index || index < 0 || index >= images.Count)
             {
                 skipped.Add($"{role}: no located sample");
                 continue;
             }
 
-            var validBox = BrandMarkDetection.TryValidateBoundingBox(box.X_, box.Y_, box.Width_, box.Height_);
-            var candidates = new[] { dto.Family }
-                .Concat(dto.Candidates ?? [])
-                .Select(BundledFontCatalog.Find)
-                .Where(f => f is not null)
-                .Select(f => f!.Name)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Take(5)
-                .ToArray();
-            if (validBox is null || candidates.Length < 2)
+            // Knowing which slide holds the sample is enough to compare: when its box is missing or
+            // unusable the whole slide becomes the reference, rather than skipping the comparison and
+            // falling back to a font named from memory.
+            var box = dto.BoundingBox;
+            var validBox = (box is null ? null : NormalizeSampleBox(box, images[index])) ?? WholeImage;
+            if (box is not null && ReferenceEquals(validBox, WholeImage))
             {
-                skipped.Add(validBox is null ? $"{role}: unusable sample box" : $"{role}: fewer than two catalog candidates");
+                skipped.Add($"{role}: sample box [{box.Keys}] unusable, comparing against the whole slide");
+            }
+            var candidates = ComparisonCandidates(dto.Family, dto.Candidates);
+            skipped.Add($"{role} candidates: {string.Join(", ", candidates)}");
+            if (candidates.Count < 2)
+            {
+                skipped.Add($"{role}: fewer than two catalog candidates");
                 continue;
             }
 
-            requests.Add(new FontMatchRequest(role, candidates, dto.SampleText, images[index], validBox));
+            requests.Add(new FontMatchRequest(role, candidates, dto.SampleText, images[index], validBox, sources[index]));
         }
 
         return requests;
+    }
+
+    private static readonly BrandMarkBoundingBox WholeImage = new(0, 0, 1, 1);
+
+    /// <summary>
+    /// Most faces one comparison shows (reference + 6 = a 3-column sheet of 3 rows). Eight made the
+    /// call slower without improving the pick.
+    /// </summary>
+    private const int MaxComparisonCandidates = 6;
+
+    /// <summary>
+    /// CSF-PA-02: the faces to compare. The comparison can only pick among the faces it is shown, and
+    /// the model's own short list tends to repeat its first guess — it never offered the narrower face
+    /// Demo Roasters actually uses. The list is therefore completed with every catalog family of the
+    /// same width and class as the model's pick: the model narrows the field, the pixels decide.
+    /// </summary>
+    internal static IReadOnlyList<string> ComparisonCandidates(string? family, IReadOnlyList<string>? modelCandidates)
+    {
+        var named = new[] { family }
+            .Concat(modelCandidates ?? [])
+            .Select(BundledFontCatalog.Find)
+            .Where(f => f is not null)
+            .Select(f => f!)
+            .DistinctBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (named.Count == 0)
+        {
+            return [];
+        }
+
+        var anchor = named[0];
+        var siblings = BundledFontCatalog.Families
+            .Where(f => f.Width == anchor.Width && f.Classification == anchor.Classification)
+            .Where(f => named.All(n => !string.Equals(n.Name, f.Name, StringComparison.OrdinalIgnoreCase)));
+
+        return named.Concat(siblings)
+            .Take(MaxComparisonCandidates)
+            .Select(f => f.Name)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// CSF-PA-02: a text sample's location only has to be good enough to crop the words, so it is read
+    /// leniently — unlike a brand-mark crop. Pixel coordinates (any value above 1) are converted with
+    /// the image's real size, and a box spilling past an edge is trimmed to the image.
+    /// </summary>
+    private static BrandMarkBoundingBox? NormalizeSampleBox(BoundingBoxDto box, byte[] image)
+    {
+        if (box.X_ is not { } x || box.Y_ is not { } y || box.Width_ is not { } w || box.Height_ is not { } h)
+        {
+            return null;
+        }
+
+        if (x > 1 || y > 1 || w > 1 || h > 1)
+        {
+            using var codec = SkiaSharp.SKCodec.Create(new MemoryStream(image));
+            if (codec is null || codec.Info.Width <= 0 || codec.Info.Height <= 0)
+            {
+                return null;
+            }
+
+            x /= codec.Info.Width;
+            w /= codec.Info.Width;
+            y /= codec.Info.Height;
+            h /= codec.Info.Height;
+        }
+
+        x = Math.Clamp(x, 0, 1);
+        y = Math.Clamp(y, 0, 1);
+        w = Math.Min(w, 1 - x);
+        h = Math.Min(h, 1 - y);
+        return BrandMarkDetection.TryValidateBoundingBox(x, y, w, h);
     }
 
     private static string NormalizeHex(string hex) => "#" + hex.Trim().TrimStart('#').ToUpperInvariant();
@@ -775,10 +906,38 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
         [property: JsonPropertyName("width")] JsonElement? Width = null,
         [property: JsonPropertyName("height")] JsonElement? Height = null)
     {
-        public double? X_ => ReadDouble(X);
-        public double? Y_ => ReadDouble(Y);
-        public double? Width_ => ReadDouble(Width);
-        public double? Height_ => ReadDouble(Height);
+        /// <summary>
+        /// client-style-fidelity: keys outside the asked-for shape. Vision models often answer with
+        /// left/top, w/h or two corners instead of x/y/width/height; those are read as aliases.
+        /// </summary>
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement>? Extra { get; init; }
+
+        public double? X_ => ReadDouble(X) ?? Alias("left", "xmin", "x1", "x0");
+        public double? Y_ => ReadDouble(Y) ?? Alias("top", "ymin", "y1", "y0");
+        public double? Width_ => ReadDouble(Width) ?? Alias("w") ?? Span(X_, "right", "xmax", "x2");
+        public double? Height_ => ReadDouble(Height) ?? Alias("h") ?? Span(Y_, "bottom", "ymax", "y2");
+
+        /// <summary>The raw keys, for the skip log when nothing usable was found.</summary>
+        public string Keys => string.Join("/", new[] { X is null ? null : "x", Y is null ? null : "y", Width is null ? null : "width", Height is null ? null : "height" }
+            .Where(k => k is not null)
+            .Concat(Extra?.Keys ?? Enumerable.Empty<string>()));
+
+        private double? Alias(params string[] keys)
+        {
+            foreach (var key in keys)
+            {
+                if (Extra is not null && Extra.TryGetValue(key, out var value) && ReadDouble(value) is { } number)
+                {
+                    return number;
+                }
+            }
+
+            return null;
+        }
+
+        private double? Span(double? start, params string[] endKeys) =>
+            start is { } s && Alias(endKeys) is { } end && end > s ? end - s : null;
 
         private static double? ReadDouble(JsonElement? element) =>
             element is { ValueKind: JsonValueKind.Number } el && el.TryGetDouble(out var value)
@@ -818,7 +977,9 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     // the model can mark a specific slide as "cannot tell" without invalidating the whole array.
     private sealed record SlideTransparencyDto(
         [property: JsonPropertyName("blended")] bool? Blended = null,
-        [property: JsonPropertyName("descriptor")] string? Descriptor = null);
+        [property: JsonPropertyName("descriptor")] string? Descriptor = null,
+        // CSF-PA-06 (v10): additive; absent on older responses → null (no reclassification).
+        [property: JsonPropertyName("photographicSubject")] bool? PhotographicSubject = null);
 
     // CAVS-PA-01/02/03: recurring decoration signals sub-DTO — dividerRule maps through the closed
     // DividerRuleStyle enum (defensive: unrecognised/malformed → null); compositionArchetype is an

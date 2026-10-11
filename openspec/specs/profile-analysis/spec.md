@@ -1364,3 +1364,36 @@ reference image. This applies to observed and derived pairings alike.
 the client's text slides.
 
 *Merged from `openspec/changes/client-style-fidelity/specs/profile-analysis/spec-delta.md` — change applied 2026-10-10.*
+
+---
+
+## Client Style Fidelity — Follow-up (2026-10-11)
+
+### Requirement: CSF-PA-06 — A Subject on a Solid Backdrop Is an Image Slide
+
+The extractor (`aesthetic-extractor/v10`) MUST classify a slide as `photo` when it carries any
+photographic or rendered subject (product, object, person, cut-out), even on a solid backdrop;
+`flat` is reserved for slides with no photographic element. Each per-slide entry reports
+`photographicSubject`, and a `FlatColor` slide flagged with a subject MUST be promoted to `Photo`,
+with the image-type ratio recomputed from the corrected pattern.
+
+#### Scenario: product on seamless black (CSF-PA-06-a)
+
+- GIVEN a slide showing a coffee bag on a seamless black backdrop
+- WHEN the profile is extracted
+- THEN that slide is `Photo` and receives a generated image
+
+### Requirement: CSF-PA-07 — Font Comparison Is Measured, Bounded and Non-Destructive
+
+The visual font comparison MUST: locate an unlocated sample on its own slide first; rank catalog
+candidates of the same width and class by per-line condensation measured from pixels (ink width over
+x-height, isolating the text block from photo highlights); take a clear winner directly and ask the
+vision model only to break a close call among the closest three; compare roles sequentially,
+heading first, within its own time slice; and never discard a completed extraction when it runs out
+of time. A sample box in pixels, with alias keys, or spilling past an edge MUST be normalised;
+an unusable box falls back to the whole slide.
+
+### Requirement: CSF-PA-08 — Last Real Aesthetic Survives a Failed Extraction
+
+When the latest analyzed profile has no aesthetic (the extraction failed, which is non-fatal), the
+profile reader MUST use the most recent analysis that has one.

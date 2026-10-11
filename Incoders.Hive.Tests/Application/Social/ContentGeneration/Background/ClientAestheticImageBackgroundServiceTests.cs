@@ -139,21 +139,37 @@ public sealed class ClientAestheticImageBackgroundServiceTests
     }
 
     // -----------------------------------------------------------------------
-    // Per-slide fallback on prompt failure (IMG-03-b / CIG-CG-03)
-    // Slide 1 prompt fails → slide 1 absent; slide 4 proceeds and succeeds.
+    // Prompt-writer failure (client-style-fidelity CSF-CG-09): the slide's own copy summary is
+    // already an image description, so it becomes the prompt instead of degrading the slide to CSS.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task BuildCreativeBackgroundsAsync_PromptFailureSlide1_Slide1AbsentSlide4Succeeds()
+    public async Task BuildCreativeBackgroundsAsync_PromptFailure_UsesTheSlidesOwnImageDescription()
     {
-        // Fail slide 1, succeed slide 4
+        var promptWriter = new PerSlidePromptWriter(failures: [1], successPrompt: "background");
+        var imageGateway = new CapturingImageGateway(bytes: [1, 2, 3], mime: "image/png");
+        var storage = new CapturingStorage(url: "https://example.com/image.png");
+        var sut = BuildSut(promptWriter, imageGateway, storage);
+
+        var result = await sut.BuildCreativeBackgroundsAsync(
+            BuildRequest([1], perSlideCopySummaries: ["Dark roaster drum with tumbling beans", "x", "x", "x", "x"]),
+            CancellationToken.None);
+
+        Assert.Contains(1, result.Keys);
+        Assert.StartsWith("Dark roaster drum with tumbling beans", imageGateway.LastRequest!.Prompt);
+    }
+
+    [Fact]
+    public async Task BuildCreativeBackgroundsAsync_PromptFailureWithoutDescription_SlideAbsentOthersSucceed()
+    {
         var promptWriter = new PerSlidePromptWriter(failures: [1], successPrompt: "background");
         var imageGateway = new StaticImageGateway(bytes: [1, 2, 3], mime: "image/png");
         var storage = new CapturingStorage(url: "https://example.com/image.png");
-
         var sut = BuildSut(promptWriter, imageGateway, storage);
 
-        var result = await sut.BuildCreativeBackgroundsAsync(BuildRequest([1, 4]), CancellationToken.None);
+        var result = await sut.BuildCreativeBackgroundsAsync(
+            BuildRequest([1, 4], perSlideCopySummaries: ["", "x", "x", "slide 4 copy", "x"]),
+            CancellationToken.None);
 
         Assert.DoesNotContain(1, result.Keys);
         Assert.Contains(4, result.Keys);

@@ -66,8 +66,14 @@ public static class AestheticFreshness
     /// counts; stricter divider recurrence. A v8 profile named fonts freely and derived its pairings,
     /// so it is stale.
     /// </para>
+    ///
+    /// <para>
+    /// v10 (client-style-fidelity, CSF-PA-06): strict photo/flat definitions and a per-slide
+    /// photographic-subject flag. A v9 profile classified products on a solid backdrop as flat
+    /// slides, which rendered as empty colour, so it is stale.
+    /// </para>
     /// </summary>
-    public const string CurrentSchemaVersion = "aesthetic-extractor/v9";
+    public const string CurrentSchemaVersion = "aesthetic-extractor/v10";
 
     /// <summary>
     /// Parses the trailing integer from an <c>"aesthetic-extractor/vN"</c> schema version string.

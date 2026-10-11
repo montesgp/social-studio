@@ -527,7 +527,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v9", gateway.CapturedPromptVersionKey);
+        Assert.Equal("aesthetic-extractor/v10", gateway.CapturedPromptVersionKey);
         Assert.Equal(AestheticFreshness.CurrentSchemaVersion, gateway.CapturedPromptVersionKey);
     }
 
@@ -544,7 +544,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
 
-        Assert.Equal("aesthetic-extractor/v9", result.SchemaVersion);
+        Assert.Equal("aesthetic-extractor/v10", result.SchemaVersion);
         Assert.Equal(gateway.CapturedPromptVersionKey, result.SchemaVersion);
     }
 
@@ -1302,7 +1302,7 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         Assert.Equal("League Gothic", Assert.Single(result.Typography!).FontFamily);
         var request = Assert.Single(matcher.Requests);
-        Assert.Equal(["Anton", "League Gothic", "Antonio"], request.Candidates);
+        Assert.Equal(["Anton", "League Gothic", "Antonio"], request.Candidates.Take(3));
     }
 
     [Fact]
@@ -1318,6 +1318,122 @@ public sealed class MultimodalAestheticStyleExtractorTests
 
         Assert.Equal("Anton", Assert.Single(result.Typography!).FontFamily);
         Assert.Empty(matcher.Requests);
+    }
+
+    // ── client-style-fidelity (v10): a subject on a solid backdrop is an image slide ────────────
+
+    [Fact]
+    public async Task FlatSlideWithAPhotographicSubject_IsPlannedAsAPhotoSlide()
+    {
+        var gateway = new CaptureGateway(
+            slideMixPattern: """["photo","flat","flat"]""",
+            imageTypeCountsJson: """{"photo":1,"flat":2,"decorator":0}""",
+            transparencyJson: """
+                [{"blended":false,"descriptor":"documentary photo","photographicSubject":true},
+                 {"blended":true,"descriptor":"product cut-out on seamless black backdrop","photographicSubject":true},
+                 {"blended":false,"descriptor":"text-only card","photographicSubject":false}]
+                """);
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Equal(
+            [SlideBackgroundKind.Photo, SlideBackgroundKind.Photo, SlideBackgroundKind.FlatColor],
+            result.BackgroundPattern);
+        Assert.Equal(2.0 / 3, result.ImageTypeRatio!.Photo, precision: 5);
+        Assert.True(result.BackgroundTransparency![1]!.HasPhotographicSubject);
+    }
+
+    [Fact]
+    public async Task Prompt_DefinesFlatAsHavingNoPhotographicElement()
+    {
+        var gateway = new CaptureGateway();
+        var extractor = new MultimodalAestheticStyleExtractor(gateway, CandidateResolver(), new OneImageStorage());
+
+        await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Contains("NO photographic element at all", gateway.CapturedInstruction);
+        Assert.Contains("photographicSubject", gateway.CapturedInstruction);
+    }
+
+    [Theory]
+    // Pixel coordinates on the 60x75 reference image the storage fake serves.
+    [InlineData("""{"x":6,"y":15,"width":30,"height":40}""")]
+    // A normalised box spilling just past the right edge.
+    [InlineData("""{"x":0.05,"y":0.2,"width":0.98,"height":0.4}""")]
+    public async Task VisualMatch_AcceptsPixelAndEdgeSpillingSampleBoxes(string boxJson)
+    {
+        var gateway = new CaptureGateway(
+            typographyJson: "{\"heading\":{\"family\":\"Anton\",\"candidates\":[\"Anton\",\"League Gothic\"]," +
+                            "\"sampleText\":\"tus clientes\",\"sourceImageIndex\":0,\"boundingBox\":" + boxJson + "}}");
+        var matcher = new FakeFontMatcher(new Dictionary<string, string> { ["heading"] = "League Gothic" });
+        var extractor = new MultimodalAestheticStyleExtractor(
+            gateway, CandidateResolver(), new PngStorage(SkiaSharp.SKColors.Black), fontMatcher: matcher);
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Single(matcher.Requests);
+        Assert.Equal("League Gothic", Assert.Single(result.Typography!).FontFamily);
+    }
+
+    [Fact]
+    public async Task VisualMatchRunningOutOfTime_KeepsTheCompletedExtraction()
+    {
+        // The comparison is a second vision call; when the enrichment budget expires during it, the
+        // extraction already finished must survive with the model's own font pick.
+        var gateway = new CaptureGateway(
+            paletteJson: """[{"hex":"#0D0D0D","role":"background","rank":1}]""",
+            typographyJson: "{\"heading\":{\"family\":\"Anton\",\"candidates\":[\"Anton\",\"League Gothic\"]," +
+                            "\"sampleText\":\"tus clientes\",\"sourceImageIndex\":0," +
+                            "\"boundingBox\":{\"x\":0.1,\"y\":0.2,\"width\":0.5,\"height\":0.3}}}");
+        var extractor = new MultimodalAestheticStyleExtractor(
+            gateway, CandidateResolver(), new PngStorage(SkiaSharp.SKColors.Black), fontMatcher: new CancelledFontMatcher());
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        Assert.Equal("Anton", Assert.Single(result.Typography!).FontFamily);
+        Assert.NotEmpty(result.Palette);
+    }
+
+    [Theory]
+    [InlineData("{\"heading\":{\"family\":\"Anton\",\"candidates\":[\"Anton\",\"League Gothic\"],\"sampleText\":\"tus clientes\",\"sourceImageIndex\":0,\"boundingBox\":{\"left\":0.1,\"top\":0.2,\"w\":0.5,\"h\":0.3}}}", 0.1, 0.5)]
+    [InlineData("{\"heading\":{\"family\":\"Anton\",\"candidates\":[\"Anton\",\"League Gothic\"],\"sampleText\":\"tus clientes\",\"sourceImageIndex\":0,\"boundingBox\":{\"x1\":0.1,\"y1\":0.2,\"x2\":0.6,\"y2\":0.5}}}", 0.1, 0.5)]
+    [InlineData("{\"heading\":{\"family\":\"Anton\",\"candidates\":[\"Anton\",\"League Gothic\"],\"sampleText\":\"tus clientes\",\"sourceImageIndex\":0}}", 0.0, 1.0)]
+    [InlineData("{\"heading\":{\"family\":\"Anton\",\"candidates\":[\"Anton\",\"League Gothic\"],\"sampleText\":\"tus clientes\",\"sourceImageIndex\":0,\"boundingBox\":{\"region\":\"top-left\"}}}", 0.0, 1.0)]
+    public async Task VisualMatch_ReadsCommonBoxShapes_AndFallsBackToTheWholeSlide(
+        string typographyJson, double expectedX, double expectedWidth)
+    {
+        var gateway = new CaptureGateway(typographyJson: typographyJson);
+        var matcher = new FakeFontMatcher(new Dictionary<string, string> { ["heading"] = "League Gothic" });
+        var extractor = new MultimodalAestheticStyleExtractor(
+            gateway, CandidateResolver(), new PngStorage(SkiaSharp.SKColors.Black), fontMatcher: matcher);
+
+        var result = await extractor.ExtractAsync(Org, Pairs, CancellationToken.None);
+
+        var request = Assert.Single(matcher.Requests);
+        Assert.Equal(expectedX, request.Box.X, precision: 5);
+        Assert.Equal(expectedWidth, request.Box.Width, precision: 5);
+        Assert.Equal("League Gothic", Assert.Single(result.Typography!).FontFamily);
+    }
+
+    [Fact]
+    public void ComparisonCandidates_AddEveryCatalogFaceOfTheSameWidthAndClass()
+    {
+        // The model offered only its own guesses; the client's real face must still be in the field.
+        var candidates = MultimodalAestheticStyleExtractor.ComparisonCandidates("Anton", ["Anton", "Oswald"]);
+
+        Assert.Equal("Anton", candidates[0]);
+        Assert.Contains("League Gothic", candidates);
+        Assert.Contains("Antonio", candidates);
+        Assert.DoesNotContain("Poppins", candidates);
+        Assert.True(candidates.Count <= 6);
+        Assert.Equal(candidates.Count, candidates.Distinct().Count());
+    }
+
+    [Fact]
+    public void ComparisonCandidates_IgnoreNamesOutsideTheCatalog()
+    {
+        Assert.Empty(MultimodalAestheticStyleExtractor.ComparisonCandidates("Gotham", ["Helvetica"]));
     }
 
     private static IWorkflowConfigurationResolver EmptyResolver() => new StubResolver(candidate: false);
@@ -1375,6 +1491,14 @@ file sealed class FakeFontMatcher(IReadOnlyDictionary<string, string> choice) : 
         Requests.AddRange(requests);
         return Task.FromResult(choice);
     }
+}
+
+/// <summary>client-style-fidelity: a comparison that runs out of time.</summary>
+file sealed class CancelledFontMatcher : IFontVisualMatcher
+{
+    public Task<IReadOnlyDictionary<string, string>> MatchAsync(
+        Guid organizationId, string providerKey, string? modelId, IReadOnlyList<FontMatchRequest> requests, CancellationToken ct) =>
+        throw new OperationCanceledException();
 }
 
 file sealed class OneImageStorage : IGeneratedAssetStorage

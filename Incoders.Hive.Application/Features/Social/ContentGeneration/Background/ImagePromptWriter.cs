@@ -202,6 +202,9 @@ public sealed class ImagePromptWriter : IImagePromptWriter
             }
         }
 
+        // client-style-fidelity CSF-CG-08: reproduce the client's treatment at this slide position.
+        instruction += SlideTreatmentCue(request);
+
         // Build the clientAesthetic block. New fields (conceptualMethod, imageTypeRatio) are added
         // conditionally so the JSON remains clean. Existing fields serialized in the same order as before.
         var clientAesthetic = BuildClientAesthetic(a, cm, ratio);
@@ -217,6 +220,42 @@ public sealed class ImagePromptWriter : IImagePromptWriter
                 imagePrompt = "string - one vivid image-generation prompt for a TEXT-FREE background in the client's style",
             },
         };
+    }
+
+    /// <summary>
+    /// CSF-CG-08: the client's own treatment at this slide position, the backdrop tone behind their
+    /// text, and the room their headline needs. Empty when nothing was observed (cold-start parity).
+    /// </summary>
+    internal static string SlideTreatmentCue(ImagePromptRequest request)
+    {
+        var cue = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(request.SlideTreatment))
+        {
+            cue.Append(" SLIDE TREATMENT: in the client's own carousels this slide position is treated as \"")
+                .Append(request.SlideTreatment.Trim())
+                .Append("\". Reproduce that treatment faithfully — subject placement, backdrop, lighting and how ")
+                .Append("the image blends; a subject isolated on a seamless backdrop stays isolated on a seamless backdrop. ")
+                .Append("Any product, bag or packaging is plain and unbranded, with no printed text, labels or logos.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.BackdropHex))
+        {
+            cue.Append(" The backdrop and the tone behind the headline are ")
+                .Append(request.BackdropHex.Trim())
+                .Append(", as in the client's slides.");
+        }
+
+        var heading = request.Aesthetic.Typography?
+            .FirstOrDefault(t => string.Equals(t.Role, TypographyRoles.Heading, StringComparison.OrdinalIgnoreCase));
+        if (heading?.BlockWidthRatio is > 0 and <= 1 && (cue.Length > 0))
+        {
+            var percent = (int)Math.Round(heading.BlockWidthRatio.Value * 100, MidpointRounding.AwayFromZero);
+            cue.Append(" Keep the left ")
+                .Append(percent)
+                .Append("% of the frame calm and uncluttered: the client's headline sits there.");
+        }
+
+        return cue.ToString();
     }
 
     /// <summary>

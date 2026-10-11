@@ -52,7 +52,9 @@ public sealed class ComfyUiImageModelClient : IImageModelClient
         "text, letters, words, typography, watermark, signature, caption, logo, label, subtitles, " +
         "writing, font, handwriting, numbers, low quality, blurry, deformed, distorted, extra limbs, " +
         "extra fingers, missing fingers, fused fingers, bad hands, malformed hands, deformed face, " +
-        "duplicate face, cloned face, two heads, extra person, mutated, disfigured, bad anatomy";
+        "duplicate face, cloned face, two heads, extra person, mutated, disfigured, bad anatomy, " +
+        // client-style-fidelity: product shots invite printed packaging, rendered as garbled pseudo-text.
+        "printed label, packaging text, brand name, product label, sticker";
 
     /// <summary>
     /// Exact JSON substring for the KSampler "model" edge wired to the IP-Adapter output (node

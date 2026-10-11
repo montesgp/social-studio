@@ -45,7 +45,7 @@ public static class AestheticProfilePersistence
             // client-aesthetic-fidelity-fixes (WU-3a, D3): additive key; absent on older blobs -> null
             // on Read. Entries are independently nullable — an unmeasured slide stays null.
             BackgroundTransparency: extraction.BackgroundTransparency?
-                .Select(t => t is null ? null : new StoredSlideTransparency(t.Blended, t.Descriptor))
+                .Select(t => t is null ? null : new StoredSlideTransparency(t.Blended, t.Descriptor, t.HasPhotographicSubject))
                 .ToArray(),
             // client-aesthetic-conceptual-detection: additive keys; absent on old blobs → null on Read (OQ-4)
             ConceptualMethod: extraction.ConceptualMethod is null ? null
@@ -195,7 +195,7 @@ public static class AestheticProfilePersistence
             var backgroundTransparency = dto.BackgroundTransparency is null
                 ? null
                 : (IReadOnlyList<SlideBackgroundTransparency?>?)dto.BackgroundTransparency
-                    .Select(t => t is null ? null : new SlideBackgroundTransparency(t.Blended ?? false, t.Descriptor))
+                    .Select(t => t is null ? null : new SlideBackgroundTransparency(t.Blended ?? false, t.Descriptor, t.HasPhotographicSubject))
                     .ToArray();
 
             // client-aesthetic-visual-sophistication (WU-3, CAVS-PA-01-b/CAVS-PA-02-b) additive
@@ -339,7 +339,9 @@ public static class AestheticProfilePersistence
     /// </summary>
     private sealed record StoredSlideTransparency(
         bool? Blended = null,
-        string? Descriptor = null);
+        string? Descriptor = null,
+        // client-style-fidelity CSF-PA-06: additive; absent on pre-v10 blobs → null.
+        bool? HasPhotographicSubject = null);
 
     /// <summary>
     /// Stored shape for <see cref="DecorationMotifs"/> (WU-3, CAVS-PA-01). <c>DividerRule</c> is

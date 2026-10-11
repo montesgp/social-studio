@@ -40,4 +40,9 @@ public sealed record ImagePromptRequest(
     // which are flat; the writer reads the resolved kind here so it can emit ratio-aware cues
     // without reassigning photo-vs-flat (single-responsibility; CACD-CG-02-a/b/c).
     // Null → SlideKind unspecified; ratio cue is omitted (safe cold-start default).
-    SlideBackgroundKind? SlideKind = null);
+    SlideBackgroundKind? SlideKind = null,
+    // client-style-fidelity (CSF-CG-08, additive trailing nullable): how the client treats the image
+    // at THIS slide position in their own carousels (e.g. "product cut-out on seamless black
+    // backdrop"), and the backdrop tone observed behind their text. Null → no treatment cue.
+    string? SlideTreatment = null,
+    string? BackdropHex = null);
