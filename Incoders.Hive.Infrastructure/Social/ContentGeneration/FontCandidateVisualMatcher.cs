@@ -51,7 +51,7 @@ public interface IFontVisualMatcher
 public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
 {
     private const string CapabilityKey = "ai-aesthetic";
-    private const string PromptVersion = "font-visual-match/v4";
+    private const string PromptVersion = "font-visual-match/v5";
     private const string LocatePromptVersion = "font-sample-locate/v1";
     private const int SheetWidth = 1080;
     private const int MaxLineLength = 24;
@@ -77,98 +77,105 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
         IReadOnlyList<FontMatchRequest> requests,
         CancellationToken ct)
     {
-        // A sample located inside the big extraction call often comes back without a box. A dedicated
-        // single-slide question finds it reliably, so unlocated samples are located first.
-        var located = await Task.WhenAll(requests.Select(async r => IsWholeImage(r.Box)
-            ? r with { Box = await LocateSampleAsync(organizationId, providerKey, modelId, r, ct) ?? r.Box }
-            : r));
+        // Roles are compared one at a time, heading first: the AI gateway shares a scoped DbContext and
+        // cannot run calls concurrently, and the heading is the role that defines the client's look. A
+        // role finished before the time budget runs out is kept even if a later role is cut short.
+        var chosen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var request in requests.OrderBy(r => RoleOrder(r.Role)))
+        {
+            try
+            {
+                if (await MatchRoleAsync(organizationId, providerKey, modelId, request, ct) is { } family)
+                {
+                    chosen[request.Role] = family;
+                }
+            }
+            catch (OperationCanceledException) when (chosen.Count > 0)
+            {
+                _logger.LogWarning(
+                    "FontVisualMatch: out of time after {Done}; keeping those and the extracted fonts for the rest.",
+                    string.Join(", ", chosen.Keys));
+                break;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "FontVisualMatch: {Role} comparison failed; keeping its extracted font.", request.Role);
+            }
+        }
+
+        return chosen;
+    }
+
+    private static int RoleOrder(string role) => role.ToLowerInvariant() switch
+    {
+        TypographyRoles.Heading => 0,
+        TypographyRoles.Body => 1,
+        _ => 2,
+    };
+
+    /// <summary>
+    /// Compares one role: locates its sample when the extractor did not, renders the candidate sheet
+    /// and asks which face matches. Null when the role cannot be compared or the model gives no
+    /// usable answer.
+    /// </summary>
+    private async Task<string?> MatchRoleAsync(
+        Guid organizationId,
+        string providerKey,
+        string? modelId,
+        FontMatchRequest request,
+        CancellationToken ct)
+    {
+        // A sample located inside the big extraction call often comes back without a box; a dedicated
+        // single-slide question finds it reliably.
+        var r = IsWholeImage(request.Box)
+            ? request with { Box = await LocateSampleAsync(organizationId, providerKey, modelId, request, ct) ?? request.Box }
+            : request;
 
         // Alphabetical order: the first candidate is otherwise always the model's own first guess, and
         // the comparison answered "1" far more often than the pixels justified.
-        var sections = located
-            .Select(r => r with { Candidates = r.Candidates.OrderBy(c => c, StringComparer.Ordinal).ToArray() })
-            .Select(r => (Request: r, Crop: CropSample(r.ImageBytes, r.Box)))
-            .Where(s => s.Crop is not null && s.Request.Candidates.Count >= 2)
-            .ToArray();
-        if (sections.Length == 0)
+        r = r with { Candidates = r.Candidates.OrderBy(c => c, StringComparer.Ordinal).ToArray() };
+        var crop = CropSample(r.ImageBytes, r.Box);
+        if (crop is null || r.Candidates.Count < 2)
         {
-            return new Dictionary<string, string>();
+            return null;
         }
 
-        try
+        // One sheet per role, each its own image: a single sheet holding every role was so tall that the
+        // vision model received it heavily downscaled and the tiles were too small to compare.
+        var (markup, height) = BuildSheet([(r, crop)]);
+        var spec = new VisualCompositionSpec(
+            FormatKey: "font-match",
+            LayoutType: "sheet",
+            Palette: new CompositionPalette("#000000", "#000000", "#000000", "#111111", "#FFFFFF"),
+            Typography: new CompositionTypography("Inter", 24, "Inter", 16),
+            AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+            CopySlots: new Dictionary<string, string>(),
+            Dimensions: new CompositionDimensions(SheetWidth, height, 96))
         {
-            // One sheet per role, each sent as its own image. A single sheet holding every role was so
-            // tall that the vision model received it heavily downscaled and the tiles were too small to
-            // compare letterforms.
-            var sheets = new List<AiImageInput>(sections.Length);
-            var sheetPaths = new List<string>(sections.Length);
-            foreach (var section in sections)
-            {
-                var (markup, height) = BuildSheet([(section.Request, section.Crop!)]);
-                var spec = new VisualCompositionSpec(
-                    FormatKey: "font-match",
-                    LayoutType: "sheet",
-                    Palette: new CompositionPalette("#000000", "#000000", "#000000", "#111111", "#FFFFFF"),
-                    Typography: new CompositionTypography("Inter", 24, "Inter", 16),
-                    AssetSlots: new Dictionary<string, AssetSlotSpec>(),
-                    CopySlots: new Dictionary<string, string>(),
-                    Dimensions: new CompositionDimensions(SheetWidth, height, 96))
-                {
-                    OutputKind = CompositionOutputKind.Html,
-                    DesignerMarkup = markup,
-                };
+            OutputKind = CompositionOutputKind.Html,
+            DesignerMarkup = markup,
+        };
 
-                var rendered = await _renderer.RenderAsync(spec, new RenderOptions(), ct);
-                if (rendered.IsFailure)
-                {
-                    _logger.LogWarning("FontVisualMatch: candidate sheet render failed ({Code}); keeping extracted fonts.", rendered.Error.Code);
-                    return new Dictionary<string, string>();
-                }
-
-                var bytes = rendered.Value.GetBytes();
-                sheets.Add(new AiImageInput(rendered.Value.Mime, Convert.ToBase64String(bytes)));
-                if (SaveDiagnosticSheet(bytes) is { } savedPath)
-                {
-                    sheetPaths.Add(savedPath);
-                }
-            }
-
-            foreach (var (r, crop) in sections)
-            {
-                _logger.LogInformation(
-                    "FontVisualMatch: {Role} from {Source} box=({X:0.###},{Y:0.###},{W:0.###},{H:0.###}) dark={Dark} lines=[{Lines}] candidates=[{Candidates}].",
-                    r.Role, r.SourceLabel ?? "?", r.Box.X, r.Box.Y, r.Box.Width, r.Box.Height, crop!.IsDark,
-                    string.Join(" | ", SampleLines(r.SampleText)), string.Join(", ", r.Candidates));
-            }
-
-            // One call per role, in parallel: the sheet plus the role's original slide at full resolution
-            // (a crop located by the model can be loose). A single call carrying every role's images took
-            // longer than the whole comparison budget; per-role calls also fail independently.
-            var answers = await Task.WhenAll(sections.Select((section, i) =>
-                CompareRoleAsync(organizationId, providerKey, modelId, section.Request, sheets[i], ct)));
-
-            _logger.LogInformation(
-                "FontVisualMatch: answers {Answers}{Sheets}.",
-                string.Join(", ", sections.Select((s, i) => $"{s.Request.Role}={answers[i]?.ToString() ?? "none"}")),
-                sheetPaths.Count == 0 ? string.Empty : $" sheets={string.Join(", ", sheetPaths)}");
-
-            var chosen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            for (var i = 0; i < sections.Length; i++)
-            {
-                var candidates = sections[i].Request.Candidates;
-                if (answers[i] is { } n && n >= 1 && n <= candidates.Count)
-                {
-                    chosen[sections[i].Request.Role] = candidates[n - 1];
-                }
-            }
-
-            return chosen;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        var rendered = await _renderer.RenderAsync(spec, new RenderOptions(), ct);
+        if (rendered.IsFailure)
         {
-            _logger.LogWarning(ex, "FontVisualMatch: comparison failed; keeping extracted fonts.");
-            return new Dictionary<string, string>();
+            _logger.LogWarning("FontVisualMatch: {Role} sheet render failed ({Code}).", r.Role, rendered.Error.Code);
+            return null;
         }
+
+        var bytes = rendered.Value.GetBytes();
+        var sheetPath = SaveDiagnosticSheet(bytes);
+        _logger.LogInformation(
+            "FontVisualMatch: {Role} from {Source} box=({X:0.###},{Y:0.###},{W:0.###},{H:0.###}) dark={Dark} lines=[{Lines}] candidates=[{Candidates}]{Sheet}.",
+            r.Role, r.SourceLabel ?? "?", r.Box.X, r.Box.Y, r.Box.Width, r.Box.Height, crop.IsDark,
+            string.Join(" | ", SampleLines(r.SampleText)), string.Join(", ", r.Candidates),
+            sheetPath is null ? string.Empty : $" sheet={sheetPath}");
+
+        var answer = await CompareRoleAsync(
+            organizationId, providerKey, modelId, r, new AiImageInput(rendered.Value.Mime, Convert.ToBase64String(bytes)), ct);
+        _logger.LogInformation("FontVisualMatch: {Role} answer {Answer}.", r.Role, answer?.ToString() ?? "none");
+
+        return answer is { } n && n >= 1 && n <= r.Candidates.Count ? r.Candidates[n - 1] : null;
     }
 
     /// <summary>The candidate number chosen for one role, or null when the call failed.</summary>

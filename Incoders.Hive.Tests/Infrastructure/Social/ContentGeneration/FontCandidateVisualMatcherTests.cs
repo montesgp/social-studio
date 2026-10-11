@@ -140,7 +140,21 @@ public sealed class FontCandidateVisualMatcherTests
         var chosen = await matcher.MatchAsync(Guid.NewGuid(), "openai", "gpt", [unlocated], CancellationToken.None);
 
         Assert.Equal("League Gothic", chosen[TypographyRoles.Heading]);
-        Assert.Equal(["font-sample-locate/v1", "font-visual-match/v4"], gateway.PromptVersions);
+        Assert.Equal(["font-sample-locate/v1", "font-visual-match/v5"], gateway.PromptVersions);
+    }
+
+    [Fact]
+    public async Task HeadingIsComparedFirst_AndKeptWhenTimeRunsOutAfterIt()
+    {
+        var gateway = new FirstAnswerThenTimeoutGateway("""{"heading": 2, "body": 2}""");
+        var matcher = new FontCandidateVisualMatcher(new PngRenderer(), gateway);
+        var body = Request(["Inter", "Poppins"]) with { Role = TypographyRoles.Body };
+        var heading = Request(["Anton", "League Gothic"]);
+
+        var chosen = await matcher.MatchAsync(Guid.NewGuid(), "openai", "gpt", [body, heading], CancellationToken.None);
+
+        Assert.Equal("League Gothic", chosen[TypographyRoles.Heading]);
+        Assert.False(chosen.ContainsKey(TypographyRoles.Body));
     }
 
     [Fact]
@@ -151,7 +165,7 @@ public sealed class FontCandidateVisualMatcherTests
 
         await matcher.MatchAsync(Guid.NewGuid(), "openai", "gpt", [Request(["Anton", "League Gothic"])], CancellationToken.None);
 
-        Assert.Equal(["font-visual-match/v4"], gateway.PromptVersions);
+        Assert.Equal(["font-visual-match/v5"], gateway.PromptVersions);
     }
 
     [Fact]
@@ -209,6 +223,26 @@ file sealed class ScriptedGateway(string locate, string compare) : IAiCompletion
         PromptVersions.Add(request.PromptVersionKey);
         var json = request.PromptVersionKey.StartsWith("font-sample-locate", StringComparison.Ordinal) ? locate : compare;
         var payload = JsonSerializer.Deserialize<TResponse>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        return Task.FromResult(Result.Success(new AiJsonCompletionResponse<TResponse>(payload, "openai", "gpt", [], null)));
+    }
+}
+
+/// <summary>Answers the first call, then behaves as if the time budget ran out.</summary>
+file sealed class FirstAnswerThenTimeoutGateway(string answerJson) : IAiCompletionGateway
+{
+    private int _calls;
+
+    public Task<Result<AiJsonCompletionResponse<TResponse>>> CompleteJsonAsync<TResponse>(
+        AiJsonCompletionRequest request,
+        CancellationToken cancellationToken = default)
+        where TResponse : notnull
+    {
+        if (++_calls > 1)
+        {
+            throw new OperationCanceledException();
+        }
+
+        var payload = JsonSerializer.Deserialize<TResponse>(answerJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         return Task.FromResult(Result.Success(new AiJsonCompletionResponse<TResponse>(payload, "openai", "gpt", [], null)));
     }
 }

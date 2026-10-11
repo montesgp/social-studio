@@ -585,7 +585,7 @@ public sealed class MultimodalAestheticStyleExtractor : IClientAestheticStyleExt
     /// Longest the optional font comparison may take. It is a second vision call made after the
     /// extraction, so it gets its own slice instead of whatever is left of the caller's budget.
     /// </summary>
-    private static readonly TimeSpan FontMatchBudget = TimeSpan.FromSeconds(150);
+    private static readonly TimeSpan FontMatchBudget = TimeSpan.FromSeconds(180);
 
     /// <summary>
     /// CSF-PA-02: runs the optional comparison without ever losing the extraction already completed.
