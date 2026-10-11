@@ -4,7 +4,9 @@ using System.Text.Json.Serialization;
 using Incoders.Hive.Application.Abstractions.Ai;
 using Incoders.Hive.Application.Abstractions.Social.ContentGeneration;
 using Incoders.Hive.Application.Features.Social.ContentGeneration.Shared;
+using Incoders.Hive.Application.Features.Social.ContentGeneration.Visual.Fonts;
 using Incoders.Hive.Domain.Social.ContentGeneration;
+using Incoders.Hive.Infrastructure.Rendering.Fonts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using SkiaSharp;
@@ -59,14 +61,17 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
     private readonly IContentRenderer _renderer;
     private readonly IAiCompletionGateway _gateway;
     private readonly ILogger<FontCandidateVisualMatcher> _logger;
+    private readonly IFontProvider _fonts;
 
     public FontCandidateVisualMatcher(
         IContentRenderer renderer,
         IAiCompletionGateway gateway,
-        ILogger<FontCandidateVisualMatcher>? logger = null)
+        ILogger<FontCandidateVisualMatcher>? logger = null,
+        IFontProvider? fonts = null)
     {
         _renderer = renderer;
         _gateway = gateway;
+        _fonts = fonts ?? new EmbeddedFontProvider();
         _logger = logger ?? NullLogger<FontCandidateVisualMatcher>.Instance;
     }
 
@@ -106,6 +111,48 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
         return chosen;
     }
 
+    /// <summary>
+    /// A condensation score (mean |log ratio| per line) this low means the face's line widths track the
+    /// client's within about 30 %, and a lead this large over the runner-up makes the pick unambiguous.
+    /// Calibrated on Demo Roasters samples, where the right face scored 0.04-0.23 and led by 0.06+.
+    /// </summary>
+    private const double DecisiveScore = 0.35;
+    private const double DecisiveMargin = 0.05;
+
+    /// <summary>
+    /// Candidates ordered by how closely their per-line condensation matches the sample's, best first.
+    /// Empty when the sample's lines cannot be measured or do not match the reported line breaks.
+    /// </summary>
+    internal IReadOnlyList<(string Family, double Score)> RankByCondensation(FontMatchRequest r, SampleCrop crop)
+    {
+        var lines = FullSampleLines(r.SampleText);
+        if (crop.LineRatios is not { } reference || reference.Count != lines.Count)
+        {
+            return [];
+        }
+
+        var ranking = new List<(string Family, double Score)>();
+        foreach (var family in r.Candidates)
+        {
+            var face = _fonts.ResolveFaces(family)
+                .OrderBy(f => Math.Abs(Math.Clamp(400, f.MinWeight, f.MaxWeight) - 400))
+                .FirstOrDefault();
+            if (face is not null && FontCondensationMeter.Score(reference, lines, face.Bytes) is { } score)
+            {
+                ranking.Add((family, score));
+            }
+        }
+
+        return ranking.OrderBy(x => x.Score).ToList();
+    }
+
+    /// <summary>The sample's lines, untruncated: truncating would distort the measured widths.</summary>
+    private static IReadOnlyList<string> FullSampleLines(string text) =>
+        text.Replace("\\n", "\n", StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => string.Join(' ', l.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)))
+            .ToList();
+
     private static int RoleOrder(string role) => role.ToLowerInvariant() switch
     {
         TypographyRoles.Heading => 0,
@@ -138,6 +185,25 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
         if (crop is null || r.Candidates.Count < 2)
         {
             return null;
+        }
+
+        // Pixels decide condensation; the vision model only breaks a close call on letter shapes.
+        var ranking = RankByCondensation(r, crop);
+        if (ranking.Count >= 2)
+        {
+            _logger.LogInformation(
+                "FontVisualMatch: {Role} condensation ranking {Ranking}.",
+                r.Role, string.Join(", ", ranking.Select(x => $"{x.Family}={x.Score:0.###}")));
+
+            if (ranking[0].Score <= DecisiveScore && ranking[1].Score - ranking[0].Score >= DecisiveMargin)
+            {
+                return ranking[0].Family;
+            }
+
+            r = r with
+            {
+                Candidates = ranking.Take(3).Select(x => x.Family).OrderBy(c => c, StringComparer.Ordinal).ToArray(),
+            };
         }
 
         // One sheet per role, each its own image: a single sheet holding every role was so tall that the
@@ -397,7 +463,11 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
     }
 
     /// <summary>A cropped text sample and whether its ground is dark.</summary>
-    internal sealed record SampleCrop(string DataUri, bool IsDark, double Aspect = 1);
+    internal sealed record SampleCrop(
+        string DataUri,
+        bool IsDark,
+        double Aspect = 1,
+        IReadOnlyList<double>? LineRatios = null);
 
     /// <summary>
     /// Crops the sample (with a small margin) to a PNG data URI and measures whether its ground is dark,
@@ -437,10 +507,12 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
 
             using var image = SKImage.FromBitmap(cropped);
             using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+            var dark = IsDark(cropped);
             return new SampleCrop(
                 "data:image/png;base64," + Convert.ToBase64String(data.ToArray()),
-                IsDark(cropped),
-                (double)cropped.Width / cropped.Height);
+                dark,
+                (double)cropped.Width / cropped.Height,
+                FontCondensationMeter.MeasureReference(cropped, dark));
         }
         catch (Exception)
         {
