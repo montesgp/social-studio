@@ -75,6 +75,19 @@ public sealed class FontCandidateVisualMatcherTests
         Assert.Equal("image/png", gateway.Images[1].MediaType);
     }
 
+    [Fact]
+    public async Task Candidates_AreShownAlphabetically_SoTheModelsGuessIsNotAlwaysFirst()
+    {
+        // Model listed Oswald first; alphabetically it is third, so answer 3 must map to Oswald.
+        var gateway = new AnswerGateway("""{"heading": 3}""");
+        var matcher = new FontCandidateVisualMatcher(new PngRenderer(), gateway);
+
+        var chosen = await matcher.MatchAsync(
+            Guid.NewGuid(), "openai", "gpt", [Request(["Oswald", "League Gothic", "Anton"])], CancellationToken.None);
+
+        Assert.Equal("Oswald", chosen[TypographyRoles.Heading]);
+    }
+
     [Theory]
     [InlineData("""{"heading": 0}""")]
     [InlineData("""{"heading": 9}""")]
@@ -127,7 +140,7 @@ public sealed class FontCandidateVisualMatcherTests
         var chosen = await matcher.MatchAsync(Guid.NewGuid(), "openai", "gpt", [unlocated], CancellationToken.None);
 
         Assert.Equal("League Gothic", chosen[TypographyRoles.Heading]);
-        Assert.Equal(["font-sample-locate/v1", "font-visual-match/v2"], gateway.PromptVersions);
+        Assert.Equal(["font-sample-locate/v1", "font-visual-match/v3"], gateway.PromptVersions);
     }
 
     [Fact]
@@ -138,7 +151,7 @@ public sealed class FontCandidateVisualMatcherTests
 
         await matcher.MatchAsync(Guid.NewGuid(), "openai", "gpt", [Request(["Anton", "League Gothic"])], CancellationToken.None);
 
-        Assert.Equal(["font-visual-match/v2"], gateway.PromptVersions);
+        Assert.Equal(["font-visual-match/v3"], gateway.PromptVersions);
     }
 
     [Fact]

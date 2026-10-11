@@ -51,7 +51,7 @@ public interface IFontVisualMatcher
 public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
 {
     private const string CapabilityKey = "ai-aesthetic";
-    private const string PromptVersion = "font-visual-match/v2";
+    private const string PromptVersion = "font-visual-match/v3";
     private const string LocatePromptVersion = "font-sample-locate/v1";
     private const int SheetWidth = 1080;
     private const int MaxLineLength = 24;
@@ -87,7 +87,10 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
                 : r);
         }
 
+        // Alphabetical order: the first candidate is otherwise always the model's own first guess, and
+        // the comparison answered "1" far more often than the pixels justified.
         var sections = located
+            .Select(r => r with { Candidates = r.Candidates.OrderBy(c => c, StringComparer.Ordinal).ToArray() })
             .Select(r => (Request: r, Crop: CropSample(r.ImageBytes, r.Box)))
             .Where(s => s.Crop is not null && s.Request.Candidates.Count >= 2)
             .ToArray();
@@ -98,25 +101,40 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
 
         try
         {
-            var (markup, height) = BuildSheet(sections.Select(s => (s.Request, s.Crop!)).ToArray());
-            var spec = new VisualCompositionSpec(
-                FormatKey: "font-match",
-                LayoutType: "sheet",
-                Palette: new CompositionPalette("#000000", "#000000", "#000000", "#111111", "#FFFFFF"),
-                Typography: new CompositionTypography("Inter", 24, "Inter", 16),
-                AssetSlots: new Dictionary<string, AssetSlotSpec>(),
-                CopySlots: new Dictionary<string, string>(),
-                Dimensions: new CompositionDimensions(SheetWidth, height, 96))
+            // One sheet per role, each sent as its own image. A single sheet holding every role was so
+            // tall that the vision model received it heavily downscaled and the tiles were too small to
+            // compare letterforms.
+            var sheets = new List<AiImageInput>(sections.Length);
+            var sheetPaths = new List<string>(sections.Length);
+            foreach (var section in sections)
             {
-                OutputKind = CompositionOutputKind.Html,
-                DesignerMarkup = markup,
-            };
+                var (markup, height) = BuildSheet([(section.Request, section.Crop!)]);
+                var spec = new VisualCompositionSpec(
+                    FormatKey: "font-match",
+                    LayoutType: "sheet",
+                    Palette: new CompositionPalette("#000000", "#000000", "#000000", "#111111", "#FFFFFF"),
+                    Typography: new CompositionTypography("Inter", 24, "Inter", 16),
+                    AssetSlots: new Dictionary<string, AssetSlotSpec>(),
+                    CopySlots: new Dictionary<string, string>(),
+                    Dimensions: new CompositionDimensions(SheetWidth, height, 96))
+                {
+                    OutputKind = CompositionOutputKind.Html,
+                    DesignerMarkup = markup,
+                };
 
-            var rendered = await _renderer.RenderAsync(spec, new RenderOptions(), ct);
-            if (rendered.IsFailure)
-            {
-                _logger.LogWarning("FontVisualMatch: candidate sheet render failed ({Code}); keeping extracted fonts.", rendered.Error.Code);
-                return new Dictionary<string, string>();
+                var rendered = await _renderer.RenderAsync(spec, new RenderOptions(), ct);
+                if (rendered.IsFailure)
+                {
+                    _logger.LogWarning("FontVisualMatch: candidate sheet render failed ({Code}); keeping extracted fonts.", rendered.Error.Code);
+                    return new Dictionary<string, string>();
+                }
+
+                var bytes = rendered.Value.GetBytes();
+                sheets.Add(new AiImageInput(rendered.Value.Mime, Convert.ToBase64String(bytes)));
+                if (SaveDiagnosticSheet(bytes) is { } savedPath)
+                {
+                    sheetPaths.Add(savedPath);
+                }
             }
 
             foreach (var (r, crop) in sections)
@@ -127,14 +145,9 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
                     string.Join(" | ", SampleLines(r.SampleText)), string.Join(", ", r.Candidates));
             }
 
-            var sheetPath = SaveDiagnosticSheet(rendered.Value.GetBytes());
-
-            // The sheet first, then each role's original slide at full resolution: a crop located by
+            // The sheets first, then each role's original slide at full resolution: a crop located by
             // the model can be loose or missing, and the original keeps the reference legible.
-            var images = new List<AiImageInput>
-            {
-                new(rendered.Value.Mime, Convert.ToBase64String(rendered.Value.GetBytes())),
-            };
+            var images = new List<AiImageInput>(sheets);
             images.AddRange(sections.Select(s => new AiImageInput(MimeOf(s.Request.ImageBytes), Convert.ToBase64String(s.Request.ImageBytes))));
 
             var request = new AiJsonCompletionRequest(
@@ -157,7 +170,7 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
             _logger.LogInformation(
                 "FontVisualMatch: answer heading={Heading} body={Body} caption={Caption}{Sheet}.",
                 answer.Value.Payload.Heading, answer.Value.Payload.Body, answer.Value.Payload.Caption,
-                sheetPath is null ? string.Empty : $" sheet={sheetPath}");
+                sheetPaths.Count == 0 ? string.Empty : $" sheets={string.Join(", ", sheetPaths)}");
 
             var chosen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (sectionRequest, _) in sections)
@@ -262,19 +275,20 @@ public sealed class FontCandidateVisualMatcher : IFontVisualMatcher
     internal static string BuildInstruction(IEnumerable<(string Role, string SampleText)> sections)
     {
         var list = sections.ToList();
+        var count = list.Count;
+        var sheets = string.Join("; ", list.Select((s, i) =>
+            $"Image {i + 1} is the comparison sheet for {s.Role.ToUpperInvariant()}"));
         var originals = string.Join("; ", list.Select((s, i) =>
-            $"Image {i + 2} is the client's original slide for {s.Role.ToUpperInvariant()}, where the reference text " +
-            $"\"{Flatten(s.SampleText)}\" appears"));
-        return "Image 1 is a typeface comparison sheet with one section per role (" +
-            string.Join(", ", list.Select(s => s.Role.ToUpperInvariant())) +
-            "). In each section the tile labelled REFERENCE is a crop of the client's real text, and the " +
-            "numbered tiles render the same words, with the same line breaks and colours, in different " +
+            $"Image {count + i + 1} is the client's original slide for {s.Role.ToUpperInvariant()}, where the " +
+            $"reference text \"{Flatten(s.SampleText)}\" appears"));
+        return sheets + ". In each sheet the tile labelled REFERENCE is a crop of the client's real text, and " +
+            "the numbered tiles render the same words, with the same line breaks and colours, in different " +
             "typefaces. " + originals + " — use it to see the reference at full resolution, since the crop " +
-            "may be loose. For each section choose the number whose LETTERFORMS match the client's text " +
-            "best: compare horizontal condensation and proportions first, then letter case, stroke weight " +
-            "and the shapes of letters such as a, e, g, s, S and question marks. Ignore size and colour. " +
-            "Return ONLY JSON like {\"heading\": 2, \"body\": 1, \"caption\": 3}, with one integer per " +
-            "section shown.";
+            "may be loose. For each role choose the number whose LETTERFORMS match the client's text best: " +
+            "compare horizontal condensation (how narrow each letter is relative to its height) first, then " +
+            "letter case, stroke weight and the shapes of letters such as a, e, g, s, S and question marks. " +
+            "A tile whose text overflows its edge is a WIDER face than the reference. Ignore size and colour. " +
+            "Return ONLY JSON like {\"heading\": 2, \"body\": 1, \"caption\": 3}, with one integer per role shown.";
     }
 
     private static string Flatten(string text) =>
