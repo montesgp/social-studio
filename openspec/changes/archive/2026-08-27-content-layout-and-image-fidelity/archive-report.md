@@ -230,7 +230,7 @@ openspec/changes/archive/2026-08-27-content-layout-and-image-fidelity/
 - b9f5f67 — WU-8b: Guide rendering
 - 11b6d5b — WU-9: Spec/doc sync + ADR merge
 
-**GitHub Issue**: #83 (Incoders-Tools/social-studio) — remains OPEN; closing summary comment posted per archive protocol
+**GitHub Issue**: #83 (Incoders-Tools/incoders-hive) — remains OPEN; closing summary comment posted per archive protocol
 
 ---
 

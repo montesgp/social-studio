@@ -3,7 +3,7 @@
 **Change ID**: `client-aesthetic-visual-sophistication`  
 **Archive Date**: 2026-08-26  
 **Delivery Status**: **PARTIAL** — Deliberate scope cut (WU-7/WU-8 gated, gate not passed)  
-**Tracking Issue**: GitHub issue #82 (`Incoders-Tools/social-studio`) — remains OPEN
+**Tracking Issue**: GitHub issue #82 (`Incoders-Tools/incoders-hive`) — remains OPEN
 
 ---
 

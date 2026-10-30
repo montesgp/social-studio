@@ -117,7 +117,7 @@ This archive report reflects the state of the change **at close**, based on (hig
 - **WARNING count**: 1
   - **Issue**: `TypographyNormalizer` is not role-aware for new caption typography role
   - **Impact**: Does not violate any spec-delta requirement (normalizer only rewrites generic-only declarations; caption role is a structural add, not a normalization defect)
-  - **Disposition**: Filed as GitHub issue #79 (`Incoders-Tools/social-studio`), explicitly out of scope for this change's completion
+  - **Disposition**: Filed as GitHub issue #79 (`Incoders-Tools/incoders-hive`), explicitly out of scope for this change's completion
 - **SUGGESTION count**: 1
   - Log the TypographyNormalizer gap (done)
 

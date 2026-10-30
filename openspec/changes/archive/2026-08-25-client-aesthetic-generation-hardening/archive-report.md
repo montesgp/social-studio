@@ -168,7 +168,7 @@ This is a positive side-effect directly relevant to scope, not scope creep to ap
 
 ## GitHub Issue #80 Status
 
-**Issue**: `Incoders-Tools/social-studio` issue #80 — tracks this entire change (all 11 WUs + post-verify follow-up)
+**Issue**: `Incoders-Tools/incoders-hive` issue #80 — tracks this entire change (all 11 WUs + post-verify follow-up)
 
 **Action taken**: GitHub issue left **OPEN** (not closed by this archive step)
 
