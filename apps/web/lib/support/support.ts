@@ -1,11 +1,12 @@
-// Centralized Incoders support actions.
+// Centralized support actions.
 // Reusable across the whole app wherever a user-facing error may reach the end user.
 // Two channels: (a) report to support (async issue), (b) urgent direct contact (WhatsApp).
+// Both contacts come from NEXT_PUBLIC_SUPPORT_* (see apps/web/.env.example).
 
-export const INCODERS_SUPPORT = {
-  whatsappPhone: "5490000000000",
+export const SUPPORT_CONTACT = {
+  whatsappPhone: process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP_PHONE ?? "",
   whatsappBaseUrl: "https://api.whatsapp.com/send/",
-  email: "support@incoders.com.ar",
+  email: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@example.com",
 } as const;
 
 export interface SupportErrorContext {
@@ -41,16 +42,19 @@ function buildDiagnosticSummary(context: SupportErrorContext): string {
   return lines.filter((line): line is string => Boolean(line)).join("\n");
 }
 
-/** Opens Incoders WhatsApp for urgent, direct support contact, prefilled with diagnostics. */
+/**
+ * Opens WhatsApp for urgent, direct support contact, prefilled with diagnostics.
+ * Does nothing when NEXT_PUBLIC_SUPPORT_WHATSAPP_PHONE is not configured.
+ */
 export function openWhatsAppSupport(context?: SupportErrorContext): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !SUPPORT_CONTACT.whatsappPhone) return;
 
   const text = context
-    ? `Hi Incoders support, I need urgent help with an error.\n\n${buildDiagnosticSummary(context)}`
-    : "Hi Incoders support, I need help.";
+    ? `Hi support, I need urgent help with an error.\n\n${buildDiagnosticSummary(context)}`
+    : "Hi support, I need help.";
 
   const url =
-    `${INCODERS_SUPPORT.whatsappBaseUrl}?phone=${INCODERS_SUPPORT.whatsappPhone}` +
+    `${SUPPORT_CONTACT.whatsappBaseUrl}?phone=${SUPPORT_CONTACT.whatsappPhone}` +
     `&text=${encodeURIComponent(text)}&type=phone_number&app_absent=0`;
 
   window.open(url, "_blank", "noopener,noreferrer");
@@ -61,7 +65,7 @@ export function openWhatsAppSupport(context?: SupportErrorContext): void {
  *
  * INTERIM: opens a prefilled support email so the report reaches the team today.
  * The automated issue system (a GitHub/Jira issue per project + client) is not wired yet.
- * TODO: replace the mailto with a POST to the Incoders issues endpoint once it exists,
+ * TODO: replace the mailto with a POST to an issues endpoint once it exists,
  * keeping this same signature so callers don't change.
  */
 export function reportSupportIssue(context: SupportErrorContext): void {
@@ -73,7 +77,7 @@ export function reportSupportIssue(context: SupportErrorContext): void {
     `---\nDiagnostic details (please keep):\n${buildDiagnosticSummary(context)}`;
 
   const url =
-    `mailto:${INCODERS_SUPPORT.email}` +
+    `mailto:${SUPPORT_CONTACT.email}` +
     `?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
   window.open(url, "_blank", "noopener,noreferrer");
