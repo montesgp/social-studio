@@ -1,4 +1,4 @@
-# SDD - Incoders Social
+# SDD - Social Studio
 
 ## 1. System Style
 Workflow-oriented, event-aware, AI-native SaaS module inside a monorepo orchestrated by .NET Aspire.
@@ -14,18 +14,18 @@ Workflow-oriented, event-aware, AI-native SaaS module inside a monorepo orchestr
 ```txt
 apps/
   web/                          # Next.js frontend
-Incoders.Hive.AppHost/          # .NET Aspire orchestrator
-Incoders.Hive.ApiService/       # ASP.NET Core API (transport / HTTP mapping)
-Incoders.Hive.Application/      # Use cases, ports, commands/queries
-Incoders.Hive.Domain/           # Entities, value objects, domain events
-Incoders.Hive.Infrastructure/   # Adapters (Supabase, AI providers, etc.)
-Incoders.Hive.ServiceDefaults/  # Shared Aspire service defaults
-Incoders.Hive.Tests/            # Unit + integration tests
+SocialStudio.AppHost/          # .NET Aspire orchestrator
+SocialStudio.ApiService/       # ASP.NET Core API (transport / HTTP mapping)
+SocialStudio.Application/      # Use cases, ports, commands/queries
+SocialStudio.Domain/           # Entities, value objects, domain events
+SocialStudio.Infrastructure/   # Adapters (Supabase, AI providers, etc.)
+SocialStudio.ServiceDefaults/  # Shared Aspire service defaults
+SocialStudio.Tests/            # Unit + integration tests
 docs/
 openspec/
 ```
 
-> Projects sit at the repo root (flat layout), not under `src/`/`tests/`. The solution file is `Incoders.Hive.slnx`.
+> Projects sit at the repo root (flat layout), not under `src/`/`tests/`. The solution file is `SocialStudio.slnx`.
 
 ## 4. Backend Hexagonal Layers
 - Domain: workflow entities, value objects, domain events.
@@ -74,7 +74,7 @@ API startup applies pending EF Core migrations before hosted background workers 
 Persistence schemas:
 - `identity` for authentication/authorization data.
 - `platform` for organizations, memberships, system settings and shared provider/model catalogs.
-- `social` for Hive Social / Incoders Social module data.
+- `social` for Social Studio / Social Studio module data.
 
 Organization-owned product tables must include `organization_id`. Shared system catalogs such as AI providers and AI models are platform-owned; organization-specific credentials, availability and preferences reference those platform records.
 

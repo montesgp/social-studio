@@ -1,5 +1,5 @@
 import { HiveBackdrop } from "@/components/auth/hive-backdrop";
-import { HiveLogo } from "@/components/auth/hive-logo";
+import { HiveLogo } from "@/components/auth/studio-logo";
 import { HiveModuleComb } from "@/components/auth/hive-module-comb";
 
 interface AuthCardProps {
@@ -9,7 +9,7 @@ interface AuthCardProps {
 }
 
 /**
- * The front door of Hive.
+ * The front door of Social Studio.
  *
  * The comb is the product metaphor, so the entry screen shows it literally: a field of cells behind
  * a floating glass card. On narrow viewports the module cluster steps aside — the form is what a

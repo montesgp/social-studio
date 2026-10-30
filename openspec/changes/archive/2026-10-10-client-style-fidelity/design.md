@@ -3,7 +3,7 @@
 ## D1 — Bundled OFL font catalog
 
 - 33 OFL families from `google/fonts` (`ofl/` only), embedded under
-  `Incoders.Hive.Infrastructure/Rendering/Fonts/Assets/Catalog/<dir>/` with each family's `OFL.txt`.
+  `SocialStudio.Infrastructure/Rendering/Fonts/Assets/Catalog/<dir>/` with each family's `OFL.txt`.
   Variable fonts keep their full `wght` axis; static families keep only the weights listed in the
   catalog. Italics are not bundled (Chromium synthesises oblique).
 - `FontCatalog.Bundled` (Application) is the metadata source of truth: family name,

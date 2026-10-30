@@ -1,9 +1,0 @@
-<Solution>
-  <Project Path="Incoders.Hive.ApiService/Incoders.Hive.ApiService.csproj" />
-  <Project Path="Incoders.Hive.AppHost/Incoders.Hive.AppHost.csproj" />
-  <Project Path="Incoders.Hive.Application/Incoders.Hive.Application.csproj" />
-  <Project Path="Incoders.Hive.Domain/Incoders.Hive.Domain.csproj" />
-  <Project Path="Incoders.Hive.Infrastructure/Incoders.Hive.Infrastructure.csproj" />
-  <Project Path="Incoders.Hive.ServiceDefaults/Incoders.Hive.ServiceDefaults.csproj" />
-  <Project Path="Incoders.Hive.Tests/Incoders.Hive.Tests.csproj" />
-</Solution>

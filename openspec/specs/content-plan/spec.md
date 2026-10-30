@@ -218,7 +218,7 @@ write path after migration.
 
 ## Implementation Notes
 
-- Domain: `Incoders.Hive.Domain.Social.ContentPlans.ContentPlan`
+- Domain: `SocialStudio.Domain.Social.ContentPlans.ContentPlan`
 - Supporting domain types: `Period`, `Provenance`, `ObjectiveNode`, `ContentStrategyNode`, `ContentCalendar`, `CalendarSlot`
 - Infrastructure table: `social.content_plans` + `social.content_plan_slots`
 - Migrations: `Add_ContentPlans`, `Migrate_MonthlyObjectives_Into_ContentPlans`, `Drop_ClientMonthlyObjectives`

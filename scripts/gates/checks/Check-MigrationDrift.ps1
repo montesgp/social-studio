@@ -35,8 +35,8 @@ if (-not (Test-CommandAvailable 'dotnet')) {
     return ,$results
 }
 
-$infrastructureProject = Join-Path $RepoRoot 'Incoders.Hive.Infrastructure'
-$apiServiceProject = Join-Path $RepoRoot 'Incoders.Hive.ApiService'
+$infrastructureProject = Join-Path $RepoRoot 'SocialStudio.Infrastructure'
+$apiServiceProject = Join-Path $RepoRoot 'SocialStudio.ApiService'
 $migrationsDir = Join-Path $infrastructureProject 'Persistence\Postgres\Migrations'
 $snapshotPath = Join-Path $migrationsDir 'AppIdentityDbContextModelSnapshot.cs'
 

@@ -25,13 +25,13 @@ param(
     [Parameter(Mandatory)] [string] $SourceConnection,
     # App schemas to snapshot. EF migration history (public) is intentionally left untouched.
     [string[]] $Schemas = @('identity', 'platform', 'social'),
-    [string] $TargetDatabase = 'incoders_hive_dev',
+    [string] $TargetDatabase = 'social_studio_dev',
     # Skip the interactive confirmation (for scripted/CI use — think before you do this).
     [switch] $Force
 )
 
 $ErrorActionPreference = 'Stop'
-$container = 'incoders-hive-dev-postgres'
+$container = 'social-studio-dev-postgres'
 $localUser = 'incoders'
 $dumpPath = '/tmp/tier_data.dump'
 
@@ -93,5 +93,5 @@ docker exec $container rm -f $dumpPath 2>$null | Out-Null
 
 Write-Host ''
 Write-Host "Local '$TargetDatabase' now holds the tier's data with your branch's schema." -ForegroundColor Green
-Write-Host '  Reproduce the bug: dotnet run --project Incoders.Hive.ApiService -c Release'
+Write-Host '  Reproduce the bug: dotnet run --project SocialStudio.ApiService -c Release'
 Write-Host '  Remember to rotate/scrub if the snapshot contained sensitive data.'

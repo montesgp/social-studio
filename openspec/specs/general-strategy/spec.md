@@ -104,6 +104,6 @@ Changes to General Strategy after job start MUST NOT affect an in-flight snapsho
 
 ## Implementation Notes
 
-- Domain: `Incoders.Hive.Domain.Social.GeneralStrategies.GeneralStrategy`
+- Domain: `SocialStudio.Domain.Social.GeneralStrategies.GeneralStrategy`
 - Infrastructure table: `social.general_strategies` (renamed from `social.client_strategies` in migration `Rename_ClientStrategies_To_GeneralStrategies`)
 - `StrategySnapshot` (frozen VO for generation jobs) is separate from `GeneralStrategy` and derives from it at job-start time only.

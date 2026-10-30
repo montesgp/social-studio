@@ -1201,7 +1201,7 @@ export interface AnalysisPackagesResponse {
 }
 
 // ── Content generation audit (sysadmin job index + timeline) ─────────────────
-// Mirrors Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IContentGenerationAuditReader.cs
+// Mirrors SocialStudio.Application/Abstractions/Social/ContentGeneration/IContentGenerationAuditReader.cs
 // exactly — field names are camelCase on the wire. Status/errorCode/stepType are plain strings on
 // the backend (not enums), so we keep them as `string` here rather than inventing a closed union.
 

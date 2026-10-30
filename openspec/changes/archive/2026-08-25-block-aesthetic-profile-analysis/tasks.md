@@ -5,7 +5,7 @@ Forecast). Work units follow `work-unit-commits` — each unit has a clear start
 boundary and produces one focused commit. **Strict TDD is ACTIVE**: every work unit that touches
 production code MUST start by writing/adjusting the failing test, then implementing until green.
 
-Test runner: `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release`. NOTE:
+Test runner: `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release`. NOTE:
 `dotnet test` is SAC-blocked locally on this machine — write tests first per Strict TDD, verify
 locally where possible, and confirm final GREEN via CI dispatch for every backend unit.
 
@@ -19,7 +19,7 @@ unless marked `[P]`.
 ### WU1 — Contract: `EnsureAvailableOutcome` enum + `EnsureAvailableBlockingAsync`/`LatestUsableAestheticPresentAsync` signatures [P]
 **Satisfies:** Design Decision 1 (contract shape) — foundation for BAPA-CG-01, BAPA-CG-02.
 
-- [x] Modify `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticEnsureFreshService.cs`:
+- [x] Modify `SocialStudio.Application/Abstractions/Social/ContentGeneration/IClientAestheticEnsureFreshService.cs`:
       add `EnsureAvailableOutcome { Ready, NoOwnAccount, TimedOut, AnalysisFailed }`, add
       `Task<EnsureAvailableOutcome> EnsureAvailableBlockingAsync(Guid orgId, Guid clientId,
       TimeSpan maxWait, Func<CancellationToken, Task>? onWaitStarted, CancellationToken ct)`, add
@@ -34,7 +34,7 @@ unless marked `[P]`.
 (no-own-account immediate failure), Design Decisions 2, 3, 6 (poll mechanism, predicate,
 cancellation safety).
 
-- [x] TDD: add new test file `Incoders.Hive.Tests/.../Background/EnsureAvailableBlockingTests.cs`
+- [x] TDD: add new test file `SocialStudio.Tests/.../Background/EnsureAvailableBlockingTests.cs`
       (or sibling suite in `EnsureFreshServiceIsolationTests.cs`) with failing tests for all five
       scenarios from design's Reconciled Test Contract:
       own-account-absent → `NoOwnAccount` (no wait, no enqueue); fake repo flips
@@ -44,7 +44,7 @@ cancellation safety).
       → `TimedOut` (no throw); job `ct` cancelled mid-wait → `OperationCanceledException`
       propagates.
 - [x] Implement `LatestUsableAestheticPresentAsync` in
-      `Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ClientAestheticEnsureFreshService.cs`
+      `SocialStudio.Application/Features/Social/ContentGeneration/Background/ClientAestheticEnsureFreshService.cs`
       delegating to `IProfileAnalysisRepository.LatestAnalyzedHasAestheticAsync`.
 - [x] Implement `EnsureAvailableBlockingAsync`: resolve own account (reuse existing resolution) →
       `NoOwnAccount` if absent; ensure an in-flight/enqueued analysis exists (reuse existing
@@ -67,7 +67,7 @@ fire-and-forget), MODIFIED CAG-CG-02 (own-account degrade only when usable-prese
 CAG-CG-04 (enqueue stays fire-and-forget; wait is a distinct, scoped concern), REMOVED
 CAG-CG-01-c (no more silent Creative degradation on empty aesthetic).
 
-- [x] TDD: reconcile `Incoders.Hive.Tests/.../Pipeline/ProcessorEnsureFreshIsolationTests.cs` —
+- [x] TDD: reconcile `SocialStudio.Tests/.../Pipeline/ProcessorEnsureFreshIsolationTests.cs` —
       re-scope the existing "throwing `EnsureFreshAsync` service → job not Failed" tests to the
       stale/present branch (fake `LatestUsableAestheticPresentAsync` returns `true`), extend the
       `StatusTracker` fake from last-status-only to a status LIST so `AnalyzingProfile → Running`
@@ -76,7 +76,7 @@ CAG-CG-01-c (no more silent Creative degradation on empty aesthetic).
       `AnalyzingProfile` then completes; `NoOwnAccount` → `Failed` +
       `aesthetic-own-account-required`; `TimedOut` → `Failed` + `aesthetic-analysis-timeout`;
       `AnalysisFailed` → `Failed` + `aesthetic-analysis-failed`.
-- [x] Modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
+- [x] Modify `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
       (~253-295): replace the unconditional `EnsureFreshAsync` fire-and-forget with the branch —
       `LatestUsableAestheticPresentAsync` true → unchanged fire-and-forget `EnsureFreshAsync` +
       read profile (existing CAG-CG-04 isolation, now scoped to this branch); false → call
@@ -113,7 +113,7 @@ in `AnalyzingProfile` on crash/orphan.
 - [x] TDD: add a new watchdog test asserting an `AnalyzingProfile` job older than
       `StuckJobThreshold` is force-failed by `FailStuckRunningJobsAsync`, and a stranded
       `AnalyzingProfile` job is caught by `MarkOrphanedRunningJobsAsync` startup recovery.
-- [x] Modify `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobWatchdog.cs`:
+- [x] Modify `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobWatchdog.cs`:
       change the `j.Status == "Running"` filter to `j.Status == "Running" || j.Status ==
       "AnalyzingProfile"` in BOTH `MarkOrphanedRunningJobsAsync` and
       `FailStuckRunningJobsAsync`.

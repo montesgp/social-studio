@@ -160,7 +160,7 @@ These are good ideas. They belong to Phase 2 / Phase 3 when this baseline is sta
 - Set `coverage.minimum > 0` and store a baseline; fail when trend drops > 1pp.
 - Replace internal regex secret scanner with `gitleaks` (drop-in replacement; richer rules + entropy).
 - Add architecture fitness functions:
-  - `NetArchTest` or `ArchUnitNET` for backend layering tests living inside `Incoders.Hive.Tests`.
+  - `NetArchTest` or `ArchUnitNET` for backend layering tests living inside `SocialStudio.Tests`.
   - `dependency-cruiser` for the Next.js app.
 - Pre-commit hook bootstrap script (calls `Run-Gates.ps1` with `-Only @('secrets','architecture')` for fast iteration).
 - Renovate / Dependabot config for backend and frontend.

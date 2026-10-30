@@ -589,7 +589,7 @@ B1a as an explicit amendment (the proposal flags contract-freeze churn as a risk
 | `Infrastructure/Social/ContentGeneration/OpusVisualDesigner.cs` | Create | real `IVisualDesigner`; constrained HTML; Tier-2 multimodal; `PromptVersionKey="visual-designer/v1"` |
 | `Infrastructure/Rendering/RenderingOptions.cs` | Create | `Engine` (chromium/skia), concurrency, timeout, scale config |
 | `Infrastructure/DependencyInjection/DependencyInjection.cs` | Modify | config-select `IContentRenderer`; register designer + guardrail validator |
-| `Infrastructure/Incoders.Hive.Infrastructure.csproj` | Modify | add `Microsoft.Playwright`; keep SkiaSharp |
+| `Infrastructure/SocialStudio.Infrastructure.csproj` | Modify | add `Microsoft.Playwright`; keep SkiaSharp |
 | Deploy (Dockerfile / ops) | Modify | `playwright install chromium` + font package in image |
 
 ## Data Flow
@@ -668,7 +668,7 @@ public interface IVisualGuardrailValidator
 }
 ```
 
-## Testing Strategy (Strict TDD — `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj`)
+## Testing Strategy (Strict TDD — `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj`)
 
 Test-first, Domain → Application → (Infra in B1b). Stubbed `IVisualDesigner` everywhere in B1a — no
 real LLM. Order maps to spec scenarios BG-01/02/03, VD-01/02/03/04.

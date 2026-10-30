@@ -17,7 +17,7 @@ export default async function LoginPage() {
   }
 
   return (
-    <AuthCard title="Sign in to Hive">
+    <AuthCard title="Sign in to Social Studio">
       <LoginForm />
     </AuthCard>
   );

@@ -118,28 +118,28 @@ is outside this codebase's control. **No code fix recommended** — findings are
 
 ## Affected Areas
 
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
+- `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
   — photo-degrade branch selection (~L807-954); img markup builder `BuildTemplateBackedMarkup`
   (~L1891-1989, incl. `object-fit:cover` at L1950); `BuildFlatColorMarkup` (~L2090+).
-- `Incoders.Hive.Infrastructure/Social/ContentGeneration/AiVisualDesigner.cs` — `BuildInputJson`
+- `SocialStudio.Infrastructure/Social/ContentGeneration/AiVisualDesigner.cs` — `BuildInputJson`
   background-tier guidance (L221-261, NoScrimDirective scoping), `BuildSystemPrompt` decoration rule
   9 (L403-415), `AllowedFonts` source (L286).
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ClientAestheticDesignContext.cs`
+- `SocialStudio.Application/Features/Social/ContentGeneration/Shared/ClientAestheticDesignContext.cs`
   — needs `Typography` field (and possibly an opacity/blend signal field); construction site is
   `ContentGenerationJobProcessor.cs` L469-481.
-- `Incoders.Hive.Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractor.cs` —
+- `SocialStudio.Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractor.cs` —
   needs typography extraction instruction + DTO field + `Map()` assignment; needs the new
   opacity/transparency signal similarly (near `BackgroundPattern`/`ImageTypeCounts`, ~L135-280).
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/AestheticProfilePersistence.cs`,
+- `SocialStudio.Application/Features/Social/ContentGeneration/Shared/AestheticProfilePersistence.cs`,
   `ClientAestheticProfile.cs` — new field for the opacity/blend signal, following the exact
   additive-trailing-nullable pattern already used for `Typography`/`BrandMark`/`ImageTypeRatio`.
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Visual/CompositionDefaults.cs`
+- `SocialStudio.Application/Features/Social/ContentGeneration/Visual/CompositionDefaults.cs`
   (`ResolveTypography` 4-arg overload — already correct, reference implementation for a possible new
   opacity resolver) and `Fonts/FontFamilyResolution.cs`/`FontCatalog.cs` (already correct, no changes
   needed for the fallback strategy itself).
-- `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`, `ComfyUiSettings.cs`,
-  `Incoders.Hive.Infrastructure/Integrations/IntegrationExecutionPolicy.cs`,
-  `Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ClientAestheticImageBackgroundService.cs`
+- `SocialStudio.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`, `ComfyUiSettings.cs`,
+  `SocialStudio.Infrastructure/Integrations/IntegrationExecutionPolicy.cs`,
+  `SocialStudio.Application/Features/Social/ContentGeneration/Background/ClientAestheticImageBackgroundService.cs`
   — item 5, read-only for this change.
 
 ## Approaches

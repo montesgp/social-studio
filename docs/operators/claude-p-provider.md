@@ -1,6 +1,6 @@
 # Claude -p Provider Setup
 
-`claude-p` is a backend-only integration provider for Claude Code CLI (`claude -p`). It can be enabled for `AiModel` and `MediaGeneration` workflow routes without exposing shell execution to the browser. It runs on the **application host** (the same machine where Incoders Hive runs), so it needs **no per-organization credentials**.
+`claude-p` is a backend-only integration provider for Claude Code CLI (`claude -p`). It can be enabled for `AiModel` and `MediaGeneration` workflow routes without exposing shell execution to the browser. It runs on the **application host** (the same machine where Social Studio runs), so it needs **no per-organization credentials**.
 
 ## Auto-provisioning (zero-config)
 

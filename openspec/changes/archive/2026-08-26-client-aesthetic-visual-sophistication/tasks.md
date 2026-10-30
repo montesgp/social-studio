@@ -73,14 +73,14 @@ largest unit and the only one worth watching if scope grows during implementatio
 
 ## Phase 0: Golden Capture (blocking prerequisite, before ANY render code change)
 
-- [x] 0.1 Capture the CURRENT (pre-change) `BuildFlatColorMarkup`/`BuildFlatCarouselSlots` output for one representative `CompositionSpec` fixture and commit it verbatim as `Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/Goldens/flat-carousel-cold-start.html`. Run against `dev` HEAD, no code change. Satisfies the byte-identity prerequisite for CAVS-CG-03.
+- [x] 0.1 Capture the CURRENT (pre-change) `BuildFlatColorMarkup`/`BuildFlatCarouselSlots` output for one representative `CompositionSpec` fixture and commit it verbatim as `SocialStudio.Tests/Application/Social/ContentGeneration/Pipeline/Goldens/flat-carousel-cold-start.html`. Run against `dev` HEAD, no code change. Satisfies the byte-identity prerequisite for CAVS-CG-03.
 - [x] 0.2 Add `FlatCarouselMarkupGoldenTests.cs` with one RED-to-GREEN scaffolding test that reads the golden file and asserts `Assert.Equal(golden, BuildFlatColorMarkup(...))` against today's unmodified builder — GREEN now, becomes the regression guard once WU-4/WU-5 land. Commit before any render diff.
 
 ## Phase 1 (WU-1): `DecorationMotifs` Value Objects — design D1, D2 scaffolding
 
-Spec: CAVS-PA-01, CAVS-PA-02, CAVS-PA-03. File: `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/DecorationMotifs.cs` (new).
+Spec: CAVS-PA-01, CAVS-PA-02, CAVS-PA-03. File: `SocialStudio.Application/Features/Social/ContentGeneration/Shared/DecorationMotifs.cs` (new).
 
-- [x] 1.1 RED: `Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/DecorationMotifsTests.cs` (new) — `Normalize` preserves an invented token verbatim (CAVS-PA-02-b); null/blank → null (CAVS-PA-02-c); `IsRecognised` false for invented token; `TryParseDividerRule` unrecognised → null (CAVS-PA-03-b).
+- [x] 1.1 RED: `SocialStudio.Tests/Application/Social/ContentGeneration/Shared/DecorationMotifsTests.cs` (new) — `Normalize` preserves an invented token verbatim (CAVS-PA-02-b); null/blank → null (CAVS-PA-02-c); `IsRecognised` false for invented token; `TryParseDividerRule` unrecognised → null (CAVS-PA-03-b).
 - [x] 1.2 GREEN: create `DecorationMotifs.cs` — `DividerRuleStyle` enum (`Line`, `LineWithDiamond`, `LineWithDot`), `DecorativeOrnamentDetection` record (reuses `BrandMarkBoundingBox`), `DecorationMotifs` record (`DividerRule`, `CompositionArchetype`, `Ornament`), `CompositionArchetypes` static class (`LeftAligned`/`Centered`/`LowerThird` consts, `Normalize`, `IsRecognised`, `TryParseDividerRule`). No `AccentShape` type anywhere (asserted by 1.1's absence, not a positive test).
 - [x] 1.3 REFACTOR: confirm `Normalize` never collapses unrecognised tokens (design D1) and `DividerRuleStyle` unrecognised path returns `null`, not a default enum member.
 
@@ -88,14 +88,14 @@ Spec: CAVS-PA-01, CAVS-PA-02, CAVS-PA-03. File: `Incoders.Hive.Application/Featu
 
 Touches already-shipped code from `client-aesthetic-generation-hardening`. Own commit, no new behavior. Must land before WU-7 calls the port under its new name.
 
-- [x] 1b.1 Rename `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IBrandMarkAssetExtractor.cs` → `IAestheticAssetCropExtractor.cs`; rename the interface and update its doc comment to be element-agnostic (brand mark + ornament).
+- [x] 1b.1 Rename `SocialStudio.Application/Abstractions/Social/ContentGeneration/IBrandMarkAssetExtractor.cs` → `IAestheticAssetCropExtractor.cs`; rename the interface and update its doc comment to be element-agnostic (brand mark + ornament).
 - [x] 1b.2 Rename `Infrastructure/.../SkiaBrandMarkAssetExtractor.cs` → `SkiaAestheticAssetCropExtractor.cs`; update the class name and DI registration in the composition root.
 - [x] 1b.3 Update every existing call site: `ContentGenerationJobProcessor.cs` constructor parameter type, DI registration, and rename `SkiaBrandMarkAssetExtractorTests.cs` → `SkiaAestheticAssetCropExtractorTests.cs` (class + references only, no assertion changes).
-- [x] 1b.4 Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release --filter SkiaAestheticAssetCropExtractorTests` and the full brand-mark render suite to confirm the rename introduced no behavior change.
+- [x] 1b.4 Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release --filter SkiaAestheticAssetCropExtractorTests` and the full brand-mark render suite to confirm the rename introduced no behavior change.
 
 ## Phase 2 (WU-2): Extraction Half
 
-Spec: CAVS-PA-01, CAVS-PA-02, CAVS-PA-03. File: `Incoders.Hive.Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractor.cs`.
+Spec: CAVS-PA-01, CAVS-PA-02, CAVS-PA-03. File: `SocialStudio.Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractor.cs`.
 
 - [x] 2.1 RED: extend `MultimodalAestheticStyleExtractorTests.cs` — divider/archetype DTO fields map correctly (CAVS-PA-03-a, CAVS-PA-02-a); unrecognised archetype token preserved verbatim through `Map()` (CAVS-PA-02-b); malformed/absent divider → null, no throw (CAVS-PA-03-b).
 - [x] 2.2 RED: bumped the extractor's prompt/schema version test to v7 and asserted it equals `AestheticFreshness.CurrentSchemaVersion` (in `MultimodalAestheticStyleExtractorTests.cs`'s `ExtractorPromptVersion_IsBumpedToV7`/`Extract_StampsSchemaVersion_OnProducedExtraction` — `PromptVersionBumpAestheticTests.cs` tests unrelated `ContentGenerationPromptVersions` constants, not the aesthetic-extractor schema version; no change needed there).
@@ -111,12 +111,12 @@ Spec: CAVS-PA-01-b, CAVS-PA-02-b. Files: `Shared/AestheticProfilePersistence.cs`
 - [x] 3.2 RED: extend `AestheticExtractionExtensionTests.cs` and `ClientAestheticProfileExtensionTests.cs` for the same round-trip on their respective mapping layers.
 - [x] 3.3 GREEN: add `DecorationMotifs` as the 15th trailing-nullable named-tuple element on `AestheticProfilePersistence.Read(string?)`; update the DTO (`StoredAestheticProfile`) with the `DecorationMotifs` member; update the two early-return null-tuples at lines 113, 121, 187 (14 nulls → 15 nulls).
 - [x] 3.4 GREEN: update every mechanical call site for the arity change:
-  - `Incoders.Hive.Infrastructure/Social/ContentGeneration/EfClientAestheticProfileReader.cs` L85-88 — positional `var (...)` deconstruction gains a 15th element (`decorationMotifs`), passed through to the `ClientAestheticProfile` constructor.
-  - `Incoders.Hive.Infrastructure/Persistence/Postgres/EfProfileAnalysisRepository.cs` L209 — named `read.` access; no positional break, verify no new field needed for `AestheticFreshnessSnapshot`.
-  - `Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/AestheticProfilePersistenceTests.cs` — every `AestheticProfilePersistence.Read(...)` call (35 occurrences, named `.` access) is unaffected by arity unless a test asserts the full tuple literal; audit and fix any literal-tuple `Assert.Equal` calls.
-  - `Incoders.Hive.Tests/Application/Social/ContentGeneration/Visual/ClientTypographyResolutionTests.cs` L295, L312 — named access, verify unaffected.
-  - `Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/ColorPairingAccentTests.cs` L133, L148 — named access, verify unaffected.
-  - `Incoders.Hive.Tests/Application/Social/ClientAestheticProfileAdmin/UpdateClientAestheticProfileBackgroundPatternHandlerTests.cs` L98 — named access, verify unaffected.
+  - `SocialStudio.Infrastructure/Social/ContentGeneration/EfClientAestheticProfileReader.cs` L85-88 — positional `var (...)` deconstruction gains a 15th element (`decorationMotifs`), passed through to the `ClientAestheticProfile` constructor.
+  - `SocialStudio.Infrastructure/Persistence/Postgres/EfProfileAnalysisRepository.cs` L209 — named `read.` access; no positional break, verify no new field needed for `AestheticFreshnessSnapshot`.
+  - `SocialStudio.Tests/Application/Social/ContentGeneration/Shared/AestheticProfilePersistenceTests.cs` — every `AestheticProfilePersistence.Read(...)` call (35 occurrences, named `.` access) is unaffected by arity unless a test asserts the full tuple literal; audit and fix any literal-tuple `Assert.Equal` calls.
+  - `SocialStudio.Tests/Application/Social/ContentGeneration/Visual/ClientTypographyResolutionTests.cs` L295, L312 — named access, verify unaffected.
+  - `SocialStudio.Tests/Application/Social/ContentGeneration/Shared/ColorPairingAccentTests.cs` L133, L148 — named access, verify unaffected.
+  - `SocialStudio.Tests/Application/Social/ClientAestheticProfileAdmin/UpdateClientAestheticProfileBackgroundPatternHandlerTests.cs` L98 — named access, verify unaffected.
 - [x] 3.5 GREEN: add trailing-nullable `DecorationMotifs` passthrough on `Shared/ClientAestheticProfile.cs` and `Shared/ClientAestheticDesignContext.cs`.
 - [x] 3.6 REFACTOR: confirm `AestheticProfilePersistence.Write`/`Serialize` round-trips `DecorationMotifs` symmetrically with `BrandMark` (nearest precedent field).
 
@@ -145,7 +145,7 @@ Spec: CAVS-PA-04. Files: `MultimodalAestheticStyleExtractor.cs`, `DecorationMoti
 - [x] 6.1 RED: extend `DecorationMotifsTests.cs` — valid ornament bounding box (within 0..1, above `MinimumNormalizedArea`) is retained with resolved `SourceImagePath` (CAVS-PA-04-a); below-minimum-area/out-of-range/malformed box ⇒ `BoundingBox = null`, no throw (CAVS-PA-04-b). (Cases `DecorativeOrnamentDetection_ValidBox_IsRetained`/`DecorativeOrnamentDetection_InvalidBox_BoundingBoxIsNull_NoThrow` already existed in `DecorationMotifsTests.cs` from prior WU work; verified they satisfy this task's acceptance criteria — no duplicate added.)
 - [x] 6.2 RED: extend `MultimodalAestheticStyleExtractorTests.cs` — `ornament { sourceImageIndex, boundingBox }` DTO parses; `sourceImageIndex` resolves to `StoragePath` via the existing post-skip `loadedPairs` mechanism (mirrors `CAGH-PA-03`). Added `Ornament_ValidSourceIndexAndBoundingBox_ResolvesBoth`, `Ornament_EarlierImageFailsToOpen_SourceIndexShiftsToPostSkipOrdering`, `Ornament_AbsentKey_IsNull_DecorationMotifsStillMapsOtherSignals`, and an 11-case `DefensiveParsing_Ornament01..11` suite mirroring WU-6b's brand-mark defensive-parsing suite (malformed/out-of-range/zero-area/missing-index cases).
 - [x] 6.3 GREEN: added `ornament` prompt section + `OrnamentDto`/`DecorationMotifsDto.Ornament` + `MapOrnament()` wiring in `MultimodalAestheticStyleExtractor.cs`, reusing `BrandMarkDetection.TryValidateBoundingBox`/`MinimumNormalizedArea` verbatim; bumped `PromptVersion`/`AestheticFreshness.CurrentSchemaVersion` to `aesthetic-extractor/v8`.
-- [x] 6.4 GATE (blocking, non-code): **NOT PASSED.** Queried the local dev Postgres (`incoders-hive-dev-postgres`, `social.profile_analyses.aesthetic_profile_json`) for real brand-mark bounding-box data from the already-shipped `client-aesthetic-generation-hardening` change (same extraction mechanism, reused verbatim for the ornament). Found 14 populated `brandMark` rows; 0 carry a `boundingBox` value — the only post-v6 row classified its mark as `markType: "text"` (never bounding-box-eligible). No real bounding-box measurement exists to evaluate. Full verdict, query evidence, and the cut decision are recorded in `openspec/changes/client-aesthetic-visual-sophistication/wu6-reliability-gate.md`. Per this task's own fallback clause, **WU-7 and WU-8 are cut from this apply batch**; the schema/extraction (WU-1/WU-6) ship as inert additive-nullable fields with no renderer consuming them yet.
+- [x] 6.4 GATE (blocking, non-code): **NOT PASSED.** Queried the local dev Postgres (`social-studio-dev-postgres`, `social.profile_analyses.aesthetic_profile_json`) for real brand-mark bounding-box data from the already-shipped `client-aesthetic-generation-hardening` change (same extraction mechanism, reused verbatim for the ornament). Found 14 populated `brandMark` rows; 0 carry a `boundingBox` value — the only post-v6 row classified its mark as `markType: "text"` (never bounding-box-eligible). No real bounding-box measurement exists to evaluate. Full verdict, query evidence, and the cut decision are recorded in `openspec/changes/client-aesthetic-visual-sophistication/wu6-reliability-gate.md`. Per this task's own fallback clause, **WU-7 and WU-8 are cut from this apply batch**; the schema/extraction (WU-1/WU-6) ship as inert additive-nullable fields with no renderer consuming them yet.
 
 ## Phase 7 (WU-7): Ornament Crop Port + SkiaSharp Adapter *(gated on Phase 6.4 passing — GATE NOT PASSED, see `wu6-reliability-gate.md`; cut from this apply batch)*
 
@@ -179,7 +179,7 @@ Spec: CAVS-CG-04 (render half), CAVS-CG-05, CAVS-CS-01, CAVS-CS-02, CAFF-CS-01 (
 - [x] 9.3 Authored and merged `docs/architecture/adr/0015-schema-fatigue-norm.md` recording settled decision 7 (CAVS-PA-05), plus a one-line XML-doc `<remarks>` pointer on `AestheticExtraction` (`IClientAestheticStyleExtractor.cs`) and `ClientAestheticProfile` (`ClientAestheticProfile.cs`) naming the ADR.
 - [x] 9.4 Updated `profile-analysis` spec's normative text (`CAVS-PA-05`) to state the binding schema-fatigue norm, with a pointer to ADR 0015.
 - [ ] 9.5 Owner review checkpoint: one real generation reviewed for each of two clients with materially different signalled archetypes, accept/reject recorded in writing (success criterion 7). **NOT completed by `sdd-apply`** — this is an explicit human/owner action, not an implementation task; no agent session can author it on the owner's behalf. Remains open until the owner performs and records the review.
-- [x] 9.6 Ran `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release` directly (the authoritative signal for this session; `Run-Gates.ps1`'s `tests.backend` step has the known pre-existing Visual-Studio-DLL-lock environment issue documented since WU-5/WU-6, unrelated to this batch's code). See Work Unit Evidence below for the result.
+- [x] 9.6 Ran `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release` directly (the authoritative signal for this session; `Run-Gates.ps1`'s `tests.backend` step has the known pre-existing Visual-Studio-DLL-lock environment issue documented since WU-5/WU-6, unrelated to this batch's code). See Work Unit Evidence below for the result.
 
 ## Key Learnings
 

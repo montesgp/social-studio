@@ -226,7 +226,7 @@ respected: all new fields are nullable BY DESIGN (no `!` suppressors); enum pars
 
 **Migration verdict: NO schema migration. All changes are code-only or JSON-blob-additive.**
 
-## 8. Test-first ordering (Strict TDD — `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release`)
+## 8. Test-first ordering (Strict TDD — `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release`)
 1. **VOs** — `ArtDirectionMethod`, `ConceptualMethod`, `ImageTypeRatio`; extended `AestheticExtraction` /
    `ClientAestheticProfile` (additive nullable; existing sites + `with` compile unchanged). (OQ-1/OQ-2.)
 2. **Pairing record + key-join** — `ProfilePostImageCaptionPair`; orchestrator joins on `SourcePostId`;

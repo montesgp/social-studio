@@ -2,5 +2,5 @@ approval_policy = "never"
 sandbox_mode = "danger-full-access"
 network_access = true
 
-[projects.'D:\Repositories\incoders\incoders-hive']
+[projects.'D:\Repositories\incoders\social-studio']
 trust_level = "trusted"

@@ -4,7 +4,7 @@ Delivery strategy: `ask-on-risk`. Two independent capabilities — A (studio/fro
 read path) and B (generation/composer gating) — ship as separate slices/PRs. Strict
 TDD is ACTIVE: every code WU starts with a failing test, then implementation to green.
 
-Test runner (backend): `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c
+Test runner (backend): `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c
 Release`. Not SAC-blocked in recent sessions — run locally; if the block returns,
 verify GREEN via CI dispatch. Frontend: `cd apps/web && npm run build && npm run lint`.
 
@@ -83,7 +83,7 @@ to this change).
 - [x] No dedicated endpoint needed: the resolver runs inside the EXISTING
       `GetContentItemQuery`/`GetContentPreviewQuery`/`ListContentItemsQuery`/
       `ListContentItemsByIdsQuery` handlers (all under
-      `Incoders.Hive.Application/Features/Social/ContentStudio/Queries/`), so the already
+      `SocialStudio.Application/Features/Social/ContentStudio/Queries/`), so the already
       -mapped item/preview/list endpoints in `MapContentStudioEndpoints.cs` return
       browser-fetchable markup directly — no new route required.
 - **Verify:** existing endpoint/handler tests GREEN (full suite).
@@ -132,8 +132,8 @@ to this session (per the orchestrator's confirmed-state note). Re-verified direc
 against the current code rather than assumed:
 
 - `Client.SignsOwnSlides` (bool, default `false`) + setter exist in
-  `Incoders.Hive.Domain/Social/Clients/Client.cs`, covered by
-  `Incoders.Hive.Tests/Domain/Social/Clients/ClientSignsOwnSlidesTests.cs`.
+  `SocialStudio.Domain/Social/Clients/Client.cs`, covered by
+  `SocialStudio.Tests/Domain/Social/Clients/ClientSignsOwnSlidesTests.cs`.
 - Migration `20260711200807_Add_SignsOwnSlides.cs` adds
   `signs_own_slides boolean NOT NULL DEFAULT false` on `social.clients`, no backfill.
 - `ClientProfileSnapshot.SignsOwnSlides` + `EfClientBrandSnapshotLoader` load it from
@@ -160,7 +160,7 @@ All targeted tests re-run and GREEN (24/24); full backend suite GREEN
 **Satisfies:** CAC-CG-03 (opt-in field), CAC-CG-05 (default-off migration behavior).
 
 - [x] `ClientSignsOwnSlidesTests.cs` covers default `false` + `SetSignsOwnSlides`.
-- [x] `Incoders.Hive.Domain/Social/Clients/Client.cs` has the field + setter.
+- [x] `SocialStudio.Domain/Social/Clients/Client.cs` has the field + setter.
 - **Verify:** domain test GREEN (confirmed).
 - **Depends on:** nothing.
 
@@ -179,7 +179,7 @@ constraint from user instructions.
 **Satisfies:** CAC-CG-03 (signal reaches the composer via `BrandSnapshot`).
 
 - [x] `ClientProfileSnapshot.SignsOwnSlides` (additive) present in
-      `Incoders.Hive.Domain/Social/ContentGeneration/ClientProfileSnapshot.cs`.
+      `SocialStudio.Domain/Social/ContentGeneration/ClientProfileSnapshot.cs`.
 - [x] `EfClientBrandSnapshotLoader.cs` loads `clientRow.SignsOwnSlides` into the snapshot.
 - **Verify:** confirmed via full suite pass (`ClientBrandSnapshotLoaderRoleTests` family).
 - **Depends on:** WU-B2.

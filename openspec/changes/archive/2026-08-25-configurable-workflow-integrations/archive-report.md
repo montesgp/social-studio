@@ -9,13 +9,13 @@ session's own work (this session's `client-aesthetic-fidelity-fixes` change itse
 current mechanism for per-org provider/model/actor routing).
 
 ## Evidence
-- `Incoders.Hive.Application/Features/Integrations/WorkflowConfigurations/WorkflowConfigurationCatalog.cs`
+- `SocialStudio.Application/Features/Integrations/WorkflowConfigurations/WorkflowConfigurationCatalog.cs`
   — the live workflow-step → provider/model/actor routing table, actively extended this session.
-- `Incoders.Hive.Application/Features/Integrations/Models/{SyncOrganizationAiModelsCommand,ListOrganizationAiModelsQuery,OrganizationAiModelResponses}.cs`
+- `SocialStudio.Application/Features/Integrations/Models/{SyncOrganizationAiModelsCommand,ListOrganizationAiModelsQuery,OrganizationAiModelResponses}.cs`
   — organization-scoped AI model sync/listing.
-- `Incoders.Hive.Application/Abstractions/Integrations/IOrganizationAiModelRepository.cs`
+- `SocialStudio.Application/Abstractions/Integrations/IOrganizationAiModelRepository.cs`
   — persisted model catalog port.
-- `Incoders.Hive.Application/Features/Integrations/GetOverview/GetOrganizationIntegrationsHandler.cs`,
+- `SocialStudio.Application/Features/Integrations/GetOverview/GetOrganizationIntegrationsHandler.cs`,
   `GetByProvider/GetOrganizationIntegrationByProviderHandler.cs` — read-side wiring.
 
 ## Remaining

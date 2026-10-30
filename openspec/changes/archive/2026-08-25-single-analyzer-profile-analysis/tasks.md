@@ -67,7 +67,7 @@
 **Layer: Domain**
 **TDD order: test → implementation**
 
-- [x] **[TEST]** Write xUnit unit tests (`Incoders.Hive.Tests/Domain/Social/ProfileAnalysis/ProfileAnalysisDomainTests.cs`) covering:
+- [x] **[TEST]** Write xUnit unit tests (`SocialStudio.Tests/Domain/Social/ProfileAnalysis/ProfileAnalysisDomainTests.cs`) covering:
   - Status transitions: all valid happy-path transitions (`Requested → ScrapingProfile → ProfileScraped → Analyzing → Analyzed`).
   - `ProfileScrapedPartial` path: valid transition from `ScrapingProfile → ProfileScrapedPartial → Analyzing → Analyzed`.
   - `Failed` is terminal: any attempted transition from `Failed` raises a domain invariant violation.
@@ -105,7 +105,7 @@
   - Invariant: no EF / Npgsql / JSON types referenced.
   - _Spec: PA-13, PA-14_
 
-- [x] **[TEST]** Verify all new tests pass in isolation: `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalysis"` — all green before proceeding.
+- [x] **[TEST]** Verify all new tests pass in isolation: `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj --filter "FullyQualifiedName~ProfileAnalysis"` — all green before proceeding.
   - _Spec: PA-13, PA-14, PA-REG-01_
 
 - [x] **[ARCH TEST]** Add architecture test asserting the `Domain.Social.ProfileAnalysis` namespace has ZERO references to any type in `Domain.Social.SingleAnalyzer` (and vice versa).
@@ -206,7 +206,7 @@
 - [x] Create `Application/Features/Social/ProfileAnalyzer/History/DeleteProfileAnalysisCommand.cs` — hard-delete, owner-scoped.
   - _Spec: PA-15_
 
-- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalyzer"` — all green.
+- [x] Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj --filter "FullyQualifiedName~ProfileAnalyzer"` — all green.
 - [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — resolve MUST failures.
 - [x] Commit: `feat(application): add AnalyzeProfile command/handler, metric calculator, and pipeline orchestrator`
 
@@ -242,7 +242,7 @@
 - [x] Create `Application/Features/Social/ProfileAnalyzer/Impute/ImputeProfileAnalysisCommand.cs` — MediatR command + handler. Handler: guard status = `Analyzed`; guard `clientId` not null; for each selected `ProfileImputeTarget`, map to existing write command; dispatch each. Each mapping must be idempotent per WU-01 audit findings.
   - _Spec: PA-20, PA-21, PA-22_
 
-- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalyzer"` — all green (862/864 total, 16 new).
+- [x] Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj --filter "FullyQualifiedName~ProfileAnalyzer"` — all green (862/864 total, 16 new).
 - [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — all MUST pass (pass=16, skipped=2).
 - [x] Commit: `feat(application): add ProfileDashboard and ImputeProfileAnalysis handlers`
 
@@ -281,7 +281,7 @@
 - [x] Create `Infrastructure/Social/Providers/ApifyProfileScrapeResolver.cs` — implements `IProfileScrapeResolver`. Resolves both `defaultActorId` and `backupActorId` for `(networkKey="instagram", variantKey="profile")` using `GetAllMappedActors` helper (list-order preserving; no priority field). Runs default actor; on failure (transport/timeout/non-2xx/empty/parse), records a `ProviderFailureDiagnostic`, retries with backup once. Both outputs normalised through `InstagramProfileApifyScrapeAdapter`. Fails fast with `Integration.ProfileActorNotConfigured` when mapping absent. RESIDENTIAL proxy enforced in adapter input. Emits structured log entries at: actor-resolution, dispatch, fallback, success/failure. Registered in DI as `IProfileScrapeResolver → ApifyProfileScrapeResolver` (scoped) with long-running HttpClient (120s).
   - _Spec: PA-04, PA-05, PA-23, PA-24, INT-01, INT-02_
 
-- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileScrape"` — all green (115 tests).
+- [x] Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj --filter "FullyQualifiedName~ProfileScrape"` — all green (115 tests).
 - [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — all 16 MUST gates pass (pass=16, skipped=2).
 - [x] Commit: `feat(infrastructure): add Instagram profile Apify scrape adapter with default→backup fallback`
 
@@ -318,7 +318,7 @@
 
 - [x] Register `IProfileAnalysisRepository → EfProfileAnalysisRepository`, `IProfileScrapeResolver → ApifyProfileScrapeResolver`, `IProfileAnalyzer → ProfileAnalyzerOrchestrator` in `Infrastructure` DI composition root.
 
-- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalysis"` — 128 pass.
+- [x] Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj --filter "FullyQualifiedName~ProfileAnalysis"` — 128 pass.
 - [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — pass=16, skipped=2.
 - [x] Commit: `feat(infrastructure): add ProfileAnalysis EF entity, configuration, migration, and repository` (4e23541)
 
@@ -340,7 +340,7 @@
 
 - [x] Register the job queue singleton in DI + AddHostedService<ProfileAnalysisBackgroundWorker> in ApiService Program.cs.
 
-- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnaly"` — 128 pass.
+- [x] Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj --filter "FullyQualifiedName~ProfileAnaly"` — 128 pass.
 - [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — pass=16, skipped=2.
 - [x] Commit: `feat(infrastructure): add ProfileAnalysis background job queue and processor` (0d33a1e)
 
@@ -380,7 +380,7 @@
 
 - [x] Register `MapProfileAnalyzerEndpoints` in the app startup endpoint map.
 
-- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~ProfileAnalyzerEndpoint"` — all green. 23/23 pass.
+- [x] Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj --filter "FullyQualifiedName~ProfileAnalyzerEndpoint"` — all green. 23/23 pass.
 - [x] Run `pwsh -File scripts/gates/Run-Gates.ps1`. pass=16, skipped=2. Total: 927/929 pass.
 - [x] Commit: `feat(api): add ProfileAnalyzer endpoint group and own-account picker`
 
@@ -499,7 +499,7 @@
 
 - [x] Verify `ApifyProfileScrapeResolver` emits a structured log entry on: actor resolution, Apify dispatch start, Apify dispatch result (success/failure), fallback trigger, final outcome. Confirm entries route to `hive-api.log` (mirrors the single-analyzer logging config).
   - _Spec: PA-23_
-  - VERIFIED: resolver already had all required log entries. hive-api.log routing confirmed via FileLogging.CategoryPrefix="Incoders.Hive" in appsettings.json.
+  - VERIFIED: resolver already had all required log entries. hive-api.log routing confirmed via FileLogging.CategoryPrefix="SocialStudio" in appsettings.json.
 
 - [x] Verify `ProfileAnalysisData.ProviderDiagnosticsJson` is populated on ALL terminal paths (Analyzed, Failed, partial). Confirm the JSON shape matches the PA-23 scenario requirements: `actor_id`, `fallback_used`, `posts_received`, `posts_processed`, `degraded_post_count`, `ai_provider_key`, `ai_model`; on fallback: `default_actor_error` + `backup_actor_id`; on failure: both failure reasons.
   - _Spec: PA-23_
@@ -556,7 +556,7 @@
 **Layer: All**
 **Sequential: last task, after all WUs complete**
 
-- [x] **[TEST]** Run the full test suite: `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj` — all existing Mundo 1 tests (`SingleAnalyzer*`, `ContentAnalysisProfile*`, `SocialContentAnalysis*`) pass unchanged.
+- [x] **[TEST]** Run the full test suite: `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj` — all existing Mundo 1 tests (`SingleAnalyzer*`, `ContentAnalysisProfile*`, `SocialContentAnalysis*`) pass unchanged.
   - _Spec: PA-REG-01_
   - RESULT: 930/932 pass (2 skipped). 58 Mundo 1 tests all green. 0 failures.
 

@@ -14,7 +14,7 @@ import {
 } from "./start-run-form";
 
 // WU-14 — the analysis window and depth are operator-chosen, explicit owner decisions (not
-// defaults of convenience), with a 90-day window default (Incoders.Hive.Domain DiscoveryWindow:
+// defaults of convenience), with a 90-day window default (SocialStudio.Domain DiscoveryWindow:
 // MinDays=7, MaxDays=365, DefaultDays=90). This module is the only place that encodes those bounds
 // for the frontend.
 

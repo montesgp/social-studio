@@ -142,7 +142,7 @@ Both deviations are intentional trade-offs reducing complexity while satisfying 
 ## Verification & Gating Status
 
 ### Backend Tests
-- **Test runner**: `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release` (strict TDD mode).
+- **Test runner**: `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release` (strict TDD mode).
 - **Studio background tests**: StudioVisualMarkupResolverTests.cs, 6/6 pass.
 - **Attribution policy tests**: AttributionPolicy tests, CSR scenarios all pass.
 - **Full suite**: 3721 tests pass, 0 failures (post-archiving).

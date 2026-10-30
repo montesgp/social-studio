@@ -102,11 +102,11 @@ The following requirements from `openspec/changes/single-analyzer-fase-a/specs/c
 ### Production Code
 | File | Change | Status |
 |---|---|---|
-| `Incoders.Hive.Domain/Social/ContentGeneration/VisualCompositionSpec.cs` | Added `Markdown` enum member | COMPLETE |
-| `Incoders.Hive.Application/.../Composers/ReelScriptVisualComposer.cs` | Newline-separated body; `OutputKind = Markdown` | COMPLETE |
-| `Incoders.Hive.Infrastructure/Rendering/LocalSvgContentRenderer.cs` | Added Markdown branch | COMPLETE |
-| `Incoders.Hive.Application/.../GeneratedPackageBuilder.cs` | Sanitize-only `NormalizeFolderName` | COMPLETE |
-| `Incoders.Hive.Application/.../AssembleGeneratedPackageQuery.cs` | `ISocialClientRepository` + `ResolveClientFoldersAsync` | COMPLETE |
+| `SocialStudio.Domain/Social/ContentGeneration/VisualCompositionSpec.cs` | Added `Markdown` enum member | COMPLETE |
+| `SocialStudio.Application/.../Composers/ReelScriptVisualComposer.cs` | Newline-separated body; `OutputKind = Markdown` | COMPLETE |
+| `SocialStudio.Infrastructure/Rendering/LocalSvgContentRenderer.cs` | Added Markdown branch | COMPLETE |
+| `SocialStudio.Application/.../GeneratedPackageBuilder.cs` | Sanitize-only `NormalizeFolderName` | COMPLETE |
+| `SocialStudio.Application/.../AssembleGeneratedPackageQuery.cs` | `ISocialClientRepository` + `ResolveClientFoldersAsync` | COMPLETE |
 | `apps/web/components/social/single-analyzer-client.tsx` | `.md` resolution, `client.name` display, removed `deriveClientFolderSlug` | COMPLETE |
 
 ### Tests
@@ -310,6 +310,6 @@ Spec: (all)
 
 Session: manual-profile-analyzer-followup-20260604-post-compaction  
 Archived: 2026-06-04  
-Project: incoders-hive  
+Project: social-studio  
 Change: single-analyzer-fase-a  
 Status: READY FOR USER COMMIT

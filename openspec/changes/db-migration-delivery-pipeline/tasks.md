@@ -27,9 +27,9 @@ marked otherwise.
 **Satisfies:** `local-dev-database` spec — Requirement: Local Auto-Migrate and Seed;
 `startup-tasks` spec — Requirement: Startup Migration Application (local-dev scenario).
 
-- [x] Modify `Incoders.Hive.ApiService/appsettings.Development.json`: point
+- [x] Modify `SocialStudio.ApiService/appsettings.Development.json`: point
       `ConnectionStrings:Postgres` at the local Docker Postgres from WU1.1.
-- [x] Modify `Incoders.Hive.ApiService/Program.cs` (~line 93): keep
+- [x] Modify `SocialStudio.ApiService/Program.cs` (~line 93): keep
       `StartupTasks:ApplyMigrations` defaulting to `true` only for local dev (against the local
       DB); confirm the effective default for any other environment is `false` (paired with
       WU-Program-nonDev below — same file, do together to avoid two edits to the same lines).
@@ -133,7 +133,7 @@ independently in the meantime.
 **Satisfies:** `startup-tasks` spec — Requirement: Startup Migration Application (non-dev
 scenarios + explicit override scenario).
 
-- [ ] Modify `Incoders.Hive.ApiService/Program.cs` (~line 93): confirm/enforce
+- [ ] Modify `SocialStudio.ApiService/Program.cs` (~line 93): confirm/enforce
       `StartupTasks:ApplyMigrations` defaults to `false` in every environment except local dev
       against the local DB, while still honoring an explicit `StartupTasks:ApplyMigrations=true`
       override when set (Scenario: Explicit override still respected).

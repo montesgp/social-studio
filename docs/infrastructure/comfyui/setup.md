@@ -1,19 +1,19 @@
-# Hive - ComfyUI Setup Guide
+# Social Studio - ComfyUI Setup Guide
 
 **Version:** 1.0\
-**Audience:** Hive developers
+**Audience:** Social Studio developers
 
 ## Purpose
 
 This document describes the standard procedure for preparing a local
-ComfyUI environment compatible with Hive image generation workflows.
+ComfyUI environment compatible with Social Studio image generation workflows.
 
 ------------------------------------------------------------------------
 
 # Architecture
 
 ``` text
-Hive
+Social Studio
   │
   ├── Generates Workflow JSON
   │
@@ -30,7 +30,7 @@ IPAdapter
 Image Generation
 ```
 
-Hive does **not** execute ComfyUI workflows stored on disk. It generates
+Social Studio does **not** execute ComfyUI workflows stored on disk. It generates
 workflow JSON dynamically and submits it through the ComfyUI REST API.
 
 ------------------------------------------------------------------------
@@ -62,11 +62,11 @@ workflow JSON dynamically and submits it through the ComfyUI REST API.
 
 ## Optional: Detailer Preflight (face/hand repair)
 
-Hive probes every ComfyUI server for `FaceDetailer` and `UltralyticsDetectorProvider`
+Social Studio probes every ComfyUI server for `FaceDetailer` and `UltralyticsDetectorProvider`
 before each generation (`docs/architecture/adr/0017-comfyui-detailer-preflight-probe.md`).
-When **both** node classes are registered, Hive automatically submits a
+When **both** node classes are registered, Social Studio automatically submits a
 detailer-augmented workflow that runs a face/hand repair pass after the primary sampler.
-When either is absent, missing, or the probe cannot determine support, Hive falls back to
+When either is absent, missing, or the probe cannot determine support, Social Studio falls back to
 the plain workflow — silently and byte-identically to a server without these packs. No
 configuration is required to benefit from this once both packs are installed; a per-org
 `detailer_enabled=false` credential value force-disables it regardless of server support.
@@ -186,7 +186,7 @@ The following nodes must exist:
 -   IPAdapterUnifiedLoader
 -   IPAdapterAdvanced
 
-Optional (enables the detailer preflight, see above — Hive falls back to plain when
+Optional (enables the detailer preflight, see above — Social Studio falls back to plain when
 absent, no error):
 
 -   FaceDetailer
@@ -237,7 +237,7 @@ Responsibilities:
 -   Download ComfyUI
 -   Install required custom nodes
 -   Download required models
--   Generate Hive configuration
+-   Generate Social Studio configuration
 
 ------------------------------------------------------------------------
 
@@ -255,7 +255,7 @@ Validation:
 Example:
 
 ``` text
-Hive Environment Check
+Social Studio Environment Check
 
 ✓ ComfyUI
 ✓ Checkpoint
@@ -270,7 +270,7 @@ READY TO GENERATE
 
 # Design Principles
 
--   Hive should never hardcode model filenames.
--   Hive should discover installed nodes through `/object_info`.
--   Hive should maintain a model registry abstraction.
+-   Social Studio should never hardcode model filenames.
+-   Social Studio should discover installed nodes through `/object_info`.
+-   Social Studio should maintain a model registry abstraction.
 -   All environment validation should be automated.

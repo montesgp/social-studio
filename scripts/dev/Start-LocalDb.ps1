@@ -9,7 +9,7 @@
 #   pwsh -File scripts/dev/Start-LocalDb.ps1 -Recreate  # wipe the volume and start fresh
 #
 # After this, run the API (it auto-migrates from empty + seeds in Development):
-#   dotnet run --project Incoders.Hive.ApiService -c Release
+#   dotnet run --project SocialStudio.ApiService -c Release
 
 [CmdletBinding()]
 param(
@@ -20,8 +20,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..' '..')
 $compose = Join-Path $repoRoot 'docker-compose.dev.yml'
-$localConn = 'Host=localhost;Port=5433;Database=incoders_hive_dev;Username=incoders;Password=incoders_dev_only'
-$apiProject = Join-Path $repoRoot 'Incoders.Hive.ApiService' 'Incoders.Hive.ApiService.csproj'
+$localConn = 'Host=localhost;Port=5433;Database=social_studio_dev;Username=incoders;Password=incoders_dev_only'
+$apiProject = Join-Path $repoRoot 'SocialStudio.ApiService' 'SocialStudio.ApiService.csproj'
 
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 
@@ -41,11 +41,11 @@ docker compose -f $compose up -d 2>&1 | Out-Host
 Write-Step 'Waiting for Postgres to become reachable'
 $ready = $false
 foreach ($i in 1..30) {
-    $state = (docker inspect --format '{{.State.Health.Status}}' incoders-hive-dev-postgres 2>$null)
+    $state = (docker inspect --format '{{.State.Health.Status}}' social-studio-dev-postgres 2>$null)
     if ($state -eq 'healthy') { $ready = $true; break }
     Start-Sleep -Seconds 2
 }
-if (-not $ready) { throw 'Postgres did not become healthy in time. Check: docker logs incoders-hive-dev-postgres' }
+if (-not $ready) { throw 'Postgres did not become healthy in time. Check: docker logs social-studio-dev-postgres' }
 Write-Host '    Postgres is healthy on 127.0.0.1:5433' -ForegroundColor Green
 
 # --- Safety check: no shared/cloud DB in user-secrets -------------------------
@@ -65,7 +65,7 @@ if ($secretConn) {
         Write-Warning 'A user-secret ConnectionStrings:Postgres points at a NON-LOCAL database.'
         Write-Warning 'This OVERRIDES appsettings.Development.json - the app will hit that DB, not local Docker.'
         Write-Host    '    Remove it so local dev uses the local Docker Postgres:' -ForegroundColor Yellow
-        Write-Host    "      dotnet user-secrets remove `"ConnectionStrings:Postgres`" --project Incoders.Hive.ApiService" -ForegroundColor Yellow
+        Write-Host    "      dotnet user-secrets remove `"ConnectionStrings:Postgres`" --project SocialStudio.ApiService" -ForegroundColor Yellow
         Write-Host    '    (Reserve user-secrets for personal API keys only - never the shared DB.)' -ForegroundColor Yellow
         Write-Host ''
         throw 'Refusing to continue: local dev would connect to a non-local database.'
@@ -80,5 +80,5 @@ Write-Host ''
 Write-Host 'Local DB is ready.' -ForegroundColor Green
 Write-Host "  Connection: $localConn"
 Write-Host '  Run the API (auto-migrates from empty + seeds in Development):'
-Write-Host '    dotnet run --project Incoders.Hive.ApiService -c Release'
+Write-Host '    dotnet run --project SocialStudio.ApiService -c Release'
 Write-Host '  To load real data from a tier to reproduce a bug, see scripts/db/Sync-LocalDbFromTier.ps1.'

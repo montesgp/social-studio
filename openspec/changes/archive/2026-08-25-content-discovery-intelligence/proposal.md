@@ -188,7 +188,7 @@ squarely the shape covered by ADR-0005 (`background-sourcing-strategy-port`) and
 | `Infrastructure/Social/Providers/Apify/TikTokNicheSearchAdapter.cs` + actor mapping | New | `"niche-search"` variant |
 | `Infrastructure/Persistence/Postgres/Entities/` + configs + migration | New | `discovered_candidates`, `account_baselines` |
 | `Infrastructure/Persistence/Postgres/Repositories/Ef{ContentCandidate,AccountBaseline}Repository.cs` | New | Port implementations |
-| `Incoders.Hive.Tests/` | Modified/New | Strict TDD; `ReferenceAccountContentDiscoveryTests` + `ContentWorkflowServiceTests` break on the contract change and move with it |
+| `SocialStudio.Tests/` | Modified/New | Strict TDD; `ReferenceAccountContentDiscoveryTests` + `ContentWorkflowServiceTests` break on the contract change and move with it |
 | `docs/architecture/adr/0012-*.md` | New | Required ADR |
 
 ## Risks
@@ -268,7 +268,7 @@ the order: contract → chain + DI replacement → sources → scorer → persis
 - [ ] ADR `0012` exists and records the port + persistence decision.
 - [ ] Provider types (Apify, EF, ASP.NET) do not leak into Domain or Application; architecture gate green.
 - [ ] All MUST gates pass (`pwsh -File scripts/gates/Run-Gates.ps1`); Strict TDD followed
-      (`dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release`).
+      (`dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release`).
 - [ ] `docs/PRD.md` / `openspec/specs/` updated for the behavior change (AGENTS.md documentation-sync rule).
 
 ## Proposal question round (non-blocking — auto mode)

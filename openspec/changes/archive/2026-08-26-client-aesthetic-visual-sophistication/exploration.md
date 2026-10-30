@@ -7,7 +7,7 @@ The generation pipeline has TWO independent rendering paths that both consume
 client's real style:
 
 1. **AI-designed path** (`AiVisualDesigner.cs`, `BuildSystemPrompt`/`BuildAestheticGuidance`,
-   `Incoders.Hive.Infrastructure/Social/ContentGeneration/AiVisualDesigner.cs`): receives
+   `SocialStudio.Infrastructure/Social/ContentGeneration/AiVisualDesigner.cs`): receives
    `StyleDescriptors`, `Motifs`, `ImageTypeRatio` (via `ClientAestheticDesignContext.AllowsDecoration`),
    palette, and typography as prompt input. The model has creative license to draw decoration,
    gradients, shapes, blobs — gated by `AllowsDecoration` (true unless the corpus was measured and
@@ -35,29 +35,29 @@ client's real style:
 
 ## Affected Areas
 
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
+- `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
   — `BuildFlatColorMarkup` (2312), `BuildFlatCarouselSlots` (2364), `BuildCarouselTemplateSlots`
   (2258), `BuildStoryTemplateSlots` (2187), `BuildBrandMarkSlot` (2441) — the deterministic rendering
   primitives; currently text + solid background + accent bar + brand-mark chip/image only.
-- `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticStyleExtractor.cs`
+- `SocialStudio.Application/Abstractions/Social/ContentGeneration/IClientAestheticStyleExtractor.cs`
   — `AestheticExtraction` record (line 39) already carries 12 additive trailing-nullable fields
   (`Palette`, `StyleDescriptors`, `Motifs`, `CaptionVoice`, `BackgroundPattern`, `ColorPairings`,
   `ConceptualMethod`, `ImageTypeRatio`, `BrandMark`, `SchemaVersion`, `TypicalSlideCount`,
   `Typography`, `BackgroundTransparency`) accumulated across at least 6 prior changes this quarter.
   `StyleDescriptors`/`Motifs` are `IReadOnlyList<string>` — free-text English sentences from the
   vision model, structurally unusable by a deterministic renderer without NLP parsing.
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ClientAestheticProfile.cs` —
+- `SocialStudio.Application/Features/Social/ContentGeneration/Shared/ClientAestheticProfile.cs` —
   mirrors the same 12 fields as the persisted/read-side projection.
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ClientAestheticDesignContext.cs`
+- `SocialStudio.Application/Features/Social/ContentGeneration/Shared/ClientAestheticDesignContext.cs`
   — `AllowsDecoration` (line 68) is the ONE existing structured decoration gate (bool derived from
   measured `ImageTypeRatio.Decorator` share vs a 0.05 noise floor). This is the closest existing
   precedent for "structured decoration signal driving behavior," but it only gates a binary yes/no
   for the AI path, not a content-bearing decoration type.
-- `Incoders.Hive.Infrastructure/Social/ContentGeneration/AiVisualDesigner.cs` — `BuildSystemPrompt`
+- `SocialStudio.Infrastructure/Social/ContentGeneration/AiVisualDesigner.cs` — `BuildSystemPrompt`
   (376) `depthRule` (436) and `aestheticBlock` (403-428) — where `StyleDescriptors`/`Motifs`
   currently get used, only as prose fed to a generative model, and only for photo-classified/AI-eligible
   slides, never for flat slides.
-- `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IBrandMarkAssetExtractor.cs` — the
+- `SocialStudio.Application/Abstractions/Social/ContentGeneration/IBrandMarkAssetExtractor.cs` — the
   asset-crop precedent (SkiaSharp decode + crop by validated bounding box, never throws, degrades to
   chip on any failure).
 - No SVG/icon-font/vector-shape rendering capability exists anywhere in `Visual/`, `Composers/`, or

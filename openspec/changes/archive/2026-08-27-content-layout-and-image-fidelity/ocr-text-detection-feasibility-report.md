@@ -8,7 +8,7 @@ by WU-7. This document exists to inform a *future*, separately-scoped decision.
 During this session's manual verification, a ComfyUI-generated background image shipped with
 readable, non-editable text baked into the raster (the model rendered words directly into the pixels,
 outside the app's own text-slot overlay). `DegenerateImageGuardrailValidator`
-(`Incoders.Hive.Infrastructure/Social/ContentGeneration/DegenerateImageGuardrailValidator.cs`) did not
+(`SocialStudio.Infrastructure/Social/ContentGeneration/DegenerateImageGuardrailValidator.cs`) did not
 catch it — by its own doc comment (lines 20-24) it is explicitly scoped to near-black/flat-color
 rejection only and "does NOT yet implement the foreground/background-only inspection … (text/logo
 detection needs OCR/ML) — that remains a future concern." This report is the requested investigation
@@ -40,8 +40,8 @@ into closing that gap.
 ### 3. Vision-model call (ask the multimodal model directly, e.g. "does this image contain readable
    text? yes/no + bounding regions")
 - This codebase already has multimodal AI client abstractions in place
-  (`Incoders.Hive.Application/Abstractions/Ai`, `ClaudePromptCliModelClient` in
-  `Incoders.Hive.Infrastructure/Ai/Providers`), so from an integration-shape perspective this is the
+  (`SocialStudio.Application/Abstractions/Ai`, `ClaudePromptCliModelClient` in
+  `SocialStudio.Infrastructure/Ai/Providers`), so from an integration-shape perspective this is the
   closest fit to existing patterns — it would plug into the same kind of client abstraction already
   used for prompt generation, rather than requiring a brand-new SDK/binary/OCR-specific dependency.
 - Trades classic OCR's "extract exact text" for a coarser but often more robust judgment ("is there
@@ -53,8 +53,8 @@ into closing that gap.
 
 ## Existing Dependencies (verified this session)
 
-Searched `Incoders.Hive.Infrastructure.csproj`, `Incoders.Hive.Application.csproj`, and
-`Incoders.Hive.ApiService.csproj` for any OCR/text-detection/vision package reference: **none found**.
+Searched `SocialStudio.Infrastructure.csproj`, `SocialStudio.Application.csproj`, and
+`SocialStudio.ApiService.csproj` for any OCR/text-detection/vision package reference: **none found**.
 The only image-processing dependency currently in the tree is `SkiaSharp`, used exclusively for the
 degenerate-image (near-black / flat-color) pixel sampling described above — it has no OCR capability.
 Zero groundwork exists today; any candidate above is a net-new dependency, not an extension of
@@ -144,6 +144,6 @@ confidence, and shipping one without it risks trading a rare visible defect for 
 expensive silent regeneration cost.
 
 If a future change proceeds, the closest-fit integration shape is option 3 (vision-model call through
-the existing `Incoders.Hive.Application/Abstractions/Ai` client abstraction), since it reuses an
+the existing `SocialStudio.Application/Abstractions/Ai` client abstraction), since it reuses an
 established pattern in this codebase rather than introducing a new OCR-specific binary or SDK — but that
 preference is provisional and should be revisited once accuracy data exists.

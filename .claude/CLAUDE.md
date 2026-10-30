@@ -1,4 +1,4 @@
-# Claude Bootstrap — Incoders Hive
+# Claude Bootstrap — Social Studio
 
 ## Required Read Order
 1. `/AGENTS.md` — project contract and non-negotiable rules.

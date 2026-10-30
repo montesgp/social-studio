@@ -41,9 +41,9 @@ once, before `BuildWorkflowGraph`, to pick between the bundled plain template an
 
 | File | Action | Description |
 |---|---|---|
-| `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiDetailerProbe.cs` | Create | `internal static` — enum, `ProbeAsync`, `Invalidate`, `IsDetailerAttributable`, `ResetCacheForTests`. |
-| `Incoders.Hive.Infrastructure/Ai/Providers/DefaultComfyUiWorkflowTemplateWithDetailer.json` | Create | Plain graph + nodes `"10"`/`"11"`; `"9"` `SaveImage.images` ← `["11", 0]`. |
-| `Incoders.Hive.Infrastructure/Incoders.Hive.Infrastructure.csproj` | Modify | `<EmbeddedResource Include="Ai\Providers\DefaultComfyUiWorkflowTemplateWithDetailer.json" />` beside line 89. |
+| `SocialStudio.Infrastructure/Ai/Providers/ComfyUiDetailerProbe.cs` | Create | `internal static` — enum, `ProbeAsync`, `Invalidate`, `IsDetailerAttributable`, `ResetCacheForTests`. |
+| `SocialStudio.Infrastructure/Ai/Providers/DefaultComfyUiWorkflowTemplateWithDetailer.json` | Create | Plain graph + nodes `"10"`/`"11"`; `"9"` `SaveImage.images` ← `["11", 0]`. |
+| `SocialStudio.Infrastructure/SocialStudio.Infrastructure.csproj` | Modify | `<EmbeddedResource Include="Ai\Providers\DefaultComfyUiWorkflowTemplateWithDetailer.json" />` beside line 89. |
 | `.../ComfyUiImageModelClient.cs` | Modify | Second resource name const; template selection at L178; `QueuePromptAsync` returns a rejection payload; invalidation call. |
 | `.../ComfyUiSettings.cs` | Modify | `bool DetailerEnabled` record member + `Read(credential, "detailer_enabled")` parse (D1/WU-5). |
 | `openspec/changes/.../specs/comfyui-image-provider/spec.md`, `docs/architecture/adr/` | Create | Spec delta + the one required ADR. |

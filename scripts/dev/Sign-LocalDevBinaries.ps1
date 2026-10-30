@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$OutputDir = "Incoders.Hive.ApiService\bin\Debug\net10.0",
+    [string]$OutputDir = "SocialStudio.ApiService\bin\Debug\net10.0",
     [string]$CertSubject = "CN=Incoders Local Dev Code Signing",
     [switch]$CreateIfMissing = $true
 )
@@ -76,10 +76,10 @@ $cert = Ensure-CodeSigningCertificate -Subject $CertSubject -Create:$CreateIfMis
 Add-CertificateToTrustStores -Certificate $cert
 
 $targets = Get-ChildItem -Path $resolvedOutput -File |
-    Where-Object { $_.Extension -in @(".exe", ".dll") -and $_.Name -like "Incoders.Hive.*" }
+    Where-Object { $_.Extension -in @(".exe", ".dll") -and $_.Name -like "SocialStudio.*" }
 
 if (-not $targets) {
-    throw "No Incoders.Hive binaries found in '$resolvedOutput'."
+    throw "No SocialStudio binaries found in '$resolvedOutput'."
 }
 
 Write-Host "Using certificate thumbprint: $($cert.Thumbprint)"

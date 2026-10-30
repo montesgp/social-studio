@@ -299,17 +299,17 @@ Strict TDD: write each of the above as a failing test first, then implement.
 
 | File | Action | Purpose |
 |---|---|---|
-| `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticEnsureFreshService.cs` | Modify | Add `EnsureAvailableBlockingAsync` + `LatestUsableAestheticPresentAsync`; add `EnsureAvailableOutcome` enum |
-| `Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ClientAestheticEnsureFreshService.cs` | Modify | Implement blocking poll + presence predicate; reuse own-account + enqueue paths; `EnsureFreshAsync` unchanged |
-| `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` (~253-295) | Modify | Branch on presence; `AnalyzingProfile` transition via `onWaitStarted`; map outcomes to terminal `Failed`; read config |
-| `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobWatchdog.cs` | Modify | Include `AnalyzingProfile` in orphan + stuck-sweep filters |
+| `SocialStudio.Application/Abstractions/Social/ContentGeneration/IClientAestheticEnsureFreshService.cs` | Modify | Add `EnsureAvailableBlockingAsync` + `LatestUsableAestheticPresentAsync`; add `EnsureAvailableOutcome` enum |
+| `SocialStudio.Application/Features/Social/ContentGeneration/Background/ClientAestheticEnsureFreshService.cs` | Modify | Implement blocking poll + presence predicate; reuse own-account + enqueue paths; `EnsureFreshAsync` unchanged |
+| `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` (~253-295) | Modify | Branch on presence; `AnalyzingProfile` transition via `onWaitStarted`; map outcomes to terminal `Failed`; read config |
+| `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobWatchdog.cs` | Modify | Include `AnalyzingProfile` in orphan + stuck-sweep filters |
 | Content-generation options/config binding + `appsettings*.json` | Modify | `ContentGeneration:AestheticGating:{BlockOnFirstTime,PollIntervalSeconds,MaxWaitSeconds}` |
 | `apps/web/lib/api/types.ts` (`:737`, `:880`) | Modify | Add `AnalyzingProfile` to both status unions |
 | `apps/web/components/social/single-analyzer-client.tsx` (`:141-254`) | Modify | `AnalyzingProfile` branch in `packageProgressState`; optional new `PACKAGE_STEPS` entry |
 | `apps/web/lib/support/user-facing-errors.ts` | Modify | Map the three new error codes to user copy |
-| `Incoders.Hive.Tests/.../Background/EnsureFreshServiceIsolationTests.cs` (+ new blocking suite) | Modify/Add | Blocking-outcome tests; keep `EnsureFreshAsync` isolation |
-| `Incoders.Hive.Tests/.../Pipeline/ProcessorEnsureFreshIsolationTests.cs` | Modify | Re-scope throwing tests to stale branch; add blocking-branch tests; `StatusTracker` → status list |
-| `Incoders.Hive.Tests/.../Pipeline/` watchdog test | Add | `AnalyzingProfile` stuck + orphan recovery |
+| `SocialStudio.Tests/.../Background/EnsureFreshServiceIsolationTests.cs` (+ new blocking suite) | Modify/Add | Blocking-outcome tests; keep `EnsureFreshAsync` isolation |
+| `SocialStudio.Tests/.../Pipeline/ProcessorEnsureFreshIsolationTests.cs` | Modify | Re-scope throwing tests to stale branch; add blocking-branch tests; `StatusTracker` → status list |
+| `SocialStudio.Tests/.../Pipeline/` watchdog test | Add | `AnalyzingProfile` stuck + orphan recovery |
 
 ## Verification Strategy
 

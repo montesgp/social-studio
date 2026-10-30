@@ -111,10 +111,10 @@ and Infrastructure layers.
 
 ## Implementation Notes
 
-- Loader: `Incoders.Hive.Infrastructure.Social.ContentGeneration.EfClientBrandSnapshotLoader`
-- Port: `Incoders.Hive.Application.Abstractions.Social.ContentGeneration.IClientBrandSnapshotLoader`
+- Loader: `SocialStudio.Infrastructure.Social.ContentGeneration.EfClientBrandSnapshotLoader`
+- Port: `SocialStudio.Application.Abstractions.Social.ContentGeneration.IClientBrandSnapshotLoader`
 - Frozen output records (DO NOT change): `BrandSnapshot`, `StrategySnapshot`, `ClientMonthlyObjectiveSnapshot`
-  in `Incoders.Hive.Domain.Social.ContentGeneration`
+  in `SocialStudio.Domain.Social.ContentGeneration`
 - Strategy source: `GeneralStrategyData` (table `social.general_strategies`)
 - Objective source: `ContentPlanData.ObjectiveText` + `ContentPlanData.ObjectiveKpis`
   (table `social.content_plans`, ordered by current-month-first then year/month desc)

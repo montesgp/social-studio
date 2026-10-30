@@ -3,7 +3,7 @@
 **Branch:** `feat/client-aesthetic-conceptual-detection` (off `dev`, merges to `dev`).
 **Delivery:** SINGLE PR with `size:exception` (user decision; one issue → one branch → one PR).
 **TDD mode:** STRICT — every behavior task RED → GREEN.
-**Test runner:** `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release`
+**Test runner:** `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release`
 **WDAC signing:** build first (`dotnet build -c Release`), sign the 4 Incoders DLLs
 (thumbprint `162D6D5A0F56EDA79363B7EB475946778577042F`), then run `dotnet test --no-build`.
 **No schema migration.** All changes are code-only or additive JSON-blob keys. This is lower risk than
@@ -55,29 +55,29 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
   DocumentaryPhotography, GraphicTypographic, Mixed }` exist; no Infrastructure types referenced;
   `ArtDirectionMethod.Unknown` is the zero-value; `Atlas → MetaphoricalEditorial`,
   `Comet → LiteralIllustration` (fixture constants declared for re-use).
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/ArtDirectionMethodTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Shared/ArtDirectionMethodTests.cs`)
 
 - [x] 1.2 **[GREEN]** Create `ArtDirectionMethod.cs` — closed `public enum ArtDirectionMethod` with
   exactly the six named members; namespace `…ContentGeneration.Shared`; no dependencies.
-  (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ArtDirectionMethod.cs`)
+  (`SocialStudio.Application/Features/Social/ContentGeneration/Shared/ArtDirectionMethod.cs`)
 
 - [x] 1.3 **[RED]** Create `ConceptualMethodTests.cs` — assert record construction
   `ConceptualMethod(ArtDirectionMethod Method, string Rationale, IReadOnlyList<string> Cues)`
   compiles; `Cues` is immutable; `with` expression compiles; no Infrastructure types.
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/ConceptualMethodTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Shared/ConceptualMethodTests.cs`)
 
 - [x] 1.4 **[GREEN]** Create `ConceptualMethod.cs` — `public sealed record ConceptualMethod(
   ArtDirectionMethod Method, string Rationale, IReadOnlyList<string> Cues)`.
-  (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ConceptualMethod.cs`)
+  (`SocialStudio.Application/Features/Social/ContentGeneration/Shared/ConceptualMethod.cs`)
 
 - [x] 1.5 **[RED]** Create `ImageTypeRatioTests.cs` — assert record construction
   `ImageTypeRatio(double Photo, double FlatColor, double Decorator, int SampleSize)` compiles;
   proportions field types correct; `with` expression compiles; no Infrastructure types.
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/ImageTypeRatioTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Shared/ImageTypeRatioTests.cs`)
 
 - [x] 1.6 **[GREEN]** Create `ImageTypeRatio.cs` — `public sealed record ImageTypeRatio(
   double Photo, double FlatColor, double Decorator, int SampleSize)`.
-  (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ImageTypeRatio.cs`)
+  (`SocialStudio.Application/Features/Social/ContentGeneration/Shared/ImageTypeRatio.cs`)
 
 ### Phase 1.B — Domain pairing record (pure)
 
@@ -85,13 +85,13 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
   `ProfilePostImageCaptionPair(ProfilePostImageRef Image, string? Caption)` compiles;
   `Caption = null` is valid (image-only scenario; CACD-PA-03-b/d); no Infrastructure types;
   `ProfilePostImageRef` is the existing Domain type (field `SourcePostId` confirmed as `string`).
-  (`Incoders.Hive.Tests/Domain/Social/ProfileAnalysis/ProfilePostImageCaptionPairTests.cs`)
+  (`SocialStudio.Tests/Domain/Social/ProfileAnalysis/ProfilePostImageCaptionPairTests.cs`)
 
 - [x] 1.8 **[GREEN]** Create `ProfilePostImageCaptionPair.cs` —
   `public sealed record ProfilePostImageCaptionPair(ProfilePostImageRef Image, string? Caption)`
-  in `Incoders.Hive.Domain.Social.ProfileAnalysis`; pure Domain record; no Application/Infrastructure
+  in `SocialStudio.Domain.Social.ProfileAnalysis`; pure Domain record; no Application/Infrastructure
   imports.
-  (`Incoders.Hive.Domain/Social/ProfileAnalysis/ProfilePostImageCaptionPair.cs`)
+  (`SocialStudio.Domain/Social/ProfileAnalysis/ProfilePostImageCaptionPair.cs`)
 
 ### Phase 1.C — Additive fields on `AestheticExtraction` + port signature (Application)
 
@@ -101,14 +101,14 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
   - Existing construction `new AestheticExtraction(palette, descriptors, motifs, voice,
     BackgroundPattern, ColorPairings)` still compiles unchanged (additive; CACD-PA-04-c).
   - `AestheticExtraction.Empty` remains valid (null for both new fields).
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/AestheticExtractionExtensionTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Shared/AestheticExtractionExtensionTests.cs`)
 
 - [x] 1.10 **[GREEN]** Modify `IClientAestheticStyleExtractor.cs` — append two trailing nullable
   params to `AestheticExtraction`: `ConceptualMethod? ConceptualMethod = null` and
   `ImageTypeRatio? ImageTypeRatio = null`; migrate `ExtractAsync` signature to accept
   `IReadOnlyList<ProfilePostImageCaptionPair> referenceImages` replacing the two loose params
   `(IReadOnlyList<ProfilePostImageRef> referenceImages, IReadOnlyList<string> captions)` (OQ-3).
-  (`Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticStyleExtractor.cs`)
+  (`SocialStudio.Application/Abstractions/Social/ContentGeneration/IClientAestheticStyleExtractor.cs`)
   **Note:** Additive fields on `AestheticExtraction` applied. `ExtractAsync` signature migration
   DEFERRED to WU-3/WU-4 (breaking change; would leave `MultimodalAestheticStyleExtractor` and
   `ProfileAnalyzerOrchestrator` uncompilable in isolation). Applied per option (a) from the
@@ -121,12 +121,12 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
     `ImageTypeRatio? ImageTypeRatio = null` as trailing nullable fields (CACD-PA-05).
   - Existing construction with no new params compiles unchanged (cold-start back-compat).
   - `with { ConceptualMethod = null }` compiles and yields null field.
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/ClientAestheticProfileExtensionTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Shared/ClientAestheticProfileExtensionTests.cs`)
 
 - [x] 1.12 **[GREEN]** Modify `ClientAestheticProfile.cs` — append two trailing nullable params
   (after existing `ColorPairings`): `ConceptualMethod? ConceptualMethod = null` and
   `ImageTypeRatio? ImageTypeRatio = null`; no existing param order or defaults changed.
-  (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ClientAestheticProfile.cs`)
+  (`SocialStudio.Application/Features/Social/ContentGeneration/Shared/ClientAestheticProfile.cs`)
 
 - [x] 1.13 Run `dotnet test -c Release` — WU-1 tests pass; full suite green; no existing test broken
   (cold-start: all-null new fields → compilation unchanged at all existing construction sites).
@@ -149,13 +149,13 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
     (CACD-PA-05-b cold-start parity).
   - `Serialize`/`Read` round-trip with `ConceptualMethod = null` and `ImageTypeRatio = null`
     succeeds; both fields remain null (CACD-PA-05-c).
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/AestheticProfilePersistenceTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Shared/AestheticProfilePersistenceTests.cs`)
 
 - [x] 2.2 **[GREEN]** Modify `AestheticProfilePersistence.cs` — add `conceptualMethod` and
   `imageTypeRatio` key serialization/deserialization; absent keys deserialize to null; no
   existing keys removed or renamed; `PromptVersion` field updated to `aesthetic-extractor/v2`
   for new blobs only (existing v1 blobs read unchanged).
-  (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/AestheticProfilePersistence.cs`)
+  (`SocialStudio.Application/Features/Social/ContentGeneration/Shared/AestheticProfilePersistence.cs`)
 
 ### Phase 2.B — `EfClientAestheticProfileReader` threading of new fields
 
@@ -167,12 +167,12 @@ design §3.1, §3.2, §0 OQ-1/OQ-2/OQ-3.*
     no exception (CACD-PA-05-b).
   - No EF Core / Supabase / Infrastructure type appears in the returned `ClientAestheticProfile`
     (architecture gate; CACD-PA-04-c).
-  (`Incoders.Hive.Tests/Infrastructure/Social/ContentGeneration/EfClientAestheticProfileReaderEnrichedTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Social/ContentGeneration/EfClientAestheticProfileReaderEnrichedTests.cs`)
 
 - [x] 2.4 **[GREEN]** Modify `EfClientAestheticProfileReader.cs` — pass `ConceptualMethod` and
   `ImageTypeRatio` (read via `AestheticProfilePersistence.Read`) into the returned
   `ClientAestheticProfile`; null when absent.
-  (`Incoders.Hive.Infrastructure/Social/ContentGeneration/EfClientAestheticProfileReader.cs`)
+  (`SocialStudio.Infrastructure/Social/ContentGeneration/EfClientAestheticProfileReader.cs`)
 
 - [x] 2.5 Run `dotnet test -c Release` — WU-2 tests pass; persistence parity (pre-v2 blob → null
   new fields; all-null profile → no exception) confirmed; full suite green.
@@ -210,7 +210,7 @@ design §3.3, §0 OQ-1/OQ-2/OQ-3.*
   - Pairs are forwarded: each `ProfilePostImageCaptionPair` with non-null `Caption` results
     in a tagged image+caption in the model input; `Caption = null` → image-only
     (CACD-PA-03-a/b).
-  (`Incoders.Hive.Tests/Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractorTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractorTests.cs`)
 
 - [x] 3.2 **[GREEN]** Modify `MultimodalAestheticStyleExtractor.cs`:
   - Change `ExtractAsync` parameter from `(refs, captions)` to
@@ -225,7 +225,7 @@ design §3.3, §0 OQ-1/OQ-2/OQ-3.*
     where `SampleSize = photo + flat + decorator`; null counts → null ratio.
   - Bump `PromptVersion` constant to `aesthetic-extractor/v2`.
   - Extend instruction text with three deterministic-elicitation additions per design §3.3.
-  (`Incoders.Hive.Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractor.cs`)
+  (`SocialStudio.Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractor.cs`)
 
 - [x] 3.3 Run `dotnet test -c Debug` — WU-3 tests pass; Atlas and Comet exemplar fixtures
   return distinguishable `ConceptualMethod` and `ImageTypeRatio` values; full suite green.
@@ -253,7 +253,7 @@ design §4.1, §0 OQ-3. Field name confirmed: `ProfilePostImageRef.SourcePostId`
   - Extra posts with no matching `visionRef` image are silently dropped from pairs output.
   - `ExtractAsync` is called with the resulting pairs list, not the old
     `(refs, captions)` params.
-  (`Incoders.Hive.Tests/Application/Social/ProfileAnalyzer/ProfileAnalyzerOrchestratorPairsTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ProfileAnalyzer/ProfileAnalyzerOrchestratorPairsTests.cs`)
 
 - [x] 4.2 **[GREEN]** Modify `ProfileAnalyzerOrchestrator.cs` — replace the loose
   `captions` list with a key-join:
@@ -266,7 +266,7 @@ design §4.1, §0 OQ-3. Field name confirmed: `ProfilePostImageRef.SourcePostId`
   ```
   Pass `pairs` to `_aestheticExtractor.ExtractAsync(orgId, pairs, ct)`.
   Update `ProviderCallContext.Begin(promptVersion: "aesthetic-extractor/v2", ...)`.
-  (`Incoders.Hive.Application/Features/Social/ProfileAnalyzer/Analyze/ProfileAnalyzerOrchestrator.cs`)
+  (`SocialStudio.Application/Features/Social/ProfileAnalyzer/Analyze/ProfileAnalyzerOrchestrator.cs`)
 
 - [x] 4.3 Run `dotnet test -c Debug` — WU-4 tests pass; key-join verified;
   missing-caption-null verified; full suite green (all call sites for `ExtractAsync` updated).
@@ -309,7 +309,7 @@ design §3.4, §0 OQ-5.*
   - Parity test: `ConceptualMethod = null`, `ImageTypeRatio = null` → instruction
     identical to baseline (CACD-CG-03-a; cold-start parity; scope is INSTRUCTION TEXT,
     not LLM output).
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/ImagePromptWriterIdeationTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Background/ImagePromptWriterIdeationTests.cs`)
 
 - [x] 5.2 **[GREEN]** Modify `ImagePromptWriter.cs` — in `BuildInput`/instruction assembly:
   - Add `conceptualMethod { method, rationale, cues }` and `imageTypeRatio` to the
@@ -321,14 +321,14 @@ design §3.4, §0 OQ-5.*
     - Otherwise → existing "emulate the client's style" instruction, verbatim (parity).
   - Photo-vs-flat assignment is NOT reassigned here; writer reads slide type from upstream
     (single-responsibility per OQ-5).
-  (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs`)
+  (`SocialStudio.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs`)
 
 - [x] 5.3 **[PARITY]** Add `ImagePromptWriterColdStartParityTests.cs` — assert full pipeline
   with no conceptual data (null `ConceptualMethod`, null `ImageTypeRatio`) produces
   instruction text BYTE-IDENTICAL to the pre-change baseline for the same
   `ClientAestheticProfile` and slide inputs; no ideation section, no ratio section
   (CACD-PA-07-a; CACD-IMG-02-a). This test is a required Definition-of-Done item.
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/ImagePromptWriterColdStartParityTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Background/ImagePromptWriterColdStartParityTests.cs`)
 
 - [x] 5.4 Run `dotnet test -c Release` — WU-5 tests pass; cold-start parity test green;
   Atlas and Comet exemplar instructions distinguishably different; full suite green.
@@ -356,7 +356,7 @@ design §3.4, §0 OQ-5.*
     provider key in the test environment configuration (CACD-PA-06-a).
   - No test-environment route for `ai-aesthetic` resolves to the `claude -p` provider alias
     (CACD-PA-06-a guard).
-  (`Incoders.Hive.Tests/Infrastructure/Social/ContentGeneration/AiAestheticRoutingTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Social/ContentGeneration/AiAestheticRoutingTests.cs`)
 
 - [x] 6.3 Run `dotnet test -c Release` — WU-6 tests pass; routing guard green.
   **Result:** Passed! Failed: 0, Passed: 2206, Skipped: 2, Total: 2208 (shared run with 5.4).

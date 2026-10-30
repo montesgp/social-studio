@@ -43,7 +43,7 @@ body {
   @apply bg-background text-foreground antialiased;
 }
 
-/* ── Hive comb backdrop (sign-in) ───────────────────────────────────────────── */
+/* ── Social Studio comb backdrop (sign-in) ───────────────────────────────────────────── */
 /*
  * A handful of accent cells breathe so the field reads as a living hive rather than wallpaper. The
  * cycle is long and the opacity swing small on purpose: at sign-in the card must stay the only thing

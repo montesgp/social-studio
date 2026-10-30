@@ -14,7 +14,7 @@ import {
 /**
  * The cluster of cells beside the sign-in card.
  *
- * Hive is one comb, not one product: content generation is simply the first cell that lit up. This
+ * Social Studio is one comb, not one product: content generation is simply the first cell that lit up. This
  * shows the whole shape of the platform on the very first screen, and marks honestly which cells are
  * live today and which are still empty.
  */

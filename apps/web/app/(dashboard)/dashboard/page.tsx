@@ -5,9 +5,9 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Hive Social Dashboard</h1>
+        <h1 className="text-2xl font-semibold">Social Studio Dashboard</h1>
         <p className="text-sm text-muted-foreground">
-          Incoders Hive platform · Hive Social module bootstrap.
+          Social Studio platform · Social Studio module bootstrap.
         </p>
       </div>
 

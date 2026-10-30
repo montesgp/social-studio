@@ -95,18 +95,18 @@ possible.
 
 ## Affected Areas
 
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
+- `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
   — `BuildStoryTemplateSlots`, `BuildCarouselTemplateSlots`, `BuildFlatCarouselSlots`,
   `BuildBrandMarkSlot` (typography sizes, text color, brand-mark rendering).
-- `Incoders.Hive.Infrastructure/Social/ContentGeneration/AiVisualDesigner.cs` — `BuildSystemPrompt`
+- `SocialStudio.Infrastructure/Social/ContentGeneration/AiVisualDesigner.cs` — `BuildSystemPrompt`
   (hardcoded size range, no `ColorPairings` reference).
-- `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs` — `BackgroundOnly` not
+- `SocialStudio.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs` — `BackgroundOnly` not
   read; `DefaultNegativePrompt`.
-- `Incoders.Hive.Infrastructure/Ai/Providers/DefaultComfyUiWorkflowTemplate.json` — no
+- `SocialStudio.Infrastructure/Ai/Providers/DefaultComfyUiWorkflowTemplate.json` — no
   face/hand-detailer node (larger change, needs a ComfyUI-backend-side custom-node dependency check
   before committing to an approach).
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/BrandMarkDetection.cs`,
-  `Incoders.Hive.Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractor.cs` —
+- `SocialStudio.Application/Features/Social/ContentGeneration/Shared/BrandMarkDetection.cs`,
+  `SocialStudio.Infrastructure/Social/ContentGeneration/MultimodalAestheticStyleExtractor.cs` —
   brand-mark schema extension.
 
 ## Open Questions for Proposal

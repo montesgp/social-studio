@@ -15,10 +15,10 @@ Upgraded the Canva integration seed from a single `access_token` field to the Ca
 Delta merged additively into the canonical `openspec/specs/integrations/spec.md` (CANVA-DELTA section) during apply (WU-05).
 
 ## Files
-- `Incoders.Hive.Infrastructure/Integrations/IntegrationCatalogSeeder.cs` (seed upgrade)
-- `Incoders.Hive.Tests/Application/Integrations/CanvaConnectorSeederTests.cs` (new)
-- `Incoders.Hive.Tests/Application/Integrations/CanvaConnectorFlowTests.cs` (new)
-- `Incoders.Hive.Tests/Application/Integrations/OrganizationIntegrationsFlowTests.cs` (harness Canva entry updated)
+- `SocialStudio.Infrastructure/Integrations/IntegrationCatalogSeeder.cs` (seed upgrade)
+- `SocialStudio.Tests/Application/Integrations/CanvaConnectorSeederTests.cs` (new)
+- `SocialStudio.Tests/Application/Integrations/CanvaConnectorFlowTests.cs` (new)
+- `SocialStudio.Tests/Application/Integrations/OrganizationIntegrationsFlowTests.cs` (harness Canva entry updated)
 - `openspec/specs/integrations/spec.md` (CANVA-DELTA merged)
 - `docs/operators/canva-connector-setup.md` (new operator guide)
 

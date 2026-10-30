@@ -60,7 +60,7 @@ interface MockWorkflowSessionState {
 const mockOrganizations: Organization[] = [
   {
     id: "org-incoders-social",
-    name: "Incoders Social",
+    name: "Social Studio",
     ownerUserId: "owner-01",
     isActive: true,
     deactivatedAtUtc: null,

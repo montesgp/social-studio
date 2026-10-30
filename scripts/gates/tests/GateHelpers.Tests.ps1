@@ -7,11 +7,11 @@ function Assert-Equal($Expected, $Actual, [string] $Message) {
     }
 }
 
-Assert-Equal 'Incoders.Hive.Domain' `
-    (Get-ProjectReferenceName -Include '..\Incoders.Hive.Domain\Incoders.Hive.Domain.csproj') `
+Assert-Equal 'SocialStudio.Domain' `
+    (Get-ProjectReferenceName -Include '..\SocialStudio.Domain\SocialStudio.Domain.csproj') `
     'Windows-style ProjectReference must resolve cross-platform'
-Assert-Equal 'Incoders.Hive.Domain' `
-    (Get-ProjectReferenceName -Include '../Incoders.Hive.Domain/Incoders.Hive.Domain.csproj') `
+Assert-Equal 'SocialStudio.Domain' `
+    (Get-ProjectReferenceName -Include '../SocialStudio.Domain/SocialStudio.Domain.csproj') `
     'Unix-style ProjectReference must resolve cross-platform'
 
 $details = Format-GateDetails -Details "token=super-sensitive-value`nline2`nline3`nline4" -MaxLines 3 -MaxCharacters 500

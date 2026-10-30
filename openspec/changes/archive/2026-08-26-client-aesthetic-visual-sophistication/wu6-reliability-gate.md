@@ -18,7 +18,7 @@ already carry brand-mark bounding-box data from the already-shipped
 `sourceImageIndex`/`boundingBox` extraction mechanism this WU reuses for the ornament).
 
 ```
-docker exec incoders-hive-dev-postgres psql -U incoders -d incoders_hive_dev -c \
+docker exec social-studio-dev-postgres psql -U incoders -d social_studio_dev -c \
   "select id, aesthetic_profile_json::jsonb -> 'brandMark' as brand_mark,
           aesthetic_profile_json::jsonb ->> 'promptVersion' as prompt_version
    from social.profile_analyses

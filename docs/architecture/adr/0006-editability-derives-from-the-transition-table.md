@@ -52,5 +52,5 @@ showed the piece was simply `Discarded`.
 
 ## Related
 - Builds on: ADR 0004 (Content Studio review model), which defined the guarded review lifecycle
-- Domain: `Incoders.Hive.Domain/Social/ContentStudio/ReviewStateTransitions.cs`
+- Domain: `SocialStudio.Domain/Social/ContentStudio/ReviewStateTransitions.cs`
 - Application: `Features/Social/ContentStudio/Operations/ReopenItemCommand.cs`

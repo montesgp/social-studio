@@ -7,7 +7,7 @@
 Proposal — DRAFT for owner review. Sibling to `client-aesthetic-conceptual-detection` (the INPUT side: it produces the digested, concept-ideated, ratio-aware image prompt). THIS change is the GENERATION BACKEND that consumes that prompt. Builds on `content-image-generation` (provider-agnostic `IImageModelClient` port, two-step generation) and `client-aligned-carousel-generation` (`ImageGenerationRequest.ReferenceImages` conditioning slot, `SupportsImageConditioning` capability). Specs and design: TBD after approval.
 
 ## Intent / Problem
-Incoders Hive must generate carousel BACKGROUND images "in each client's visual spirit" (text is composited separately by us). Today there is no usable image backend:
+Social Studio must generate carousel BACKGROUND images "in each client's visual spirit" (text is composited separately by us). Today there is no usable image backend:
 - `claude -p` (the Claude Code agent CLI, covered by subscription with no per-token cost) CANNOT generate images — image gen returns `ExitCode=1`. Its image client already advertises `SupportsImageConditioning = false`.
 - The Anthropic API does not generate images at all.
 - `OpenAiImageModelClient` (gpt-image-1) is the only wired image provider, but needs an API key the org does not have AND bills USD per image.

@@ -59,7 +59,7 @@ type Mode = "create" | "edit";
 type StatusFilter = "active" | "archived" | "all";
 type OrganizationViewMode = "grid" | "table";
 
-const tokenStorageKey = "incoders.hive.apiToken";
+const tokenStorageKey = "social-studio.apiToken";
 
 export function OrganizationsClient() {
   const { formatDate } = useDateFormatter();

@@ -7,7 +7,7 @@ Four independent tracks (proposal `## Approach`). The architectural core is Trac
 (WU-3), then **corrected** by a bounded measure→recompute→re-render loop at the existing render call
 site (WU-4). All decision logic lands in new pure, public Application types under
 `Features/Social/ContentGeneration/Visual/Layout/` — because `ContentGenerationJobProcessor`'s
-builders are `private static` and unreachable from `Incoders.Hive.Tests`, so anything left inside that
+builders are `private static` and unreachable from `SocialStudio.Tests`, so anything left inside that
 file is untestable. Chromium stays the only measurement source; no new port, no new dependency.
 
 ## Architecture Decisions
@@ -188,7 +188,7 @@ one-line **go / no-go** recommendation with its threshold. No code, no port, no 
 
 | File | Action | Description |
 |---|---|---|
-| `Incoders.Hive.Application/Features/Social/ContentGeneration/Visual/Layout/SlotOverlapDetector.cs` | Create | Pure pairwise overlap detection + total intersection area (WU-2) |
+| `SocialStudio.Application/Features/Social/ContentGeneration/Visual/Layout/SlotOverlapDetector.cs` | Create | Pure pairwise overlap detection + total intersection area (WU-2) |
 | `…/Visual/Layout/MarkupSlotBoxParser.cs` | Create | Declared `left/top/width/min-height` → `SlotBox` from inline styles; skips `bottom:`-anchored slots (WU-2/WU-4) |
 | `…/Visual/Layout/MeasuredLayoutReflow.cs` | Create | The recompute formula, cap, epsilon, clamp, best-effort selection (WU-4) |
 | `…/Visual/Layout/SlotTopRewriter.cs` | Create | Idempotent `top:NNNpx` rewrite scoped per `data-slot` (WU-4) |
@@ -197,7 +197,7 @@ one-line **go / no-go** recommendation with its threshold. No code, no port, no 
 | `…/Pipeline/ContentGenerationJobProcessor.cs` | Modify | Template-path guardrail call after ~L1035 (WU-3); `RenderWithReflowAsync` wrapping ~L1157 (WU-4) |
 | `…/Background/ImagePromptWriter.cs` | Modify | Cold-start topical-fidelity instruction + version bump (WU-1) |
 | `…/Visual/CompositionDefaults.cs` | Modify | Floor-bounded, reduction-only copy-length auto-fit (WU-5) |
-| `Incoders.Hive.Infrastructure/Rendering/HtmlChromiumContentRenderer.cs` | Modify | `SlotGeometryScript` content-box tightening, **only if WU-4 leaves residual slack** (WU-6) |
+| `SocialStudio.Infrastructure/Rendering/HtmlChromiumContentRenderer.cs` | Modify | `SlotGeometryScript` content-box tightening, **only if WU-4 leaves residual slack** (WU-6) |
 | `apps/web/lib/studio/alignment-guides.ts` | Create | Pure snap-candidate engine (WU-8a) |
 | `apps/web/components/social/content-studio-panel.tsx` | Modify | Sibling snapshot on pointerdown, snap in pointermove, guide divs in the overlay (WU-8b) |
 | `openspec/changes/…/ocr-text-detection-feasibility-report.md` | Create | Document only (WU-7) |

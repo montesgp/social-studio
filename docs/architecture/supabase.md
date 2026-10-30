@@ -27,7 +27,7 @@ Supabase is the initial infrastructure provider for PostgreSQL persistence. It r
 ## Schema Layout
 - `identity`: application-owned ASP.NET Identity tables.
 - `platform`: organizations, memberships, system settings and shared system/provider catalogs.
-- `social`: Hive Social / Incoders Social module data.
+- `social`: Social Studio / Social Studio module data.
 - The first `social` table is `social.clients`, scoped by `organization_id`.
 
 ## Multi-Tenancy

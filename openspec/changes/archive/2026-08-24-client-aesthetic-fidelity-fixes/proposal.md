@@ -64,7 +64,7 @@ habit when they have one — with unchanged behavior for every client that has n
    the profile. *(Owner answer to Q2 — expanded from the assumed per-client scalar.)*
 5. **Typography extracts three roles: heading, body and caption/overline.** *(Owner answer to Q3 — expanded
    from the assumed heading+body.)* **Verified**: `CompositionTypography`
-   (`Incoders.Hive.Domain/Social/ContentGeneration/VisualCompositionSpec.cs` L74-99) carries **only**
+   (`SocialStudio.Domain/Social/ContentGeneration/VisualCompositionSpec.cs` L74-99) carries **only**
    heading and body — `HeadingFamily/HeadingSize/BodyFamily/BodySize` positional plus
    `HeadingWeight/BodyWeight/BodyItalic/RequestedHeadingFamily/RequestedBodyFamily` as init members. There is
    **no** slack for a third role; new init-default members are required. This is a Domain-layer edit.

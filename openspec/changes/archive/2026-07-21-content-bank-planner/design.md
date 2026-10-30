@@ -15,7 +15,7 @@ This design covers the **shape, persistence, lifecycle, and contracts** of the p
 
 Same hexagonal, isolated-bounded-context pattern proven by `ContentStudio` and `ProfileAnalysis`, plus the table-driven state-machine pattern proven by `ReviewStateTransitions` / `ProfileAnalysisStatusTransitions`:
 
-- **Domain** (`Domain/Social/Publications/`) holds the pure `Publication` aggregate, its Value Objects (`PublicationDestination`, `PublicationAttempt`), the `PublicationStatus` enum, and an explicit `PublicationStatusTransitions` table. Plus the new `Domain/Social/ClientAccountConnections/` context for the per-client publish credential. No provider, EF, or ASP.NET types. **No `using Incoders.Hive.Domain.Social.ContentStudio`** — only soft `Guid` ids (`ContentItemId.Value`) cross the boundary. The publication axis is orthogonal by construction.
+- **Domain** (`Domain/Social/Publications/`) holds the pure `Publication` aggregate, its Value Objects (`PublicationDestination`, `PublicationAttempt`), the `PublicationStatus` enum, and an explicit `PublicationStatusTransitions` table. Plus the new `Domain/Social/ClientAccountConnections/` context for the per-client publish credential. No provider, EF, or ASP.NET types. **No `using SocialStudio.Domain.Social.ContentStudio`** — only soft `Guid` ids (`ContentItemId.Value`) cross the boundary. The publication axis is orthogonal by construction.
 - **Application** (`Features/Social/Publications/**`, ports under `Abstractions/Social/Publications/`) holds the vertical MediatR command/query slices, the `IPublicationConnector` port (channel-agnostic), the `IPublicationRepository` and `IClientAccountConnectionRepository` ports, and the destination-resolution service. The client-wide Bank listing is an additive method on the existing `IContentItemRepository` plus a new `ListClientContentBankQuery` handler.
 - **Infrastructure** holds EF `*Data` entities + fluent config in `AppIdentityDbContext`, the repositories, the additive migration `Add_Publications`, and the **native Instagram Graph API adapter** implementing `IPublicationConnector`. All Graph API types, tokens, and HTTP calls stay here.
 - **Api** maps minimal endpoints under a `content-bank` / `publications` route group; depends on Application only.
@@ -32,7 +32,7 @@ We deliberately **do not** introduce EF navigations between `Publication` and `C
 
 **Rationale.** `ClientOwnAccount` models "this client owns this profile URL" — a *reference* concept with URL validation, sort order, and reserved for a future strategy feature. Publish credentials are a *secrets* concept with a completely different lifecycle (rotate, test, expiry, revoke) and a different security posture (ciphertext, never returned to the client). Overloading `ClientOwnAccount` would blur a reference entity with a secret store, drag URL-validation invariants onto a credential, and couple two features that evolve independently. A separate aggregate keeps the secret lifecycle isolated and mirrors how `OrganizationIntegrationCredential` is already a dedicated secret entity separate from `OrganizationIntegration`.
 
-**Secret storage — follows the existing repo pattern, invents nothing.** `OrganizationIntegrationCredential.EncryptedValue` and `CanvaUserTokenData.EncryptedAccessToken` both store DataProtection ciphertext produced by `IIntegrationSecretProtector.Protect(...)` (`DataProtectionIntegrationSecretProtector`, protector purpose `"incoders.hive.integrations.credentials.v1"`). `ClientAccountConnection` stores the per-account token the SAME way: the Application command protects the plaintext before constructing the aggregate; the aggregate and its `*Data` row only ever hold ciphertext; the Instagram adapter receives the *unprotected* token from a resolver at publish time (§7). **No plaintext token is ever persisted or returned in any DTO.**
+**Secret storage — follows the existing repo pattern, invents nothing.** `OrganizationIntegrationCredential.EncryptedValue` and `CanvaUserTokenData.EncryptedAccessToken` both store DataProtection ciphertext produced by `IIntegrationSecretProtector.Protect(...)` (`DataProtectionIntegrationSecretProtector`, protector purpose `"social-studio.integrations.credentials.v1"`). `ClientAccountConnection` stores the per-account token the SAME way: the Application command protects the plaintext before constructing the aggregate; the aggregate and its `*Data` row only ever hold ciphertext; the Instagram adapter receives the *unprotected* token from a resolver at publish time (§7). **No plaintext token is ever persisted or returned in any DTO.**
 
 **Rejected.** Extend `ClientOwnAccount` in place — couples a reference model to a secret store, forces URL/handle invariants onto credentials, and re-shapes a table reserved for another feature.
 
@@ -81,7 +81,7 @@ Only items with `ReviewState ∈ {Approved, ReadyForPublication}` are **actionab
 
 ## 3. Domain Model — Publication axis
 
-Namespace `Incoders.Hive.Domain.Social.Publications`. All types pure; `Result<T>` for validated construction/transitions; `Restore(...)` for trusted EF re-hydration; private + parameterless EF constructor (mirrors `ContentItem`).
+Namespace `SocialStudio.Domain.Social.Publications`. All types pure; `Result<T>` for validated construction/transitions; `Restore(...)` for trusted EF re-hydration; private + parameterless EF constructor (mirrors `ContentItem`).
 
 ### 3.1 Enum + transitions — `PublicationStatus` / `PublicationStatusTransitions`
 ```
@@ -181,7 +181,7 @@ public sealed class Publication : Entity<PublicationId>
 
 ## 4. Domain Model — per-client publish credential
 
-Namespace `Incoders.Hive.Domain.Social.ClientAccountConnections`.
+Namespace `SocialStudio.Domain.Social.ClientAccountConnections`.
 
 ### 4.1 Aggregate — `ClientAccountConnection`
 ```

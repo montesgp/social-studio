@@ -1,6 +1,6 @@
 # Exploration — Content Bank Planner
 
-> SDD phase: `explore`. A "content planner" tool for the Hive Social module built as a
+> SDD phase: `explore`. A "content planner" tool for the Social Studio module built as a
 > read/query + scheduling + publication-orchestration + UI layer on top of the existing
 > `Social/ContentStudio` bounded context. Two orthogonal state axes: editorial (`ReviewState`,
 > reused) and publication (new `Publication` entity, one per item+destination).
@@ -8,9 +8,9 @@
 ## Current State (assumptions traced to concrete evidence)
 
 ### 1. Single-analyzer → ContentItem wiring — CONFIRMED, with a nuance
-`MaterializeAnalysisCommand` (`Incoders.Hive.Application/Features/Social/ContentStudio/Materialize/MaterializeAnalysisCommand.cs`)
+`MaterializeAnalysisCommand` (`SocialStudio.Application/Features/Social/ContentStudio/Materialize/MaterializeAnalysisCommand.cs`)
 is wired end-to-end: `POST /api/social/content-studio/analyses/{analysisId}/materialize`
-(`Incoders.Hive.ApiService/Endpoints/Social/MapContentStudioEndpoints.cs:163-173`) →
+(`SocialStudio.ApiService/Endpoints/Social/MapContentStudioEndpoints.cs:163-173`) →
 `materializeAnalysis()` (`apps/web/lib/api/content-studio.ts:123`) → `ContentStudioPanel`
 (`apps/web/components/social/content-studio-panel.tsx:411-442`). **But it only fires when the user
 manually opens the Content Studio panel** (`single-analyzer-client.tsx:3375`, `studioOpen` gate).
@@ -21,7 +21,7 @@ so it would not surface in a client-wide Content Bank unless the Bank (or a back
 materialization for every analysis with completed formats.
 
 ### 2. Existing ContentStudio queries — CONFIRMED GAP
-`IContentItemRepository` (`Incoders.Hive.Application/Abstractions/Social/ContentStudio/IContentItemRepository.cs`)
+`IContentItemRepository` (`SocialStudio.Application/Abstractions/Social/ContentStudio/IContentItemRepository.cs`)
 exposes only `GetByIdAsync`, `ListByRunAsync`, `ListBySetAsync` — no client-wide / paged / date-range /
 state-filter method. `ListContentItemsQuery` is SetId-scoped only. `ContentItem` carries `ClientId`
 directly (`Domain/Social/ContentStudio/ContentItem.cs:51`), so a client-wide cross-set query is a new

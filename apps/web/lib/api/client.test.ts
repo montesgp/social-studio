@@ -14,7 +14,7 @@ import { apiRequest } from "./client.ts";
  * browser-only header-resolution branch under the Node test runner.
  */
 
-const ACTIVE_ORG_STORAGE_KEY = "incoders.hive.active.org";
+const ACTIVE_ORG_STORAGE_KEY = "social-studio.active.org";
 
 function withStubbedBrowser<T>(activeOrgId: string | null, run: () => Promise<T>): Promise<T> {
   const store = new Map<string, string>();

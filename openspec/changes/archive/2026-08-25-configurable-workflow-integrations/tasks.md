@@ -57,7 +57,7 @@
 - [x] Add Single Analyzer no-hardcode regression tests.
 - [x] Add explicit workflow logging tests.
 - [x] Add test-connection no-regression tests.
-- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj`.
+- [x] Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj`.
 - [x] Run `pwsh -File scripts/gates/Run-Gates.ps1`.
 
 ## 8. Per-network routing + AI fallback + Default-AI removal (follow-up)

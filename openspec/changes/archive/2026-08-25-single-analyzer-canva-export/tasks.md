@@ -54,19 +54,19 @@ WU-8 (docs sync) — depends on WU-7 (last code unit)
 **Spec requirements satisfied:** PPTX-01 (markup stored on success), PPTX-04 (single source of truth), PPTX-03 (no re-render at download time).
 
 **RED tests to write first:**
-- [ ] `CompositionSpecJsonPersistenceTests.cs` (new file, `Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/`):
+- [ ] `CompositionSpecJsonPersistenceTests.cs` (new file, `SocialStudio.Tests/Application/Social/ContentGeneration/Pipeline/`):
   - `RenderSuccess_PersistsNonNullCompositionSpecJson` — asserts the record reaching `IContentGenerationFormatResultRepository.UpsertAsync` has a non-null `CompositionSpecJson`.
   - `CompositionSpecJson_HasExpectedSchemaVersion1` — asserts the deserialized envelope `schemaVersion` equals 1.
   - `CompositionSpecJson_ContainsMarkupString` — asserts envelope `markup` field is non-empty.
   - `CompositionSpecJson_ContainsSlotGeometryArray` — asserts `slotGeometry` has at least one entry matching the stub markup's `data-slot` count.
   - `RenderFailure_DoesNotPersistMarkup` — asserts `CompositionSpecJson` remains `null` on `PersistRenderFailureAsync`.
-- [ ] `GeometryCaptureTests.cs` (new file, `Incoders.Hive.Tests/Infrastructure/Rendering/`, **Chromium-guarded**):
+- [ ] `GeometryCaptureTests.cs` (new file, `SocialStudio.Tests/Infrastructure/Rendering/`, **Chromium-guarded**):
   - `RenderPass_CapturesSlotGeometry_ForEachDataSlot` — runtime-skip when Chromium absent; asserts geometry array count matches `data-slot` count.
   - `RenderPass_CapturesBackgroundImageRef` — runtime-skip; asserts `backgroundImageRef` is set after background layer render.
 
 **GREEN implementation steps:**
 - [ ] Define `CompositionSpecEnvelope` record (+ `SlotGeometry` record) in Application layer:
-  - `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/CompositionSpecEnvelope.cs`
+  - `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/CompositionSpecEnvelope.cs`
   - Fields: `int SchemaVersion`, `string Markup`, `CanvasSpec Canvas`, `IReadOnlyList<SlotGeometry> SlotGeometry`, `string? BackgroundImageRef`
   - `SlotGeometry`: `string Slot`, `double X`, `double Y`, `double Width`, `double Height`, `string? FontFamily`, `double? FontSizePx`, `string? Color`, `string? TextAlign`
   - `CanvasSpec`: `double Width`, `double Height`, `double Dpi`
@@ -82,12 +82,12 @@ WU-8 (docs sync) — depends on WU-7 (last code unit)
 - [ ] Add doc-comment to `ContentGenerationFormatResultData.cs` `CompositionSpecJson` property: `// schemaVersion 1: { schemaVersion, markup, canvas, slotGeometry[], backgroundImageRef }`.
 
 **Files / layers touched:**
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` (modify)
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/CompositionSpecEnvelope.cs` (new)
-- `Incoders.Hive.Infrastructure/Rendering/HtmlChromiumContentRenderer.cs` (modify)
-- `Incoders.Hive.Infrastructure/Persistence/Postgres/Entities/ContentGenerationFormatResultData.cs` (doc-comment only)
-- `Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/CompositionSpecJsonPersistenceTests.cs` (new)
-- `Incoders.Hive.Tests/Infrastructure/Rendering/GeometryCaptureTests.cs` (new, Chromium-guarded)
+- `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` (modify)
+- `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/CompositionSpecEnvelope.cs` (new)
+- `SocialStudio.Infrastructure/Rendering/HtmlChromiumContentRenderer.cs` (modify)
+- `SocialStudio.Infrastructure/Persistence/Postgres/Entities/ContentGenerationFormatResultData.cs` (doc-comment only)
+- `SocialStudio.Tests/Application/Social/ContentGeneration/Pipeline/CompositionSpecJsonPersistenceTests.cs` (new)
+- `SocialStudio.Tests/Infrastructure/Rendering/GeometryCaptureTests.cs` (new, Chromium-guarded)
 
 **Commit message stub:**
 ```
@@ -103,7 +103,7 @@ feat(content-gen): WU-1 — persist markup+geometry in composition_spec_json (D1
 **Spec requirements satisfied:** PPTX-02 (download as editable PPTX), PPTX-03 (deterministic offline).
 
 **RED tests to write first:**
-- [x] `PptxExportAdapterTests.cs` (new, `Incoders.Hive.Tests/Infrastructure/Rendering/`):
+- [x] `PptxExportAdapterTests.cs` (new, `SocialStudio.Tests/Infrastructure/Rendering/`):
   - `BuildAsync_SingleAsset_ProducesOneSlidePart` — uses `StubMarkupBuilder.BuildStubMarkupWithGeometry()` helper + synthetic geometry; asserts one `SlidePart`.
   - `BuildAsync_SlideSize_MatchesCanvasInEmu` — asserts `SlideSize` EMU values derived from `canvas {w,h,dpi=96}` (1080×1920 story: 10287000×18288000 EMU; 1080×1080 carousel: 10287000×10287000 EMU). Note: correct value is 1080×9525=10287000, not 10286400.
   - `BuildAsync_DataSlot_ProducesEditableTextBox` — asserts each `data-slot` produces a `Shape` with `TextBody`; text = inner text; not rasterized.
@@ -112,31 +112,31 @@ feat(content-gen): WU-1 — persist markup+geometry in composition_spec_json (D1
   - `BuildAsync_Background_ProducesPicturePart` — asserts background layer present as `Picture` (full-bleed), behind text boxes.
   - `BuildAsync_NullGeometry_FallsBackToStackedLayout` — asserts graceful fallback when geometry is missing/null for a slot.
   - `BuildAsync_Deterministic_SameInputSameStructure` — call twice, compare `SlidePart` XML structure (node names + text, not byte equality).
-- [x] `IPptxExportAdapterContractTests.cs` (new, `Incoders.Hive.Tests/Application/`):
+- [x] `IPptxExportAdapterContractTests.cs` (new, `SocialStudio.Tests/Application/`):
   - `Port_HasNoInfrastructureTypes` — reflects `IPptxExportAdapter` and asserts no `Infrastructure|Persistence|EfCore|Npgsql|AspNetCore|Playwright|DocumentFormat` in parameter or return type names (mirrors existing `IVisualDesignerContractTests` pattern).
 
 **GREEN implementation steps:**
 - [x] Create `IPptxExportAdapter.cs` port in Application:
-  - `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IPptxExportAdapter.cs`
+  - `SocialStudio.Application/Abstractions/Social/ContentGeneration/IPptxExportAdapter.cs`
   - Signature: `Task<Result<byte[]>> BuildAsync(CompositionSpecEnvelope envelope, CancellationToken ct)`
-- [x] Add `DocumentFormat.OpenXml` NuGet reference to `Incoders.Hive.Infrastructure.csproj`.
+- [x] Add `DocumentFormat.OpenXml` NuGet reference to `SocialStudio.Infrastructure.csproj`.
 - [x] Create `PptxExportAdapter.cs` in Infrastructure:
-  - `Incoders.Hive.Infrastructure/Rendering/PptxExportAdapter.cs`
+  - `SocialStudio.Infrastructure/Rendering/PptxExportAdapter.cs`
   - Implements `IPptxExportAdapter`.
   - Builds `PresentationDocument` in-memory (`MemoryStream`); adds `SlidePart` per asset canvas; maps `SlotGeometry[]` → text boxes; embeds background `ImagePart` from `backgroundImageRef`.
 - [x] Create `StubMarkupBuilder.cs` test helper in Tests:
-  - `Incoders.Hive.Tests/Infrastructure/Rendering/StubMarkupBuilder.cs`
+  - `SocialStudio.Tests/Infrastructure/Rendering/StubMarkupBuilder.cs`
   - `BuildStubMarkupWithGeometry()` returns a `CompositionSpecEnvelope` with at least 2 `data-slot` elements and a `data-layer="background"` element, with synthetic geometry values.
 - [x] Register `PptxExportAdapter` in `InfrastructureContentGenerationExtensions.cs`.
 
 **Files / layers touched:**
-- `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IPptxExportAdapter.cs` (new)
-- `Incoders.Hive.Infrastructure/Rendering/PptxExportAdapter.cs` (new)
-- `Incoders.Hive.Infrastructure/Social/ContentGeneration/InfrastructureContentGenerationExtensions.cs` (register)
-- `Incoders.Hive.Infrastructure/Incoders.Hive.Infrastructure.csproj` (add OpenXml NuGet)
-- `Incoders.Hive.Tests/Infrastructure/Rendering/PptxExportAdapterTests.cs` (new)
-- `Incoders.Hive.Tests/Infrastructure/Rendering/StubMarkupBuilder.cs` (new)
-- `Incoders.Hive.Tests/Application/IPptxExportAdapterContractTests.cs` (new)
+- `SocialStudio.Application/Abstractions/Social/ContentGeneration/IPptxExportAdapter.cs` (new)
+- `SocialStudio.Infrastructure/Rendering/PptxExportAdapter.cs` (new)
+- `SocialStudio.Infrastructure/Social/ContentGeneration/InfrastructureContentGenerationExtensions.cs` (register)
+- `SocialStudio.Infrastructure/SocialStudio.Infrastructure.csproj` (add OpenXml NuGet)
+- `SocialStudio.Tests/Infrastructure/Rendering/PptxExportAdapterTests.cs` (new)
+- `SocialStudio.Tests/Infrastructure/Rendering/StubMarkupBuilder.cs` (new)
+- `SocialStudio.Tests/Application/IPptxExportAdapterContractTests.cs` (new)
 
 **Commit message stub:**
 ```
@@ -152,34 +152,34 @@ feat(content-gen): WU-2 — IPptxExportAdapter port + OpenXML PptxExportAdapter 
 **Spec requirements satisfied:** PPTX-02 (user can download), PPTX-04 (single markup read path).
 
 **RED tests to write first:**
-- [x] `ExportFormatToPptxQueryHandlerTests.cs` (new, `Incoders.Hive.Tests/Application/Social/ContentGeneration/Export/`):
+- [x] `ExportFormatToPptxQueryHandlerTests.cs` (new, `SocialStudio.Tests/Application/Social/ContentGeneration/Export/`):
   - `Handle_ValidEnvelope_DelegatesToAdapterAndReturnsPptxBytes` — fake repo returns row with non-null `CompositionSpecJson`; fake adapter returns `byte[]`; asserts handler returns those bytes.
   - `Handle_NullCompositionSpecJson_ReturnsNotExportableError` — fake repo returns row with `CompositionSpecJson: null`; asserts `Result.Failure` with `not-exportable` error code; adapter is NEVER called.
   - `Handle_FormatKeyNotFound_ReturnsNotFoundError` — fake repo returns null; asserts `Result.Failure` with `not-found`.
   - `Handle_AdapterFailure_PropagatesError` — fake adapter returns failure; asserts handler propagates the error.
-- [x] `MapContentGenerationPptxEndpointTests.cs` (new in `Incoders.Hive.Tests/ApiService/ContentGeneration/`):
+- [x] `MapContentGenerationPptxEndpointTests.cs` (new in `SocialStudio.Tests/ApiService/ContentGeneration/`):
   - `DownloadPptx_HandlerReturnsBytes_Returns200WithPptxMimeType` — fake handler returns bytes; asserts `Content-Type: application/vnd.openxmlformats-officedocument.presentationml.presentation` and `FileDownloadName`.
   - `DownloadPptx_NotExportableError_Returns409` — handler returns `not-exportable`; asserts HTTP 409 (Conflict). Note: existing error type infrastructure maps Conflict→409 (no 422 available).
 
 **GREEN implementation steps:**
 - [x] Create `ExportFormatToPptxQuery.cs` + `ExportFormatToPptxQueryHandler.cs` in Application:
-  - `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToPptxQuery.cs`
-  - `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToPptxQueryHandler.cs`
+  - `SocialStudio.Application/Features/Social/ContentGeneration/Export/ExportFormatToPptxQuery.cs`
+  - `SocialStudio.Application/Features/Social/ContentGeneration/Export/ExportFormatToPptxQueryHandler.cs`
   - Handler: resolve format result by `(jobId, formatKey)`; deserialize `CompositionSpecJson`; if null → `not-exportable`; delegate to `IPptxExportAdapter.BuildAsync`; return bytes.
 - [x] Extend `MapContentGenerationEndpoints.cs` — add `GET .../formats/{formatKey}/download-pptx` route to `analyzerGroup`:
-  - `Incoders.Hive.ApiService/Endpoints/Social/ContentGeneration/MapContentGenerationEndpoints.cs`
+  - `SocialStudio.ApiService/Endpoints/Social/ContentGeneration/MapContentGenerationEndpoints.cs`
   - Returns `File(bytes, "application/vnd.openxmlformats-…", "{formatKey}.pptx")` on success; maps `not-exportable` → 409 (Conflict). Note: HTTP 422 not in existing error type enum; Conflict is the closest handled error.
 - [x] Add `downloadFormatAsPptx(analysisId, formatKey, jobId)` function to `apps/web/lib/api/content-generation.ts`.
 - [x] Add "Download PPTX" button to `apps/web/components/social/single-analyzer-client.tsx` in the format card actions area; calls `downloadFormatAsPptxFile` and triggers browser download (visual formats only: carousel/story).
 
 **Files / layers touched:**
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToPptxQuery.cs` (new)
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToPptxQueryHandler.cs` (new)
-- `Incoders.Hive.ApiService/Endpoints/Social/ContentGeneration/MapContentGenerationEndpoints.cs` (extend)
+- `SocialStudio.Application/Features/Social/ContentGeneration/Export/ExportFormatToPptxQuery.cs` (new)
+- `SocialStudio.Application/Features/Social/ContentGeneration/Export/ExportFormatToPptxQueryHandler.cs` (new)
+- `SocialStudio.ApiService/Endpoints/Social/ContentGeneration/MapContentGenerationEndpoints.cs` (extend)
 - `apps/web/lib/api/content-generation.ts` (extend)
 - `apps/web/components/social/single-analyzer-client.tsx` (extend)
-- `Incoders.Hive.Tests/Application/Social/ContentGeneration/Export/ExportFormatToPptxQueryHandlerTests.cs` (new)
-- `Incoders.Hive.Tests/ApiService/MapContentGenerationEndpointsTests.cs` (extend or new)
+- `SocialStudio.Tests/Application/Social/ContentGeneration/Export/ExportFormatToPptxQueryHandlerTests.cs` (new)
+- `SocialStudio.Tests/ApiService/MapContentGenerationEndpointsTests.cs` (extend or new)
 
 **Commit message stub:**
 ```
@@ -195,12 +195,12 @@ feat(content-gen): WU-3 — PPTX query handler + download-pptx endpoint + UI but
 **Spec requirements satisfied:** CANVA-USER-01 (token stored on OAuth), CANVA-USER-02 (token refresh rotation, infrastructure for D2), CANVA-USER-03 (revoke deletes only that user's tokens).
 
 **RED tests to write first:**
-- [x] `CanvaUserTokenTests.cs` (new, `Incoders.Hive.Tests/Domain/Integrations/`):
+- [x] `CanvaUserTokenTests.cs` (new, `SocialStudio.Tests/Domain/Integrations/`):
   - `CanvaUserToken_Create_SetsAllFields` — asserts constructor sets `UserId`, `OrganizationIntegrationId`, encrypted token fields, and `AccessTokenExpiresAtUtc`.
   - `CanvaUserToken_Id_IsValueObject` — asserts `CanvaUserTokenId` wraps a `Guid`, equality by value.
-- [x] `ICanvaUserTokenRepositoryContractTests.cs` (new, `Incoders.Hive.Tests/Application/`):
+- [x] `ICanvaUserTokenRepositoryContractTests.cs` (new, `SocialStudio.Tests/Application/`):
   - `Port_HasNoInfrastructureTypes` — reflects interface, asserts no provider type names in signatures.
-- [x] `EfCanvaUserTokenRepositoryTests.cs` (new, `Incoders.Hive.Tests/Infrastructure/Persistence/`):
+- [x] `EfCanvaUserTokenRepositoryTests.cs` (new, `SocialStudio.Tests/Infrastructure/Persistence/`):
   - `UpsertAsync_StoresNewToken` — uses in-memory/SQLite EF context; asserts row stored.
   - `GetAsync_ReturnsStoredToken` — asserts round-trip.
   - `Repository_HasExpectedMethods_ForXminConcurrencySeam` — documents the xmin seam; actual conflict retry tested in WU-5 CanvaOAuthService via simulated DbUpdateConcurrencyException.
@@ -208,32 +208,32 @@ feat(content-gen): WU-3 — PPTX query handler + download-pptx endpoint + UI but
 
 **GREEN implementation steps:**
 - [x] Create Domain entity:
-  - `Incoders.Hive.Domain/Integrations/CanvaUserToken.cs` — entity with `CanvaUserTokenId Id`, `Guid UserId`, `Guid OrganizationIntegrationId`, `string EncryptedAccessToken`, `string EncryptedRefreshToken`, `DateTime AccessTokenExpiresAtUtc`, `string Scopes`, `DateTime CreatedAtUtc`, `DateTime UpdatedAtUtc`.
-  - `Incoders.Hive.Domain/Integrations/CanvaUserTokenId.cs` — value-object wrapping `Guid`.
+  - `SocialStudio.Domain/Integrations/CanvaUserToken.cs` — entity with `CanvaUserTokenId Id`, `Guid UserId`, `Guid OrganizationIntegrationId`, `string EncryptedAccessToken`, `string EncryptedRefreshToken`, `DateTime AccessTokenExpiresAtUtc`, `string Scopes`, `DateTime CreatedAtUtc`, `DateTime UpdatedAtUtc`.
+  - `SocialStudio.Domain/Integrations/CanvaUserTokenId.cs` — value-object wrapping `Guid`.
 - [x] Create Application port:
-  - `Incoders.Hive.Application/Abstractions/Integrations/ICanvaUserTokenRepository.cs`
+  - `SocialStudio.Application/Abstractions/Integrations/ICanvaUserTokenRepository.cs`
   - Methods: `Task<CanvaUserToken?> GetAsync(Guid userId, Guid organizationIntegrationId, CancellationToken ct)`, `Task UpsertAsync(CanvaUserToken token, CancellationToken ct)`, `Task DeleteAsync(Guid userId, Guid organizationIntegrationId, CancellationToken ct)`.
 - [x] Create Infrastructure EF data entity:
-  - `Incoders.Hive.Infrastructure/Persistence/Postgres/Entities/CanvaUserTokenData.cs` — EF data class mapping to `platform.canva_user_tokens`.
+  - `SocialStudio.Infrastructure/Persistence/Postgres/Entities/CanvaUserTokenData.cs` — EF data class mapping to `platform.canva_user_tokens`.
 - [x] Configure `CanvaUserTokenData` in `AppIdentityDbContext.cs`:
   - Table `platform.canva_user_tokens`; `xmin` concurrency token (`.IsConcurrencyToken()`); unique index `(UserId, OrganizationIntegrationId)`.
 - [x] Create EF repository:
-  - `Incoders.Hive.Infrastructure/Persistence/Postgres/Repositories/EfCanvaUserTokenRepository.cs`
+  - `SocialStudio.Infrastructure/Persistence/Postgres/Repositories/EfCanvaUserTokenRepository.cs`
 - [x] Generate migration `Add_CanvaUserTokens`:
-  - `Incoders.Hive.Infrastructure/Persistence/Postgres/Migrations/` — creates `platform.canva_user_tokens` table, unique index, `xmin` rowversion.
+  - `SocialStudio.Infrastructure/Persistence/Postgres/Migrations/` — creates `platform.canva_user_tokens` table, unique index, `xmin` rowversion.
 - [x] Register `EfCanvaUserTokenRepository` in Infrastructure DI.
 
 **Files / layers touched:**
-- `Incoders.Hive.Domain/Integrations/CanvaUserToken.cs` (new)
-- `Incoders.Hive.Domain/Integrations/CanvaUserTokenId.cs` (new)
-- `Incoders.Hive.Application/Abstractions/Integrations/ICanvaUserTokenRepository.cs` (new)
-- `Incoders.Hive.Infrastructure/Persistence/Postgres/Entities/CanvaUserTokenData.cs` (new)
-- `Incoders.Hive.Infrastructure/Identity/AppIdentityDbContext.cs` (extend)
-- `Incoders.Hive.Infrastructure/Persistence/Postgres/Repositories/EfCanvaUserTokenRepository.cs` (new)
-- `Incoders.Hive.Infrastructure/Persistence/Postgres/Migrations/` (new migration `Add_CanvaUserTokens`)
-- `Incoders.Hive.Tests/Domain/Integrations/CanvaUserTokenTests.cs` (new)
-- `Incoders.Hive.Tests/Application/ICanvaUserTokenRepositoryContractTests.cs` (new)
-- `Incoders.Hive.Tests/Infrastructure/Persistence/EfCanvaUserTokenRepositoryTests.cs` (new)
+- `SocialStudio.Domain/Integrations/CanvaUserToken.cs` (new)
+- `SocialStudio.Domain/Integrations/CanvaUserTokenId.cs` (new)
+- `SocialStudio.Application/Abstractions/Integrations/ICanvaUserTokenRepository.cs` (new)
+- `SocialStudio.Infrastructure/Persistence/Postgres/Entities/CanvaUserTokenData.cs` (new)
+- `SocialStudio.Infrastructure/Identity/AppIdentityDbContext.cs` (extend)
+- `SocialStudio.Infrastructure/Persistence/Postgres/Repositories/EfCanvaUserTokenRepository.cs` (new)
+- `SocialStudio.Infrastructure/Persistence/Postgres/Migrations/` (new migration `Add_CanvaUserTokens`)
+- `SocialStudio.Tests/Domain/Integrations/CanvaUserTokenTests.cs` (new)
+- `SocialStudio.Tests/Application/ICanvaUserTokenRepositoryContractTests.cs` (new)
+- `SocialStudio.Tests/Infrastructure/Persistence/EfCanvaUserTokenRepositoryTests.cs` (new)
 
 **Commit message stub:**
 ```
@@ -249,9 +249,9 @@ feat(integrations): WU-4 — CanvaUserToken entity + ICanvaUserTokenRepository +
 **Spec requirements satisfied:** CANVA-USER-01 (PKCE auth code flow, state validation), CANVA-USER-02 (token refresh rotation + serialization via xmin), CANVA-USER-03 (revoke path).
 
 **RED tests to write first:**
-- [x] `ICanvaOAuthServiceContractTests.cs` (new, `Incoders.Hive.Tests/Application/`):
+- [x] `ICanvaOAuthServiceContractTests.cs` (new, `SocialStudio.Tests/Application/`):
   - `Port_HasNoInfrastructureTypes` — reflects interface signatures.
-- [x] `CanvaOAuthServiceTests.cs` (new, `Incoders.Hive.Tests/Infrastructure/Social/Canva/`):
+- [x] `CanvaOAuthServiceTests.cs` (new, `SocialStudio.Tests/Infrastructure/Social/Canva/`):
   - `BuildAuthorizeUrl_GeneratesPkceChallengeDerivedFromVerifier` — asserts `code_challenge` is SHA-256/Base64Url of `code_verifier`.
   - `BuildAuthorizeUrl_StateRoundTrips` — asserts state parameter is stored and returned in callback.
   - `BuildAuthorizeUrl_RejectsStateMismatch` — asserts callback with wrong state returns failure.
@@ -263,28 +263,28 @@ feat(integrations): WU-4 — CanvaUserToken entity + ICanvaUserTokenRepository +
 
 **GREEN implementation steps:**
 - [x] Create Application port:
-  - `Incoders.Hive.Application/Abstractions/Integrations/ICanvaOAuthService.cs`
+  - `SocialStudio.Application/Abstractions/Integrations/ICanvaOAuthService.cs`
   - Methods: `Task<Result<string>> BuildAuthorizeUrlAsync(Guid userId, Guid orgIntegrationId, Guid orgId, string redirectUri, CancellationToken ct)`, `Task<Result> ExchangeCodeAsync(Guid userId, Guid orgIntegrationId, Guid orgId, string code, string state, string redirectUri, CancellationToken ct)`, `Task<Result<string>> EnsureFreshAsync(Guid userId, Guid orgIntegrationId, CancellationToken ct)`, `Task RevokeAsync(Guid userId, Guid orgIntegrationId, CancellationToken ct)`.
 - [x] Create Infrastructure adapter:
-  - `Incoders.Hive.Infrastructure/Social/Canva/CanvaOAuthService.cs`
+  - `SocialStudio.Infrastructure/Social/Canva/CanvaOAuthService.cs`
   - PKCE: generate `code_verifier` (32-byte random / Base64Url), derive `code_challenge` (SHA-256 / Base64Url).
   - State: store `(state, verifier)` in `ICacheStore` keyed by `canva:pkce:{state}`; TTL 10 min.
   - `EnsureFreshAsync`: implements D2 xmin-retry flow (read → check expiry → refresh if needed → `UpsertAsync` with xmin → on `DbUpdateConcurrencyException` re-read once → use rotated row).
   - Resolves org credential via `IIntegrationResolver.ResolveProviderAsync(orgId, "canva")`.
   - Encrypts/decrypts tokens via `IIntegrationSecretProtector`.
 - [x] Create OAuth endpoints in `MapIntegrationsEndpoints.cs`:
-  - `Incoders.Hive.ApiService/Endpoints/Integrations/MapIntegrationsEndpoints.cs` (extend + `CanvaOAuthFacade` static class)
+  - `SocialStudio.ApiService/Endpoints/Integrations/MapIntegrationsEndpoints.cs` (extend + `CanvaOAuthFacade` static class)
   - `GET .../integrations/canva/authorize` → calls `ICanvaOAuthService.BuildAuthorizeUrlAsync`; 302 redirect to Canva.
   - `GET .../integrations/canva/callback` → calls `ICanvaOAuthService.ExchangeCodeAsync`; on success 302 to UI success page; on failure 302 to error page (no HTTP 500 for expected failures).
 - [x] Register `CanvaOAuthService` + `HttpClient` (named `"canva-oauth"`) in Infrastructure DI via `AddHttpClient<ICanvaOAuthService, CanvaOAuthService>`.
 
 **Files / layers touched:**
-- `Incoders.Hive.Application/Abstractions/Integrations/ICanvaOAuthService.cs` (new)
-- `Incoders.Hive.Infrastructure/Social/Canva/CanvaOAuthService.cs` (new)
-- `Incoders.Hive.ApiService/Endpoints/Integrations/MapIntegrationsEndpoints.cs` (extend)
-- `Incoders.Hive.Infrastructure/Social/ContentGeneration/InfrastructureContentGenerationExtensions.cs` (register)
-- `Incoders.Hive.Tests/Application/ICanvaOAuthServiceContractTests.cs` (new)
-- `Incoders.Hive.Tests/Infrastructure/Social/Canva/CanvaOAuthServiceTests.cs` (new)
+- `SocialStudio.Application/Abstractions/Integrations/ICanvaOAuthService.cs` (new)
+- `SocialStudio.Infrastructure/Social/Canva/CanvaOAuthService.cs` (new)
+- `SocialStudio.ApiService/Endpoints/Integrations/MapIntegrationsEndpoints.cs` (extend)
+- `SocialStudio.Infrastructure/Social/ContentGeneration/InfrastructureContentGenerationExtensions.cs` (register)
+- `SocialStudio.Tests/Application/ICanvaOAuthServiceContractTests.cs` (new)
+- `SocialStudio.Tests/Infrastructure/Social/Canva/CanvaOAuthServiceTests.cs` (new)
 
 **Commit message stub:**
 ```
@@ -300,10 +300,10 @@ feat(integrations): WU-5 — ICanvaOAuthService + PKCE flow + xmin refresh rotat
 **Spec requirements satisfied:** CANVA-EXPORT-01 (Design Import API, edit URL), CANVA-EXPORT-03 (API failures surfaced), CANVA-EXPORT-04 (Autofill/Brand Templates never called).
 
 **RED tests to write first:**
-- [x] `ICanvaDesignImportClientContractTests.cs` (new, `Incoders.Hive.Tests/Application/`):
+- [x] `ICanvaDesignImportClientContractTests.cs` (new, `SocialStudio.Tests/Application/`):
   - `Port_HasNoInfrastructureTypes` — reflects interface signatures.
   - `Port_DoesNotReferenceAutofillOrBrandTemplatesEndpoints` — asserts no string literal `"autofill"` or `"brand-template"` in port definition (static text check).
-- [x] `CanvaDesignImportClientTests.cs` (new, `Incoders.Hive.Tests/Infrastructure/Social/Canva/`):
+- [x] `CanvaDesignImportClientTests.cs` (new, `SocialStudio.Tests/Infrastructure/Social/Canva/`):
   - `ImportAsync_SubmitsJobAndPollsUntilSuccess_ReturnEditUrl` — fake `HttpMessageHandler` sequence: submit → 200 `{jobId}`; first poll → `processing`; second poll → `success` + `editUrl`; asserts returned `editUrl`.
   - `ImportAsync_PollTimeout_ReturnsTypedTimeoutError` — handler returns `processing` on every poll; assert `timeout` error after budget exhausted; no hang.
   - `ImportAsync_SubmitReturns5xx_ReturnsHandledError` — asserts failure result, no exception thrown.
@@ -313,23 +313,23 @@ feat(integrations): WU-5 — ICanvaOAuthService + PKCE flow + xmin refresh rotat
 
 **GREEN implementation steps:**
 - [x] Create Application port:
-  - `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/ICanvaDesignImportClient.cs`
+  - `SocialStudio.Application/Abstractions/Social/ContentGeneration/ICanvaDesignImportClient.cs`
   - Signature: `Task<Result<CanvaImportResult>> ImportAsync(byte[] pptxBytes, string accessToken, CancellationToken ct)`
   - `CanvaImportResult`: record `{ string EditUrl, DateTimeOffset ExpiresAt }`.
 - [x] Create Infrastructure adapter:
-  - `Incoders.Hive.Infrastructure/Social/Canva/CanvaDesignImportClient.cs`
+  - `SocialStudio.Infrastructure/Social/Canva/CanvaDesignImportClient.cs`
   - POST to Canva Design Import API (multipart, `file=pptx`); poll job status endpoint with exponential backoff up to configurable budget (default: 12 attempts × 5 s = 60 s).
   - Returns typed `Result<CanvaImportResult>` for success; `timeout`, `api-failure`, `unauthorized` error codes for known failure modes.
   - NEVER calls `/autofill` or `/brand-templates` endpoints.
 - [x] Register `CanvaDesignImportClient` + `HttpClient` (named `"canva-import"`) in DI.
 
 **Files / layers touched:**
-- `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/ICanvaDesignImportClient.cs` (new)
-- `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/CanvaImportResult.cs` (new)
-- `Incoders.Hive.Infrastructure/Social/Canva/CanvaDesignImportClient.cs` (new)
-- `Incoders.Hive.Infrastructure/Social/ContentGeneration/InfrastructureContentGenerationExtensions.cs` (register)
-- `Incoders.Hive.Tests/Application/ICanvaDesignImportClientContractTests.cs` (new)
-- `Incoders.Hive.Tests/Infrastructure/Social/Canva/CanvaDesignImportClientTests.cs` (new)
+- `SocialStudio.Application/Abstractions/Social/ContentGeneration/ICanvaDesignImportClient.cs` (new)
+- `SocialStudio.Application/Abstractions/Social/ContentGeneration/CanvaImportResult.cs` (new)
+- `SocialStudio.Infrastructure/Social/Canva/CanvaDesignImportClient.cs` (new)
+- `SocialStudio.Infrastructure/Social/ContentGeneration/InfrastructureContentGenerationExtensions.cs` (register)
+- `SocialStudio.Tests/Application/ICanvaDesignImportClientContractTests.cs` (new)
+- `SocialStudio.Tests/Infrastructure/Social/Canva/CanvaDesignImportClientTests.cs` (new)
 
 **Commit message stub:**
 ```
@@ -345,7 +345,7 @@ feat(integrations): WU-6 — ICanvaDesignImportClient port + bounded-poll HTTP a
 **Spec requirements satisfied:** CANVA-EXPORT-01, CANVA-EXPORT-02, CANVA-EXPORT-03, CANVA-EXPORT-04, CANVA-USER-03 (revoke visible in UI).
 
 **RED tests to write first:**
-- [x] `ExportFormatToCanvaCommandHandlerTests.cs` (new, `Incoders.Hive.Tests/Application/Social/ContentGeneration/Export/`):
+- [x] `ExportFormatToCanvaCommandHandlerTests.cs` (new, `SocialStudio.Tests/Application/Social/ContentGeneration/Export/`):
   - `Handle_UserNotConnected_ReturnsNeedsAuthorizationWithAuthorizeUrl` — fake token repo returns `null`; asserts `needs-authorization` result with non-empty `authorizeUrl`; PPTX adapter and import client never called.
   - `Handle_UserConnectedExpiredToken_RefreshesAndExports` — fake OAuth service `EnsureFreshAsync` returns fresh token; asserts import client called with that token.
   - `Handle_HappyPath_ReturnEditUrl` — all fakes succeed; asserts returned `{ editUrl, expiresAt }`.
@@ -353,7 +353,7 @@ feat(integrations): WU-6 — ICanvaDesignImportClient port + bounded-poll HTTP a
   - `Handle_ImportClientTimeout_ReturnsHandledError` — fake import client returns `timeout` error; asserts handler propagates typed error.
   - `Handle_ImportClientUnauthorized_ClearsTokensAndReturnsReconnectError` — fake import client returns `unauthorized`; asserts token repo `DeleteAsync` called; asserts `reconnect-required` error returned.
   - `Handle_RealOrganizationId_FlowsIntoEnsureFreshAsync` — asserts REAL org id (not proxy) reaches EnsureFreshAsync.
-- [x] `MapContentGenerationCanvaEndpointTests.cs` (new, `Incoders.Hive.Tests/ApiService/ContentGeneration/`):
+- [x] `MapContentGenerationCanvaEndpointTests.cs` (new, `SocialStudio.Tests/ApiService/ContentGeneration/`):
   - `ExportToCanva_Endpoint_Returns200WithEditUrl` — fake handler; asserts JSON `{ editUrl }`.
   - `ExportToCanva_Endpoint_Returns409WhenNeedsAuthorization` — handler returns `canva.not_connected`; asserts 409 + code in response.
   - `ExportToCanva_Endpoint_Returns502OnImportTimeout` — import timeout → 502.
@@ -364,8 +364,8 @@ feat(integrations): WU-6 — ICanvaDesignImportClient port + bounded-poll HTTP a
 
 **GREEN implementation steps:**
 - [x] Create `ExportFormatToCanvaCommand.cs` + `ExportFormatToCanvaCommandHandler.cs`:
-  - `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToCanvaCommand.cs`
-  - `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToCanvaCommandHandler.cs`
+  - `SocialStudio.Application/Features/Social/ContentGeneration/Export/ExportFormatToCanvaCommand.cs`
+  - `SocialStudio.Application/Features/Social/ContentGeneration/Export/ExportFormatToCanvaCommandHandler.cs`
   - Handler logic: lookup format result (null markup → `not-exportable`); lookup token (null → `canva.not_connected`); `EnsureFreshAsync` with REAL orgId; build PPTX (`IPptxExportAdapter`); `ImportAsync` (`ICanvaDesignImportClient`); on 401 → revoke + `canva.reconnect_required`; return `editUrl`.
   - Added `ICanvaAutofillAdapter` deferred stub (not wired in DI).
 - [x] Extend `MapContentGenerationEndpoints.cs` — added `POST .../formats/{formatKey}/export-to-canva`:
@@ -378,14 +378,14 @@ feat(integrations): WU-6 — ICanvaDesignImportClient port + bounded-poll HTTP a
   - Fix: `ICanvaOAuthService.EnsureFreshAsync` updated to take `organizationId` parameter; all WU-5 tests updated.
 
 **Files / layers touched:**
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToCanvaCommand.cs` (new)
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Export/ExportFormatToCanvaCommandHandler.cs` (new)
-- `Incoders.Hive.Application/Abstractions/Integrations/ICanvaAutofillAdapter.cs` (new — deferred stub, not wired)
-- `Incoders.Hive.ApiService/Endpoints/Social/ContentGeneration/MapContentGenerationEndpoints.cs` (extend)
+- `SocialStudio.Application/Features/Social/ContentGeneration/Export/ExportFormatToCanvaCommand.cs` (new)
+- `SocialStudio.Application/Features/Social/ContentGeneration/Export/ExportFormatToCanvaCommandHandler.cs` (new)
+- `SocialStudio.Application/Abstractions/Integrations/ICanvaAutofillAdapter.cs` (new — deferred stub, not wired)
+- `SocialStudio.ApiService/Endpoints/Social/ContentGeneration/MapContentGenerationEndpoints.cs` (extend)
 - `apps/web/lib/api/content-generation.ts` (extend)
 - `apps/web/components/social/single-analyzer-client.tsx` (extend)
-- `Incoders.Hive.Tests/Application/Social/ContentGeneration/Export/ExportFormatToCanvaCommandHandlerTests.cs` (new)
-- `Incoders.Hive.Tests/ApiService/MapContentGenerationEndpointsTests.cs` (extend)
+- `SocialStudio.Tests/Application/Social/ContentGeneration/Export/ExportFormatToCanvaCommandHandlerTests.cs` (new)
+- `SocialStudio.Tests/ApiService/MapContentGenerationEndpointsTests.cs` (extend)
 
 **Commit message stub:**
 ```
@@ -429,10 +429,10 @@ docs(integrations): WU-8 — Canva connector guide + spec-delta reconciliation
 **Spec requirements satisfied:** PPTX-02 (background visible in exported PPTX), design D3 (background captured at render time, not export time).
 
 **RED tests written first:**
-- [x] `ContentGenerationJobProcessorBackgroundTests.cs` (new, `Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/`):
+- [x] `ContentGenerationJobProcessorBackgroundTests.cs` (new, `SocialStudio.Tests/Application/Social/ContentGeneration/Pipeline/`):
   - `ProcessAsync_GeometryRendererWithBackground_PersistsBackgroundRefInEnvelope` — stub geometry renderer returns `BackgroundImageDataUri`; asserts envelope `BackgroundImageRef` equals that data-URI.
   - `ProcessAsync_GeometryRendererWithNullBackground_PersistsNullBackgroundRef` — renderer returns null; asserts graceful null (no crash).
-- [x] `HtmlChromiumContentRendererTests.cs` (extended, `Incoders.Hive.Tests/Infrastructure/Rendering/`, Chromium-gated):
+- [x] `HtmlChromiumContentRendererTests.cs` (extended, `SocialStudio.Tests/Infrastructure/Rendering/`, Chromium-gated):
   - `RenderWithGeometryAsync_LayeredMarkup_ReturnsBackgroundImageDataUri` — asserts `BackgroundImageDataUri` non-null, starts with `data:image/png;base64,`.
   - `RenderAsync_HtmlSpec_DoesNotProduceBackgroundImageDataUri` — confirms plain `RenderAsync` path still works (regression guard).
 
@@ -444,11 +444,11 @@ docs(integrations): WU-8 — Canva connector guide + spec-delta reconciliation
 - [x] Add `capturedBackgroundDataUri` variable in the processor's format-render loop; set from `renderedWithGeo.Value.BackgroundImageDataUri`; pass to `PersistRenderSuccessAsync`.
 
 **Files / layers touched:**
-- `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IContentRendererWithGeometry.cs` (extend `RenderedAssetWithGeometry` record)
-- `Incoders.Hive.Infrastructure/Rendering/HtmlChromiumContentRenderer.cs` (add `CaptureBackgroundDataUriAsync`, call from `RenderChromiumAsync`)
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` (thread `capturedBackgroundDataUri`, update `PersistRenderSuccessAsync`)
-- `Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessorBackgroundTests.cs` (new)
-- `Incoders.Hive.Tests/Infrastructure/Rendering/HtmlChromiumContentRendererTests.cs` (extend)
+- `SocialStudio.Application/Abstractions/Social/ContentGeneration/IContentRendererWithGeometry.cs` (extend `RenderedAssetWithGeometry` record)
+- `SocialStudio.Infrastructure/Rendering/HtmlChromiumContentRenderer.cs` (add `CaptureBackgroundDataUriAsync`, call from `RenderChromiumAsync`)
+- `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` (thread `capturedBackgroundDataUri`, update `PersistRenderSuccessAsync`)
+- `SocialStudio.Tests/Application/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessorBackgroundTests.cs` (new)
+- `SocialStudio.Tests/Infrastructure/Rendering/HtmlChromiumContentRendererTests.cs` (extend)
 
 **Commit message:**
 ```
@@ -486,7 +486,7 @@ All `dotnet test` runs must be green before declaring a WU complete. Integration
 - [x] `dotnet test` passes with 0 failures (integration-guarded tests skipped, not failed).
 - [x] All ports (`IPptxExportAdapter`, `ICanvaUserTokenRepository`, `ICanvaOAuthService`, `ICanvaDesignImportClient`) pass `Port_HasNoInfrastructureTypes` contract assertion.
 - [x] `PptxExportAdapter`, `CanvaOAuthService`, `CanvaDesignImportClient` registered only in Infrastructure DI — not leaked to Domain or Application DI.
-- [x] `DocumentFormat.OpenXml` referenced only in `Incoders.Hive.Infrastructure.csproj`.
+- [x] `DocumentFormat.OpenXml` referenced only in `SocialStudio.Infrastructure.csproj`.
 - [x] Migration `Add_CanvaUserTokens` is the ONLY new EF migration in this change.
 - [x] `composition_spec_json` never written as `null` in the success render path.
 - [x] Autofill/Brand Templates endpoints never reachable from active code paths (`ICanvaAutofillAdapter` stub exists but is not wired in DI).

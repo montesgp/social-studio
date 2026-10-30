@@ -89,4 +89,4 @@ Prompt version constants are bumped: `Carousel → v4`, `Story → story-single.
 - Proposal / Spec / Design: `openspec/changes/content-aesthetic-generation/`
 - Builds on: ADR 0005 (Background Sourcing Strategy Port — `ClientAesthetic` seam)
 - Builds on: ADR 0003 (Profile Analysis bounded-context isolation)
-- Migration: `Incoders.Hive.Infrastructure/Persistence/Postgres/Migrations/20260621100602_Add_AestheticRefreshThresholdDays.cs`
+- Migration: `SocialStudio.Infrastructure/Persistence/Postgres/Migrations/20260621100602_Add_AestheticRefreshThresholdDays.cs`

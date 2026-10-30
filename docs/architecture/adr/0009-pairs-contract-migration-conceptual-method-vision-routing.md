@@ -264,4 +264,4 @@ added in this change.
 - Spec: `openspec/changes/client-aesthetic-conceptual-detection/specs/` (CACD-PA-01..07, CACD-CG-01..03, CACD-IMG-01..02)
 - Builds on: ADR 0006 (`client-aesthetic-ensure-fresh`), ADR 0007 (Image Generation Gateway Port)
 - Architecture gate: `pwsh -File scripts/gates/Run-Gates.ps1`
-- Test suite: `Incoders.Hive.Tests/Incoders.Hive.Tests.csproj` (WU-1..WU-6 commit range: 79288bc..35ebb21)
+- Test suite: `SocialStudio.Tests/SocialStudio.Tests.csproj` (WU-1..WU-6 commit range: 79288bc..35ebb21)

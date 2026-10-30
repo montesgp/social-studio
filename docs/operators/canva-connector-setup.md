@@ -25,7 +25,7 @@ This guide covers everything an operator and an end user need to get the Canva i
 1. Go to the [Canva Developer Portal](https://www.canva.com/developers/) and sign in.
 2. Navigate to **Your apps** and create a new app (or select an existing one).
 3. Under **Authentication**, copy the **Client ID** and **Client secret**.
-4. In Incoders Hive go to **Settings → Integrations → Canva**.
+4. In Social Studio go to **Settings → Integrations → Canva**.
 5. Select connection mode **Bring your own key**, paste **Client ID** and **Client secret**.
 6. Optionally adjust the **Scopes** field (see below). Leave blank to use the default set.
 7. Click **Save** and then **Test connection**.
@@ -63,7 +63,7 @@ These are the minimum scopes needed for B2 and B3. Leave the field blank or unch
 
 ## Part 2 — Per-user "Connect to Canva" flow (end user, once per account)
 
-The Export to Canva feature requires each user to authorize the platform to act on their behalf in Canva. This is a standard OAuth 2.0 authorization-code flow with PKCE — no password is shared with Incoders Hive.
+The Export to Canva feature requires each user to authorize the platform to act on their behalf in Canva. This is a standard OAuth 2.0 authorization-code flow with PKCE — no password is shared with Social Studio.
 
 ### How the flow works
 

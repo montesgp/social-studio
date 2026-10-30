@@ -140,7 +140,7 @@ overlapping-headline defect this change exists to fix.
 - `MeasuredLayoutReflow`, `SlotTopRewriter`, and `MarkupSlotBoxParser` are pure, public Application
   types under `Features/Social/ContentGeneration/Visual/Layout/` — independently unit-testable
   without Chromium, mirroring the WU-2 `SlotOverlapDetector` precedent. `RenderWithReflowAsync`
-  itself is `internal` (not `private`) specifically so `Incoders.Hive.Tests` can drive the bounded
+  itself is `internal` (not `private`) specifically so `SocialStudio.Tests` can drive the bounded
   loop directly against a stub `IContentRendererWithGeometry` via `InternalsVisibleTo` — no live
   Chromium process boundary is involved in testing the loop's pass-count/convergence/diagnostic
   contract.

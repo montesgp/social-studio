@@ -15,7 +15,7 @@ Canva connector / "Export to Canva" / native-editable formats (the review items 
 ## Problem
 The single-analyzer produces carousel slides and flyers that look amateur ("today looks like Paint"). The verified root cause:
 
-- `Incoders.Hive.Infrastructure/Rendering/LocalSvgContentRenderer.cs` is a **raster SkiaSharp renderer** (despite the "Svg" name it draws primitives directly), with **hardcoded mechanical layout** (seeded gradients/circles, fixed panel rectangles, naive word-wrap) and **Arial 28/16 typography** from `CompositionDefaults`.
+- `SocialStudio.Infrastructure/Rendering/LocalSvgContentRenderer.cs` is a **raster SkiaSharp renderer** (despite the "Svg" name it draws primitives directly), with **hardcoded mechanical layout** (seeded gradients/circles, fixed panel rectangles, naive word-wrap) and **Arial 28/16 typography** from `CompositionDefaults`.
 - There is **NO design-intelligence stage** anywhere in the pipeline. Composers under `ContentGeneration/Visual/Composers/*` only map payload → slots and emit a POOR `VisualCompositionSpec`; the renderer then mechanically rasterizes that poor spec. The quality ceiling is set by hardcoded heuristics, not by any designer.
 
 When a human asks Opus directly for a flyer, the result looks great because **Opus itself is acting as the designer**. The fix is to put Opus into the pipeline as the design brain, emitting a rich, varied, brand-bound composition that the renderer faithfully materializes.
@@ -89,7 +89,7 @@ The designer output must be constrained before it reaches the renderer:
 - [x] Tier-2 reference images are surfaced to the designer as style input; Tier-3 triggers creative generation.
 - [x] An `IVisualDesigner` port exists in Application; the composer pipeline calls it before the renderer.
 - [x] Guardrails: off-palette colors and non-manual fonts are rejected/remapped; overflowing copy is detected; invalid designer markup yields a failed `Result` (not a broken asset) — all verified with a **stubbed/mocked LLM**.
-- [x] All B1a tests pass under strict TDD (`dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj`); no provider/persistence types leak into Domain/Application.
+- [x] All B1a tests pass under strict TDD (`dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj`); no provider/persistence types leak into Domain/Application.
 
 ### B1b (Infrastructure)
 - [x] A new `IContentRenderer` adapter renders the rich composition emitted by the designer, honoring brand typography (NOT hardcoded Arial 28/16).

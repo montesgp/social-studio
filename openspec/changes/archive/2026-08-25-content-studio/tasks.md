@@ -24,14 +24,14 @@ Chain strategy: pending
 | 2 | EF entities + `Add_ContentStudio` migration + repositories; Application ports + materializer + feature slices; API endpoints | PR 2 | Base: PR 1 branch; single additive migration; heaviest slice |
 | 3 | Handoff port + payload + Phase-1 adapter; frontend `ContentStudioModule` + Single Analyzer Studio tab + preview; docs sync; gates | PR 3 | Base: PR 2 branch; preview consumes projection (no second emulator) |
 
-> **Strict TDD is active.** Every backend domain rule, application handler, and transition gets a failing test FIRST ([RED]) then the implementation ([GREEN]). Test runner: `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj`. Run `pwsh -File scripts/gates/Run-Gates.ps1` at each marked gate checkpoint.
+> **Strict TDD is active.** Every backend domain rule, application handler, and transition gets a failing test FIRST ([RED]) then the implementation ([GREEN]). Test runner: `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj`. Run `pwsh -File scripts/gates/Run-Gates.ps1` at each marked gate checkpoint.
 
 ---
 
 ## Phase 1 — Domain: Value Objects (PR 1, WU 1) — refs CS-01, CS-02
 
-- [ ] 1.1 **[RED]** Add `Incoders.Hive.Tests/Domain/Social/ContentStudio/ContentOriginTests.cs` — asserts `ContentOrigin` holds `GeneratorKind` (enum, `SingleAnalyzer=0`), `SourceRunId`, nullable `SourcePackageId`, `FormatResultId`, `FormatKey`; value equality; no `SingleAnalyzer` type referenced.
-- [ ] 1.2 **[GREEN]** Create `Incoders.Hive.Domain/Social/ContentStudio/GeneratorKind.cs`, `ContentOrigin.cs`.
+- [ ] 1.1 **[RED]** Add `SocialStudio.Tests/Domain/Social/ContentStudio/ContentOriginTests.cs` — asserts `ContentOrigin` holds `GeneratorKind` (enum, `SingleAnalyzer=0`), `SourceRunId`, nullable `SourcePackageId`, `FormatResultId`, `FormatKey`; value equality; no `SingleAnalyzer` type referenced.
+- [ ] 1.2 **[GREEN]** Create `SocialStudio.Domain/Social/ContentStudio/GeneratorKind.cs`, `ContentOrigin.cs`.
 - [ ] 1.3 **[RED]** Add `ContentKindTests.cs` / `TargetChannelTests.cs` / `ContentDraftTests.cs` / `EditTraceTests.cs` — `ContentMedium` enum dispatch (`Text/Visual/Video/Document`); `TargetChannel(network, placement)`; `ContentDraft(text, visualSpecMarkup, assets, targetChannel)` with `ContentAssetRef(role, storageUri, mime)`; `EditTrace.Initial(now)` = `Manual`, null timestamp.
 - [ ] 1.4 **[GREEN]** Create `ContentMedium.cs`, `ContentKind.cs`, `TargetChannel.cs`, `ContentAssetRef.cs`, `ContentDraft.cs`, `EditSource.cs`, `EditTrace.cs`, `PeriodRef.cs`, `PlanContext.cs`.
 - [ ] 1.5 Run `dotnet test` — Phase 1 VO tests green.
@@ -52,14 +52,14 @@ Chain strategy: pending
 - [ ] 3.2 Add fluent config: indexes per design §5.2 (`organization_id`, `client_id`, `source_run_id`, `(organization_id, review_state)`, `variant_group_id`; set `origin_source_run_id`; join unique `(set_id, item_id)`); FKs to `platform.organizations` + `social.clients` cascade; unique `(organization_id, origin_source_run_id)` on `GenerationRun` sets (idempotency guard, design §11).
 - [ ] 3.3 Add EF migration `Add_ContentStudio` (additive only): create the three tables, owned-type columns, indexes, FKs. No data migration.
 - [ ] 3.4 Run gates: `pwsh -File scripts/gates/Run-Gates.ps1` — build + architecture gate must pass (no provider leakage; DbContext snapshot updated).
-- [ ] 3.5 **[RED]** Add `Incoders.Hive.Tests/Infrastructure/Persistence/ContentStudioEntityMappingTests.cs` — round-trip an item (all owned columns, enums, jsonb assets) and a set + join row; assert soft-Guid columns (no FK to generation).
+- [ ] 3.5 **[RED]** Add `SocialStudio.Tests/Infrastructure/Persistence/ContentStudioEntityMappingTests.cs` — round-trip an item (all owned columns, enums, jsonb assets) and a set + join row; assert soft-Guid columns (no FK to generation).
 - [ ] 3.6 **[GREEN]** Create `EfContentItemRepository.cs` (`IContentItemRepository`) and `EfContentSetRepository.cs` (`IContentSetRepository`) — paged/filterable queries; `GetReviewSummaryAsync` as an aggregation query (not N loads); map `Restore(...)`; no navigations.
 - [ ] 3.7 Run `dotnet test` + gates — mapping/repository tests green.
 
 ## Phase 4 — Application: Ports, Materializer, Feature Slices (PR 2, WU 2) — refs CS-04, CS-06, CS-07, CS-08
 
 - [ ] 4.1 Add ports under `Abstractions/Social/ContentStudio/`: `IContentItemRepository.cs`, `IContentSetRepository.cs`.
-- [ ] 4.2 **[RED]** Add `Incoders.Hive.Tests/Application/Social/ContentStudio/ContentItemMaterializerTests.cs` — CS-04: materializes one item per successful format with valid `ContentOrigin` + initial draft; idempotent re-materialization returns existing set; non-mutating (asserts no generation write via fakes); draft decoupled from source.
+- [ ] 4.2 **[RED]** Add `SocialStudio.Tests/Application/Social/ContentStudio/ContentItemMaterializerTests.cs` — CS-04: materializes one item per successful format with valid `ContentOrigin` + initial draft; idempotent re-materialization returns existing set; non-mutating (asserts no generation write via fakes); draft decoupled from source.
 - [ ] 4.3 **[GREEN]** Create `Features/Social/ContentStudio/Materialize/` (`MaterializeRunCommand`, handler, validator) + `ContentItemMaterializer` application service reading existing generation read ports (`IContentGenerationFormatResultRepository`, format-asset repo, `IGeneratedPackageRepository`) — initializes `ContentDraft` (text/markup/assets/targetChannel) per format key.
 - [ ] 4.4 **[GREEN]** Create query slices: `GetItem`, `GetSet` (+ `ReviewSummaryDto`), `ListItems` (paged, `?state=`), `Preview/GetContentPreviewQuery` → `ContentPreviewProjection` with a channel-constraints catalog (CS-07, presentation-only).
 - [ ] 4.5 **[RED]** Add `ContentItemOperationsTests.cs` — Application-level: `EditItemTextCommand` (CS-06 validation), `Approve/Reject/Discard/Duplicate/Delete` (CS-08), each asserting the guarded transition and persistence.
@@ -75,8 +75,8 @@ Chain strategy: pending
 
 ## Phase 6 — Api: Endpoints (PR 2/3, WU 2) — refs CS-11, CS-12
 
-- [ ] 6.1 Create `Incoders.Hive.ApiService/Endpoints/Social/MapContentStudioEndpoints.cs` with the routes in design §7 (materialize, get/list set + items, get item, preview, edit-text, approve, reject, discard, duplicate, delete, stage). Org-scope every route via existing auth/tenancy; map illegal transitions to HTTP 409 (`content-studio.illegal_transition`). Register in the API route builder.
-- [ ] 6.2 **[RED]** Add `Incoders.Hive.Tests/Api/Social/ContentStudioEndpointTests.cs` — smoke tests for materialize (idempotent), get set + items, edit-text, approve→stage→handoff, and cross-organization denial (CS-11).
+- [ ] 6.1 Create `SocialStudio.ApiService/Endpoints/Social/MapContentStudioEndpoints.cs` with the routes in design §7 (materialize, get/list set + items, get item, preview, edit-text, approve, reject, discard, duplicate, delete, stage). Org-scope every route via existing auth/tenancy; map illegal transitions to HTTP 409 (`content-studio.illegal_transition`). Register in the API route builder.
+- [ ] 6.2 **[RED]** Add `SocialStudio.Tests/Api/Social/ContentStudioEndpointTests.cs` — smoke tests for materialize (idempotent), get set + items, edit-text, approve→stage→handoff, and cross-organization denial (CS-11).
 - [ ] 6.3 Run `dotnet test` + full gate suite.
 
 ## Phase 7 — Frontend: Studio Surface (PR 3, WU 3) — refs CS-07, CS-12

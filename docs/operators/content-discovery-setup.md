@@ -156,7 +156,7 @@ candidates without buying another run.
 
 | | |
 |---|---|
-| Where the files live | `Incoders.Hive.ApiService/seed-data/discovery/*.json` |
+| Where the files live | `SocialStudio.ApiService/seed-data/discovery/*.json` |
 | What they contain | One envelope per niche: `networkKey`, `hashtags`, `sourceNote`, and `items` — the **verbatim** items a real Apify run returned |
 | How they are mapped | Through `TikTokNicheSearchAdapter`, the same class a live run uses. There is no seed-specific parser: if the production mapping regresses, the import stops producing candidates and says so |
 | Where they land | `RecordNicheBankAsync(organizationId, "tiktok", hashtags)` — exactly the key a live run would have used |
@@ -173,7 +173,7 @@ organization, so a fresh local API starts with real candidates instead of an emp
 Production is untouched: neither switch is set outside the Development file, and the importer refuses to
 run outside Development regardless.
 
-Enable it in `Incoders.Hive.ApiService/appsettings.Development.json`:
+Enable it in `SocialStudio.ApiService/appsettings.Development.json`:
 
 ```json
 "Social": {

@@ -4,7 +4,7 @@
 Content research retrieves candidate high-performing content by client, niche, reference accounts or own account sources.
 
 ## Requirements
-- Hive Social clients MUST be scoped to an organization with `organization_id`.
+- Social Studio clients MUST be scoped to an organization with `organization_id`.
 - A user MUST select or resolve an organization before creating/listing social clients.
 - The system MUST persist clients in the `social` module schema.
 - Client lookup/list operations MUST NOT return clients from another organization.

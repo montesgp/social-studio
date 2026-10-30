@@ -335,7 +335,7 @@ code-only or JSON-blob-additive.
 
 ---
 
-## 8. Test-first ordering (Strict TDD — `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release`)
+## 8. Test-first ordering (Strict TDD — `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release`)
 
 1. **Structure VOs** — `SlideBackgroundKind`, `ColorPairing`; extended `ClientAestheticProfile` (additive
    nullable; existing construction sites + `with` compile unchanged). (RED→GREEN.)

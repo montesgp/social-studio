@@ -79,12 +79,12 @@ The choice of *client field vs profile-analysis signal vs both* is an **open des
 |------|--------|-------------|
 | **A** `apps/web/components/social/content-studio-panel.tsx` (~1700-1779, `AssetFallbackImage`) | Modified | Render each slide's AI background by URL/reference behind the layout/text layer |
 | **A** `apps/web/lib/api/content-generation.ts` (+ `types.ts`) | Modified (likely) | Fetch/resolve the background reference for a slide |
-| **A** `Incoders.Hive.Application/.../ContentStudio/Materialize/MaterializeRunCommand.cs` | Modified (option 1) | Synthesize a studio-only `DraftAsset` from `BackgroundImageRef` |
-| **A** `Incoders.Hive.ApiService/Endpoints/Social/MapContentStudioEndpoints.cs` (+ asset query) | Modified (option 1 or 2) | Serve the background via existing asset index OR a dedicated background endpoint |
-| **A** `Incoders.Hive.Application/.../Pipeline/CompositionSpecEnvelope.cs` | Read/verify | Source of `BackgroundImageRef` (path or legacy data-URI) |
-| **B** `Incoders.Hive.Application/.../Visual/Composers/CarouselVisualComposer.cs` (140-157) | Modified | Replace `Handle is not null` guard with the "client signs" predicate |
-| **B** `Incoders.Hive.Application/.../Visual/Composers/StoryVisualComposer.cs` | Modified | Apply the same gate for consistency |
-| **B** `Incoders.Hive.Application/.../Shared/AttributionPolicy.cs` (20) | Modified (possible) | Expose/centralize the "should sign" decision so both composers stay consistent |
+| **A** `SocialStudio.Application/.../ContentStudio/Materialize/MaterializeRunCommand.cs` | Modified (option 1) | Synthesize a studio-only `DraftAsset` from `BackgroundImageRef` |
+| **A** `SocialStudio.ApiService/Endpoints/Social/MapContentStudioEndpoints.cs` (+ asset query) | Modified (option 1 or 2) | Serve the background via existing asset index OR a dedicated background endpoint |
+| **A** `SocialStudio.Application/.../Pipeline/CompositionSpecEnvelope.cs` | Read/verify | Source of `BackgroundImageRef` (path or legacy data-URI) |
+| **B** `SocialStudio.Application/.../Visual/Composers/CarouselVisualComposer.cs` (140-157) | Modified | Replace `Handle is not null` guard with the "client signs" predicate |
+| **B** `SocialStudio.Application/.../Visual/Composers/StoryVisualComposer.cs` | Modified | Apply the same gate for consistency |
+| **B** `SocialStudio.Application/.../Shared/AttributionPolicy.cs` (20) | Modified (possible) | Expose/centralize the "should sign" decision so both composers stay consistent |
 | **B** Client/aesthetic snapshot model (`BrandSnapshot.Client` / profile-analysis signal) | Modified | Carry the opt-in field and/or the detected "client signs" signal |
 | **B** Aesthetic profile-analysis pipeline | Modified (if signal chosen) | Detect and persist the "client signs their slides" signal |
 | Tests (`SurfaceScopedCarouselVisualComposerTests`, studio/asset tests, strict TDD) | Modified | Cover: gated on/off signing; background renders without a `FormatAssetRow` |

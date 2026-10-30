@@ -65,7 +65,7 @@ Merging them would lose the distinction between "how this brand always operates"
 
 ## What Changes
 
-### Domain (`Incoders.Hive.Domain`)
+### Domain (`SocialStudio.Domain`)
 - Introduce **`Period`** Value Object (initial variant: monthly `{Year, Month}`), with validation moved off the current loose `int Year`/`int Month` on `ClientMonthlyObjective`.
 - Introduce **`Provenance`** Value Object `{ Source, GeneratedAt, Status, PromptVersion? }`.
 - Introduce the **Content Plan** aggregate (period-keyed) owning Objective + Content Strategy + Content Calendar (ordered slots), each decorated with `Provenance`. Migrate `ClientMonthlyObjective`'s payload into the Objective node.
@@ -73,19 +73,19 @@ Merging them would lose the distinction between "how this brand always operates"
 - Reconcile **Brand Brain ↔ BrandManual** to a single canonical domain name.
 - The Content Plan **references** Generated Content Package ids; it does not own package internals.
 
-### Application (`Incoders.Hive.Application`)
+### Application (`SocialStudio.Application`)
 - Replace/rename `ClientMonthlyObjectives` feature slices (Upsert/Get/List) with **Content Plan** use cases (upsert per `client+Period`, get-by-`client+Period`, list-by-client).
 - Add ports for persisting/reading the Content Plan, General Strategy, and calendar slots.
 - Update `IClientBrandSnapshotLoader` contract so the snapshot is built from a persisted Content Plan + enduring client context, not ad-hoc per-field assembly.
 - Keep AI/provider model selection abstracted behind ports (no hardcoded model in use cases).
 
-### Infrastructure (`Incoders.Hive.Infrastructure`)
+### Infrastructure (`SocialStudio.Infrastructure`)
 - EF Core entities + **migrations** for: Content Plan (with `Period` mapped — likely retaining year/month columns for the monthly variant plus a period-kind discriminator for forward-compat), General Strategy, calendar slots, and embedded `Provenance` columns/owned types.
 - Migrate data: the `social.client_strategies` table is a **rename/restructure** (its 1:1-per-client data carries over directly); the heavier work is restructuring `social.client_monthly_objectives` into the Content Plan's Objective node. Preserve the existing `client_id+year+month` uniqueness as the `client+Period` uniqueness for the monthly variant.
 - Update `EfClientBrandSnapshotLoader` to read the persisted Content Plan.
 - Provider/persistence types stay in Infrastructure (hexagonal boundary).
 
-### Api (`Incoders.Hive.ApiService`)
+### Api (`SocialStudio.ApiService`)
 - Replace `MapClientMonthlyObjectivesEndpoints` with Content Plan endpoints keyed by `client+Period`.
 - Add endpoints to read/edit General Strategy and to read/edit the Content Strategy + Calendar nodes, surfacing `Provenance` per node.
 

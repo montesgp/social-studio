@@ -36,7 +36,7 @@ Recommended fix (post-PR): cache orgIntegrationId as component-level state resol
 
 [W2] EnsureFreshAsync falls through with empty credentials when IIntegrationResolver.ResolveProviderAsync fails
 
-File: Incoders.Hive.Infrastructure/Social/Canva/CanvaOAuthService.cs:227-235
+File: SocialStudio.Infrastructure/Social/Canva/CanvaOAuthService.cs:227-235
 
 When ResolveProviderAsync fails (org BYOK not configured), the code falls back to empty credentials and calls the Canva token endpoint. Canva returns 401, caught as CanvaOAuthErrors.RefreshFailed. Functionally handled but unintuitive -- a missing BYOK should produce a direct typed error.
 
@@ -102,7 +102,7 @@ All four new ports confirmed clean -- no infra types in signatures:
 - ICanvaUserTokenRepository: CanvaUserToken domain entity + Guid
 - ICanvaDesignImportClient: byte[] + string -> Result<CanvaImportResult>
 
-DocumentFormat.OpenXml referenced only in Incoders.Hive.Infrastructure.csproj. architecture.imports PASS. Zero infra type leaks in Domain or Application layers.
+DocumentFormat.OpenXml referenced only in SocialStudio.Infrastructure.csproj. architecture.imports PASS. Zero infra type leaks in Domain or Application layers.
 
 ## Known Deviations
 

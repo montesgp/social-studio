@@ -28,7 +28,7 @@
 - Connection string is read from `ConnectionStrings:Postgres`
 
 ## Migrations
-- Location: `Incoders.Hive.Infrastructure/Persistence/Postgres/Migrations`
+- Location: `SocialStudio.Infrastructure/Persistence/Postgres/Migrations`
 - Design-time factory: `AppIdentityDbContextFactory`
 
 ## PostgreSQL Naming
@@ -50,9 +50,9 @@
 ## Schema Ownership
 - `identity` is authentication/authorization persistence.
 - `platform` is cross-module platform persistence: organizations, memberships, system settings, provider catalogs, model catalogs and shared configuration.
-- `social` is reserved for the Hive Social / Incoders Social product module.
+- `social` is reserved for the Social Studio / Social Studio product module.
 - Future product modules SHOULD get one schema per module, not one schema per small bounded context.
-- First Hive Social table: `social.clients`, scoped by `organization_id` and referenced to `platform.organizations`.
+- First Social Studio table: `social.clients`, scoped by `organization_id` and referenced to `platform.organizations`.
 
 ## Organization Boundary
 - Product-facing language is Organization; database ownership columns are named `organization_id`.
@@ -77,7 +77,7 @@
   for health, and runs the safety check below. (`-Recreate` wipes the volume for a truly empty
   start.) Or manually: `docker compose -f docker-compose.dev.yml up -d` (`down` keeps the named
   volume, `down -v` wipes data).
-- `Incoders.Hive.ApiService/appsettings.Development.json` points `ConnectionStrings:Postgres`
+- `SocialStudio.ApiService/appsettings.Development.json` points `ConnectionStrings:Postgres`
   at that local container. `dotnet run`/F5 in `Development` auto-applies pending migrations from
   empty and runs `SeedData` against the local DB only — it never touches the shared cloud database.
 

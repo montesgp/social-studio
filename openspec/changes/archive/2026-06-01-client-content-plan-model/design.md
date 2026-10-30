@@ -84,7 +84,7 @@ Edited  -> Generated  (AI regenerates over edits)  Source=AI
 ## 3. Domain Model
 
 ### 3.1 Value Object — `Period`
-Namespace `Incoders.Hive.Domain.Social.ContentPlans` (or a shared `Periods` namespace).
+Namespace `SocialStudio.Domain.Social.ContentPlans` (or a shared `Periods` namespace).
 
 ```
 public readonly record struct Period
@@ -116,7 +116,7 @@ public sealed record Provenance(
 Small, immutable, EF-owned (see §5.2). Decorates each generatable node.
 
 ### 3.3 Aggregate — `ContentPlan`
-Namespace `Incoders.Hive.Domain.Social.ContentPlans`. Sibling aggregate, keyed by `(ClientId, Period)`; **succeeds** `ClientMonthlyObjective`.
+Namespace `SocialStudio.Domain.Social.ContentPlans`. Sibling aggregate, keyed by `(ClientId, Period)`; **succeeds** `ClientMonthlyObjective`.
 
 ```
 public sealed class ContentPlan : Entity<ContentPlanId>

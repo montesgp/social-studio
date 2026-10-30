@@ -89,20 +89,20 @@ jobs:
         run: dotnet tool restore
 
       - name: Restore NuGet packages
-        run: dotnet restore Incoders.Hive.slnx
+        run: dotnet restore SocialStudio.slnx
 
       - name: Apply full migration chain from empty
         run: >-
           dotnet ef database update
-          --project Incoders.Hive.Infrastructure
-          --startup-project Incoders.Hive.ApiService
+          --project SocialStudio.Infrastructure
+          --startup-project SocialStudio.ApiService
           --configuration Release
 
       - name: Generate idempotent migration script
         run: >-
           dotnet ef migrations script --idempotent -o migrate.sql
-          --project Incoders.Hive.Infrastructure
-          --startup-project Incoders.Hive.ApiService
+          --project SocialStudio.Infrastructure
+          --startup-project SocialStudio.ApiService
           --configuration Release
 
       - name: Upload idempotent script artifact
@@ -117,8 +117,8 @@ jobs:
         run: |
           set -euo pipefail
           migrations=$(dotnet ef migrations list \
-            --project Incoders.Hive.Infrastructure \
-            --startup-project Incoders.Hive.ApiService \
+            --project SocialStudio.Infrastructure \
+            --startup-project SocialStudio.ApiService \
             --configuration Release \
             --no-color | tr -d '\r')
           latest=$(echo "$migrations" | tail -n 1 | tr -d '[:space:]')
@@ -136,13 +136,13 @@ jobs:
           fi
           echo "Rolling back to: $previous"
           dotnet ef database update "$previous" \
-            --project Incoders.Hive.Infrastructure \
-            --startup-project Incoders.Hive.ApiService \
+            --project SocialStudio.Infrastructure \
+            --startup-project SocialStudio.ApiService \
             --configuration Release
 
       - name: Round-trip - Up again
         run: >-
           dotnet ef database update
-          --project Incoders.Hive.Infrastructure
-          --startup-project Incoders.Hive.ApiService
+          --project SocialStudio.Infrastructure
+          --startup-project SocialStudio.ApiService
           --configuration Release

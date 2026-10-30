@@ -8,7 +8,7 @@ Proposal — DRAFT for owner review. Builds on `client-aligned-carousel-generati
 
 ## Intent / Problem
 
-Incoders Hive promises carousel content "in each client's visual style". For metaphor-driven clients this promise is NOT kept today, and the output looks flat and soulless.
+Social Studio promises carousel content "in each client's visual style". For metaphor-driven clients this promise is NOT kept today, and the output looks flat and soulless.
 
 Root cause: the analyzer (`MultimodalAestheticStyleExtractor`) already SEES the client's posts, but its instruction + response schema (`AestheticExtractionDto`: palette, styleDescriptors, motifs, captionVoice, slideMixPattern) only capture the VISUAL SURFACE. It does NOT capture the client's CONCEPTUAL / ART-DIRECTION METHOD — HOW the client turns a message into an image (metaphor vs literal vs symbolic still-life; the image↔message relationship) — nor a robust image-type composition ratio. Two concrete gaps compound this:
 

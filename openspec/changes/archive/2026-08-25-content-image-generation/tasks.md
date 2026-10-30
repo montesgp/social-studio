@@ -1,7 +1,7 @@
 # Tasks: content-image-generation
 
 **Branch:** `feat/content-format-taxonomy` (current working branch).
-**TDD mode:** STRICT — `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj`. Every behavior task: RED → GREEN.
+**TDD mode:** STRICT — `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj`. Every behavior task: RED → GREEN.
 
 ---
 
@@ -58,11 +58,11 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - `ImageGenerationRequest`, `ImageGenerationResult`, `ImageInitReference`, `ImageUsage` are records containing only primitives, `byte[]`, and Application-layer types
   - `IImageModelClient` has the same `GenerateAsync` signature as `IImageGenerationGateway` (mirror contract)
   - Mirrors the `IVisualDesignerContractTests` pattern.
-  (`Incoders.Hive.Tests/Application/IImageGenerationGatewayContractTests.cs`)
+  (`SocialStudio.Tests/Application/IImageGenerationGatewayContractTests.cs`)
 
-- [x] 1.2 **[RED]** Add `IImagePromptWriterContractTests.cs` — reflect `IImagePromptWriter.WriteAsync(ImagePromptRequest, CancellationToken)` returns `Task<Result<string>>`; assert `ImagePromptRequest` carries only `Guid`, `int`, `string`, and `ClientAestheticProfile`; no provider types. (`Incoders.Hive.Tests/Application/IImagePromptWriterContractTests.cs`)
+- [x] 1.2 **[RED]** Add `IImagePromptWriterContractTests.cs` — reflect `IImagePromptWriter.WriteAsync(ImagePromptRequest, CancellationToken)` returns `Task<Result<string>>`; assert `ImagePromptRequest` carries only `Guid`, `int`, `string`, and `ClientAestheticProfile`; no provider types. (`SocialStudio.Tests/Application/IImagePromptWriterContractTests.cs`)
 
-- [x] 1.3 **[RED]** Add `IClientAestheticImageBackgroundServiceContractTests.cs` — reflect `BuildCreativeBackgroundsAsync(ClientAestheticImageRequest, CancellationToken)` returns `Task<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>>`; assert `ClientAestheticImageRequest` contains only primitives, domain types, and `ClientAestheticProfile`; no provider types. (`Incoders.Hive.Tests/Application/IClientAestheticImageBackgroundServiceContractTests.cs`)
+- [x] 1.3 **[RED]** Add `IClientAestheticImageBackgroundServiceContractTests.cs` — reflect `BuildCreativeBackgroundsAsync(ClientAestheticImageRequest, CancellationToken)` returns `Task<IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>>`; assert `ClientAestheticImageRequest` contains only primitives, domain types, and `ClientAestheticProfile`; no provider types. (`SocialStudio.Tests/Application/IClientAestheticImageBackgroundServiceContractTests.cs`)
 
 - [x] 1.4 **[GREEN]** Create `IImageGenerationGateway.cs` in `Application/Abstractions/Ai/` — define:
   - `IImageGenerationGateway` with `GenerateAsync(ImageGenerationRequest, CancellationToken) → Task<Result<ImageGenerationResult>>`
@@ -71,11 +71,11 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - `ImageGenerationResult` sealed record (`byte[] Bytes`, `string Mime`, `string ProviderKey`, `string? Model`, `ImageUsage? Usage = null`)
   - `ImageInitReference` sealed record (OQ-7 reserved: `byte[]? Bytes`, `string? Url`, `string Mime`)
   - `ImageUsage` sealed record (`int ImageCount`, `long? OutputBytes = null`)
-  (`Incoders.Hive.Application/Abstractions/Ai/IImageGenerationGateway.cs`)
+  (`SocialStudio.Application/Abstractions/Ai/IImageGenerationGateway.cs`)
 
-- [x] 1.5 **[GREEN]** Create `IImagePromptWriter.cs` in `Application/Abstractions/Social/ContentGeneration/` — define `IImagePromptWriter` + `ImagePromptRequest` sealed record (`Guid OrganizationId`, `Guid? ClientId`, `int SlideIndex`, `string SlideCopySummary`, `ClientAestheticProfile Aesthetic`). (`Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IImagePromptWriter.cs`)
+- [x] 1.5 **[GREEN]** Create `IImagePromptWriter.cs` in `Application/Abstractions/Social/ContentGeneration/` — define `IImagePromptWriter` + `ImagePromptRequest` sealed record (`Guid OrganizationId`, `Guid? ClientId`, `int SlideIndex`, `string SlideCopySummary`, `ClientAestheticProfile Aesthetic`). (`SocialStudio.Application/Abstractions/Social/ContentGeneration/IImagePromptWriter.cs`)
 
-- [x] 1.6 **[GREEN]** Create `IClientAestheticImageBackgroundService.cs` in `Application/Abstractions/Social/ContentGeneration/` — define `IClientAestheticImageBackgroundService` + `ClientAestheticImageRequest` sealed record (`Guid OrganizationId`, `Guid? ClientId`, `Guid JobId`, `Guid FormatResultId`, `string FormatKey`, `int SlideCount`, `IReadOnlyList<int> CreativeSlideIndices`, `ClientAestheticProfile Aesthetic`, `IReadOnlyList<string> PerSlideCopySummaries`). (`Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticImageBackgroundService.cs`)
+- [x] 1.6 **[GREEN]** Create `IClientAestheticImageBackgroundService.cs` in `Application/Abstractions/Social/ContentGeneration/` — define `IClientAestheticImageBackgroundService` + `ClientAestheticImageRequest` sealed record (`Guid OrganizationId`, `Guid? ClientId`, `Guid JobId`, `Guid FormatResultId`, `string FormatKey`, `int SlideCount`, `IReadOnlyList<int> CreativeSlideIndices`, `ClientAestheticProfile Aesthetic`, `IReadOnlyList<string> PerSlideCopySummaries`). (`SocialStudio.Application/Abstractions/Social/ContentGeneration/IClientAestheticImageBackgroundService.cs`)
 
 - [x] 1.7 Run `dotnet test` — WU-1 contract tests pass; no regression.
 
@@ -91,9 +91,9 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - `ClientAestheticProfile` construction with `CreativeSlideIndices = null` compiles; existing construction sites unchanged (back-compat)
   - `with` expression changing only `CreativeSlideIndices` compiles
   - Field is `IReadOnlyList<int>?`
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Shared/CreativeSlideIndicesTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Shared/CreativeSlideIndicesTests.cs`)
 
-- [x] 2.2 **[GREEN]** Modify `ClientAestheticProfile.cs` — append `IReadOnlyList<int>? CreativeSlideIndices = null` as a trailing nullable parameter; no existing parameter order or defaults changed. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ClientAestheticProfile.cs`)
+- [x] 2.2 **[GREEN]** Modify `ClientAestheticProfile.cs` — append `IReadOnlyList<int>? CreativeSlideIndices = null` as a trailing nullable parameter; no existing parameter order or defaults changed. (`SocialStudio.Application/Features/Social/ContentGeneration/Shared/ClientAestheticProfile.cs`)
 
 ### Phase 2.B — Default-resolution helper
 
@@ -105,9 +105,9 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - `Resolve([1, 1, 3], slideCount: 5)` → `[1, 3]` (deduped)
   - `Resolve([1, 2, 3], slideCount: 5).Take(MaxCreativeSlidesPerPackage)` → `[1, 2]` (capped to 2, OQ-2)
   - `MaxCreativeSlidesPerPackage = 2` is a named constant accessible from the resolver
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/CreativeSlideIndexResolverTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Background/CreativeSlideIndexResolverTests.cs`)
 
-- [x] 2.4 **[GREEN]** Create `CreativeSlideIndexResolver.cs` — static class with `Resolve(IReadOnlyList<int>? indices, int slideCount)` that: applies 1-based range filter (1..slideCount), dedupes, takes first `MaxCreativeSlidesPerPackage`; defines `public const int MaxCreativeSlidesPerPackage = 2`. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/CreativeSlideIndexResolver.cs`)
+- [x] 2.4 **[GREEN]** Create `CreativeSlideIndexResolver.cs` — static class with `Resolve(IReadOnlyList<int>? indices, int slideCount)` that: applies 1-based range filter (1..slideCount), dedupes, takes first `MaxCreativeSlidesPerPackage`; defines `public const int MaxCreativeSlidesPerPackage = 2`. (`SocialStudio.Application/Features/Social/ContentGeneration/Background/CreativeSlideIndexResolver.cs`)
 
 - [x] 2.5 Run `dotnet test` — WU-2 tests pass; no regression.
 
@@ -125,11 +125,11 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - Empty `imagePrompt` in the response → `Result.Failure` (degrade trigger; IMG-03-b)
   - Gateway failure (returns `Result.Failure`) → `Result.Failure` (degrade trigger)
   - `SlideCopySummary` appears in the assembled prompt (on-topic prompting)
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/ImagePromptWriterTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/ImagePromptWriterTests.cs`)
 
-- [x] 3.2 **[GREEN]** Create `ImagePromptWriter.cs` — implements `IImagePromptWriter`; uses `IAiCompletionGateway.CompleteJsonAsync<T>` with capability `"ai-generation"` and prompt-version `"image-prompt/v1"`; builds the structured prompt from `ImagePromptRequest.Aesthetic` (descriptors, motifs, palette, voice, reference context) + `SlideCopySummary`; parses `{ imagePrompt }` response; returns `Failure` on empty/null or gateway error. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs`)
+- [x] 3.2 **[GREEN]** Create `ImagePromptWriter.cs` — implements `IImagePromptWriter`; uses `IAiCompletionGateway.CompleteJsonAsync<T>` with capability `"ai-generation"` and prompt-version `"image-prompt/v1"`; builds the structured prompt from `ImagePromptRequest.Aesthetic` (descriptors, motifs, palette, voice, reference context) + `SlideCopySummary`; parses `{ imagePrompt }` response; returns `Failure` on empty/null or gateway error. (`SocialStudio.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs`)
 
-- [x] 3.3 Add `"image-prompt/v1"` constant to `ContentGenerationPromptVersions.cs` (additive, no bump to existing keys). (`Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ContentGenerationPromptVersions.cs`)
+- [x] 3.3 Add `"image-prompt/v1"` constant to `ContentGenerationPromptVersions.cs` (additive, no bump to existing keys). (`SocialStudio.Application/Features/Social/ContentGeneration/Shared/ContentGenerationPromptVersions.cs`)
 
 - [x] 3.4 Run `dotnet test` — WU-3 tests pass; no regression.
 
@@ -168,9 +168,9 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   **Regenerate on prompt hash change (OQ-3):**
   - Given stored asset exists BUT prompt hash differs → image gateway IS called; `PutAssetAsync` IS called with new bytes
 
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Background/ClientAestheticImageBackgroundServiceTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Background/ClientAestheticImageBackgroundServiceTests.cs`)
 
-- [x] 4.2 **[GREEN]** Create `ClientAestheticImageBackgroundService.cs` — implements `IClientAestheticImageBackgroundService`; constructor takes `IImagePromptWriter`, `IImageGenerationGateway`, `IGeneratedAssetStorage`; applies `CreativeSlideIndexResolver.MaxCreativeSlidesPerPackage` cap; runs bounded `Task.WhenAll` for ≤2 slides; for each slide: computes prompt hash → checks stored asset (OQ-3 reuse) → calls prompt writer → calls image gateway → calls `PutAssetAsync` using key `(org, client, formatResultId, $"carousel/slide_{slideIndex}.png")`; on any step failure: catches, logs slide index + reason, omits that slide from the map; returns map of successes only. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ClientAestheticImageBackgroundService.cs`)
+- [x] 4.2 **[GREEN]** Create `ClientAestheticImageBackgroundService.cs` — implements `IClientAestheticImageBackgroundService`; constructor takes `IImagePromptWriter`, `IImageGenerationGateway`, `IGeneratedAssetStorage`; applies `CreativeSlideIndexResolver.MaxCreativeSlidesPerPackage` cap; runs bounded `Task.WhenAll` for ≤2 slides; for each slide: computes prompt hash → checks stored asset (OQ-3 reuse) → calls prompt writer → calls image gateway → calls `PutAssetAsync` using key `(org, client, formatResultId, $"carousel/slide_{slideIndex}.png")`; on any step failure: catches, logs slide index + reason, omits that slide from the map; returns map of successes only. (`SocialStudio.Application/Features/Social/ContentGeneration/Background/ClientAestheticImageBackgroundService.cs`)
 
 - [x] 4.3 Run `dotnet test` — WU-4 tests pass; full suite green.
 
@@ -186,9 +186,9 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - Given a fake `IWorkflowConfigurationResolver` returning a route (provider + model) for `generate-image`, and a fake `IImageModelClient` factory → `GenerateAsync` creates the client and returns its result (IMG-01-b)
   - Given resolver returns null (no IMAGE route) → gateway returns `Result.Failure` without calling any client (IMG-06-a)
   - `OrganizationId` from the request is forwarded to the resolver
-  (`Incoders.Hive.Tests/Infrastructure/Ai/ImageGenerationGatewayTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Ai/ImageGenerationGatewayTests.cs`)
 
-- [x] 5.2 **[GREEN]** Create `ImageGenerationGateway.cs` — implements `IImageGenerationGateway`; resolves `generate-image` step via `IWorkflowConfigurationResolver`; creates `IImageModelClient` via `IExternalProviderClientFactory`; delegates `GenerateAsync`; mirrors `AiCompletionGateway.cs` flow. (`Incoders.Hive.Infrastructure/Ai/ImageGenerationGateway.cs`)
+- [x] 5.2 **[GREEN]** Create `ImageGenerationGateway.cs` — implements `IImageGenerationGateway`; resolves `generate-image` step via `IWorkflowConfigurationResolver`; creates `IImageModelClient` via `IExternalProviderClientFactory`; delegates `GenerateAsync`; mirrors `AiCompletionGateway.cs` flow. (`SocialStudio.Infrastructure/Ai/ImageGenerationGateway.cs`)
 
 ### Phase 5.B — Instrumentation decorator (Infrastructure)
 
@@ -196,15 +196,15 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - Successful call → one `UsageEvent` persisted with `org`, provider key, model, success outcome (IMG-02-a)
   - Failed call → one `UsageEvent` with failure outcome; event is written before propagating the error (IMG-02-b)
   - `ProviderCallContext.Current == null` → throws (mirrors text decorator behavior)
-  (`Incoders.Hive.Tests/Infrastructure/Observability/ImageGenerationGatewayInstrumentationDecoratorTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Observability/ImageGenerationGatewayInstrumentationDecoratorTests.cs`)
 
-- [x] 5.4 **[GREEN]** Create `ImageGenerationGatewayInstrumentationDecorator.cs` — wraps `IImageGenerationGateway`; requires active `ProviderCallContext.Current`; writes one `UsageEvent` per call (success or failure); mirrors `AiCompletionGatewayInstrumentationDecorator.cs` exactly. (`Incoders.Hive.Infrastructure/Observability/ImageGenerationGatewayInstrumentationDecorator.cs`)
+- [x] 5.4 **[GREEN]** Create `ImageGenerationGatewayInstrumentationDecorator.cs` — wraps `IImageGenerationGateway`; requires active `ProviderCallContext.Current`; writes one `UsageEvent` per call (success or failure); mirrors `AiCompletionGatewayInstrumentationDecorator.cs` exactly. (`SocialStudio.Infrastructure/Observability/ImageGenerationGatewayInstrumentationDecorator.cs`)
 
 ### Phase 5.C — Manual DI decoration
 
 - [x] 5.5 **[RED]** Add/extend `ContentGenerationDiResolutionTests.cs` or equivalent — assert `IImageGenerationGateway` resolves to the decorated gateway (i.e., the instrumentation decorator wraps the concrete gateway); assert `OpenAiImageModelClient` is accessible via the provider client factory for key `"openai"`.
 
-- [x] 5.6 **[GREEN]** Modify `DependencyInjection.cs` — register `ImageGenerationGateway` and its decorator following the SAME manual-decoration pattern as `AiCompletionGateway` (lines ~220-227 of the existing DI file). Register `IClientAestheticImageBackgroundService → ClientAestheticImageBackgroundService` and `IImagePromptWriter → ImagePromptWriter`. (`Incoders.Hive.Infrastructure/DependencyInjection/DependencyInjection.cs`)
+- [x] 5.6 **[GREEN]** Modify `DependencyInjection.cs` — register `ImageGenerationGateway` and its decorator following the SAME manual-decoration pattern as `AiCompletionGateway` (lines ~220-227 of the existing DI file). Register `IClientAestheticImageBackgroundService → ClientAestheticImageBackgroundService` and `IImagePromptWriter → ImagePromptWriter`. (`SocialStudio.Infrastructure/DependencyInjection/DependencyInjection.cs`)
 
 - [x] 5.7 Run `dotnet test` — WU-5 tests pass; no regression.
 
@@ -221,9 +221,9 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - No OpenAI SDK type appears in the returned `ImageGenerationResult` (bytes-only contract; IMG-08)
   - Given a 4xx/5xx OpenAI error response → `GenerateAsync` returns `Result.Failure` (no unhandled exception)
   - Given `Init` is non-null → reserved slot accepted without error (OQ-7; not used in v1 but must not throw)
-  (`Incoders.Hive.Tests/Infrastructure/Ai/OpenAiImageModelClientTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Ai/OpenAiImageModelClientTests.cs`)
 
-- [x] 6.2 **[GREEN]** Create `OpenAiImageModelClient.cs` — implements `IImageModelClient`; uses OpenAI Images API (`dall-e-3` / `gpt-image-1` per the request's `PreferredModel`); posts with `Width` / `Height` (1024×1024 default per OQ-2); maps response bytes to `ImageGenerationResult`; catches provider errors → `Result.Failure`; ALL OpenAI SDK types confined to this file. (`Incoders.Hive.Infrastructure/Ai/OpenAiImageModelClient.cs`)
+- [x] 6.2 **[GREEN]** Create `OpenAiImageModelClient.cs` — implements `IImageModelClient`; uses OpenAI Images API (`dall-e-3` / `gpt-image-1` per the request's `PreferredModel`); posts with `Width` / `Height` (1024×1024 default per OQ-2); maps response bytes to `ImageGenerationResult`; catches provider errors → `Result.Failure`; ALL OpenAI SDK types confined to this file. (`SocialStudio.Infrastructure/Ai/OpenAiImageModelClient.cs`)
 
 - [x] 6.3 Run `dotnet test` — WU-6 tests pass; no regression.
 
@@ -241,14 +241,14 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - `SupportsModelSelection = true`
   - `FindStep("generate-image")` resolves it (CIG-INT-01-a)
   - The entry is absent in a pre-change snapshot of the catalog (CIG-INT-01-b — can be a comment; no DB migration present)
-  (`Incoders.Hive.Tests/Application/Integrations/WorkflowConfigurationCatalogImageStepTests.cs`)
+  (`SocialStudio.Tests/Application/Integrations/WorkflowConfigurationCatalogImageStepTests.cs`)
 
 - [x] 7.2 **[RED]** Add/extend `WorkflowConfigurationCatalogImageStepTests.cs` — assert:
   - The catalog includes an OpenAI provider entry for the `MediaGeneration` category (CIG-INT-02-a shape check)
   - `IWorkflowConfigurationResolver` with the org-A stub returns a route for `generate-image` with provider `"openai"` and model `"dall-e-3"` (CIG-INT-03-a)
   - `IWorkflowConfigurationResolver` with the org-B stub (no `generate-image` route) returns null for that step (CIG-INT-03-b)
 
-- [x] 7.3 **[GREEN]** Modify `WorkflowConfigurationCatalog.cs` — add `generate-image` (or `ai-image`) entry with `AllowedProviderCategories: [MediaGeneration]` and `SupportsModelSelection: true`; this is a single `WorkflowDefinition` record addition, no migration. (`Incoders.Hive.Application/Features/Integrations/WorkflowConfigurations/WorkflowConfigurationCatalog.cs`)
+- [x] 7.3 **[GREEN]** Modify `WorkflowConfigurationCatalog.cs` — add `generate-image` (or `ai-image`) entry with `AllowedProviderCategories: [MediaGeneration]` and `SupportsModelSelection: true`; this is a single `WorkflowDefinition` record addition, no migration. (`SocialStudio.Application/Features/Integrations/WorkflowConfigurations/WorkflowConfigurationCatalog.cs`)
 
 - [x] 7.4 **[GREEN]** Seed OpenAI as a `MediaGeneration` provider option — add the capability mapping to the existing OpenAI `IntegrationProvider` registration (the provider already exists; this is a category/step mapping addition only). Verify `IWorkflowConfigurationResolver` resolves the step per the existing resolver seam without additional changes.
 
@@ -265,7 +265,7 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
 - [x] 8.1 **[RED]** Add `ProcessorImageBackgroundParityTests.cs` — using the existing `ContentGenerationJobProcessorVisualTests` harness:
   - When `IClientAestheticImageBackgroundService` is NOT registered (null injectable) for a `ClientAesthetic` carousel → all slides take the CSS designer path; `BuildCreativeBackgroundsAsync` is never called; plan contains only `Creative`/`ClientAesthetic` selections (CIG-CG-01-b path; IMG-06-a)
   - When the client's `BackgroundSourcingPolicy` is NOT `ClientAesthetic` → image path is never entered; existing behavior unchanged (CIG-CG-01-c)
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/ProcessorImageBackgroundParityTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Pipeline/ProcessorImageBackgroundParityTests.cs`)
 
 ### Phase 8.B — Resilience test (image failure → CSS fallback, job completes)
 
@@ -273,7 +273,7 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
   - Given a `ClientAesthetic` carousel with `CreativeSlideIndices = [1, 5]`, a registered `IClientAestheticImageBackgroundService`, and the service returning an empty map (all slides failed) → all slides use the CSS designer; job completes with success (CIG-CG-03-b; IMG-05-a)
   - Given the service returns a partial map (slide 1 succeeded, slide 5 absent) → slide 1 receives `ForcedDefault` via `ResolveEnforcedBackground`/`BuildTemplateBackedMarkup`; slide 5 takes CSS designer; job completes (CIG-CG-03-a)
   - Failure/exception thrown by the service itself (uncaught) → caught in the processor; all slides degrade to CSS; job completes; no unhandled exception propagates (IMG-05)
-  (`Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/ProcessorImageBackgroundResilienceTests.cs`)
+  (`SocialStudio.Tests/Application/Social/ContentGeneration/Pipeline/ProcessorImageBackgroundResilienceTests.cs`)
 
 ### Phase 8.C — ForcedDefault overlay (production wiring)
 
@@ -284,9 +284,9 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
      c. Apply `plan.WithForcedDefaults(map)` to overlay `ForcedDefault` onto successful creative slots
   2. In the existing per-slide loop, `plan.ForSlide(i)` naturally routes creative slots (with `ForcedDefault`) through the existing `ResolveEnforcedBackground` → `BuildTemplateBackedMarkup` path — no change to that loop
   3. Add `IClientAestheticImageBackgroundService?` as a nullable constructor dependency (nullable = CSS-path passthrough when absent)
-  (`Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`)
+  (`SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`)
 
-- [x] 8.4 **[GREEN]** Add `CarouselBackgroundPlan.WithForcedDefaults(IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>)` extension/method — returns a new plan where each key in the map replaces the plan entry at that 1-based slide index; indices not in the map are unchanged. Add corresponding unit test in `CarouselBackgroundPlanTests.cs`. (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/` or on `CarouselBackgroundPlan.cs` in Domain if the design allows; per design §2.1 the plan is reused as-is for the mixed-selection case — add the helper wherever the type lives)
+- [x] 8.4 **[GREEN]** Add `CarouselBackgroundPlan.WithForcedDefaults(IReadOnlyDictionary<int, BackgroundSelection.ForcedDefault>)` extension/method — returns a new plan where each key in the map replaces the plan entry at that 1-based slide index; indices not in the map are unchanged. Add corresponding unit test in `CarouselBackgroundPlanTests.cs`. (`SocialStudio.Application/Features/Social/ContentGeneration/Background/` or on `CarouselBackgroundPlan.cs` in Domain if the design allows; per design §2.1 the plan is reused as-is for the mixed-selection case — add the helper wherever the type lives)
 
 - [x] 8.5 Run `dotnet test` — WU-8 parity + resilience + wiring tests pass; full suite green.
 
@@ -297,16 +297,16 @@ This is the compiler gate. All downstream WUs depend on these interfaces existin
 *Refs: IMG-07; design §0 OQ-5, §2.2.*
 
 - [x] 9.1 **[RED]** Add `RetiredImageGenerationClientTests.cs` — using reflection or a compilation probe:
-  - Assert no type in the `Incoders.Hive.Application` assembly named `IImageGenerationClient` exists (or: if it does exist, assert it is decorated with `[Obsolete]` and carries a reference to this change)
+  - Assert no type in the `SocialStudio.Application` assembly named `IImageGenerationClient` exists (or: if it does exist, assert it is decorated with `[Obsolete]` and carries a reference to this change)
   - Assert no call site in the generation pipeline (by scanning for usages of the old interface GUID/name) remains active (IMG-07-a)
   - Alternatively: the test simply asserts the old type is gone and the build still compiles (the build will fail at this step if any remaining caller exists — that IS the RED step)
-  (`Incoders.Hive.Tests/Application/RetiredImageGenerationClientTests.cs`)
+  (`SocialStudio.Tests/Application/RetiredImageGenerationClientTests.cs`)
 
-- [x] 9.2 **[GREEN]** Delete `IImageGenerationClient.cs` from `Application/Abstractions/Social/ContentGeneration/`. (`Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IImageGenerationClient.cs`)
+- [x] 9.2 **[GREEN]** Delete `IImageGenerationClient.cs` from `Application/Abstractions/Social/ContentGeneration/`. (`SocialStudio.Application/Abstractions/Social/ContentGeneration/IImageGenerationClient.cs`)
 
 - [x] 9.3 **[GREEN]** Delete or locate and delete `NullImageGenerationClient.cs` (the null implementation). Verify by searching the codebase for `NullImageGenerationClient` — exactly one DI registration at `DependencyInjection.cs:~286` is the only remaining reference. Remove it.
 
-- [x] 9.4 **[GREEN]** Remove the `IImageGenerationClient` / `NullImageGenerationClient` DI registration from `DependencyInjection.cs`. (`Incoders.Hive.Infrastructure/DependencyInjection/DependencyInjection.cs`)
+- [x] 9.4 **[GREEN]** Remove the `IImageGenerationClient` / `NullImageGenerationClient` DI registration from `DependencyInjection.cs`. (`SocialStudio.Infrastructure/DependencyInjection/DependencyInjection.cs`)
 
 - [x] 9.5 Run `dotnet test` — full suite green; no compile errors from retired types. Confirm the `IImageGenerationClient` retirement test passes.
 

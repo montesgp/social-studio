@@ -1,7 +1,7 @@
-# PRD - Incoders Social
+# PRD - Social Studio
 
 ## 1. Product Summary
-Incoders Social helps agencies and community managers manage multiple clients, discover high-performing content in a niche, transform references into structured insights, generate publication ideas with AI, evaluate those ideas, produce creative assets, publish through external providers and learn from metrics.
+Social Studio helps agencies and community managers manage multiple clients, discover high-performing content in a niche, transform references into structured insights, generate publication ideas with AI, evaluate those ideas, produce creative assets, publish through external providers and learn from metrics.
 
 ## 2. Problem
 Content operators repeatedly research viral content, interpret why it worked, ideate variations, create assets, publish, and report results. This process is manual, inconsistent and difficult to scale across many clients.

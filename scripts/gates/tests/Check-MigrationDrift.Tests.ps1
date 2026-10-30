@@ -28,7 +28,7 @@ Assert-Equal 'drift' `
 
 # ---- tooling-error: a build failure must NEVER be reported as drift ----
 $buildFailedStdOut = @'
-C:\repo\Incoders.Hive.ApiService\Incoders.Hive.ApiService.csproj(79,5): error MSB3073: The command "powershell -NoProfile -ExecutionPolicy Bypass -File Sign-LocalDevBinaries.ps1" exited with code 1.
+C:\repo\SocialStudio.ApiService\SocialStudio.ApiService.csproj(79,5): error MSB3073: The command "powershell -NoProfile -ExecutionPolicy Bypass -File Sign-LocalDevBinaries.ps1" exited with code 1.
 Build FAILED.
 Microsoft.EntityFrameworkCore.Tools.CommandException: Build failed. Use dotnet build to see the errors.
 '@

@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <!--
-    Favicon for Incoders Hive. Picked up automatically by the Next.js App Router file convention,
+    Favicon for Social Studio. Picked up automatically by the Next.js App Router file convention,
     which is why it lives in app/ rather than public/.
 
     This is deliberately NOT the full mark: the connector lines and satellite nodes of
-    components/auth/hive-logo.tsx collapse into mud at 16px. What survives at tab size is the
+    components/auth/studio-logo.tsx collapse into mud at 16px. What survives at tab size is the
     silhouette, so the cell and its cube carry the identity alone. Colours are hard-coded because a
     favicon renders outside the document and cannot read the theme tokens.
   -->

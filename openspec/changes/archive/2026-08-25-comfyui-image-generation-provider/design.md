@@ -318,7 +318,7 @@ config).
 
 ---
 
-## 9. Test-first ordering (Strict TDD — `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release`)
+## 9. Test-first ordering (Strict TDD — `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release`)
 No live ComfyUI server: drive the adapter with a fake `HttpMessageHandler` (scripted upload→prompt→history→
 view sequence) + a fake `IGeneratedAssetStorage`, exactly as `OpenAiImageConditioningTests` does.
 1. **`ComfyUiSettings.FromCredential`** — defaults (base URL, timeout, poll, cap); valid/invalid `base_url`;

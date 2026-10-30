@@ -21,4 +21,4 @@ Define per-user UI preferences that persist across sessions/devices without intr
 - An authenticated user can choose light/dark theme from a minimal selector in the dashboard user section.
 - Theme choice persists across browser sessions and devices for the same user.
 - The dashboard surfaces theme update/sync failures and successful updates through in-app notifications.
-- Existing UI remains functional under both Hive Core and Hive Social visual tokens.
+- Existing UI remains functional under both Core and Social Studio visual tokens.

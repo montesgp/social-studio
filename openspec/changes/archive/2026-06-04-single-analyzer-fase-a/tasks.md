@@ -31,20 +31,20 @@
 
 #### A-1 [TEST — FAILING] — xUnit: CompositionOutputKind enum has Markdown member
 
-- [x] **[TEST]** Add test to `Incoders.Hive.Tests\Domain\Social\ContentGeneration\VisualCompositionSpecTests.cs`:
+- [x] **[TEST]** Add test to `SocialStudio.Tests\Domain\Social\ContentGeneration\VisualCompositionSpecTests.cs`:
   - Assert `Enum.IsDefined(typeof(CompositionOutputKind), "Markdown")` is true.
   - _Spec: RS-01 scenario "Markdown member exists"_
 
 #### A-2 [TEST — FAILING] — xUnit: ReelScriptVisualComposer produces Markdown output
 
-- [x] **[TEST]** Add tests to `Incoders.Hive.Tests\Application\Social\ContentGeneration\Visual\ComposerOutputKindTests.cs`:
+- [x] **[TEST]** Add tests to `SocialStudio.Tests\Application\Social\ContentGeneration\Visual\ComposerOutputKindTests.cs`:
   - `ReelScript_Compose_OutputKindIsMarkdown`: compose with null payload → `OutputKind == CompositionOutputKind.Markdown`.
   - Also removed `"reel-script"` from `TextFormatComposer_Compose_SetsOutputKindText` theory (was expecting Text, now expects Markdown).
   - _Spec: RS-01 scenario "Renderer handles Markdown case explicitly", RS-02 scenario "OutputKind is Markdown"_
 
 #### A-3 [TEST — FAILING] — xUnit: ReelScriptVisualComposer body structure
 
-- [x] **[TEST]** Created new file `Incoders.Hive.Tests\Application\Social\ContentGeneration\Visual\ReelScriptVisualComposerTests.cs`:
+- [x] **[TEST]** Created new file `SocialStudio.Tests\Application\Social\ContentGeneration\Visual\ReelScriptVisualComposerTests.cs`:
   - `MultiScene_Body_ContainsNewlines`: body with two scenes contains `\n` and is NOT a single space-joined line.
   - `Scene_Body_StartsWithBoldTimestamp`: scene line starts with `**0:00**`.
   - `EmojiInVoiceover_Preserved`: body contains `🎬` unchanged.
@@ -53,7 +53,7 @@
 
 #### A-4 [TEST — FAILING] — xUnit: LocalSvgContentRenderer Markdown branch
 
-- [x] **[TEST]** Added tests to `Incoders.Hive.Tests\Infrastructure\Rendering\LocalSvgContentRendererTests.cs`:
+- [x] **[TEST]** Added tests to `SocialStudio.Tests\Infrastructure\Rendering\LocalSvgContentRendererTests.cs`:
   - `RenderAsync_MarkdownOutputKind_FilenameIsReelScriptMd`: spec with `OutputKind=Markdown`, `FormatKey="reel-script"` → filename is `reel-script.md`.
   - `RenderAsync_MarkdownOutputKind_MimeIsTextMarkdown`: same spec → MIME is `text/markdown; charset=utf-8`.
   - `RenderAsync_MarkdownOutputKind_BodyBytesAreUtf8`: body bytes decode to expected text (emoji-safe).
@@ -63,13 +63,13 @@
 
 #### A-5 [IMPL] — Add `CompositionOutputKind.Markdown` to domain enum
 
-- [x] Edit `Incoders.Hive.Domain\Social\ContentGeneration\VisualCompositionSpec.cs`:
+- [x] Edit `SocialStudio.Domain\Social\ContentGeneration\VisualCompositionSpec.cs`:
   - Added `Markdown` member to `CompositionOutputKind` enum with XML doc comment.
   - _Spec: RS-01_
 
 #### A-6 [IMPL] — Rewrite `ReelScriptVisualComposer` body
 
-- [x] Edit `Incoders.Hive.Application\Features\Social\ContentGeneration\Visual\Composers\ReelScriptVisualComposer.cs`:
+- [x] Edit `SocialStudio.Application\Features\Social\ContentGeneration\Visual\Composers\ReelScriptVisualComposer.cs`:
   - Replaced `string.Join(" ", ...)` with newline-separated scene blocks.
   - Scene format: `**{timestamp}**: {voiceover}\n{onScreenText}` (omit on-screen line when empty).
   - Scenes joined with `\n\n`.
@@ -79,14 +79,14 @@
 
 #### A-7 [IMPL] — Add Markdown branch to `LocalSvgContentRenderer`
 
-- [x] Edit `Incoders.Hive.Infrastructure\Rendering\LocalSvgContentRenderer.cs` line 52:
+- [x] Edit `SocialStudio.Infrastructure\Rendering\LocalSvgContentRenderer.cs` line 52:
   - Inserted Markdown branch BEFORE the raster fallthrough (order: Text → Markdown → raster).
   - MIME: `text/markdown; charset=utf-8`, filename: `{FormatKey}.md`.
   - _Spec: RS-03_
 
 #### A-8 [TEST UPDATE] — Fix existing reel-script test assertions
 
-- [x] Updated `Incoders.Hive.Tests\Application\Social\ContentGeneration\Visual\ComposerOutputKindTests.cs`:
+- [x] Updated `SocialStudio.Tests\Application\Social\ContentGeneration\Visual\ComposerOutputKindTests.cs`:
   - Removed `"reel-script"` from `TextFormatComposer_Compose_SetsOutputKindText` theory.
   - Added separate `ReelScript_Compose_OutputKindIsMarkdown` test (done as part of A-2).
   - `LocalSvgContentRendererTests.RenderAsync_SpecWithOutputKindText_ReturnsTxtAsset`: already uses explicit `OutputKind=Text` via `BuildTextSpec` — no change needed; test correctly validates Text branch with any format key.
@@ -113,7 +113,7 @@
 
 #### B-1 [TEST — UPDATE] — Rewrite existing `PackageBuilderTests` slug assertions
 
-- [x] Edit `Incoders.Hive.Tests\Application\Social\ContentGeneration\Packaging\PackageBuilderTests.cs`:
+- [x] Edit `SocialStudio.Tests\Application\Social\ContentGeneration\Packaging\PackageBuilderTests.cs`:
   - `BuildAsync_WithClientName_FilesPlacedUnderClientFolder` (line 128–133):
     - Change `"acme-corp/flyer.png"` → `"Acme Corp/flyer.png"`.
     - Change `"acme-corp/carousel/slide_1.png"` → `"Acme Corp/carousel/slide_1.png"`.
@@ -126,7 +126,7 @@
 
 #### B-2 [TEST — NEW] — xUnit: `NormalizeFolderName` unit tests
 
-- [x] Add tests to `Incoders.Hive.Tests\Application\Social\ContentGeneration\Packaging\PackageBuilderTests.cs` (or a dedicated `NormalizeFolderNameTests.cs` in same namespace):
+- [x] Add tests to `SocialStudio.Tests\Application\Social\ContentGeneration\Packaging\PackageBuilderTests.cs` (or a dedicated `NormalizeFolderNameTests.cs` in same namespace):
   - `NormalizeFolderName_NoReservedChars_PassesThroughUnchanged`: `"Acme Corp"` → `"Acme Corp"`.
   - `NormalizeFolderName_AccentsAndSymbolsPreserved`: `"Café & Co."` → `"Café & Co."`.
   - `NormalizeFolderName_ReservedCharsStripped_NoSlugification`: `"Client:Name/Test?"` → `"ClientNameTest"`.
@@ -137,7 +137,7 @@
 
 #### B-3 [TEST — NEW] — xUnit: Assemble handler uses display name not GUID
 
-- [x] Add tests to `Incoders.Hive.Tests\Application\Social\ContentGeneration\Assemble\AssembleGeneratedPackageQueryHandlerTests.cs`:
+- [x] Add tests to `SocialStudio.Tests\Application\Social\ContentGeneration\Assemble\AssembleGeneratedPackageQueryHandlerTests.cs`:
   - `Handle_ClientWithDisplayName_ZipEntryUsesDisplayNameNotGuid`: mock `ISocialClientRepository.GetByIdAsync` returns client with `.Name = "Acme Corp"` → ZIP entry path is `"Acme Corp/flyer.png"`, NOT `"{guid}/flyer.png"`.
   - `Handle_ClientWithReservedCharsInName_SanitizesFolder`: client `.Name = "Client:Name/Test?"` → ZIP entry path `"ClientNameTest/flyer.png"`.
   - `Handle_UnknownClient_FallsBackToGuid`: `GetByIdAsync` returns null → ZIP entry path is `"{clientId}/…"`.
@@ -145,7 +145,7 @@
 
 #### B-4 [IMPL] — Rewrite `NormalizeFolderName` sanitize-only
 
-- [x] Edit `Incoders.Hive.Application\Features\Social\ContentGeneration\Packaging\GeneratedPackageBuilder.cs`:
+- [x] Edit `SocialStudio.Application\Features\Social\ContentGeneration\Packaging\GeneratedPackageBuilder.cs`:
   - Replace `SlugUnsafe` regex and the `ToLowerInvariant()` + `Trim('-')` logic with:
     - Strip only the 9 Windows-reserved chars `< > : " / \ | ? *` plus C0 control chars (0x00–0x1F, 0x7F) via a targeted regex.
     - `TrimEnd('.', ' ')` for Windows trailing-dot/space rule.
@@ -155,7 +155,7 @@
 
 #### B-5 [IMPL] — `AssembleGeneratedPackageQueryHandler` resolves client display name
 
-- [x] Edit `Incoders.Hive.Application\Features\Social\ContentGeneration\Assemble\AssembleGeneratedPackageQuery.cs`:
+- [x] Edit `SocialStudio.Application\Features\Social\ContentGeneration\Assemble\AssembleGeneratedPackageQuery.cs`:
   - Add constructor parameter `ISocialClientRepository clientRepository` (4th dependency).
   - Add private `async Task<IReadOnlyDictionary<Guid, string>> ResolveClientFoldersAsync(IEnumerable<Guid> clientIds, Guid organizationId, CancellationToken ct)`:
     - For each distinct clientId: `GetByIdAsync(ClientId, organizationId, ct)` → `GeneratedPackageBuilder.NormalizeFolderName(client?.Name)`.
@@ -183,7 +183,7 @@
 
 #### B-8 — Gates + commit
 
-- [x] Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~PackageBuilder|FullyQualifiedName~AssembleGeneratedPackage|FullyQualifiedName~NormalizeFolderName"` — 1021 passed, 0 failed, 2 skipped. All WU-B tests green.
+- [x] Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj --filter "FullyQualifiedName~PackageBuilder|FullyQualifiedName~AssembleGeneratedPackage|FullyQualifiedName~NormalizeFolderName"` — 1021 passed, 0 failed, 2 skipped. All WU-B tests green.
 - [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — 16 pass (all MUST), 2 skipped (SHOULD). PASS.
 - [ ] Commit: awaiting user
 

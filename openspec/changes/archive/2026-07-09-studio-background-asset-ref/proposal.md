@@ -34,12 +34,12 @@ At generation time the processor already captures the background PNG (`capturedB
 
 | Area | Impact | Description |
 |------|--------|-------------|
-| `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` | Modified | Upload bg PNG via port; set `BackgroundImageRef` = path |
-| `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/CompositionSpecEnvelope.cs` | Modified | Field now carries a storage ref (doc/semantics) |
-| `Incoders.Hive.Application/Features/Social/ContentStudio/Materialize/MaterializeRunCommand.cs` | Verify | Copies envelope verbatim — confirm bg asset materializes as DraftAsset |
-| `Incoders.Hive.Infrastructure/Rendering/PptxExportAdapter.cs` | Modified | Back-compat resolver: data-URI OR storage path |
-| `Incoders.Hive.ApiService/Endpoints/Social/MapContentStudioEndpoints.cs` + `GetContentItemAssetQuery.cs` | Verify/Modified | Serve bg via existing asset endpoint/index |
-| `Incoders.Hive.Tests/**` (Pptx, Processor bg, Storage) | Modified | Cover both data-URI and path paths (strict TDD) |
+| `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` | Modified | Upload bg PNG via port; set `BackgroundImageRef` = path |
+| `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/CompositionSpecEnvelope.cs` | Modified | Field now carries a storage ref (doc/semantics) |
+| `SocialStudio.Application/Features/Social/ContentStudio/Materialize/MaterializeRunCommand.cs` | Verify | Copies envelope verbatim — confirm bg asset materializes as DraftAsset |
+| `SocialStudio.Infrastructure/Rendering/PptxExportAdapter.cs` | Modified | Back-compat resolver: data-URI OR storage path |
+| `SocialStudio.ApiService/Endpoints/Social/MapContentStudioEndpoints.cs` + `GetContentItemAssetQuery.cs` | Verify/Modified | Serve bg via existing asset endpoint/index |
+| `SocialStudio.Tests/**` (Pptx, Processor bg, Storage) | Modified | Cover both data-URI and path paths (strict TDD) |
 
 ## Risks
 

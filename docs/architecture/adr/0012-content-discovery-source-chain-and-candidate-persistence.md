@@ -10,7 +10,7 @@ Consequences.
 ## Context
 
 Content discovery today has exactly one implementation. `IContentDiscoveryService` is registered as
-`ReferenceAccountContentDiscovery` at `Incoders.Hive.Infrastructure/DependencyInjection/DependencyInjection.cs:220`,
+`ReferenceAccountContentDiscovery` at `SocialStudio.Infrastructure/DependencyInjection/DependencyInjection.cs:220`,
 and `InMemoryContentWorkflowService.cs:127` resolves it with `GetRequiredService`. Three problems follow:
 
 1. **One source, no composition.** Discovery mines only the client's Instagram reference accounts. The PRD's other

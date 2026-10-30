@@ -1,13 +1,13 @@
 # Module Roadmap
 
 ## Platform Context
-- **Incoders Hive** = platform
-- **Hive Social / Incoders Social** = first module
+- **Social Studio** = platform
+- **Social Studio / Social Studio** = first module
 
 ## Persistence Schema Strategy
 - `identity` schema: authentication/authorization.
 - `platform` schema: cross-module platform data such as organizations, memberships, system settings and provider/model catalogs.
-- `social` schema: Hive Social / Incoders Social MVP data.
+- `social` schema: Social Studio / Social Studio MVP data.
 - Future product modules should add module-level schemas rather than mixing module data into `public`.
 
 ## Current Iteration (Completed Bootstrap Scope)

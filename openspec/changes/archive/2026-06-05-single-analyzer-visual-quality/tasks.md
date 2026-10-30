@@ -43,7 +43,7 @@ Chain strategy: feature-branch-chain
 **Status: COMPLETE** (all 33 tasks + 9 fix tasks done)
 
 **TDD order: failing xUnit test → implementation → green → next pair.**
-**Sequential within the slice. All tests run with `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj`.**
+**Sequential within the slice. All tests run with `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj`.**
 
 ---
 

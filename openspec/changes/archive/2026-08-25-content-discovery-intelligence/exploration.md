@@ -10,7 +10,7 @@
 
 ## 1. Intent
 
-Hive Social should stop generating content from a bare prompt or a single isolated video. Instead it
+Social Studio should stop generating content from a bare prompt or a single isolated video. Instead it
 should **find content and angles that are already showing performance signals**, score them, select
 the strongest, run the existing deep analysis only on those winners, and feed generation from the
 result.

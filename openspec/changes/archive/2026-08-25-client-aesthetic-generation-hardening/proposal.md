@@ -91,7 +91,7 @@ control. Item 4, under decision 3, is now the largest genuinely-new build in thi
 9. **Icon-mark asset pipeline.** A new Application port (working name `IBrandMarkAssetExtractor`)
    crops the mark's bounding box out of the client's already-archived reference image and persists
    the crop via the existing `IGeneratedAssetStorage`. Infrastructure implements it with **SkiaSharp,
-   already referenced** by `Incoders.Hive.Infrastructure.csproj` (3.119.0) — no new package. The
+   already referenced** by `SocialStudio.Infrastructure.csproj` (3.119.0) — no new package. The
    archiver stores reference images **as-downloaded, not thumbnailed**
    (`SupabasePostMediaArchiver.cs:15`), so crop resolution is usable. This is deliberately a *crop*,
    not live background removal or regeneration.
@@ -287,7 +287,7 @@ bounding-box work exists. WU-2, WU-4 and WU-5 are independent and reorderable.
 - Existing `CompositionDefaults.ResolveTypography`, `ColorPairing`/`ColorPairingDerivation`,
   `OpenAiImageModelClient.BackgroundOnlyDirective`, `IGeneratedAssetStorage`, `ProfilePostImageRef`
   and the reference-image archival pipeline — reused read-only.
-- SkiaSharp 3.119.0, **already referenced** by `Incoders.Hive.Infrastructure.csproj`. No new package.
+- SkiaSharp 3.119.0, **already referenced** by `SocialStudio.Infrastructure.csproj`. No new package.
 - A running ComfyUI instance with a configured `default_checkpoint` credential, for owner-side
   verification of WU-4 and for the WU-5 investigation. **Owner-side prerequisite.**
 - At least one real client aesthetic profile with populated `SizeRatio`, `ColorPairings`, archived

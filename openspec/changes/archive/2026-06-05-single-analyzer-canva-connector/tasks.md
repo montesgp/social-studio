@@ -29,7 +29,7 @@ Single PR to `dev`. No chaining required. Frontend is verify-only (zero or trivi
 **Layer: Infrastructure (test)**
 **TDD order: test FIRST — must be RED before WU-02**
 
-- [x] **[TEST]** Add test class `Incoders.Hive.Tests/Application/Integrations/CanvaConnectorSeederTests.cs`.
+- [x] **[TEST]** Add test class `SocialStudio.Tests/Application/Integrations/CanvaConnectorSeederTests.cs`.
 
   Test: `CanvaProvider_HasConnectApiByokCredentialSchema`
   - Seed the catalog via `IntegrationCatalogSeeder.SeedAsync` against the in-memory harness from `OrganizationIntegrationsFlowTests` (reuse `InMemoryIntegrationProviderCatalogRepository` + `InMemoryUnitOfWork` + `TestClock`).
@@ -50,7 +50,7 @@ Single PR to `dev`. No chaining required. Frontend is verify-only (zero or trivi
   - Assert `Placeholder` or `HelpText` contains `design:content:write` and `profile:read`.
   - _Spec: CANVA-04-a_
 
-- [x] **[VERIFY RED]** Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~CanvaConnectorSeeder"` — expect failure (schema still has `access_token`).
+- [x] **[VERIFY RED]** Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj --filter "FullyQualifiedName~CanvaConnectorSeeder"` — expect failure (schema still has `access_token`).
 
 ---
 
@@ -74,7 +74,7 @@ Single PR to `dev`. No chaining required. Frontend is verify-only (zero or trivi
   - Assert still exactly one provider row.
   - _Spec: CANVA-02-b_
 
-- [x] **[VERIFY RED]** Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~CanvaConnectorSeeder"` — all 5 tests RED.
+- [x] **[VERIFY RED]** Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj --filter "FullyQualifiedName~CanvaConnectorSeeder"` — all 5 tests RED.
 
 ---
 
@@ -84,7 +84,7 @@ Single PR to `dev`. No chaining required. Frontend is verify-only (zero or trivi
 **Layer: Application (test)**
 **TDD order: test FIRST — must be RED before WU-04**
 
-- [x] **[TEST]** Add test class `Incoders.Hive.Tests/Application/Integrations/CanvaConnectorFlowTests.cs`.
+- [x] **[TEST]** Add test class `SocialStudio.Tests/Application/Integrations/CanvaConnectorFlowTests.cs`.
   Reuse the same harness pattern (`IntegrationsHarness` inline or extract to a shared file — use the existing class from `OrganizationIntegrationsFlowTests` as the template).
   The harness MUST seed Canva with the NEW Connect schema (`client_id`, `client_secret`, `scopes`).
 
@@ -120,7 +120,7 @@ Single PR to `dev`. No chaining required. Frontend is verify-only (zero or trivi
   - Assert no property in the response DTO carries the literal value `"cid"` or `"csec"` (raw unprotected string).
   - _Spec: CANVA-03-f_
 
-- [x] **[VERIFY RED]** Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~CanvaConnectorFlow"` — all 6 tests RED (harness seeds old schema).
+- [x] **[VERIFY RED]** Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj --filter "FullyQualifiedName~CanvaConnectorFlow"` — all 6 tests RED (harness seeds old schema).
 
 ---
 
@@ -129,7 +129,7 @@ Single PR to `dev`. No chaining required. Frontend is verify-only (zero or trivi
 **Spec IDs: CANVA-01, CANVA-02, CANVA-03, CANVA-04**
 **Layer: Infrastructure**
 **TDD order: production code AFTER tests are RED**
-**File: `Incoders.Hive.Infrastructure/Integrations/IntegrationCatalogSeeder.cs`**
+**File: `SocialStudio.Infrastructure/Integrations/IntegrationCatalogSeeder.cs`**
 
 - [x] Replace lines 51-62 (the current Canva `SeedDefinition`) with:
 
@@ -173,8 +173,8 @@ Single PR to `dev`. No chaining required. Frontend is verify-only (zero or trivi
       nowUtc),
   ```
 
-- [x] **[VERIFY GREEN]** Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj --filter "FullyQualifiedName~CanvaConnector"` — all 11 tests GREEN.
-- [x] **[REGRESSION]** Run `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj` — all existing tests GREEN (no new failures).
+- [x] **[VERIFY GREEN]** Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj --filter "FullyQualifiedName~CanvaConnector"` — all 11 tests GREEN.
+- [x] **[REGRESSION]** Run `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj` — all existing tests GREEN (no new failures).
 - [x] Run `pwsh -File scripts/gates/Run-Gates.ps1` — all MUST gates pass.
 - [ ] Commit: `feat(infra): upgrade Canva seed to Connect API BYOK shape (client_id, client_secret, scopes)`
 

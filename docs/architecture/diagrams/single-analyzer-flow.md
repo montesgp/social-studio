@@ -9,7 +9,7 @@ La idea central: **Opus no es una dependencia del flujo**. El agente/modelo usad
 sequenceDiagram
     autonumber
     actor User as Usuario
-    participant Hive as Incoders Social
+    participant Hive as Social Studio
     participant Data as Data Provider (Apify/Data365)
     participant AI as AI Provider (modelo configurado)
     participant Store as DB / Storage
@@ -54,12 +54,12 @@ sequenceDiagram
 
 | Momento | Responsable | Datos que viajan | Resultado |
 |---|---|---|---|
-| Analyze Content | Incoders Social + Data Provider | URL, plataforma, actor/capability | Snapshot normalizado del contenido |
-| AI Analysis | Incoders Social + AI configurada | Snapshot + prompt `single-analyzer.analysis.v1` | Hooks, patrones, audiencia, ideas base |
-| Generate | Incoders Social + AI configurada | Analysis + `client.data` + formatos | Payload adaptado por formato |
-| Visual Design | Incoders Social + AI configurada | Spec visual + brand manual + background selection | HTML/CSS validable para story/carousel |
-| Render / Package | Incoders Social | Markup validado + assets persistidos | PPTX/Markdown/manifest |
-| Send to Canva | Incoders Social + Canva | PPTX bytes + token Canva de la organización | Canva `editUrl` |
+| Analyze Content | Social Studio + Data Provider | URL, plataforma, actor/capability | Snapshot normalizado del contenido |
+| AI Analysis | Social Studio + AI configurada | Snapshot + prompt `single-analyzer.analysis.v1` | Hooks, patrones, audiencia, ideas base |
+| Generate | Social Studio + AI configurada | Analysis + `client.data` + formatos | Payload adaptado por formato |
+| Visual Design | Social Studio + AI configurada | Spec visual + brand manual + background selection | HTML/CSS validable para story/carousel |
+| Render / Package | Social Studio | Markup validado + assets persistidos | PPTX/Markdown/manifest |
+| Send to Canva | Social Studio + Canva | PPTX bytes + token Canva de la organización | Canva `editUrl` |
 
 ## Respuesta a la duda de proceso
 

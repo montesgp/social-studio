@@ -476,7 +476,7 @@ and in the ADR named above.
   read-only.
 - Existing `CompositionSpecEnvelope.DegradeReason`, `SlideDegradeReason`,
   `apps/web/lib/studio/degrade-badge.ts` and `SlideDegradeBadge` — extended, not replaced.
-- SkiaSharp 3.119.0, **already referenced** by `Incoders.Hive.Infrastructure.csproj`. No new package.
+- SkiaSharp 3.119.0, **already referenced** by `SocialStudio.Infrastructure.csproj`. No new package.
 - A configured multimodal extraction route, for the WU-6 bounding-box reliability measurement.
 - At least two real client aesthetic profiles with archived reference images and materially different
   compositional habits — ideally one with a visible recurring divider and one with a recurring

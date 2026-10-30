@@ -363,7 +363,7 @@ companion MUST include a Mermaid sequence/flow diagram and a short responsibilit
 Together they MUST accurately depict the current single-analyzer happy path from URL
 analysis through generation and delivery. The diagram MUST show that AI provider/model
 selection is organization-integration-driven, that data extraction is owned by the data
-provider adapter, that Incoders Social owns persistence/guardrails/rendering, and that
+provider adapter, that Social Studio owns persistence/guardrails/rendering, and that
 Download and Send to Canva reuse persisted assets/composition specs instead of re-running
 the visual designer.
 

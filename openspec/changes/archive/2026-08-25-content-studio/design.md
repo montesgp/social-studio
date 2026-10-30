@@ -15,7 +15,7 @@ This design covers the **shape, persistence, lifecycle, and contracts** of the C
 
 Same hexagonal, isolated-bounded-context pattern proven by `ProfileAnalysis` (Mundo 2) and the sibling-aggregate + soft-reference pattern proven by `ContentPlan`:
 
-- **Domain** (`Domain/Social/ContentStudio/`) holds pure aggregates + Value Objects, `Result<T>` factory/validation, and an explicit `ReviewStateTransitions` table. No provider, EF, or ASP.NET types. **No `using Incoders.Hive.Domain.Social.SingleAnalyzer` and no reach into `ContentGeneration` internals** — only soft Guids cross the boundary (CS-10, context isolation, mirrors PA-REG-01).
+- **Domain** (`Domain/Social/ContentStudio/`) holds pure aggregates + Value Objects, `Result<T>` factory/validation, and an explicit `ReviewStateTransitions` table. No provider, EF, or ASP.NET types. **No `using SocialStudio.Domain.Social.SingleAnalyzer` and no reach into `ContentGeneration` internals** — only soft Guids cross the boundary (CS-10, context isolation, mirrors PA-REG-01).
 - **Application** (`Features/Social/ContentStudio/**`, ports under `Abstractions/Social/ContentStudio/`) holds vertical MediatR command/query slices + ports. The **materializer** is an application service that reads existing generation output through existing read ports and emits Content Studio aggregates.
 - **Infrastructure** holds EF `*Data` entities, fluent config in `AppIdentityDbContext`, repositories, migrations, the handoff adapter, and (Phase 4) the presentation export adapter.
 - **Api** maps minimal endpoints per feature under a Content Studio route group.
@@ -62,7 +62,7 @@ We deliberately **do not** introduce EF navigations between Content Studio aggre
 
 ## 3. Domain Model
 
-Namespace `Incoders.Hive.Domain.Social.ContentStudio`. All types pure; `Result<T>` for validated construction/transitions; `Restore(...)` for trusted EF re-hydration.
+Namespace `SocialStudio.Domain.Social.ContentStudio`. All types pure; `Result<T>` for validated construction/transitions; `Restore(...)` for trusted EF re-hydration.
 
 ### 3.1 Value Object — `ContentOrigin` (source-agnostic reference)
 ```

@@ -11,7 +11,7 @@ typography), and surfaced four further, distinct issues.
 
 ### Item 1 — ComfyUI images unrelated to slide content topic
 
-`ImagePromptWriter.BuildInput` (`Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs`,
+`ImagePromptWriter.BuildInput` (`SocialStudio.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs`,
 ~L140-216) has two branches:
 
 - **Method-gated branch** (~L150-169, fires only when `ClientAestheticProfile.ConceptualMethod` is
@@ -36,14 +36,14 @@ sleeping/snoring — matching the observed symptom exactly.
 
 `IImageGuardrailValidator`'s doc comment describes validating "background-only" (no foreground
 text/logos/handles/signatures). The only registered implementation,
-`DegenerateImageGuardrailValidator.cs` (`Incoders.Hive.Infrastructure/Social/ContentGeneration/`),
+`DegenerateImageGuardrailValidator.cs` (`SocialStudio.Infrastructure/Social/ContentGeneration/`),
 does **not** do this — its own doc comment (~L20-24) states explicitly: *"this validator does NOT
 yet implement the foreground/background-only inspection described in the port's doc (text/logo
 detection needs OCR/ML) — that remains a future concern."* It only rejects near-black/near-flat-color
 frames via pixel-luminance sampling (~L26-111).
 
 The only actual defense against baked-in text is `ComfyUiImageModelClient.DefaultNegativePrompt`
-(`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`, ~L49-53) — a negative-prompt
+(`SocialStudio.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`, ~L49-53) — a negative-prompt
 string, a soft steering signal with no guaranteed effect. **There is no OCR/ML pass anywhere in the
 codebase** to catch a violation after generation.
 
@@ -62,7 +62,7 @@ measured/rendered height** — every position is a fixed pixel literal.
 `BuildTemplateBackedMarkup` (~L2049) is the path that renders a real-photo carousel/story slide
 (dispatches to `BuildCarouselTemplateSlots`/`BuildStoryTemplateSlots`, fires when
 `enforcedBackground is not null`, ~L1008-1024 — exactly the ComfyUI-generated-image case).
-`VisualGuardrailValidator.ValidateOverflow` (`Incoders.Hive.Application/Features/Social/ContentGeneration/Visual/VisualGuardrailValidator.cs`,
+`VisualGuardrailValidator.ValidateOverflow` (`SocialStudio.Application/Features/Social/ContentGeneration/Visual/VisualGuardrailValidator.cs`,
 ~L552-610) only checks a slot's text against its OWN `data-max-lines` via a static char-count
 heuristic — it has no cross-slot geometry comparison and cannot detect this overlap. Worse: **this
 validator is never invoked on `BuildTemplateBackedMarkup`'s output at all** — `_guardrails.Validate`
@@ -98,23 +98,23 @@ render pass.
 
 ## Affected Areas
 
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs` —
+- `SocialStudio.Application/Features/Social/ContentGeneration/Background/ImagePromptWriter.cs` —
   cold-start prompt branch (item 1).
-- `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IImageGuardrailValidator.cs`,
-  `Incoders.Hive.Infrastructure/Social/ContentGeneration/DegenerateImageGuardrailValidator.cs` — no
+- `SocialStudio.Application/Abstractions/Social/ContentGeneration/IImageGuardrailValidator.cs`,
+  `SocialStudio.Infrastructure/Social/ContentGeneration/DegenerateImageGuardrailValidator.cs` — no
   text/logo detection exists (item 2).
-- `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs` — negative prompt is the
+- `SocialStudio.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs` — negative prompt is the
   only (soft) defense (item 2).
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
+- `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
   — `BuildTemplateBackedMarkup`, `BuildStoryTemplateSlots`, `BuildCarouselTemplateSlots` — fixed
   absolute pixel positions, no reflow (item 3); `_guardrails.Validate` never runs on this path's
   output (item 3).
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Visual/VisualGuardrailValidator.cs` —
+- `SocialStudio.Application/Features/Social/ContentGeneration/Visual/VisualGuardrailValidator.cs` —
   `ValidateOverflow` is single-slot-only, no cross-slot overlap check (item 3).
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Visual/CompositionDefaults.cs` —
+- `SocialStudio.Application/Features/Social/ContentGeneration/Visual/CompositionDefaults.cs` —
   `ResolveTypography`/`SizeFor`/`SizeForCaption` — no auto-fit/clamping against copy length.
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/CompositionSpecEnvelope.cs`,
-  `Incoders.Hive.Infrastructure/Rendering/HtmlChromiumContentRenderer.cs` — `SlotGeometryEntry`
+- `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/CompositionSpecEnvelope.cs`,
+  `SocialStudio.Infrastructure/Rendering/HtmlChromiumContentRenderer.cs` — `SlotGeometryEntry`
   capture via `getBoundingClientRect()` (item 4, shared root cause with item 3).
 - `apps/web/components/social/content-studio-panel.tsx` — drag/resize handlers, would host item 5.
 

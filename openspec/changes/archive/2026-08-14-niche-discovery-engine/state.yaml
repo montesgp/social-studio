@@ -154,7 +154,7 @@ delivery:
 
 testing:
   strict_tdd: true
-  test_command: "dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release"
+  test_command: "dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release"
   gates_command: "pwsh -File scripts/gates/Run-Gates.ps1"
 
 apply:

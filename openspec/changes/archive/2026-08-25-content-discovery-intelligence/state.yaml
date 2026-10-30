@@ -99,12 +99,12 @@ placement_correction:
     never wiped. design.md D11, ADR-0012 §6, integrations spec-delta INT-DISC-02/03, and tasks.md
     WU-6 entries updated to match.
   files_changed:
-    - Incoders.Hive.Application/Features/Integrations/WorkflowConfigurations/WorkflowConfigurationCatalog.cs
-    - Incoders.Hive.Application/Features/Integrations/GetOverview/GetOrganizationIntegrationsHandler.cs
-    - Incoders.Hive.Infrastructure/Integrations/TikTokNicheSearchWorkflowStepSeeder.cs
-    - Incoders.Hive.Tests/Application/Integrations/WorkflowConfigurationCatalogContentDiscoveryStepTests.cs
-    - Incoders.Hive.Tests/Application/Integrations/OrganizationIntegrationsFlowTests.cs
-    - Incoders.Hive.Tests/Infrastructure/Integrations/TikTokNicheSearchWorkflowStepSeederTests.cs
+    - SocialStudio.Application/Features/Integrations/WorkflowConfigurations/WorkflowConfigurationCatalog.cs
+    - SocialStudio.Application/Features/Integrations/GetOverview/GetOrganizationIntegrationsHandler.cs
+    - SocialStudio.Infrastructure/Integrations/TikTokNicheSearchWorkflowStepSeeder.cs
+    - SocialStudio.Tests/Application/Integrations/WorkflowConfigurationCatalogContentDiscoveryStepTests.cs
+    - SocialStudio.Tests/Application/Integrations/OrganizationIntegrationsFlowTests.cs
+    - SocialStudio.Tests/Infrastructure/Integrations/TikTokNicheSearchWorkflowStepSeederTests.cs
     - openspec/changes/content-discovery-intelligence/design.md
     - docs/architecture/adr/0012-content-discovery-source-chain-and-candidate-persistence.md
     - openspec/changes/content-discovery-intelligence/specs/integrations/spec-delta.md
@@ -227,7 +227,7 @@ risks:
 
 validation:
   gates: PASS
-  detail: "Backend: dotnet test Incoders.Hive.Tests.csproj -c Release = 3020 passed / 0 failed / 2 skipped (unchanged from cdi-final-001). Frontend: npx tsx --test lib/**/*.test.ts = 170 passed; npx tsc --noEmit clean; npm run build clean; npm run lint no new warnings. pwsh -File scripts/gates/Run-Gates.ps1 (cdi-wu7-mount-001): 17 pass / 1 skipped (coverage, no cobertura file) / 1 warn (pre-existing vulnerabilities.frontend.web high=4 critical=0, unrelated) — PASS, no MUST gate failed."
+  detail: "Backend: dotnet test SocialStudio.Tests.csproj -c Release = 3020 passed / 0 failed / 2 skipped (unchanged from cdi-final-001). Frontend: npx tsx --test lib/**/*.test.ts = 170 passed; npx tsc --noEmit clean; npm run build clean; npm run lint no new warnings. pwsh -File scripts/gates/Run-Gates.ps1 (cdi-wu7-mount-001): 17 pass / 1 skipped (coverage, no cobertura file) / 1 warn (pre-existing vulnerabilities.frontend.web high=4 critical=0, unrelated) — PASS, no MUST gate failed."
 
 delivery:
   strategy: exception-ok
@@ -241,7 +241,7 @@ delivery:
 
 testing:
   strict_tdd: true
-  test_command: "dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release"
+  test_command: "dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release"
   gates_command: "pwsh -File scripts/gates/Run-Gates.ps1"
 
 prd_traceability:

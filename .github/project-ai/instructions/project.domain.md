@@ -42,7 +42,7 @@ Plus auxiliaries (content-idea, cta-variation, caption, hook) — Text medium, e
 
 ## Font Contract (`FontCatalog`)
 
-`Incoders.Hive.Application/Features/Social/ContentGeneration/Visual/Fonts/FontCatalog.cs` is the
+`SocialStudio.Application/Features/Social/ContentGeneration/Visual/Fonts/FontCatalog.cs` is the
 single source of truth for which font families Content Studio may offer, validate, and render.
 Three consumers must never disagree, and all three read this one static class:
 
@@ -66,13 +66,13 @@ license inventory.
 - Do NOT introduce a second hardcoded font list anywhere in `apps/web` — the picker must always
   source its options from the render-capabilities endpoint.
 - A font added to `FontCatalog.SystemSafeList` MUST have its `.ttf` asset embedded under
-  `Incoders.Hive.Infrastructure/Rendering/Fonts/Assets/` and its license recorded in
+  `SocialStudio.Infrastructure/Rendering/Fonts/Assets/` and its license recorded in
   `THIRD-PARTY-NOTICES.md`.
 
 ## Caption invariant (`ContentDraft.Caption`)
 
 `ContentDraft` exposes a dedicated `Caption` field, separate from `Text` (which continues to carry
-reel scripts and other non-caption content). `Caption` (`Incoders.Hive.Domain/Social/ContentStudio/Caption.cs`)
+reel scripts and other non-caption content). `Caption` (`SocialStudio.Domain/Social/ContentStudio/Caption.cs`)
 enforces Instagram's publishing ceilings as a **domain-level invariant**, not a publishing-adapter
 concern:
 

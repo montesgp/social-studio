@@ -255,5 +255,5 @@ documents is not considered fully verified until it is recorded.
 - Architecture gate: `pwsh -File scripts/gates/Run-Gates.ps1`
 - Test suites: `ComfyUiDetailerProbeTests.cs`, `ComfyUiDetailerTemplateTests.cs`,
   `ComfyUiDetailerSelectionTests.cs`, `ComfyUiDetailerInvalidationTests.cs`,
-  `ComfyUiSettingsTests.cs` (`Incoders.Hive.Tests/Infrastructure/Ai/`)
+  `ComfyUiSettingsTests.cs` (`SocialStudio.Tests/Infrastructure/Ai/`)
 - Commits: `d173966`, `928de6b`, `f02ed4a`, `cba29fe`, `c0091a4` (Phases 1-5, `dev`)

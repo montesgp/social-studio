@@ -200,4 +200,4 @@ following the `IImageGenerationGatewayContractTests` pattern.
 - Builds on: ADR 0007 (Image Generation Gateway Port — `IImageGenerationGateway` + `IImageModelClient`)
 - Spec requirements realized: CAC-IMG-01 (reference-image conditioning), CAC-INT-01 (per-slide telemetry)
 - Architecture gate: `pwsh -File scripts/gates/Run-Gates.ps1`
-- Migration: `Incoders.Hive.Infrastructure/Persistence/Postgres/Migrations/20260628000000_RelaxAnalysisIdNullableAndAddCorrelationToIntegrationAttempts.cs`
+- Migration: `SocialStudio.Infrastructure/Persistence/Postgres/Migrations/20260628000000_RelaxAnalysisIdNullableAndAddCorrelationToIntegrationAttempts.cs`

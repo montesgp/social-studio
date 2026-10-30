@@ -114,7 +114,7 @@ export function BatchGenerationPanel({ analysisId, clientId, disabled = false }:
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Compose how many pieces of each format you want. It runs in the background — you can keep
-            working anywhere in Hive and pick the results up in the content bank.
+            working anywhere in Social Studio and pick the results up in the content bank.
           </p>
         </div>
 

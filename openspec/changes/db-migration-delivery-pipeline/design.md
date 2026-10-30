@@ -182,8 +182,8 @@ schemas → `pg_restore` local) is a nice-to-have for realistic-data testing, no
 | `.github/workflows/db-apply.yml` | Create | Apply-on-merge job, `environment: dev` |
 | `docker-compose.dev.yml` | Create | Local `postgres:16` dev DB |
 | `scripts/db/dump-restore.ps1` | Create (optional) | Cloud→local realistic seed |
-| `Incoders.Hive.ApiService/Program.cs` | Modify | `ApplyMigrations` local-dev-only (behavior/doc) |
-| `Incoders.Hive.ApiService/appsettings.Development.json` | Modify | Point `Postgres` at local Docker |
+| `SocialStudio.ApiService/Program.cs` | Modify | `ApplyMigrations` local-dev-only (behavior/doc) |
+| `SocialStudio.ApiService/appsettings.Development.json` | Modify | Point `Postgres` at local Docker |
 | `docs/architecture/persistence.md` | Modify | Document the pipeline + local DB |
 
 ## Verification Strategy

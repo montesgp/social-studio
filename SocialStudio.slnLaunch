@@ -1,0 +1,35 @@
+[
+  {
+    "Name": "Aspire Full Stack (AppHost)",
+    "Projects": [
+      {
+        "Path": "SocialStudio.AppHost\\SocialStudio.AppHost.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "SocialStudio.ApiService\\SocialStudio.ApiService.csproj",
+        "Action": "None"
+      },
+      {
+        "Path": "SocialStudio.Application\\SocialStudio.Application.csproj",
+        "Action": "None"
+      },
+      {
+        "Path": "SocialStudio.Domain\\SocialStudio.Domain.csproj",
+        "Action": "None"
+      },
+      {
+        "Path": "SocialStudio.Infrastructure\\SocialStudio.Infrastructure.csproj",
+        "Action": "None"
+      },
+      {
+        "Path": "SocialStudio.ServiceDefaults\\SocialStudio.ServiceDefaults.csproj",
+        "Action": "None"
+      },
+      {
+        "Path": "SocialStudio.Tests\\SocialStudio.Tests.csproj",
+        "Action": "None"
+      }
+    ]
+  }
+]

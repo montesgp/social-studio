@@ -1,7 +1,7 @@
 # Tasks: content-aesthetic-generation-phase-2
 
 **Branch:** TBD by human (suggest a fresh `feat/content-aesthetic-phase-2` off the current branch).
-**TDD mode:** STRICT — `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj`. Every behavior task: RED → GREEN.
+**TDD mode:** STRICT — `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj`. Every behavior task: RED → GREEN.
 
 ## Implemented so far (autonomous run 2026-06-22 — full suite green: 1798 passed, 0 failed)
 
@@ -25,7 +25,7 @@
 **ALL CODE COMPLETE end-to-end. Full suite green (1817 tests).** Chain: scrape (captures images+caption) → orchestrator enrich (archive→multimodal extract→persist) → reader surfaces enriched profile → job processor builds ClientAestheticDesignContext → AiVisualDesigner creatives-first (vision-capable gateway).
 
 **Remaining = config + ops (no more feature code):**
-- Apply the EF migration to the DB: `dotnet ef database update --project Incoders.Hive.Infrastructure --startup-project Incoders.Hive.Infrastructure`.
+- Apply the EF migration to the DB: `dotnet ef database update --project SocialStudio.Infrastructure --startup-project SocialStudio.Infrastructure`.
 - Configure the org: Apify scrape-profile actor that returns post media (`apify/instagram-scraper`, resultsType posts) + the optional `extract-aesthetic` route on a multimodal Claude model.
 - WU-12 ADR + docs sync + spec-merge; run `pwsh -File scripts/gates/Run-Gates.ps1`.
 - Optional later: no-AI palette via server-side colour quantization; thumbnail downscaling in the archiver.

@@ -51,14 +51,14 @@ export interface WorkspaceModule {
 export const workspaceModules: WorkspaceModule[] = [
   {
     key: "hive-social",
-    label: "Hive Social",
+    label: "Social Studio",
     description: "Content operations",
     shortLabel: "Social",
     icon: Share2
   },
   {
     key: "hive-ecommerce",
-    label: "Hive E-Commerce",
+    label: "E-Commerce",
     description: "Commerce operations",
     shortLabel: "Commerce",
     icon: Store

@@ -11,11 +11,11 @@ ADR-0011) is exactly what correctly triggered and produced a fresh, usable aesth
 for that client's first-ever generation.
 
 ## Evidence
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Background/ClientAestheticEnsureFreshService.cs`
+- `SocialStudio.Application/Features/Social/ContentGeneration/Background/ClientAestheticEnsureFreshService.cs`
   — `EnsureAvailableBlockingAsync` (blocking poll, own-account resolution, bounded wait).
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Shared/ContentGenerationAestheticGatingOptions.cs`
+- `SocialStudio.Application/Features/Social/ContentGeneration/Shared/ContentGenerationAestheticGatingOptions.cs`
   — `BlockOnFirstTime`, `MaxWaitSeconds`, `PollIntervalSeconds`.
-- `Incoders.Hive.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
+- `SocialStudio.Application/Features/Social/ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs`
   — calls `LatestUsableAestheticPresentAsync` / `EnsureAvailableBlockingAsync` in the pre-loop seam,
   writes `AnalyzingProfile` status, maps `NoOwnAccount`/`TimedOut`/`AnalysisFailed`/`Ready` outcomes.
 - `docs/architecture/adr/0011-block-first-time-aesthetic-profile-analysis.md`.

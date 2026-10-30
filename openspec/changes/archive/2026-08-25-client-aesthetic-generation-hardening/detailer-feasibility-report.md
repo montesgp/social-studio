@@ -53,7 +53,7 @@ the node package itself.
 
 **Yes — via `GET /object_info`, and this repo already exercises exactly that endpoint.**
 
-`ComfyUiModelCatalogClient.ListModelsAsync` (`Incoders.Hive.Infrastructure/Ai/Providers/
+`ComfyUiModelCatalogClient.ListModelsAsync` (`SocialStudio.Infrastructure/Ai/Providers/
 ComfyUiModelCatalogClient.cs`) already calls `GET {baseUrl}/object_info` and parses the
 response for specific node `class_type` keys (`CheckpointLoaderSimple`,
 `IPAdapterModelLoader`, `LoraLoader`) via `AppendEnumModels`, reading each node's declared

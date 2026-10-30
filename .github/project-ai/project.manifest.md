@@ -1,4 +1,4 @@
-# Project AI Manifest - Incoders Hive / Incoders Social
+# Project AI Manifest - Social Studio
 
 ## Project Type
 fullstack-monorepo-ai-native-saas

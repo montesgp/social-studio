@@ -1,7 +1,7 @@
 # Integrations Spec
 
 ## Purpose
-Define platform-level integration catalog and organization-scoped provider configuration for Incoders Social workflows.
+Define platform-level integration catalog and organization-scoped provider configuration for Social Studio workflows.
 
 ## Capabilities
 - Maintain a global `IntegrationProvider` catalog (provider metadata, frontend icon key, category, supported connection modes, credential schema).

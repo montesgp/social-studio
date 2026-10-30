@@ -48,7 +48,7 @@ EF Core code-first stays the source of truth (`dotnet-ef 10.0.0` pinned; `AppIde
 | `scripts/gates/checks/Check-MigrationDrift.ps1` + `project.gates.yml` | New/Modified | Drift gate following existing gate pattern |
 | `.github/incoders-ai/gates/README.md` + new `*.gate.md` | New/Modified | Gate index + doc |
 | `docker-compose.*.yml` + seed/dump script | New | Local disposable Postgres provisioning |
-| `Incoders.Hive.ApiService/Program.cs` (~93) + `appsettings*` | Modified | `ApplyMigrations` local-only |
+| `SocialStudio.ApiService/Program.cs` (~93) + `appsettings*` | Modified | `ApplyMigrations` local-only |
 | `docs/architecture/persistence.md` | Modified | Document the pipeline and non-goals |
 
 ## Risks

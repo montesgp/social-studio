@@ -129,7 +129,7 @@ no branch in which "unknown" could be mistaken for support.
 ### Cache mechanism
 
 The adapter is resolved per request through `ExternalProviderClientFactory`
-(`Incoders.Hive.Infrastructure/Integrations/ExternalProviderClientFactory.cs:61`), so an instance
+(`SocialStudio.Infrastructure/Integrations/ExternalProviderClientFactory.cs:61`), so an instance
 field would cache nothing. This repository already uses a static `ConcurrentDictionary` for exactly
 this shape of per-process memoization: `AiCompletionGateway.cs:190`
 (`ConcurrentDictionary<Type, string> SchemaCache`). The probe cache follows that precedent — a

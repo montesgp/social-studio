@@ -8,7 +8,7 @@ Accepted — implemented (2026-08-30).
 The Generator screen (`apps/web/components/social/workflow/workflow-client.tsx`) and its backing
 `IContentWorkflowService` (`InMemoryContentWorkflowService`) were built as a UI/API scaffold ahead of the
 real content-generation pipeline (`CreateContentGenerationBatchCommand` /
-`Incoders.Hive.Application/Features/Social/ContentGeneration`). Three problems followed from shipping the
+`SocialStudio.Application/Features/Social/ContentGeneration`). Three problems followed from shipping the
 scaffold unchanged once the real pipeline existed:
 
 1. **Session state lived in a `ConcurrentDictionary`.** It did not survive a process restart, could not be
@@ -87,7 +87,7 @@ the components themselves are verified via `tsc --noEmit`, `next lint`, and `nex
 ## References
 - `openspec/changes/generate-social-content-workflow/` describes the original (mocked) scaffold this ADR
   supersedes.
-- Domain: `Incoders.Hive.Domain/Social/Workflow/`. Application: `Features/Social/Workflow/`,
+- Domain: `SocialStudio.Domain/Social/Workflow/`. Application: `Features/Social/Workflow/`,
   `Features/Social/Workflow/Enqueue/`, `Features/Social/Workflow/Sequencing/`. Infrastructure:
   `Infrastructure/Social/Workflow/EfContentWorkflowService.cs`,
   `Infrastructure/Persistence/Postgres/Repositories/EfContentWorkflowSessionRepository.cs`. ApiService:

@@ -1,7 +1,7 @@
 # Tasks: comfyui-image-generation-provider
 
 **Branch:** `feat/claude-p-provider` (ask-on-risk delivery strategy; PR-split decision required before apply — see Forecast).
-**TDD mode:** STRICT — `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release`. Every behavior task: RED → GREEN.
+**TDD mode:** STRICT — `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release`. Every behavior task: RED → GREEN.
 **WDAC signing note:** Build first, sign the 4 Incoders DLLs (thumbprint `162D6D5A0F56EDA79363B7EB475946778577042F`), then `dotnet test --no-build`.
 
 ---
@@ -43,7 +43,7 @@ Chain strategy: pending
 ### Phase 1.A — Bundled default workflow template resource
 
 - [x] 1.1 **[GREEN]** Add `DefaultComfyUiWorkflowTemplate.json` — API-format SD1.5 + IP-Adapter graph (nodes 1..9 + `vae`) with `{{CHECKPOINT_NAME}}`, `{{POSITIVE_PROMPT}}`, `{{NEGATIVE_PROMPT}}`, `{{REFERENCE_IMAGE}}`, `{{IPADAPTER_MODEL}}`, `{{WIDTH}}`, `{{HEIGHT}}`, `{{SEED}}`, `{{STEPS}}`, `{{CFG}}` placeholders per design §3.3; `OutputNodeId = "9"` (SaveImage node). Mark as `EmbeddedResource` in Infrastructure `.csproj`.
-  (`Incoders.Hive.Infrastructure/Ai/Providers/DefaultComfyUiWorkflowTemplate.json`)
+  (`SocialStudio.Infrastructure/Ai/Providers/DefaultComfyUiWorkflowTemplate.json`)
 
 ### Phase 1.B — `ComfyUiSettings` record + `FromCredential` validation
 
@@ -54,10 +54,10 @@ Chain strategy: pending
   - `timeout_ms`/`poll_interval_ms` parsed as positive ints; absent → 180 000 ms / 1 000 ms defaults
   - `max_reference_images` absent → defaults to `1`
   - `workflow_template_json` absent/empty → `WorkflowTemplateJson` is null (signals bundled default)
-  (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiSettingsTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Ai/ComfyUiSettingsTests.cs`)
 
 - [x] 1.3 **[GREEN]** Create `ComfyUiSettings.cs` — sealed record with all fields from design §3.1 (`BaseUrl`, `DefaultCheckpoint`, `IpAdapterModel`, `WorkflowTemplateJson`, `OutputNodeId`, `MaxReferenceImages`, `Timeout`, `PollInterval`, `DefaultCheckpoints`); `const string ProviderKey = "comfyui"`; `static Result<ComfyUiSettings> FromCredential(ResolvedProviderCredential)` reads credential keys with safe defaults; validates base URL is absolute http/https.
-  (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiSettings.cs`)
+  (`SocialStudio.Infrastructure/Ai/Providers/ComfyUiSettings.cs`)
 
 - [x] 1.4 Run `dotnet test -c Release` — WU-1 tests pass; existing suite green.
 
@@ -74,10 +74,10 @@ Chain strategy: pending
   - Prompt with JSON-special chars (`"`, `\`, newline) is correctly JSON-escaped before substitution
   - Template producing invalid JSON after substitution → `Result.Failure(IntegrationErrors.AiJsonInvalid)`
   - No-reference bypass: empty reference filename → `LoadImage`/IP-Adapter chain replaced by pass-through model edge on KSampler; result still valid JSON (design §3.3 bypass)
-  (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiTemplateSubstitutionTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Ai/ComfyUiTemplateSubstitutionTests.cs`)
 
 - [x] 2.2 **[GREEN]** Create `ComfyUiImageModelClient.cs` (stub + `SubstituteTemplate` only) — `private string SubstituteTemplate(...)` performs `string.Replace` for each `{{TOKEN}}`; reads bundled default via `Assembly.GetManifestResourceStream` when `WorkflowTemplateJson` is null/empty; applies no-reference bypass path; validates result via `JsonDocument.Parse`.
-  (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
+  (`SocialStudio.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
 
 ### Phase 2.B — HTTP happy-path sequence + capabilities
 
@@ -86,10 +86,10 @@ Chain strategy: pending
   - `GenerateAsync` returns `Result.Success` with fixture bytes; `ProviderKey = "comfyui"`; resolved checkpoint in result (CUI-01-a)
   - `Capabilities.SupportsImageConditioning = true`; `MaxConditioningImages = settings.MaxReferenceImages` (CUI-IMG-01)
   - No-reference path: handler receives no `/upload/image` call; returns bytes via text-only variant (CUI-01-b)
-  (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiHappyPathTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Ai/ComfyUiHappyPathTests.cs`)
 
 - [x] 2.4 **[GREEN]** Implement `ComfyUiImageModelClient.GenerateAsync` — `FromCredential` → resolve checkpoint (`PreferredModel ?? SelectedModel ?? DefaultCheckpoint`) → `ResolveReferenceImageBytesAsync` → upload → `SubstituteTemplate` → `POST /prompt` (with `client_id` guid) → poll `GET /history/{prompt_id}` every `PollInterval` until `OutputNodeId` has `images[]` (bounded by `Timeout`/`CancellationToken`) → `GET /view` → `Result.Success(ImageGenerationResult(bytes, mime, "comfyui", checkpoint, usage))`. `Capabilities` property: `new ImageModelCapabilities(SupportsImageConditioning: true, MaxConditioningImages: settings.MaxReferenceImages)`.
-  (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
+  (`SocialStudio.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
 
 - [x] 2.5 Run `dotnet test -c Release` — WU-2 tests pass; existing suite green.
 
@@ -111,10 +111,10 @@ Chain strategy: pending
   - Invalid settings from `FromCredential` → `ProviderCredentialUnavailable`
   - All checkpoint override paths are null → `AiModelRequired`
   - None of the above paths propagates an unhandled exception (CUI-02-a blanket assertion)
-  (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiErrorMappingTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Ai/ComfyUiErrorMappingTests.cs`)
 
 - [x] 3.2 **[GREEN]** Extend `ComfyUiImageModelClient.GenerateAsync` — wrap every HTTP call + poll loop in try/catch; map each failure to exact `IntegrationErrors` code per design §3.4; `OperationCanceledException`/elapsed timeout → `ProviderTimeout`; never propagate. Zero new `IntegrationErrors` codes introduced.
-  (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
+  (`SocialStudio.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
 
 - [x] 3.3 Run `dotnet test -c Release` — WU-3 tests pass; existing suite green.
 
@@ -131,10 +131,10 @@ Chain strategy: pending
   - Three refs, `MaxReferenceImages = 1` → only first ref uploaded; cap enforced (OQ-5)
   - One ref with `OpenAsync` throwing → logged + skipped; remaining refs proceed without error
   - All refs fail → zero resolved; descriptor-only path executed (no `/upload/image` call); generation continues (CUI-01-b)
-  (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiReferenceResolutionTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Ai/ComfyUiReferenceResolutionTests.cs`)
 
 - [x] 4.2 **[GREEN]** Add `ResolveReferenceImageBytesAsync` private method to `ComfyUiImageModelClient` — iterates `request.ReferenceImages` capped to `settings.MaxReferenceImages`; calls `IGeneratedAssetStorage.OpenAsync(ref.Url)` per entry; catches + logs on failure and skips; returns resolved (bytes, mime) pairs; empty result → descriptor-only template path (no upload, bypass substitution).
-  (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
+  (`SocialStudio.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs`)
 
 - [x] 4.3 Run `dotnet test -c Release` — WU-4 tests pass; existing suite green.
 
@@ -152,10 +152,10 @@ Chain strategy: pending
   - `ckpt_name[0]` is empty array → empty list returned; no error (CUI-04-b)
   - Handler returns HTTP error / throws → `Result.Success` with `settings.DefaultCheckpoints` as `source = "curated"` entries; no exception (CUI-04-c)
   - No provider-specific type in returned `AiProviderModel` list
-  (`Incoders.Hive.Tests/Infrastructure/Ai/ComfyUiModelCatalogClientTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Ai/ComfyUiModelCatalogClientTests.cs`)
 
 - [x] 5.2 **[GREEN]** Create `ComfyUiModelCatalogClient : IAiModelCatalogClient` — `ListModelsAsync`: `GET {base}/object_info`; parses `CheckpointLoaderSimple.input.required.ckpt_name[0]`; optionally appends `IPAdapterModelLoader.ipadapter_file` and `LoraLoader.lora_name` enums tagged by source; on any failure returns `Result.Success(settings.DefaultCheckpoints → AiProviderModel(source="curated"))`; same `Result<IReadOnlyList<AiProviderModel>>` contract as `ClaudePromptCliModelCatalogClient`.
-  (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiModelCatalogClient.cs`)
+  (`SocialStudio.Infrastructure/Ai/Providers/ComfyUiModelCatalogClient.cs`)
 
 - [x] 5.3 Run `dotnet test -c Release` — WU-5 tests pass; existing suite green.
 
@@ -171,17 +171,17 @@ Chain strategy: pending
   - `ExternalProviderClientFactory.Create<IImageModelClient>(comfyui-credential)` returns `ComfyUiImageModelClient` (CUI-INT-04-a)
   - `Create<IAiModelCatalogClient>(comfyui-credential)` returns `ComfyUiModelCatalogClient`
   - `Create<IImageModelClient>(openai-credential)` does NOT return `ComfyUiImageModelClient` (CUI-INT-04-b)
-  (`Incoders.Hive.Tests/Infrastructure/Integrations/ComfyUiProviderFactoryTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Integrations/ComfyUiProviderFactoryTests.cs`)
 
 ### Phase 6.B — Health check tests + implementation
 
 - [x] 6.2 **[RED]** Add `ComfyUiIntegrationHealthCheckTests.cs` — assert:
   - Fake handler returns HTTP 200 on `GET /system_stats` → reports `Connected` (CUI-INT-03-a)
   - Fake handler returns non-2xx / throws → reports `Failed` with connectivity detail (CUI-INT-03-b)
-  (`Incoders.Hive.Tests/Infrastructure/Integrations/ComfyUiIntegrationHealthCheckTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Integrations/ComfyUiIntegrationHealthCheckTests.cs`)
 
 - [x] 6.3 **[GREEN]** Create `ComfyUiIntegrationHealthCheck : IExternalIntegrationHealthCheck` — `GET {baseUrl}/system_stats` via named `HttpClient`; `Connected` on HTTP 200, `Failed` with error detail otherwise; mirrors `ClaudePromptCliIntegrationHealthCheck`.
-  (`Incoders.Hive.Infrastructure/Integrations/HealthChecks/ComfyUiIntegrationHealthCheck.cs`)
+  (`SocialStudio.Infrastructure/Integrations/HealthChecks/ComfyUiIntegrationHealthCheck.cs`)
 
 ### Phase 6.C — Per-org seeder + catalog seed
 
@@ -189,24 +189,24 @@ Chain strategy: pending
   - Configured org → `OrganizationIntegration` with `ProviderKey = "comfyui"` created (CUI-INT-02-a)
   - Re-run on same org is idempotent (no duplicate record)
   - Org not in config → no `comfyui` integration record created (CUI-INT-02-b)
-  (`Incoders.Hive.Tests/Infrastructure/Integrations/ComfyUiOrganizationSeederTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Integrations/ComfyUiOrganizationSeederTests.cs`)
 
 - [x] 6.5 **[GREEN]** Create `ComfyUiOrganizationSeeder.cs` + `ComfyUiOrganizationSeederExtensions.cs` — mirrors `ClaudePromptCliOrganizationSeeder`; idempotent upsert via `OrganizationIntegration.Create`; extension method `SeedComfyUiOrganizationIntegrationsAsync`.
-  (`Incoders.Hive.Infrastructure/Integrations/ComfyUiOrganizationSeeder.cs`, `Incoders.Hive.Infrastructure/Integrations/ComfyUiOrganizationSeederExtensions.cs`)
+  (`SocialStudio.Infrastructure/Integrations/ComfyUiOrganizationSeeder.cs`, `SocialStudio.Infrastructure/Integrations/ComfyUiOrganizationSeederExtensions.cs`)
 
 - [x] 6.6 **[GREEN]** Modify `IntegrationCatalogSeeder.cs` — add `comfyui` `SeedDefinition`: category `MediaGeneration`, connection mode `SystemDefault`, `base_url` credential field, default checkpoints from `ComfyUiSettings.DefaultCheckpoints`, model-selector applicable `true` (CUI-INT-01).
-  (`Incoders.Hive.Infrastructure/Integrations/IntegrationCatalogSeeder.cs`)
+  (`SocialStudio.Infrastructure/Integrations/IntegrationCatalogSeeder.cs`)
 
 ### Phase 6.D — Factory wiring + DI + startup
 
 - [x] 6.7 **[GREEN]** Modify `ExternalProviderClientFactory.cs` — add `"comfyui"` arms to both `IImageModelClient` and `IAiModelCatalogClient` switches; instantiate via `ActivatorUtilities.CreateInstance` (adapter type NOT registered in DI, same pattern as `OpenAiImageModelClient`).
-  (`Incoders.Hive.Infrastructure/Integrations/ExternalProviderClientFactory.cs`)
+  (`SocialStudio.Infrastructure/Integrations/ExternalProviderClientFactory.cs`)
 
 - [x] 6.8 **[GREEN]** Modify `DependencyInjection.cs` — register named `HttpClient` for ComfyUI; register `ComfyUiIntegrationHealthCheck`; register `ComfyUiOrganizationSeeder` (additive only; `IGeneratedAssetStorage` already wired).
-  (`Incoders.Hive.Infrastructure/DependencyInjection/DependencyInjection.cs`)
+  (`SocialStudio.Infrastructure/DependencyInjection/DependencyInjection.cs`)
 
 - [x] 6.9 **[GREEN]** Modify `Program.cs` — invoke `SeedComfyUiOrganizationIntegrationsAsync` at startup alongside the claude-p seed call (additive one-liner).
-  (`Incoders.Hive.ApiService/Program.cs`)
+  (`SocialStudio.ApiService/Program.cs`)
 
 ### Phase 6.E — Non-comfyui parity + regression test
 
@@ -214,7 +214,7 @@ Chain strategy: pending
   - Org routed to `openai`: `Create<IImageModelClient>(openai-credential)` returns `OpenAiImageModelClient`; `ComfyUiImageModelClient` never constructed (CUI-IMG-02-a; CUI-INT-05-a)
   - Org with no image route: CSS-only path unchanged; factory not called for image generation
   - All existing provider keys resolve correctly after `"comfyui"` arm addition
-  (`Incoders.Hive.Tests/Infrastructure/Integrations/ComfyUiNonRoutedOrgParityTests.cs`)
+  (`SocialStudio.Tests/Infrastructure/Integrations/ComfyUiNonRoutedOrgParityTests.cs`)
 
 - [x] 6.11 Run `dotnet test -c Release` — WU-6 tests pass; full suite green including parity assertions.
 

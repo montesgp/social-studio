@@ -73,7 +73,7 @@ Dependency rule unchanged: **Domain ← Application ← Infrastructure / Api**.
 
 ## 2. Component and namespace map
 
-### 2.1 Domain — `Incoders.Hive.Domain/Social/NicheDiscovery/`
+### 2.1 Domain — `SocialStudio.Domain/Social/NicheDiscovery/`
 
 | File | Type | Note |
 |---|---|---|
@@ -108,7 +108,7 @@ Dependency rule unchanged: **Domain ← Application ← Infrastructure / Api**.
 | `Scoring/` | `NicheOpportunityScorer`, `OpportunityScoreWeights`, `AvailabilityWeightedAggregate`, `ConfidenceScorer` |
 | `MarketComparison/` | `TargetMarketEvaluator`, `TargetMarketDemand`, `TargetMarketCompetition`, `TargetMarketGap` |
 
-### 2.4 Infrastructure — `Incoders.Hive.Infrastructure/Social/NicheDiscovery/`
+### 2.4 Infrastructure — `SocialStudio.Infrastructure/Social/NicheDiscovery/`
 
 `NicheDiscoveryOriginConfiguration.cs` (per-stage resolution, §4), `Origins/YouTubeDataApiNicheDiscoverySource.cs`,
 `Origins/YouTubeDataApiClient.cs`, `Origins/YouTubeEvidenceMapper.cs` (**the normalization boundary**),
@@ -119,7 +119,7 @@ Dependency rule unchanged: **Domain ← Application ← Infrastructure / Api**.
 
 ### 2.5 Api / Web
 
-`Incoders.Hive.ApiService/Endpoints/Social/MapNicheDiscoveryEndpoints.cs` (§9);
+`SocialStudio.ApiService/Endpoints/Social/MapNicheDiscoveryEndpoints.cs` (§9);
 `apps/web/lib/api/niche-discovery.ts`, `apps/web/lib/social/niche-discovery/*.ts`,
 `apps/web/components/social/niche-discovery/*` (§10).
 
@@ -490,7 +490,7 @@ no code path that combines them, asserted by a component test.
 ## 12. The Content Generator seam — named, not built
 
 ```csharp
-namespace Incoders.Hive.Application.Abstractions.Social.NicheDiscovery;
+namespace SocialStudio.Application.Abstractions.Social.NicheDiscovery;
 
 /// NAMED SEAM, NOT IMPLEMENTED IN THIS CHANGE (proposal "Content Generator seam").
 /// The future activation path consumes opportunities through THIS contract and nothing else.
@@ -584,7 +584,7 @@ endpoint — the `secrets` gate covers it.
 | Integration | Repository round-trip + migration; append-only ports expose no update; `ux_niche_opportunities_run_rank` rejects a double-write; cascade delete from the organization | Existing EF test-host pattern |
 | Frontend | Dashboard sorts/filters by all seven axes; `availability.ts` renders `null` as *unavailable* and `0` as `0`; both scores rendered side by side, never combined; evidence links navigate to real channel/video URLs | Pure unit tests + component tests |
 
-Commands: `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release`, then
+Commands: `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release`, then
 `pwsh -File scripts/gates/Run-Gates.ps1`.
 
 ---

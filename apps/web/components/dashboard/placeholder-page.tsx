@@ -12,7 +12,7 @@ export function PlaceholderPage({ title, description }: { title: string; descrip
           <CardTitle>Coming next</CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          This module page is intentionally scaffolded as a placeholder during the Hive Social bootstrap iteration.
+          This module page is intentionally scaffolded as a placeholder during the Social Studio bootstrap iteration.
         </CardContent>
       </Card>
     </div>

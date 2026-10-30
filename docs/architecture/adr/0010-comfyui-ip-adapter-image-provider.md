@@ -5,7 +5,7 @@ Accepted
 
 ## Context
 
-Incoders Hive must generate carousel BACKGROUND images "in each client's visual spirit"
+Social Studio must generate carousel BACKGROUND images "in each client's visual spirit"
 (text is composited separately). Before this change, the platform had no usable
 zero-marginal-cost image backend:
 
@@ -35,11 +35,11 @@ each matching `design.md` §0 verbatim.
 
 | Type | Path | Role |
 |------|------|------|
-| `ComfyUiImageModelClient : IImageModelClient` | `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs` | IP-Adapter HTTP workflow; resolves reference bytes from `IGeneratedAssetStorage`; `Capabilities.SupportsImageConditioning = true`; maps every failure to `IntegrationErrors` |
-| `ComfyUiSettings` | `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiSettings.cs` | Per-org config record + `FromCredential(ResolvedProviderCredential)`; `ProviderKey = "comfyui"` |
-| `ComfyUiModelCatalogClient : IAiModelCatalogClient` | `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiModelCatalogClient.cs` | `/object_info` checkpoint sync with curated fallback |
-| `ComfyUiOrganizationSeeder` + extensions | `Incoders.Hive.Infrastructure/Integrations/ComfyUiOrganizationSeeder*.cs` | Idempotent per-org `OrganizationIntegration` provisioning (mirrors `ClaudePromptCliOrganizationSeeder`) |
-| `ComfyUiIntegrationHealthCheck : IExternalIntegrationHealthCheck` | `Incoders.Hive.Infrastructure/Integrations/HealthChecks/ComfyUiIntegrationHealthCheck.cs` | `GET /system_stats` connectivity probe |
+| `ComfyUiImageModelClient : IImageModelClient` | `SocialStudio.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs` | IP-Adapter HTTP workflow; resolves reference bytes from `IGeneratedAssetStorage`; `Capabilities.SupportsImageConditioning = true`; maps every failure to `IntegrationErrors` |
+| `ComfyUiSettings` | `SocialStudio.Infrastructure/Ai/Providers/ComfyUiSettings.cs` | Per-org config record + `FromCredential(ResolvedProviderCredential)`; `ProviderKey = "comfyui"` |
+| `ComfyUiModelCatalogClient : IAiModelCatalogClient` | `SocialStudio.Infrastructure/Ai/Providers/ComfyUiModelCatalogClient.cs` | `/object_info` checkpoint sync with curated fallback |
+| `ComfyUiOrganizationSeeder` + extensions | `SocialStudio.Infrastructure/Integrations/ComfyUiOrganizationSeeder*.cs` | Idempotent per-org `OrganizationIntegration` provisioning (mirrors `ClaudePromptCliOrganizationSeeder`) |
+| `ComfyUiIntegrationHealthCheck : IExternalIntegrationHealthCheck` | `SocialStudio.Infrastructure/Integrations/HealthChecks/ComfyUiIntegrationHealthCheck.cs` | `GET /system_stats` connectivity probe |
 
 Additive modifications only: a `comfyui` `SeedDefinition` in `IntegrationCatalogSeeder`
 (category `MediaGeneration`, connection mode `SystemDefault`, `base_url` credential
@@ -219,7 +219,7 @@ The `comfyui` **connector** is auto-seeded for every active organization by
 `platform.organization_integrations` row but does NOT route any workflow step to it.
 Routing the `generate-image` step is a separate, explicit per-org configuration stored in
 `platform.organization_workflow_step_configs`
-(`Incoders.Hive.Infrastructure/Identity/AppIdentityDbContext.cs`, entity
+(`SocialStudio.Infrastructure/Identity/AppIdentityDbContext.cs`, entity
 `OrganizationWorkflowStepConfigurationData`, repository
 `EfWorkflowStepConfigurationRepository`).
 
@@ -267,7 +267,7 @@ back to the CSS designer background (correct pre-configuration behavior, not a b
 ### 2. Validate default workflow template node class names against the live ComfyUI-Zluda install (WU-7.4)
 
 `DefaultComfyUiWorkflowTemplate.json`
-(`Incoders.Hive.Infrastructure/Ai/Providers/DefaultComfyUiWorkflowTemplate.json`) declares
+(`SocialStudio.Infrastructure/Ai/Providers/DefaultComfyUiWorkflowTemplate.json`) declares
 the following `class_type` values:
 
 | Node id | `class_type` |
@@ -315,4 +315,4 @@ the design's incorrect wording in a future edit.
   `openspec/specs/image-generation/spec.md` (CUI-IMG-01, CUI-IMG-02),
   `openspec/specs/integrations/spec.md` (CUI-INT-01..CUI-INT-05)
 - Architecture gate: `pwsh -File scripts/gates/Run-Gates.ps1`
-- Test suite: `Incoders.Hive.Tests/Incoders.Hive.Tests.csproj` (WU-1..WU-6 commit range: 529f75d..86e6f8f)
+- Test suite: `SocialStudio.Tests/SocialStudio.Tests.csproj` (WU-1..WU-6 commit range: 529f75d..86e6f8f)

@@ -28,7 +28,7 @@ Persistence provider: **Supabase Postgres** (managed PostgreSQL). Authentication
 
 - `identity` owns ASP.NET Identity persistence (users, roles, claims, logins, role_claims, user_tokens, refresh_tokens when persisted).
 - `platform` owns cross-module platform data: organizations, memberships, system settings, provider/model catalogs and shared configuration. Membership rows reference `identity.users(id)`.
-- Product modules use their own schemas, starting with `social` for Incoders Social.
+- Product modules use their own schemas, starting with `social` for Social Studio.
 - `auth` is Supabase-reserved and not used by this project.
 - Do not use dashed schema names; use lower `snake_case` identifiers.
 

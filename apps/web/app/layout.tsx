@@ -3,7 +3,7 @@ import "./globals.css";
 import { ToastProvider } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: "Incoders Hive",
+  title: "Social Studio",
   description: "AI-native workflow platform."
 };
 

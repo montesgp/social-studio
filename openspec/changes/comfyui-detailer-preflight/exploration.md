@@ -26,7 +26,7 @@ bundled with the node package itself. Two independent installation dependencies,
 missing breaks the node.
 
 ### (c) This repo can already detect installed custom nodes
-`ComfyUiModelCatalogClient.ListModelsAsync` (`Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiModelCatalogClient.cs`)
+`ComfyUiModelCatalogClient.ListModelsAsync` (`SocialStudio.Infrastructure/Ai/Providers/ComfyUiModelCatalogClient.cs`)
 already calls `GET {baseUrl}/object_info` and parses per-node `class_type` presence
 (`AppendEnumModels` pattern for `CheckpointLoaderSimple`/`IPAdapterModelLoader`/`LoraLoader`).
 `/object_info` returns every registered node class — a presence probe for `FaceDetailer` +
@@ -61,11 +61,11 @@ support.
 
 ## Affected Areas
 
-- `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs` — the generation client;
+- `SocialStudio.Infrastructure/Ai/Providers/ComfyUiImageModelClient.cs` — the generation client;
   needs the new preflight probe call site and template-selection logic.
-- `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiModelCatalogClient.cs` — existing
+- `SocialStudio.Infrastructure/Ai/Providers/ComfyUiModelCatalogClient.cs` — existing
   `/object_info` probe pattern to mirror/reuse, not duplicate.
-- `Incoders.Hive.Infrastructure/Ai/Providers/ComfyUiSettings.cs` — per-credential settings; needs
+- `SocialStudio.Infrastructure/Ai/Providers/ComfyUiSettings.cs` — per-credential settings; needs
   the new opt-in flag and (likely) a second template string/path for the detailer-augmented graph.
 - A new `DefaultComfyUiWorkflowTemplateWithDetailer.json` (or equivalent) sibling to
   `DefaultComfyUiWorkflowTemplate.json` — the augmented graph with `FaceDetailer` +

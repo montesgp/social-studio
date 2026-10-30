@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="SocialStudio.ApiService/SocialStudio.ApiService.csproj" />
+  <Project Path="SocialStudio.AppHost/SocialStudio.AppHost.csproj" />
+  <Project Path="SocialStudio.Application/SocialStudio.Application.csproj" />
+  <Project Path="SocialStudio.Domain/SocialStudio.Domain.csproj" />
+  <Project Path="SocialStudio.Infrastructure/SocialStudio.Infrastructure.csproj" />
+  <Project Path="SocialStudio.ServiceDefaults/SocialStudio.ServiceDefaults.csproj" />
+  <Project Path="SocialStudio.Tests/SocialStudio.Tests.csproj" />
+</Solution>

@@ -10,30 +10,30 @@
 version: 1
 
 project:
-  name: incoders-hive
+  name: social-studio
   type: fullstack-monorepo-ai-native-saas
   governance: .github/incoders-ai
   manifest: .github/project-ai/project.manifest.md
 
 backend:
   enabled: true
-  solution: Incoders.Hive.slnx
+  solution: SocialStudio.slnx
   build_configuration: Release
   test_projects:
-    - Incoders.Hive.Tests/Incoders.Hive.Tests.csproj
+    - SocialStudio.Tests/SocialStudio.Tests.csproj
   architecture:
     domain_projects:
-      - Incoders.Hive.Domain
+      - SocialStudio.Domain
     application_projects:
-      - Incoders.Hive.Application
+      - SocialStudio.Application
     infrastructure_projects:
-      - Incoders.Hive.Infrastructure
+      - SocialStudio.Infrastructure
     api_projects:
-      - Incoders.Hive.ApiService
-      - Incoders.Hive.AppHost
-      - Incoders.Hive.ServiceDefaults
+      - SocialStudio.ApiService
+      - SocialStudio.AppHost
+      - SocialStudio.ServiceDefaults
     test_projects:
-      - Incoders.Hive.Tests
+      - SocialStudio.Tests
     forbidden_namespace_imports:
       - layer: domain
         forbidden:

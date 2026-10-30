@@ -45,12 +45,12 @@ The status transition adds `AnalyzingProfile` between `Running` and the terminal
 
 | Area | Impact | Description |
 |------|--------|-------------|
-| `Incoders.Hive.Application/.../ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` (~242-295) | Modified | Branch on `EnsureFreshAsync` outcome; blocking wait + `AnalyzingProfile` transition + timeout/no-own-account failures |
-| `Incoders.Hive.Application/.../ContentGeneration/Background/ClientAestheticEnsureFreshService.cs` | Modified (likely) | Expose whether the enqueued analysis is awaitable / usable-aesthetic-present signal for the gating decision |
-| `Incoders.Hive.Application/Abstractions/Social/ContentGeneration/IClientAestheticEnsureFreshService.cs` | Modified (possible) | Contract surface for the awaitable / gating signal |
+| `SocialStudio.Application/.../ContentGeneration/Pipeline/ContentGenerationJobProcessor.cs` (~242-295) | Modified | Branch on `EnsureFreshAsync` outcome; blocking wait + `AnalyzingProfile` transition + timeout/no-own-account failures |
+| `SocialStudio.Application/.../ContentGeneration/Background/ClientAestheticEnsureFreshService.cs` | Modified (likely) | Expose whether the enqueued analysis is awaitable / usable-aesthetic-present signal for the gating decision |
+| `SocialStudio.Application/Abstractions/Social/ContentGeneration/IClientAestheticEnsureFreshService.cs` | Modified (possible) | Contract surface for the awaitable / gating signal |
 | Job status DTO + status endpoint (`GET /api/social/content-generation-jobs/{jobId}/status`) | Modified | Add `AnalyzingProfile` to the status vocabulary |
-| `Incoders.Hive.Tests/.../ContentGeneration/Pipeline/ProcessorEnsureFreshIsolationTests.cs` | Modified | Reconcile: keep non-blocking for stale; assert blocking for no-usable-aesthetic |
-| `Incoders.Hive.Tests/.../ContentGeneration/Background/EnsureFreshServiceIsolationTests.cs` | Modified | Same reconciliation of the reversed isolation contract |
+| `SocialStudio.Tests/.../ContentGeneration/Pipeline/ProcessorEnsureFreshIsolationTests.cs` | Modified | Reconcile: keep non-blocking for stale; assert blocking for no-usable-aesthetic |
+| `SocialStudio.Tests/.../ContentGeneration/Background/EnsureFreshServiceIsolationTests.cs` | Modified | Same reconciliation of the reversed isolation contract |
 | `apps/web/lib/hooks/use-content-generation-job.ts` | Modified | Recognize `AnalyzingProfile` in the polled status |
 | `apps/web/components/social/single-analyzer-client.tsx` | Modified | Render "Analyzing profile" phase; block later steps until cleared |
 

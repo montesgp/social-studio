@@ -1,4 +1,4 @@
-# Project Rules - Engineering Standards (Incoders Hive / Hive Social)
+# Project Rules - Engineering Standards (Social Studio)
 
 > Base reusable standards are defined globally in:
 > `.github/incoders-ai/core/best-practice.rules.md`

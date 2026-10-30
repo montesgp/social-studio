@@ -175,7 +175,7 @@ component are unaffected.
   **empty** by a composition test (WU-11b) — "named, not built" is enforced, not trusted.
 - **PENDING LIVE VERIFICATION** (mirrors this ADR's own precedent from ADR-0012's Amendment for the
   Apify TikTok actor spike): `YouTubeEvidenceMapper` and its recorded fixture
-  (`Incoders.Hive.Tests/Infrastructure/Social/Fixtures/youtube-niche-search.json`) are built and
+  (`SocialStudio.Tests/Infrastructure/Social/Fixtures/youtube-niche-search.json`) are built and
   unit-tested entirely against a recorded response. No Google Cloud project with YouTube Data API v3
   has been provisioned yet; a final verification against a real response is deferred to the owner
   provisioning that project. This affects only the YouTube origin adapter — every other component

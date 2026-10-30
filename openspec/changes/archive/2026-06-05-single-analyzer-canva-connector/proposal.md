@@ -72,7 +72,7 @@ Verify the Canva card renders the three fields (secrets masked) and that saving 
 - [ ] The Canva provider card + dynamic credential modal render `client_id`/`client_secret` as masked secret inputs and `scopes` as a plain input, with no new frontend component code.
 
 ## Testing (Strict TDD)
-Backend test runner: `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj`.
+Backend test runner: `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj`.
 
 - **Seeder test** (new) — assert the seeded `canva` provider exposes the Connect credential schema above and no `access_token` field. Mirror the existing seeder/catalog assertions in `OrganizationIntegrationsFlowTests` (e.g. `Overview_ExposesCurrentProviderCatalogWithIconKeys`) and the provider-catalog expectations.
 - **Flow test** (extend `OrganizationIntegrationsFlowTests`) — configure Canva for an org with `client_id`+`client_secret`, assert success + `Connected`; assert blank required field returns `RequiredCredentialMissing`; assert a `GetByProvider` round-trip returns the configured (non-secret) keys and the resolver exposes the credentials.

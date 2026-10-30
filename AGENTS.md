@@ -1,7 +1,7 @@
-# AGENTS.md - Incoders Hive / Incoders Social
+# AGENTS.md - Social Studio
 
 ## Project Contract
-Agents working in this repository must build Incoders Social as a workflow-oriented, AI-native SaaS module for social content operations.
+Agents working in this repository must build Social Studio as a workflow-oriented, AI-native SaaS module for social content operations.
 
 ## Required Read Order
 1. `AGENTS.md`.

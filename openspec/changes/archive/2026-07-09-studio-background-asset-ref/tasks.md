@@ -11,7 +11,7 @@
 
 ## Verification constraint (applies to every unit)
 
-- Local `dotnet test Incoders.Hive.Tests/Incoders.Hive.Tests.csproj -c Release` CANNOT run on this
+- Local `dotnet test SocialStudio.Tests/SocialStudio.Tests.csproj -c Release` CANNOT run on this
   machine (SAC/WDAC block). Do not attempt it as a completion gate.
 - Each work unit's "GREEN" step ends with **CI dispatch** (push branch / open or update PR, trigger CI)
   as the actual verification, not a local run.
@@ -24,7 +24,7 @@
 
 Small, independent, no DI/ctor changes. Do first — everything else depends on it existing.
 
-- [x] 1.1 RED: Add `Incoders.Hive.Tests/Application/Social/ContentGeneration/Pipeline/BackgroundAssetUploadTests.cs`
+- [x] 1.1 RED: Add `SocialStudio.Tests/Application/Social/ContentGeneration/Pipeline/BackgroundAssetUploadTests.cs`
       with decoder-only cases:
       - valid `data:image/png;base64,...` decodes to the expected raw bytes
       - malformed/non-data-URI input returns `null` (no throw, no upload attempted)
@@ -83,7 +83,7 @@ Depends on Work Unit 2 conceptually (consumes the new ref form) but is implement
 independently since it only needs a `CompositionSpecEnvelope` with either ref form — no processor
 dependency at compile time.
 
-- [x] 3.1 RED: In `Incoders.Hive.Tests/Infrastructure/Rendering/PptxExportAdapterTests.cs`, add/extend
+- [x] 3.1 RED: In `SocialStudio.Tests/Infrastructure/Rendering/PptxExportAdapterTests.cs`, add/extend
       cases with a stub `IGeneratedAssetStorage`:
       - `BackgroundImageRef` = legacy `data:` URI → picture embedded via inline decode (must still pass
         — regression guard for existing behavior, already covered by pre-existing tests)

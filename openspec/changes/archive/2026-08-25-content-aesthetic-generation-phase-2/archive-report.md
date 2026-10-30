@@ -183,7 +183,7 @@ This archive report reflects the state of the change **at close**, per task arti
 | Task | Owner | Notes |
 |------|-------|-------|
 | **WU-0 Spike (Blocking gate)** | Product/QA | Confirm Apify actor (instagram-scraper, posts mode) returns `displayUrl`/`displayResources` + `caption` + carousel children. Current design assumes availability; if unavailable, adjust mapping or switch actor. |
-| **WU-12.3 EF Migration** | DevOps | Apply `dotnet ef database update --project Incoders.Hive.Infrastructure --startup-project Incoders.Hive.Infrastructure` to production DB. Additive column only; no data loss. |
+| **WU-12.3 EF Migration** | DevOps | Apply `dotnet ef database update --project SocialStudio.Infrastructure --startup-project SocialStudio.Infrastructure` to production DB. Additive column only; no data loss. |
 | **WU-12.4 Operational Config** | DevOps | Configure org: select Apify actor (confirm WU-0 spike first), configure optional `extract-aesthetic` route on multimodal Claude model. |
 | **WU-12.5 Final Gate Run** | User | Run `pwsh -File scripts/gates/Run-Gates.ps1` post-deploy; report summary. |
 

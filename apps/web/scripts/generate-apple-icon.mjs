@@ -1,5 +1,5 @@
 /**
- * Regenerates app/apple-icon.png from the Hive mark.
+ * Regenerates app/apple-icon.png from the Social Studio mark.
  *
  * WHY A CHECKED-IN PNG: Safari on iOS ignores SVG apple-touch-icons, so app/icon.svg cannot cover
  * the home-screen case. This is the one rendition of the mark that has to ship as a raster.

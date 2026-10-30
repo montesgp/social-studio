@@ -25,7 +25,7 @@ Dependency rule: **Domain ← Application ← Infrastructure / Api**. No `Docume
 | `IDesignerMarkupReader` (or reuse `IContentGenerationFormatResultRepository`) | Port | Application | reuse existing repo; see D1 |
 | `ExportFormatToPptxQueryHandler` | Use case (query) | Application | `Application/Features/Social/ContentGeneration/Export/` |
 | `GET …/formats/{formatKey}/download-pptx` | Endpoint | ApiService | `ApiService/Endpoints/Social/ContentGeneration/` (extend `analyzerGroup`) |
-| `DocumentFormat.OpenXml` | NuGet dep | Infrastructure | add to `Incoders.Hive.Infrastructure.csproj` |
+| `DocumentFormat.OpenXml` | NuGet dep | Infrastructure | add to `SocialStudio.Infrastructure.csproj` |
 | Markup persistence write-fix | Modify | Application | `ContentGenerationJobProcessor.cs` — stop writing `CompositionSpecJson: null` after a successful designer+guardrail pass |
 
 ### Markup persistence (mandatory hidden scope, D1)
@@ -117,7 +117,7 @@ Entity `CanvaUserToken` — table `platform.canva_user_tokens` (mirrors where `o
 | `CreatedAtUtc` / `UpdatedAtUtc` | timestamptz | |
 
 - **Unique index:** `(UserId, OrganizationIntegrationId)` — one Canva token set per user per org connection.
-- **Encryption at rest:** reuse the existing `IIntegrationSecretProtector` (`DataProtectionIntegrationSecretProtector`, purpose `incoders.hive.integrations.credentials.v1`). Tokens are encrypted before persistence and only decrypted inside the OAuth service / import client. They are NEVER returned to the UI or logged. This mirrors exactly how `organization_integration_credentials.encrypted_value` is handled today.
+- **Encryption at rest:** reuse the existing `IIntegrationSecretProtector` (`DataProtectionIntegrationSecretProtector`, purpose `social-studio.integrations.credentials.v1`). Tokens are encrypted before persistence and only decrypted inside the OAuth service / import client. They are NEVER returned to the UI or logged. This mirrors exactly how `organization_integration_credentials.encrypted_value` is handled today.
 - **Refresh strategy (D2):** see below.
 
 ## Decisions in depth
@@ -199,7 +199,7 @@ Fix the write site so the **success** persist path serializes this envelope inst
 ## Architecture-gate compliance
 
 - `IPptxExportAdapter`, `ICanvaOAuthService`, `ICanvaDesignImportClient`, `ICanvaUserTokenRepository` are pure Application interfaces — parameters/returns are framework-free (`byte[]`, records, `Result<T>`). Mirrors the `IVisualDesignerContractTests.Port_HasNoInfrastructureTypes` assertion (no `Infrastructure|Persistence|EfCore|Npgsql|AspNetCore|Playwright` in signatures).
-- `DocumentFormat.OpenXml` referenced **only** in `Incoders.Hive.Infrastructure`. Canva `HttpClient` and Playwright geometry capture live **only** in Infrastructure.
+- `DocumentFormat.OpenXml` referenced **only** in `SocialStudio.Infrastructure`. Canva `HttpClient` and Playwright geometry capture live **only** in Infrastructure.
 - `CanvaUserToken` Domain entity holds NO provider types (plain fields + value-object id), consistent with `OrganizationIntegrationCredential`.
 - Run `pwsh -File scripts/gates/Run-Gates.ps1` before completion (architecture + best-practice gates).
 

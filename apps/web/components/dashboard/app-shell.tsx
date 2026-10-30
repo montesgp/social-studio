@@ -357,7 +357,7 @@ export function AppShell({
         <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[220px_1fr]">
           <aside className="border-r border-border bg-card/50 p-3">
             <div className="mb-6">
-              <p className="text-xs uppercase tracking-widest text-muted-foreground">Incoders Hive</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">Social Studio</p>
               <h1 className="text-xl font-semibold">{isAdminArea ? "Platform Admin" : activeModule?.label ?? "Workspace"}</h1>
             </div>
 
