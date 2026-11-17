@@ -9,9 +9,9 @@ if (string.Equals(builder.Configuration["HIVE_FAST_STARTUP"], "true", StringComp
 {
     // Keep migrations enabled even in fast startup. Background workers depend on the
     // current schema; skipping migrations can let jobs run against missing tables.
+    // File logging stays on so logs/hive-api.log keeps the evidence for diagnosing runs.
     apiService
-        .WithEnvironment("StartupTasks__SeedData", "false")
-        .WithEnvironment("FileLogging__Enabled", "false");
+        .WithEnvironment("StartupTasks__SeedData", "false");
 }
 
 builder.Build().Run();
