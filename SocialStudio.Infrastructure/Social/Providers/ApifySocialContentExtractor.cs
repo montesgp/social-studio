@@ -175,13 +175,15 @@ internal sealed class ApifySocialContentExtractor : ISocialContentExtractor
         if (providerError is not null)
         {
             _logger.LogWarning(
-                "Apify extraction RESTRICTED ITEM after {ElapsedMs} ms. OrganizationId={OrganizationId} PlatformKey={PlatformKey} ActorId={ActorId} ProviderError={ProviderError} ProviderErrorDescription={ProviderErrorDescription}",
+                "Apify extraction RESTRICTED ITEM after {ElapsedMs} ms. OrganizationId={OrganizationId} PlatformKey={PlatformKey} ActorId={ActorId} ProviderError={ProviderError} ProviderErrorDescription={ProviderErrorDescription} ResponseBytes={ResponseBytes} BodyPreview={BodyPreview}",
                 stopwatch.ElapsedMilliseconds,
                 request.OrganizationId,
                 request.PlatformKey,
                 actorId,
                 providerError.Value.Error,
-                providerError.Value.Description);
+                providerError.Value.Description,
+                payload.Length,
+                Preview(payload, 4000));
 
             return Result.Failure<SocialContentSnapshot>(ContentExtractionErrors.RestrictedContent);
         }
