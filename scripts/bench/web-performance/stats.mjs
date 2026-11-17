@@ -52,6 +52,27 @@ export function summarizeEndpoints(samples) {
     .sort((a, b) => (b.p50 ?? 0) - (a.p50 ?? 0));
 }
 
+/**
+ * Splits one request into phases from the DevTools protocol: `willBeSentTimestamp` is
+ * Network.requestWillBeSent.timestamp (seconds) and `timing` is Network.Response.timing, whose offsets
+ * are ms relative to `timing.requestTime` (seconds) and -1 when a phase did not happen.
+ * queuedMs = time in the browser before any network activity (connection limit, scheduling);
+ * waitMs = server time to first byte after the request was sent.
+ */
+export function requestPhases(willBeSentTimestamp, timing) {
+  if (!timing) return null;
+  const firstNetworkOffset = [timing.dnsStart, timing.connectStart, timing.sendStart].find((v) => v >= 0) ?? 0;
+  const span = (start, end) => (start >= 0 && end >= 0 ? end - start : 0);
+  const round = (v) => Math.round(v * 1000) / 1000;
+  return {
+    queuedMs: round((timing.requestTime - willBeSentTimestamp) * 1000 + firstNetworkOffset),
+    dnsMs: round(span(timing.dnsStart, timing.dnsEnd)),
+    connectMs: round(span(timing.connectStart, timing.connectEnd)),
+    waitMs: round(span(timing.sendEnd, timing.receiveHeadersEnd)),
+    reusedConnection: timing.connectStart < 0
+  };
+}
+
 export function formatMs(value) {
   return value === null || value === undefined ? "-" : `${Math.round(value)}`;
 }

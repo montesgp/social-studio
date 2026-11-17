@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
-import { formatMs, median, summarizeEndpoints, summarizeRuns, totalBlockingTime } from "./stats.mjs";
+import { formatMs, median, requestPhases, summarizeEndpoints, summarizeRuns, totalBlockingTime } from "./stats.mjs";
 
 const DEFAULT_ROUTES = [
   "/dashboard",
@@ -200,6 +200,7 @@ class ApiTracker {
         method: p.request.method,
         path: url.pathname.replace(/^\/hive-api/, "") + url.search,
         headers: p.request.headers,
+        timestamp: p.timestamp,
         start: performance.now()
       });
       this.lastActivity = performance.now();
@@ -208,6 +209,7 @@ class ApiTracker {
       const entry = this.inflight.get(p.requestId);
       if (!entry) return;
       entry.status = p.response.status;
+      entry.phases = requestPhases(entry.timestamp, p.response.timing);
       // A server-sent event stream never finishes; it must not keep the screen "loading" forever.
       if (p.response.mimeType === "text/event-stream") this.inflight.delete(p.requestId);
     });
@@ -320,7 +322,7 @@ async function hardNavigation(cdp, tracker, args, route) {
     ...(await readLongTasks(cdp)),
     apiCount: api.apiCount,
     apiMaxMs: api.apiMaxMs,
-    apiSamples: api.samples.map(({ method, path, status, ms, failed }) => ({ method, path, status, ms, failed }))
+    apiSamples: api.samples.map(({ method, path, status, ms, failed, phases }) => ({ method, path, status, ms, failed, phases }))
   };
 }
 
@@ -347,7 +349,7 @@ async function softNavigation(cdp, tracker, args, route) {
     ...(await readLongTasks(cdp)),
     apiCount: api.apiCount,
     apiMaxMs: api.apiMaxMs,
-    apiSamples: api.samples.map(({ method, path, status, ms, failed }) => ({ method, path, status, ms, failed }))
+    apiSamples: api.samples.map(({ method, path, status, ms, failed, phases }) => ({ method, path, status, ms, failed, phases }))
   };
 }
 
@@ -401,6 +403,15 @@ function printReport(report) {
   for (const b of report.apiBrowser) {
     const d = direct.get(b.endpoint);
     lines.push(`| \`${b.endpoint}\` | ${formatMs(b.p50)} | ${formatMs(b.max)} | ${formatMs(d?.p50)} | ${formatMs(d?.p95)} | ${formatMs(d?.max)} |`);
+  }
+  if (report.slowApiCalls.length > 0) {
+    lines.push("\n### Browser API calls over 1 s, with phases (ms)\n");
+    lines.push("| Screen | Endpoint | Total | Queued in browser | DNS | Connect | Server wait | Reused connection |");
+    lines.push("|---|---|---|---|---|---|---|---|");
+    for (const s of report.slowApiCalls) {
+      const p = s.phases ?? {};
+      lines.push(`| ${s.screen} (${s.kind}) | \`${s.method} ${s.path}\` | ${formatMs(s.ms)} | ${formatMs(p.queuedMs)} | ${formatMs(p.dnsMs)} | ${formatMs(p.connectMs)} | ${formatMs(p.waitMs)} | ${p.reusedConnection === undefined ? "-" : p.reusedConnection} |`);
+    }
   }
   console.log(lines.join("\n"));
 }
@@ -490,6 +501,10 @@ async function main() {
     report.apiDirect = summarizeEndpoints(directOk);
     report.apiDirectNon2xx = directSamples.filter((s) => s.status < 200 || s.status >= 300).map(({ path, status }) => ({ path, status }));
     report.medianDirectApiMs = median(directOk.map((s) => s.ms));
+    report.slowApiCalls = report.screens.flatMap((s) => [
+      ...s.hardRuns.flatMap((r) => r.apiSamples.map((a) => ({ screen: s.route, kind: "hard", ...a }))),
+      ...(s.softRuns ?? []).flatMap((r) => r.apiSamples.map((a) => ({ screen: s.route, kind: "soft", ...a })))
+    ]).filter((a) => a.ms > 1000);
     if (report.apiDirectNon2xx.length > 0) {
       process.stderr.write(`[${args.label}] ${report.apiDirectNon2xx.length} direct replays were not 2xx and are excluded; see apiDirectNon2xx in the JSON.\n`);
     }
