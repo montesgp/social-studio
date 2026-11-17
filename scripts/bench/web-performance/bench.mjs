@@ -231,6 +231,8 @@ class ApiTracker {
     return [...this.inflight.values()].map((e) => `${e.method} ${e.path}`);
   }
   reset() {
+    // A request cut off by a navigation may never report completion; never carry it into the next measurement.
+    this.inflight.clear();
     this.samples = [];
     this.scriptBytes = 0;
     this.lastActivity = performance.now();
@@ -300,6 +302,9 @@ async function hardNavigation(cdp, tracker, args, route) {
     const n = performance.getEntriesByType("navigation")[0];
     return n ? { ttfb: n.responseStart, dcl: n.domContentLoadedEventEnd, load: n.loadEventEnd, path: location.pathname } : null;
   })()`);
+  if (nav?.path === "/login" && route !== "/login") {
+    throw new Error(`${route} redirected to /login: the session was rejected or expired. Re-run with fewer --runs or routes.`);
+  }
   const api = apiMetrics(tracker, startedAt);
   const loadMs = nav?.load ?? null;
   const readyMs = Math.max(loadMs ?? 0, api.lastApiEnd !== null ? api.lastApiEnd - startedAt : 0);
@@ -346,16 +351,20 @@ async function softNavigation(cdp, tracker, args, route) {
   };
 }
 
-/** Replays every GET the screens made directly against the API: pure backend latency. */
-async function replayApi(args, requests) {
+/**
+ * Replays every GET the screens made directly against the API: pure backend latency. Uses a fresh
+ * token, since the one captured from the browser may have expired during a long run.
+ */
+async function replayApi(args, requests, accessToken) {
   const unique = new Map();
   for (const r of requests) if (r.method === "GET" && !unique.has(r.path)) unique.set(r.path, r.headers);
   const samples = [];
   for (const [path, headers] of unique) {
     const replayHeaders = {};
     for (const [k, v] of Object.entries(headers)) {
-      if (/^(authorization|x-tenant-id|accept)$/i.test(k)) replayHeaders[k] = v;
+      if (/^(x-tenant-id|accept)$/i.test(k)) replayHeaders[k] = v;
     }
+    replayHeaders.Authorization = `Bearer ${accessToken}`;
     for (let i = 0; i < args.apiReplays; i++) {
       const started = performance.now();
       const response = await fetch(`${args.api}${path}`, { headers: replayHeaders });
@@ -473,11 +482,17 @@ async function main() {
       }
     }
 
-    const directSamples = await replayApi(args, allBrowserSamples);
+    const replayTokens = await login(args.api, email, password);
+    const directSamples = await replayApi(args, allBrowserSamples, replayTokens.accessToken);
+    const directOk = directSamples.filter((s) => s.status >= 200 && s.status < 300);
     report.apiBrowser = summarizeEndpoints(allBrowserSamples.map(({ method, path, ms }) => ({ method, path, ms })));
-    report.apiDirect = summarizeEndpoints(directSamples);
-    report.apiDirectNon2xx = directSamples.filter((s) => s.status >= 300).map(({ path, status }) => ({ path, status }));
-    report.medianDirectApiMs = median(directSamples.map((s) => s.ms));
+    // Only successful replays count: a rejected request answers in a few ms and would fake a fast backend.
+    report.apiDirect = summarizeEndpoints(directOk);
+    report.apiDirectNon2xx = directSamples.filter((s) => s.status < 200 || s.status >= 300).map(({ path, status }) => ({ path, status }));
+    report.medianDirectApiMs = median(directOk.map((s) => s.ms));
+    if (report.apiDirectNon2xx.length > 0) {
+      process.stderr.write(`[${args.label}] ${report.apiDirectNon2xx.length} direct replays were not 2xx and are excluded; see apiDirectNon2xx in the JSON.\n`);
+    }
 
     mkdirSync(dirname(args.out), { recursive: true });
     writeFileSync(args.out, JSON.stringify(report, null, 2));

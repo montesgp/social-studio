@@ -18,7 +18,7 @@ Run it again whenever the web feels slow, and add a dated entry under [Results](
 | Load | Browser `load` event: document, JavaScript and CSS downloaded and executed. |
 | Ready | Time until the screen's API calls settle: the screen shows its data. |
 | TBT / long tasks | Main-thread work over 50 ms per task. This is the hydration and rendering cost; while it runs, clicks do not respond. |
-| JS KB | JavaScript transferred for the screen. |
+| JS KB | JavaScript transferred for the screen. Only reliable in dev mode; a production build preloads and caches its chunks, so it reads 0 there. Use the `First Load JS` column of `pnpm build` instead. |
 | API browser vs direct | Every `/hive-api` call as the browser saw it (through the Next.js proxy) next to the same `GET` replayed directly against the API. The difference is the proxy cost; the direct value is the pure backend cost. |
 
 Each screen is loaded `--runs` times (default 4). The **cold** column is the first run: in dev mode
@@ -87,3 +87,46 @@ The pure aggregation helpers are covered by `node --test scripts/bench/web-perfo
 ## Results
 
 Newest first. Record the machine state (what else was running) with each entry.
+
+### 2026-11-17 - dev (`dev:fast`) vs production build
+
+**Machine:** 6-core desktop CPU, 32 GB RAM, Windows 11. API through the AppHost `http-fast`
+profile, local Docker Postgres, **ComfyUI off**. User `sysadmin@incoders.ai` on organization
+`<organization-id>`. 4 runs per screen; dev measured right after a dev server restart.
+Raw output: `logs/bench/web-performance-{dev,prod}.{json,md}` (local, git-ignored).
+
+**Verdict: the backend is not the bottleneck. The slowness is the Next.js dev server.**
+
+| Screen | Dev first visit: TTFB / ready | Dev warm: ready | Prod warm: ready | Dev sidebar click | Prod sidebar click |
+|---|---|---|---|---|---|
+| /dashboard | 16 211 / 16 720 | 5 992 | 222 | - | - |
+| /content-generator | 2 219 / 2 497 | 1 372 | 273 | 541 | 167 |
+| /single-analyzer | 6 821 / 7 162 | 1 308 | 382 | 807 | 135 |
+| /ai-analysis | 2 002 / 2 231 | 1 241 | 240 | 349 | 86 |
+| /clients | 2 484 / 2 739 | 1 221 | 351 | 720 | 92 |
+| /publications | 2 071 / 2 311 | 999 | 218 | 53 | 27 |
+| /niche-discovery | 1 672 / 1 883 | 1 077 | 231 | 409 | 67 |
+
+All values in ms. Ready = the screen has its data.
+
+Findings:
+
+1. **Backend:** every API endpoint the screens call answers in **2-11 ms** directly (p95). The database
+   and the API add almost nothing.
+2. **Dev mode compiles each screen on its first visit.** The first `/dashboard` load waited **16 s** for
+   the first byte (`Compiled /dashboard in 13.6s` in the Next.js log), `/single-analyzer` 7 s (18 s in an
+   earlier run). This is the "screens take several seconds" symptom, and it repeats after every dev
+   server restart.
+3. **Even warm, dev is 4-5x slower than production** (full load about 1-1.4 s vs 0.2-0.4 s; sidebar
+   clicks 0.3-0.8 s vs 0.03-0.2 s). Production shows no hydration long tasks (TBT 0 warm).
+4. **Open lead - proxy stalls of about 4.1 s:** about 1% of the API calls that go through the Next.js
+   `/hive-api` rewrite stall for **4.1-4.4 s** in both modes (dev 4 of 229, prod 2 of 240), while the
+   same requests directly against the API never exceed 11 ms. The near-constant duration suggests a
+   connection-level cause between the Next.js server and `http://localhost:5336` (for example
+   IPv6/IPv4 fallback for `localhost` or connection reuse), not processing time. Not diagnosed yet.
+   In dev this is what turns `/dashboard` warm ready into about 6 s.
+
+Caveats: `GET /api/integrations/organization/canva` and `GET /api/social/discovery-bank` answered 400
+when replayed directly (the browser calls succeeded), so they have no direct numbers. The first dev run
+of this session was discarded: a script defect let the access token expire mid-run, and its direct
+replays were 401s; the script now re-authenticates and excludes non-2xx replays.
