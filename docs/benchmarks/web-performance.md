@@ -88,6 +88,35 @@ The pure aggregation helpers are covered by `node --test scripts/bench/web-perfo
 
 Newest first. Record the machine state (what else was running) with each entry.
 
+### 2026-11-17 (later) - the ~4.1 s stall was the Postgres host name
+
+Same machine and setup as the entry below, production build only, 6 runs per screen.
+
+**Root cause:** the dev connection string used `Host=localhost;Port=5433`. Windows resolves
+`localhost` to `::1` first, but Docker publishes the dev Postgres on `127.0.0.1` only. .NET tries `::1`,
+and Windows takes about **2 s** to report the refused connection before .NET falls back to IPv4
+(measured: `localhost:5433` 2 071 ms, `127.0.0.1:5433` 6 ms). Every time the Npgsql pool opens a new
+physical connection (after idle, or when a burst needs more connections than the pool holds), the
+request pays 2 s per connection; two new connections in one request give the ~4.1 s stall.
+
+It looked like a Next.js proxy problem because the proxied requests were simply the first ones after
+idle. The tell: `/hive-api/health`, pages and static files (no database) never stalled; the same
+`http-proxy` in a separate process did not stall once the pool was warm; and the request phases showed
+the whole delay as server wait, never as browser queue or connect time.
+
+**Fix:** `Host=127.0.0.1` in `SocialStudio.ApiService/appsettings.Development.json` (and in
+`scripts/dev/Start-LocalDb.ps1` and the `docker-compose.dev.yml` comment). Do not switch it back to
+`localhost` while Docker binds IPv4 only.
+
+| Check | Before | After |
+|---|---|---|
+| Proxied API calls over 1 s (full benchmark) | 4 of 240-360, all ~4.1 s | **0 of 360** (max 207 ms) |
+| First requests after 140 s idle (4 trials) | 2 of 4 trials stalled ~4.1 s | 0 of 4 (max 116 ms) |
+| First requests after an API restart | 2-4 s | 208 ms |
+| `/dashboard` first load, ready | 1 243 ms | 489 ms |
+
+Warm full loads stay at 0.17-0.27 s per screen and TBT 0, as in the entry below.
+
 ### 2026-11-17 - dev (`dev:fast`) vs production build
 
 **Machine:** 6-core desktop CPU, 32 GB RAM, Windows 11. API through the AppHost `http-fast`
@@ -119,12 +148,11 @@ Findings:
    server restart.
 3. **Even warm, dev is 4-5x slower than production** (full load about 1-1.4 s vs 0.2-0.4 s; sidebar
    clicks 0.3-0.8 s vs 0.03-0.2 s). Production shows no hydration long tasks (TBT 0 warm).
-4. **Open lead - proxy stalls of about 4.1 s:** about 1% of the API calls that go through the Next.js
+4. **Proxy stalls of about 4.1 s (resolved in the entry above: Postgres host name):** about 1% of the API calls that go through the Next.js
    `/hive-api` rewrite stall for **4.1-4.4 s** in both modes (dev 4 of 229, prod 2 of 240), while the
    same requests directly against the API never exceed 11 ms. The near-constant duration suggests a
-   connection-level cause between the Next.js server and `http://localhost:5336` (for example
-   IPv6/IPv4 fallback for `localhost` or connection reuse), not processing time. Not diagnosed yet.
-   In dev this is what turns `/dashboard` warm ready into about 6 s.
+   connection-level cause, not processing time. In dev this is what turns `/dashboard` warm ready
+   into about 6 s.
 
 Caveats: `GET /api/integrations/organization/canva` and `GET /api/social/discovery-bank` answered 400
 when replayed directly (the browser calls succeeded), so they have no direct numbers. The first dev run
