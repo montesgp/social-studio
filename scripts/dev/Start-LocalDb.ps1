@@ -20,7 +20,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..' '..')
 $compose = Join-Path $repoRoot 'docker-compose.dev.yml'
-$localConn = 'Host=localhost;Port=5433;Database=social_studio_dev;Username=incoders;Password=incoders_dev_only'
+$localConn = 'Host=127.0.0.1;Port=5433;Database=social_studio_dev;Username=incoders;Password=incoders_dev_only'
 $apiProject = Join-Path $repoRoot 'SocialStudio.ApiService' 'SocialStudio.ApiService.csproj'
 
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
